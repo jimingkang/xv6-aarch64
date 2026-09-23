@@ -4,13 +4,10 @@
 #include "aarch64.h"
 #include "defs.h"
 
-#define  PSCI_CPUON   0xc4000003
-
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
 
 void _entry(void);
-void psci_call(uint64 fn, int cpuid, uint64 entry, uint64 ctxid);
 void delay(uint32 c);
 
 // start() jumps here in EL1 on all CPUs.
@@ -18,13 +15,11 @@ void
 main()
 {
   if(cpuid() == 0){
-    for(int i = 1; i < NCPU; i++)   // wakeup other processors
-      psci_call(PSCI_CPUON, i, V2P(_entry), 0);
-    isb();
-    kinit1(end, (void*)(KERNLINK+2*1024*1024));  // physical page allocator
+    // QEMU's Pi firmware parks secondary cores. This first port runs core 0.
+    kinit1(end, P2V(EARLYTOP));  // memory covered by the bootstrap map
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging
-    kinit2((void*)(KERNLINK+2*1024*1024), P2V(PHYSTOP));
+    kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     consoleinit();
     printfinit();
     printf("\n");
@@ -39,7 +34,7 @@ main()
     binit();         // buffer cache
     iinit();         // inode table
     fileinit();      // file table
-    virtio_disk_init(); // emulated hard disk
+    ramdiskinit();      // fs.img loaded in RAM by QEMU
     userinit();      // first user process
     __sync_synchronize();
     started = 1;

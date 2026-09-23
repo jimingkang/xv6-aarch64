@@ -2,13 +2,24 @@
 #include "memlayout.h"
 #include "param.h"
 
-        // qemu -kernel loads the kernel at 0x40000000
-        // and causes each CPU to jump there.
-        // kernel.ld causes the following code to
-        // be placed at 0x40000000.
+        // QEMU's raspi3b firmware stub loads kernel8.img at 0x80000.
 .section ".text"
 .global _entry
 _entry:
+        // The Pi 3 boot protocol may enter AArch64 kernels in EL2.
+        // Drop to EL1h before touching EL1 translation registers.
+        mrs x0, CurrentEL
+        cmp x0, #0x8
+        b.ne 0f
+        mov x0, #(1 << 31)       // HCR_EL2.RW: EL1 is AArch64
+        msr hcr_el2, x0
+        msr cntvoff_el2, xzr
+        mov x0, #0x3c5           // EL1h, mask D/A/I/F during boot
+        msr spsr_el2, x0
+        adr x0, 0f
+        msr elr_el2, x0
+        eret
+0:
         mrs x1, mpidr_el1
         and x1, x1, #0x3
         cbz x1, entry         // primary
@@ -29,7 +40,8 @@ entry:
         //
         // Phase 1.
         // map the kernel code identically.
-        // map [0x40000000,PA(end)) to [0x40000000,PA(end))
+        // Map the first 2MB both identically and at KERNBASE. The kernel
+        // starts at 0x80000, which is inside this aligned block.
         // memory type is normal
         //
         // Phase 2.
@@ -41,7 +53,7 @@ entry:
         // map [0x40000000,PA(end)) to [0x40000000,PA(end))
         adrp x0, l2entrypgt
 
-        mov x1, #0x40000000
+        mov x1, #0
         ldr x2, =V2P_WO(end)-1
 
         lsr x3, x1, #PXSHIFT(2)
@@ -69,10 +81,10 @@ l2epgt_loop:
         str x6, [x0, x3, lsl #3]    // l1entrypgt[l1idx] = table entry
 
         // Phase 2
-        // map [0xffffff8040000000,VA(end)) to [0x40000000,PA(end))
+        // map [KERNBASE,KERNBASE+2MB) to physical [0,2MB)
         adrp x0, l2kpgt
 
-        mov x1, #0x40000000   // start pa
+        mov x1, #0            // start pa
         ldr x2, =V2P_WO(end)-1   // end pa
         mov x3, #KERNBASE
         add x4, x1, x3    // start va

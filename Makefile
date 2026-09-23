@@ -27,12 +27,14 @@ OBJS = \
   $K/sysfile.o \
   $K/trapasm.o \
   $K/timer.o \
-  $K/virtio_disk.o \
-  $K/gicv3.o \
+  $K/ramdisk.o \
+  $K/bcm2837.o \
 
 # Try to infer the correct TOOLPREFIX if not set
 ifndef TOOLPREFIX
-TOOLPREFIX := $(shell if aarch64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
+TOOLPREFIX := $(shell if aarch64-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
+	then echo 'aarch64-elf-'; \
+	elif aarch64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
 	then echo 'aarch64-unknown-elf-'; \
 	elif aarch64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
 	then echo 'aarch64-linux-gnu-'; \
@@ -53,7 +55,7 @@ LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
 
-CFLAGS = -Wall -Werror -Os -g -fno-omit-frame-pointer -mcpu=cortex-a72+nofp
+CFLAGS = -Wall -Werror -Os -g -fno-omit-frame-pointer -mcpu=cortex-a53+nofp
 CFLAGS += -Wno-error=infinite-recursion
 CFLAGS += -Wno-error=unused-but-set-variable
 CFLAGS += -Wno-error=incompatible-pointer-types
@@ -71,12 +73,15 @@ CFLAGS += -fno-pie -nopie
 endif
 
 LDFLAGS = -z max-page-size=4096
-ASFLAGS = -Og -ggdb -mcpu=cortex-a72 -MD -I.
+ASFLAGS = -Og -ggdb -mcpu=cortex-a53 -MD -I.
 
 $K/kernel: $(OBJS) $K/kernel.ld $U/initcode
 	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
 	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
 	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
+
+$K/kernel8.img: $K/kernel
+	$(OBJCOPY) -O binary $< $@
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
@@ -141,7 +146,7 @@ fs.img: mkfs/mkfs README $(UPROGS)
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
-	$U/initcode $U/initcode.out $K/kernel fs.img \
+	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img fs.img \
 	mkfs/mkfs .gdbinit \
         $U/usys.S \
 	$(UPROGS)
@@ -156,16 +161,16 @@ ifndef CPUS
 CPUS := 4
 endif
 
-QEMUOPTS = -cpu cortex-a72 -machine virt,gic-version=3 -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
-QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
-QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+QEMUOPTS = -machine raspi3b -kernel $K/kernel8.img -display none
+QEMUOPTS += -serial mon:stdio
+QEMUOPTS += -device loader,file=fs.img,addr=0x07000000,force-raw=on
 
-qemu: $K/kernel fs.img
+qemu: $K/kernel8.img fs.img
 	$(QEMU) $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl-aarch64
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
-qemu-gdb: $K/kernel .gdbinit fs.img
+qemu-gdb: $K/kernel8.img .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)

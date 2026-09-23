@@ -24,15 +24,15 @@ kvmmake(void)
   kpgtbl = (pagetable_t) kalloc();
   memset(kpgtbl, 0, PGSIZE);
 
-  // uart registers
-  kvmmap(kpgtbl, UART0, V2P(UART0), PGSIZE, PTE_DEVICE | PTE_XN);
+  // BCM2837 peripheral and ARM-local MMIO windows.
+  kvmmap(kpgtbl, PERIPHERAL_BASE, PERIPHERAL_BASE_PA,
+         0x01000000, PTE_DEVICE | PTE_XN);
+  kvmmap(kpgtbl, LOCAL_BASE, LOCAL_BASE_PA, PGSIZE,
+         PTE_DEVICE | PTE_XN);
 
-  // virtio mmio disk interface
-  kvmmap(kpgtbl, VIRTIO0, V2P(VIRTIO0), PGSIZE, PTE_DEVICE | PTE_XN);
-
-  // GICv3
-  kvmmap(kpgtbl, GICV3, V2P(GICV3), 0x10000, PTE_DEVICE | PTE_XN);
-  kvmmap(kpgtbl, GICV3_REDIST, V2P(GICV3_REDIST), 0xf60000, PTE_DEVICE | PTE_XN);
+  // QEMU loads fs.img here; it is outside the allocator's RAM range.
+  kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE,
+         PTE_NORMAL | PTE_XN);
 
   // map kernel text executable and read-only.
   kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
@@ -150,9 +150,6 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, uint64 perm)
 
   if(size == 0)
     panic("mappages: size");
-  if(pa >= PHYSTOP)
-    panic("pa");
-  
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){

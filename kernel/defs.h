@@ -57,8 +57,7 @@ void            itrunc(struct inode*);
 
 // ramdisk.c
 void            ramdiskinit(void);
-void            ramdiskintr(void);
-void            ramdiskrw(struct buf*);
+void            ramdiskrw(struct buf*, int);
 
 // kalloc.c
 void*           kalloc(void);

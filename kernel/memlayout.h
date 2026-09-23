@@ -1,26 +1,27 @@
 // Physical memory layout
 
-// qemu -machine virt is set up like this,
-// based on qemu's hw/arm/virt.c:
+// QEMU Raspberry Pi 3B / BCM2837 physical layout used by this port.
 //
-// 00000000 -- boot ROM, provided by qemu
-// 08000000 -- GICv2
-// 09000000 -- uart0 
-// 0a000000 -- virtio disk 
-// 40000000 -- boot ROM jumps here in machine mode
-//             -kernel loads the kernel here
-// unused RAM after 40000000.
+// 00000000 -- RAM
+// 00080000 -- QEMU loads the 64-bit kernel image here
+// 07000000 -- in-memory fs.img loaded by QEMU
+// 3f000000 -- BCM2837 peripheral window
+// 40000000 -- ARM local peripherals
 
 // the kernel uses physical memory thus:
-// 40000000 -- entry.S, then kernel text and data
+// 00080000 -- entry.S, then kernel text and data
 // end -- start of kernel page allocation area
 // PHYSTOP -- end RAM used by the kernel
 
-#define EXTMEM    0x40000000L               // Start of extended memory
-#define PHYSTOP   (EXTMEM + 128*1024*1024)  // Top physical memory
+#define EXTMEM    0x00000000L
+#define PHYSTOP   0x07000000L               // keep the ramdisk out of kalloc
+#define KERNPA    0x00080000L
+#define EARLYTOP  0x00200000L
+#define RAMDISK_PA 0x07000000L
+#define RAMDISK_SIZE (1024*1024L)
 
 #define KERNBASE  0xffffff8000000000L     // First kernel virtual address
-#define KERNLINK  (KERNBASE + EXTMEM)     // virtual address where kernel is linked
+#define KERNLINK  (KERNBASE + KERNPA)     // virtual address where kernel is linked
 
 #define V2P(a) (((uint64)(a)) - KERNBASE)
 #define P2V(a) ((void *)(((char *)(a)) + KERNBASE))
@@ -31,19 +32,17 @@
 // one beyond the highest possible virtual address.
 #define MAXVA (KERNBASE + (1ULL<<38))
 
-// qemu puts UART registers here in physical memory.
-#define UART0 (KERNBASE + 0x09000000L)
-#define UART0_IRQ 33
+#define PERIPHERAL_BASE_PA 0x3f000000L
+#define PERIPHERAL_BASE    (KERNBASE + PERIPHERAL_BASE_PA)
+#define LOCAL_BASE_PA      0x40000000L
+#define LOCAL_BASE         (KERNBASE + LOCAL_BASE_PA)
 
-// virtio mmio interface
-#define VIRTIO0  (KERNBASE + 0x0a000000L)
-#define VIRTIO0_IRQ  48
-
+#define UART0       (PERIPHERAL_BASE + 0x201000L)
+#define UART0_IRQ   57
 #define TIMER0_IRQ  27
 
-// interrupt controller GICv3
-#define GICV3         (KERNBASE + 0x08000000L)
-#define GICV3_REDIST  (KERNBASE + 0x080a0000L)
+#define IRQCTRL     (PERIPHERAL_BASE + 0x00b000L)
+#define RAMDISK     (KERNBASE + RAMDISK_PA)
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
