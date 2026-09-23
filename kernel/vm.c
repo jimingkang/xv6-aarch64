@@ -60,6 +60,149 @@ kvminithart()
   flush_tlb();
 }
 
+// Print the final kernel page table before the scheduler starts.  With a
+// 39-bit VA, translation starts at architectural level 1 (there is no level
+// 0 table).  The final table maps 4KB level-3 pages, so summarize those leaves
+// by the 2MB virtual-address window represented by each level-2 entry.
+void
+kvmdump(void)
+{
+  printf("\n=== kernel page table ===\n");
+  printf("L0: omitted (T1SZ=25 gives a 39-bit VA; walk starts at L1)\n");
+  printf("L1 root: va=%p pa=%p\n",
+         (uint64)kernel_pagetable, V2P(kernel_pagetable));
+
+  for(int i = 0; i < 512; i++){
+    pte_t l1e = kernel_pagetable[i];
+    if((l1e & PTE_VALID) == 0)
+      continue;
+
+    uint64 l1va = KERNBASE + ((uint64)i << PXSHIFT(1));
+    if((l1e & PTE_TABLE) == 0){
+      printf(" L1[%d] va=%p: unexpected block pte=%p\n",
+             i, l1va, l1e);
+      continue;
+    }
+
+    pagetable_t l2 = (pagetable_t)P2V(PTE2PA(l1e));
+    printf(" L1[%d] va=%p table-va=%p table-pa=%p\n",
+           i, l1va, (uint64)l2, PTE2PA(l1e));
+
+    for(int j = 0; j < 512; j++){
+      pte_t l2e = l2[j];
+      if((l2e & PTE_VALID) == 0)
+        continue;
+
+      uint64 va = l1va + ((uint64)j << PXSHIFT(2));
+      uint64 vaend = va + (1UL << PXSHIFT(2)) - 1;
+
+      if((l2e & PTE_TABLE) == 0){
+        printf("  L2[%d] 2MB block va=%p..%p pa=%p flags=%p\n",
+               j, va, vaend, PTE2PA(l2e), PTE_FLAGS(l2e));
+        continue;
+      }
+
+      pagetable_t l3 = (pagetable_t)P2V(PTE2PA(l2e));
+      int pages = 0;
+      int linear = 1;
+      int mixed = 0;
+      uint64 firstpa = 0;
+      uint64 lastpa = 0;
+      uint64 flags = 0;
+
+      for(int k = 0; k < 512; k++){
+        pte_t l3e = l3[k];
+        if((l3e & PTE_V) != PTE_V)
+          continue;
+        uint64 pa = PTE2PA(l3e);
+        uint64 leaf_flags = PTE_FLAGS(l3e);
+        if(pages == 0){
+          firstpa = pa;
+          flags = leaf_flags;
+        } else {
+          if(pa != lastpa + PGSIZE)
+            linear = 0;
+          if(leaf_flags != flags)
+            mixed = 1;
+        }
+        lastpa = pa;
+        pages++;
+      }
+
+      printf("  L2[%d] 2MB window va=%p..%p table-pa=%p",
+             j, va, vaend, PTE2PA(l2e));
+      if(pages == 0){
+        printf(" no L3 leaves\n");
+      } else {
+        printf(" L3-pages=%d pa-first=%p pa-last=%p %s attrs=%s",
+               pages, firstpa, lastpa,
+               linear ? "linear" : "nonlinear",
+               mixed ? "mixed" : "same");
+        if(!mixed)
+          printf(" flags=%p", flags);
+        printf("\n");
+      }
+    }
+  }
+  printf("=== end kernel page table ===\n\n");
+}
+
+// Print a user page table when fork copies it or exec installs a new image.
+// User address translation uses TTBR0 and the same 39-bit, three-level walk.
+// User address spaces are small enough that every valid L3 leaf is useful.
+void
+uvmdump(pagetable_t root, int pid, char *name, char *event)
+{
+  printf("\n=== user page table: event=%s pid=%d name=%s ===\n",
+         event, pid, name);
+  printf("L0: omitted; L1 root va=%p pa=%p\n",
+         (uint64)root, V2P(root));
+
+  for(int i = 0; i < 512; i++){
+    pte_t l1e = root[i];
+    if((l1e & PTE_VALID) == 0)
+      continue;
+    uint64 l1va = (uint64)i << PXSHIFT(1);
+    if((l1e & PTE_TABLE) == 0){
+      printf(" L1[%d] block va=%p pa=%p flags=%p\n",
+             i, l1va, PTE2PA(l1e), PTE_FLAGS(l1e));
+      continue;
+    }
+
+    pagetable_t l2 = (pagetable_t)P2V(PTE2PA(l1e));
+    printf(" L1[%d] va-base=%p table-pa=%p\n",
+           i, l1va, PTE2PA(l1e));
+    for(int j = 0; j < 512; j++){
+      pte_t l2e = l2[j];
+      if((l2e & PTE_VALID) == 0)
+        continue;
+      uint64 l2va = l1va + ((uint64)j << PXSHIFT(2));
+      if((l2e & PTE_TABLE) == 0){
+        printf("  L2[%d] 2MB block va=%p pa=%p flags=%p\n",
+               j, l2va, PTE2PA(l2e), PTE_FLAGS(l2e));
+        continue;
+      }
+
+      pagetable_t l3 = (pagetable_t)P2V(PTE2PA(l2e));
+      printf("  L2[%d] 2MB window va=%p..%p table-pa=%p\n",
+             j, l2va, l2va + (1UL << PXSHIFT(2)) - 1,
+             PTE2PA(l2e));
+      for(int k = 0; k < 512; k++){
+        pte_t l3e = l3[k];
+        if((l3e & PTE_V) != PTE_V)
+          continue;
+        uint64 va = l2va + ((uint64)k << PXSHIFT(3));
+        printf("   L3[%d] va=%p -> pa=%p flags=%p %s %s %s\n",
+               k, va, PTE2PA(l3e), PTE_FLAGS(l3e),
+               (l3e & PTE_U) ? "user" : "kernel",
+               (l3e & PTE_RO) ? "RO" : "RW",
+               (l3e & PTE_UXN) ? "XN" : "X");
+      }
+    }
+  }
+  printf("=== end user page table ===\n\n");
+}
+
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.

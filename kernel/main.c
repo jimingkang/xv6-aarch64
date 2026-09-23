@@ -34,8 +34,10 @@ main()
     binit();         // buffer cache
     iinit();         // inode table
     fileinit();      // file table
-    ramdiskinit();      // fs.img loaded in RAM by QEMU
+    sdinit();         // BCM2837 SD/eMMC controller
+    fat32init();      // locate FS.IMG in a FAT32 boot partition
     userinit();      // first user process
+    // kvmdump();    // enable to show the final kernel page table before init/sh
     __sync_synchronize();
     started = 1;
   } else {

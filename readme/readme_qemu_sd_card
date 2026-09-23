@@ -1,0 +1,757 @@
+# xv6-aarch64 Raspberry Pi 3 SD Card 支持
+
+本文说明当前仓库如何把 xv6 的底层存储从 QEMU loader 加载的 ramdisk，改为 Raspberry Pi 3 BCM2837 的 SD/eMMC 控制器，并进一步支持从 FAT32 启动分区内的 `FS.IMG` 文件读写 xv6 文件系统。
+
+当前实现支持两种运行模式：
+
+1. QEMU 裸镜像模式：将 `fs.img` 本身作为一张虚拟 SD 卡。
+2. Raspberry Pi/FAT32 模式：解析整张 SD 卡的 MBR、FAT32 分区和根目录，在 `FS.IMG` 文件的已有数据簇中读写 xv6 文件系统。
+
+## 1. 改动前后的存储路径
+
+原来的实现使用 QEMU generic loader：
+
+```text
+QEMU启动
+    |
+    | 把fs.img复制到PA 0x07000000
+    v
+ramdiskrw()
+    |
+    | memmove
+    v
+内存中的fs.img
+```
+
+这种方式不会把运行期间的修改写回宿主机文件，退出 QEMU 后修改丢失。
+
+现在的裸SD模式是：
+
+```text
+QEMU -drive file=fs.img,if=sd,format=raw
+    |
+    v
+BCM2837 Arasan SD/eMMC控制器
+    |
+    v
+CMD17 / CMD24
+    |
+    v
+fs.img真实扇区
+```
+
+FAT32容器模式是：
+
+```text
+整张SD卡
+    |
+    v
+MBR分区表
+    |
+    v
+FAT32启动分区
+    |
+    v
+根目录中的FS.IMG
+    |
+    v
+FAT簇链
+    |
+    v
+xv6文件系统块
+```
+
+## 2. 修改文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `kernel/sd.c` | BCM2837 Arasan SDHCI控制器、SD卡初始化和绝对LBA扇区读写 |
+| `kernel/fat32.c` | MBR、FAT32 BPB、根目录和`FS.IMG`簇链解析 |
+| `kernel/bio.c` | 将buffer cache底层I/O改为`fat32rw()` |
+| `kernel/main.c` | 启动时调用`sdinit()`和`fat32init()` |
+| `kernel/defs.h` | 声明SD和FAT32接口 |
+| `Makefile` | 链接驱动、将QEMU磁盘改为真正的SD卡 |
+
+## 3. QEMU SD卡配置
+
+相关文件：`Makefile`
+
+旧配置：
+
+```make
+QEMUOPTS += -device loader,file=fs.img,addr=0x07000000,force-raw=on
+```
+
+这只会在启动前把文件复制到RAM。
+
+新配置：
+
+```make
+QEMUOPTS += -drive file=fs.img,if=sd,format=raw
+```
+
+QEMU会把 `fs.img` 连接到 Raspberry Pi 3 的 SD bus。内核必须通过 BCM2837 的 SD/eMMC 寄存器才能访问它。
+
+Makefile通过 `SDIMAGE` 选择SD后端：
+
+```make
+SDIMAGE ?= fs.img
+QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
+```
+
+默认使用仓库中的裸镜像：
+
+```sh
+make qemu
+```
+
+也可以在卸载SD卡全部分区后，让QEMU访问整张物理卡：
+
+```sh
+diskutil unmountDisk /dev/disk4
+sudo make qemu SDIMAGE=/dev/disk4
+```
+
+正确的QEMU参数是：
+
+```text
+-drive file=/dev/disk4,if=sd,format=raw
+```
+
+其中 `file` 指定磁盘或镜像，`if=sd` 表示将它连接到QEMU的SD总线。不能写成 `if=/dev/disk4`。
+
+不要在 `/Volumes/bootfs` 仍然挂载时把 `/dev/disk4` 交给QEMU，否则macOS和xv6可能同时写同一个FAT32文件系统。`/dev/rdisk4` 是macOS提供的raw设备接口，通常更快，也可以作为 `SDIMAGE` 使用，但同样必须先卸载整张卡。
+
+QEMU的SD卡模型要求镜像容量是2的幂，因此生成文件系统后执行：
+
+```make
+truncate -s 1M fs.img
+```
+
+xv6文件系统自身仍然只有 `FSSIZE=1000` 个1024字节块。补齐到1 MiB的尾部空间不属于 xv6 文件系统，只是为了满足QEMU虚拟SD卡的容量要求。
+
+## 4. BCM2837 SD/eMMC控制器
+
+相关文件：`kernel/sd.c`
+
+控制器位于：
+
+```text
+BCM2837 peripheral base：0x3f000000
+EMMC偏移：              0x00300000
+EMMC物理地址：          0x3f300000
+```
+
+内核高虚拟地址为：
+
+```text
+KERNBASE + 0x3f300000
+```
+
+整个 BCM2837 peripheral window 已在 `vm.c` 中映射成 Device memory，所以不需要为 EMMC 单独创建页表映射。
+
+主要寄存器包括：
+
+| 偏移 | 寄存器 | 用途 |
+| ---: | --- | --- |
+| `0x04` | `BLKSIZECNT` | 块大小和传输块数 |
+| `0x08` | `ARG1` | 命令参数 |
+| `0x0c` | `CMDTM` | 命令和传输模式 |
+| `0x10` | `RESP0` | 48位命令响应 |
+| `0x20` | `DATA` | PIO数据FIFO |
+| `0x24` | `STATUS` | CMD/DAT状态和FIFO状态 |
+| `0x2c` | `CONTROL1` | 复位、时钟和超时配置 |
+| `0x30` | `INTERRUPT` | 命令完成、数据完成和错误状态 |
+| `0x34` | `IRPT_MASK` | 中断状态屏蔽 |
+| `0x38` | `IRPT_EN` | CPU中断输出开关 |
+| `0x3c` | `CONTROL2` | Host Control 2 |
+| `0x40` | `CAP0` | 控制器能力和基准时钟 |
+
+## 5. GPIO配置
+
+真机SD卡使用GPIO48～GPIO53：
+
+```text
+GPIO48  SD_CLK
+GPIO49  SD_CMD
+GPIO50  SD_DAT0
+GPIO51  SD_DAT1
+GPIO52  SD_DAT2
+GPIO53  SD_DAT3
+```
+
+驱动将这些引脚设置为ALT3，并通过BCM2837的GPPUD时序关闭内部上下拉。
+
+QEMU通常不依赖GPIO复用细节，但真机需要正确设置。
+
+## 6. SD卡初始化过程
+
+`sdinit()`执行以下步骤：
+
+```text
+初始化sdlock
+    |
+    v
+配置GPIO48～53为ALT3
+    |
+    v
+复位SDHCI host controller
+    |
+    v
+设置400 kHz初始化时钟
+    |
+    v
+CMD0：卡进入idle状态
+    |
+    v
+CMD8：检测SD v2和电压/检查模式
+    |
+    v
+CMD55 + ACMD41：等待卡完成上电初始化
+    |
+    +-- OCR CCS=0：SDSC，使用字节寻址
+    |
+    +-- OCR CCS=1：SDHC，使用扇区寻址
+    |
+    v
+CMD2：读取CID
+    |
+    v
+CMD3：获取RCA
+    |
+    v
+CMD7：选择卡
+    |
+    v
+SDSC时使用CMD16设置512字节块
+    |
+    v
+切换到25 MHz工作时钟
+```
+
+成功后打印：
+
+```text
+sd: card initialized (SDSC)
+```
+
+或者：
+
+```text
+sd: card initialized (SDHC)
+```
+
+QEMU的1 MiB镜像会被识别为SDSC。普通真机大容量SD卡通常会被识别为SDHC。
+
+## 7. 时钟配置
+
+初始化时使用：
+
+```text
+400 kHz
+```
+
+卡完成初始化后切换为：
+
+```text
+25 MHz
+```
+
+驱动优先从控制器能力寄存器读取基准时钟。如果寄存器未提供基准时钟，则回退为：
+
+```text
+100 MHz
+```
+
+分频值按照不超过目标频率的2次幂分频计算，并写入 `CONTROL1` 的10位分频字段。
+
+## 8. 扇区读写
+
+驱动提供接口：
+
+```c
+int sdsector(uint32 sector, void *buffer, int write);
+```
+
+读取一个扇区：
+
+```text
+等待CMD/DAT线空闲
+    |
+    v
+BLKSIZECNT = 512字节，1块
+    |
+    v
+发送CMD17
+    |
+    v
+等待READ_READY
+    |
+    v
+从DATA寄存器读取128个uint32
+    |
+    v
+等待DATA_DONE
+```
+
+写入一个扇区：
+
+```text
+等待CMD/DAT线空闲
+    |
+    v
+BLKSIZECNT = 512字节，1块
+    |
+    v
+发送CMD24
+    |
+    v
+等待WRITE_READY
+    |
+    v
+向DATA寄存器写入128个uint32
+    |
+    v
+等待DATA_DONE
+```
+
+当前驱动使用轮询PIO：
+
+- 不启用SD控制器CPU中断。
+- 不使用DMA。
+- 每次命令传输一个512字节扇区。
+- 使用 `sdlock` 防止多个内核执行流同时操作控制器。
+
+## 9. xv6块和SD扇区的关系
+
+xv6块大小：
+
+```text
+BSIZE = 1024字节
+```
+
+SD扇区大小：
+
+```text
+512字节
+```
+
+因此：
+
+```text
+xv6 block N
+    |
+    +-- SD sector 2*N
+    |
+    +-- SD sector 2*N + 1
+```
+
+`fat32rw()`会为每个xv6 buffer连续执行两次 `sdsector()`。
+
+## 10. 为什么需要FAT32层
+
+在QEMU裸镜像模式中，虚拟SD卡的第0扇区就是 `fs.img` 的第0扇区：
+
+```text
+SD LBA 0 == fs.img sector 0
+```
+
+但真机启动卡是：
+
+```text
+整张SD卡
+  |
+  +-- MBR
+  |
+  +-- FAT32 boot分区
+        |
+        +-- bootcode.bin
+        +-- start.elf
+        +-- fixup.dat
+        +-- config.txt
+        +-- kernel8.img
+        +-- fs.img
+```
+
+`fs.img`只是FAT32中的一个普通文件，它可能由一组不连续的数据簇组成。不能用固定扇区偏移直接访问。
+
+## 11. MBR解析
+
+内核读取整卡LBA 0并检查：
+
+```text
+MBR签名：offset 510 = 0x55
+         offset 511 = 0xaa
+```
+
+MBR分区项从offset 446开始，每项16字节，共4项。
+
+驱动查找FAT32分区类型：
+
+```text
+0x0b  FAT32 CHS
+0x0c  FAT32 LBA
+```
+
+分区项中的起始LBA位于offset `+8`。
+
+当前SD卡由macOS报告：
+
+```text
+整卡设备：        /dev/disk4
+FAT32分区：       /dev/disk4s1
+分区偏移：        8388608字节
+扇区大小：        512字节
+分区起始LBA：     8388608 / 512 = 16384
+```
+
+因此真机预期找到：
+
+```text
+partition=1 lba=16384
+```
+
+注意：`/dev/disk4s1`是macOS的设备名。Raspberry Pi内核不会看到这个名称，只能从整卡MBR解析出起始LBA 16384。
+
+## 12. FAT32 BPB解析
+
+找到分区后，驱动读取分区第一个扇区，也就是FAT32 Volume Boot Record。
+
+使用的BPB字段包括：
+
+| BPB偏移 | 字段 | 用途 |
+| ---: | --- | --- |
+| 11 | bytes per sector | 必须为512 |
+| 13 | sectors per cluster | 每簇扇区数 |
+| 14 | reserved sectors | 保留区大小 |
+| 16 | number of FATs | FAT副本数量 |
+| 36 | FAT size | 每个FAT占用扇区数 |
+| 44 | root cluster | 根目录起始簇 |
+
+地址计算：
+
+```text
+fat_lba = partition_lba + reserved_sectors
+
+data_lba = fat_lba + number_of_fats * fat_size
+
+cluster_lba(N) = data_lba + (N - 2) * sectors_per_cluster
+```
+
+## 13. 查找FS.IMG
+
+驱动从 `BPB_RootClus` 开始遍历根目录簇链。
+
+每个FAT目录项为32字节。驱动忽略：
+
+- 删除项，首字节为 `0xe5`。
+- 长文件名项，属性为 `0x0f`。
+- Volume label项，属性包含 `0x08`。
+
+当前匹配8.3短文件名：
+
+```text
+FS      IMG
+```
+
+它对应FAT32根目录中的：
+
+```text
+FS.IMG
+```
+
+macOS界面通常显示为：
+
+```text
+fs.img
+```
+
+FAT目录中的短文件名会转换成大写，因此能够匹配。
+
+目录项提供：
+
+- 文件首簇号高16位。
+- 文件首簇号低16位。
+- 文件大小。
+
+驱动要求文件大小至少为：
+
+```text
+FSSIZE * BSIZE
+= 1000 * 1024
+= 1024000字节
+```
+
+当前 `fs.img` 被补齐为：
+
+```text
+1048576字节，也就是1 MiB
+```
+
+## 14. FAT簇链缓存
+
+FAT32每个FAT项占4字节，只使用低28位：
+
+```text
+next_cluster = FAT[cluster] & 0x0fffffff
+```
+
+值大于等于：
+
+```text
+0x0ffffff8
+```
+
+表示簇链结束。
+
+启动期间，驱动会把 `FS.IMG` 的完整簇链缓存到内存：
+
+```c
+uint32 clusters[MAX_FILE_CLUSTERS];
+```
+
+当前最多缓存4096个簇。这样正常读写时不需要每次重新读取FAT表，也支持 `FS.IMG` 在FAT32中发生碎片化。
+
+## 15. 从xv6块映射到真实SD LBA
+
+首先把xv6块转换为 `FS.IMG` 内的512字节扇区：
+
+```text
+file_sector = blockno * 2 + sector_in_block
+```
+
+再计算它位于文件簇链的哪个簇：
+
+```text
+cluster_index = file_sector / sectors_per_cluster
+sector_inside_cluster = file_sector % sectors_per_cluster
+```
+
+通过缓存的簇号得到真实LBA：
+
+```text
+physical_lba = data_lba
+             + (clusters[cluster_index] - 2) * sectors_per_cluster
+             + sector_inside_cluster
+```
+
+完整读写路径：
+
+```text
+bread(dev, blockno)
+    |
+    v
+fat32rw(buf, read)
+    |
+    v
+blockno转换为两个file_sector
+    |
+    v
+file_sector转换为cluster_index
+    |
+    v
+查缓存的FAT簇链
+    |
+    v
+计算真实SD LBA
+    |
+    v
+sdsector(LBA, buffer, read)
+    |
+    v
+CMD17
+```
+
+写路径同理，最后使用CMD24。
+
+## 16. QEMU裸镜像自动回退
+
+QEMU默认命令仍直接把 `fs.img` 作为整张SD卡：
+
+```sh
+make qemu
+```
+
+因为它没有MBR和FAT32，`fat32init()`会打印：
+
+```text
+fat32: no FS.IMG container; using raw xv6 image
+```
+
+此时映射退化为：
+
+```text
+physical_lba = file_sector
+```
+
+所以QEMU开发流程不需要额外制作FAT32卡镜像。
+
+## 17. FAT32模式启动输出
+
+使用带MBR和FAT32分区的测试卡时，实际输出为：
+
+```text
+xv6 kernel is booting
+
+sd: card initialized (SDSC)
+fat32: partition=1 lba=1 FS.IMG=1048576 bytes clusters=256
+```
+
+随后系统正常进入：
+
+```text
+init: starting sh
+$
+```
+
+真机SD卡的预期输出是：
+
+```text
+sd: card initialized (SDHC)
+fat32: partition=1 lba=16384 FS.IMG=1048576 bytes clusters=...
+```
+
+## 18. 读写验证
+
+QEMU裸SD模式已经验证：
+
+```sh
+$ echo sd-persist-ok > sdtest
+$ cat sdtest
+sd-persist-ok
+```
+
+退出并重新启动QEMU后仍然能够读出，证明数据被写回宿主机的 `fs.img`。
+
+FAT32容器模式使用临时MBR/FAT32卡镜像验证：
+
+```sh
+$ echo fat32-ok > fattest
+$ cat fattest
+fat32-ok
+```
+
+启动时正确识别：
+
+```text
+FS.IMG=1048576 bytes clusters=256
+```
+
+证明读写操作经过FAT簇映射后到达了 `FS.IMG` 的数据区。
+
+## 19. 将文件部署到真机SD卡
+
+当前macOS挂载信息：
+
+```text
+/dev/disk4       整张SD卡
+/dev/disk4s1     FAT32启动分区
+/Volumes/bootfs  FAT32挂载点
+```
+
+复制文件系统镜像：
+
+```sh
+cp fs.img /Volumes/bootfs/fs.img
+sync
+```
+
+复制最新内核：
+
+```sh
+cp kernel/kernel8.img /Volumes/bootfs/kernel8.img
+sync
+```
+
+复制 `fs.img` 只会创建或覆盖FAT32分区中的文件。不要执行：
+
+```sh
+dd if=fs.img of=/dev/disk4
+```
+
+这会覆盖整卡MBR和启动分区，使SD卡无法正常启动。
+
+完成复制后应安全弹出：
+
+```sh
+diskutil eject /dev/disk4
+```
+
+## 20. 写入策略
+
+FAT32层只修改 `FS.IMG` 已经分配的数据簇：
+
+```text
+允许：修改FS.IMG文件内容
+不允许：扩大或缩小FS.IMG
+不允许：重新分配簇
+不允许：修改FAT表
+不允许：修改目录项
+```
+
+这种设计的优点是：
+
+- xv6可以持久化自己的文件系统。
+- 不需要完整实现FAT32写文件逻辑。
+- 不会因为xv6文件增删而改变外层 `FS.IMG` 的大小。
+- `FS.IMG` 即使碎片化也可以通过启动时缓存的簇链访问。
+
+注意：如果在macOS中删除并重新复制 `fs.img`，它的簇链可能发生变化。必须重新启动Raspberry Pi，让 `fat32init()` 重新扫描簇链。不能在内核运行期间从macOS修改同一张卡。
+
+## 21. 当前限制
+
+当前SD驱动限制：
+
+- 使用轮询PIO，没有中断驱动。
+- 没有DMA。
+- 只使用单块CMD17和CMD24。
+- 没有实现CMD18、CMD25多块传输。
+- 没有实现高速模式和UHS模式。
+- 真机基准时钟读取失败时固定回退到100 MHz。
+
+当前FAT32驱动限制：
+
+- 只支持MBR分区类型 `0x0b` 和 `0x0c`。
+- 不支持GPT分区定位。
+- 只在FAT32根目录查找文件。
+- 只匹配8.3短文件名 `FS.IMG`。
+- 不解析VFAT长文件名。
+- 不创建或删除FAT32文件。
+- 不修改FAT簇链。
+- `FS.IMG` 最大支持4096个簇。
+- 外层FAT32若损坏，当前处理方式主要是打印错误或panic。
+
+## 22. 后续改进方向
+
+可以继续实现：
+
+1. SD控制器中断驱动，避免轮询等待。
+2. CMD18/CMD25多块传输，提高1024字节块和日志写入性能。
+3. DMA传输。
+4. ACMD6切换4-bit数据总线并读取SCR确认能力。
+5. 更完整的SD错误恢复和命令重试。
+6. GPT分区解析。
+7. VFAT长文件名支持。
+8. FAT sector cache，降低启动扫描FAT链时的读卡次数。
+9. 外层 `FS.IMG` 完整性检查。
+10. 将SD/FAT调试输出改成可配置的编译选项。
+
+## 23. 参考实现
+
+SD/eMMC命令、时钟和PIO流程参考：
+
+- `https://github.com/rockytriton/LLD/blob/main/rpi_bm/part17/src/drivers/emmc/emmc.c`
+- `https://github.com/rockytriton/LLD/blob/main/rpi_bm/part17/src/drivers/emmc/emmc_clock.c`
+
+本仓库的实现没有直接照搬参考工程的I/O抽象，而是按照 xv6 的 `struct buf`、buffer cache、1024字节块和同步块设备接口重新组织。
+
+
+默认安全模式：
+make qemu
+生成：
+-drive file=fs.img,if=sd,format=raw
+使用整张物理SD卡：
+diskutil unmountDisk /dev/disk4
+sudo make qemu SDIMAGE=/dev/disk4
+生成：
+-drive file=/dev/disk4,if=sd,format=raw

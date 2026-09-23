@@ -96,7 +96,7 @@ bread(uint dev, uint blockno)
 
   b = bget(dev, blockno);
   if(!b->valid) {
-    ramdiskrw(b, 0);
+    fat32rw(b, 0);
     b->valid = 1;
   }
   return b;
@@ -108,7 +108,7 @@ bwrite(struct buf *b)
 {
   if(!holdingsleep(&b->lock))
     panic("bwrite");
-  ramdiskrw(b, 1);
+  fat32rw(b, 1);
 }
 
 // Release a locked buffer.
@@ -149,4 +149,3 @@ bunpin(struct buf *b) {
   b->refcnt--;
   release(&bcache.lock);
 }
-

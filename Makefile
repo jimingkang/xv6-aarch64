@@ -27,7 +27,8 @@ OBJS = \
   $K/sysfile.o \
   $K/trapasm.o \
   $K/timer.o \
-  $K/ramdisk.o \
+  $K/sd.o \
+  $K/fat32.o \
   $K/bcm2837.o \
 
 # Try to infer the correct TOOLPREFIX if not set
@@ -138,8 +139,9 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+fs.img: mkfs/mkfs $(UPROGS)
+	mkfs/mkfs fs.img $(UPROGS)
+	truncate -s 1M fs.img
 
 -include kernel/*.d user/*.d
 
@@ -161,9 +163,13 @@ ifndef CPUS
 CPUS := 4
 endif
 
+# Use the generated image by default. Override with SDIMAGE=/dev/diskN only
+# after all volumes on that physical SD card have been unmounted.
+SDIMAGE ?= fs.img
+
 QEMUOPTS = -machine raspi3b -kernel $K/kernel8.img -display none
 QEMUOPTS += -serial mon:stdio
-QEMUOPTS += -device loader,file=fs.img,addr=0x07000000,force-raw=on
+QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
 
 qemu: $K/kernel8.img fs.img
 	$(QEMU) $(QEMUOPTS)

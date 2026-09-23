@@ -1,0 +1,458 @@
+# xv6-aarch64 在 QEMU Raspberry Pi 3 上的启动过程
+
+本文说明当前仓库中 Raspberry Pi 3 移植代码的启动流程、地址空间布局，以及各个修改文件在启动过程中的作用。
+
+当前实现的目标是让 xv6-aarch64 在 QEMU 的 `raspi3b` 机器上启动并进入 shell。它是一个面向 QEMU 的最小移植，目前使用单核和内存文件系统，不等同于完整的 Raspberry Pi 3 真机支持。
+
+## 1. 整体启动流程
+
+```text
+make qemu
+   |
+   +-- 生成 kernel/kernel（ELF）
+   +-- objcopy 生成 kernel/kernel8.img（裸二进制）
+   +-- mkfs 生成 fs.img
+   |
+   v
+QEMU raspi3b
+   +-- 将 kernel8.img 装载到物理地址 0x00080000
+   +-- 将 fs.img 装载到物理地址 0x07000000
+   |
+   v
+kernel/entry.S:_entry
+   +-- 从 EL2 降到 EL1
+   +-- CPU0 清零 BSS
+   +-- 建立低地址恒等映射和高地址内核映射
+   +-- 打开 MMU
+   +-- 跳转到高虚拟地址 _start
+   |
+   v
+设置内核栈并进入 kernel/main.c:main
+   +-- 初始化早期物理内存分配器
+   +-- 建立最终内核页表
+   +-- 初始化 UART、异常、中断和定时器
+   +-- 初始化 ramdisk 和文件系统
+   +-- 创建第一个用户进程
+   |
+   v
+userinit -> initcode -> exec("/init") -> sh
+```
+
+## 2. Makefile 和 QEMU 装载过程
+
+相关文件：`Makefile`
+
+内核首先被链接成 ELF 文件：
+
+```text
+kernel/kernel
+```
+
+然后通过 `objcopy -O binary` 去掉 ELF 头和段信息，生成 Raspberry Pi 使用的裸镜像：
+
+```text
+kernel/kernel8.img
+```
+
+当前 QEMU 命令的主要部分是：
+
+```sh
+qemu-system-aarch64 \
+  -machine raspi3b \
+  -kernel kernel/kernel8.img \
+  -display none \
+  -serial mon:stdio \
+  -device loader,file=fs.img,addr=0x07000000,force-raw=on
+```
+
+QEMU 完成两项重要装载：
+
+| 文件 | 物理地址 | 用途 |
+| --- | ---: | --- |
+| `kernel/kernel8.img` | `0x00080000` | 内核启动代码和内核镜像 |
+| `fs.img` | `0x07000000` | xv6 根文件系统（ramdisk） |
+
+内核需要裸镜像，是因为 Pi 启动固件/QEMU 会把文件内容直接复制到物理内存并开始执行，而不会像普通程序加载器一样解析 ELF。内核 ELF 的链接地址是高虚拟地址，真正的高地址运行环境由内核启动代码自己建立。
+
+## 3. Raspberry Pi 3 内存布局
+
+相关文件：`kernel/memlayout.h`
+
+```text
+物理地址
+
+0x00000000  +--------------------------------+
+            | 启动使用的低端内存             |
+0x00080000  +--------------------------------+
+            | kernel8.img                    |
+            | 内核 text / rodata / data / bss|
+0x00200000  +--------------------------------+
+            | 可分配物理内存                 |
+0x07000000  +--------------------------------+
+            | fs.img（1 MiB ramdisk）        |
+0x07100000  +--------------------------------+
+
+0x3f000000  +--------------------------------+
+            | BCM2837 外设 MMIO              |
+            | IRQ 控制器：0x3f00b000         |
+            | PL011 UART：0x3f201000         |
+0x40000000  +--------------------------------+
+            | ARM Local Peripherals          |
+            | 每核定时器和本地中断路由       |
+            +--------------------------------+
+```
+
+主要宏的含义：
+
+```c
+#define KERNPA    0x00080000UL
+#define EARLYTOP  0x00200000UL
+#define PHYSTOP   0x07000000UL
+#define RAMDISKPA 0x07000000UL
+#define KERNBASE  0xffffff8000000000UL
+#define KERNLINK  (KERNBASE + KERNPA)
+```
+
+内核在物理地址 `0x80000` 装载，但链接时使用高虚拟地址：
+
+```text
+物理地址 0x00080000
+          |
+          v
+虚拟地址 0xffffff8000080000
+```
+
+`PHYSTOP` 被设为 `0x07000000`，是为了让物理页分配器在 ramdisk 前停止，避免将保存 `fs.img` 的内存当成空闲页覆盖。QEMU Pi 3 提供的内存不止这些，但当前内核只管理前约 112 MiB。
+
+## 4. 链接脚本
+
+相关文件：`kernel/kernel.ld`
+
+链接脚本表达了两个不同的地址：
+
+```ld
+. = 0xffffff8000080000;
+
+.text : AT(0x80000) {
+    ...
+}
+```
+
+- `0xffffff8000080000` 是内核链接和最终运行时使用的虚拟地址。
+- `0x00080000` 是镜像实际装入 RAM 的物理地址。
+
+链接脚本还导出了 `etext`、`bss_start`、`bss_end` 和 `end` 等符号，供页表权限设置、BSS 清零和物理内存初始化使用。
+
+## 5. entry.S：从 EL2 进入 EL1
+
+相关文件：`kernel/entry.S`
+
+入口 `_entry` 首先读取：
+
+```asm
+mrs x0, CurrentEL
+```
+
+如果当前处于 EL2，就设置：
+
+- `HCR_EL2.RW=1`：让 EL1 以 AArch64 运行。
+- `CNTVOFF_EL2=0`：清除虚拟定时器偏移。
+- `SPSR_EL2=0x3c5`：选择 EL1h，并在切换过程中屏蔽异常。
+- `ELR_EL2`：设置 EL1 的继续执行地址。
+
+最后通过 `eret` 从 EL2 返回到 EL1。此后 xv6 作为普通操作系统内核运行在 EL1。
+
+## 6. CPU选择、BSS清零和单核模式
+
+启动代码读取 `MPIDR_EL1` 得到 CPU 核编号。CPU0 负责主初始化，包括清零 `.bss` 和建立页表。
+
+当前实现实际上只启动 CPU0。代码中虽然保留 `entryothers` 和 `main()` 中的其他 CPU 分支，但尚未实现 Pi 3 的 spin-table、mailbox 或 PSCI 多核唤醒协议。
+
+在真正启用 CPU1～CPU3 之前，还需要：
+
+- 为每个 CPU 设置启动入口和独立栈。
+- 使用 mailbox 或 spin-table 唤醒其他核。
+- 加入启动阶段同步，防止其他核在 CPU0 建好页表前继续运行。
+- 为每个核设置异常向量和本地定时器路由。
+
+## 7. 临时页表和打开MMU
+
+相关文件：`kernel/entry.S`
+
+启动页表将同一段物理内存映射到两个虚拟地址区域：
+
+```text
+低虚拟地址 0x00000000...
+       \                         
+        +--> 物理地址 0x00000000～0x001fffff
+       /
+高虚拟地址 0xffffff8000000000...
+```
+
+低地址恒等映射的作用是：打开 MMU 的瞬间，CPU 仍然能够取到当前执行位置的下一条指令。
+
+高地址映射的作用是：MMU 打开后，可以跳转到链接脚本指定的高虚拟地址 `_start`。
+
+启动代码依次设置：
+
+- `TTBR0_EL1`：低地址恒等映射页表。
+- `TTBR1_EL1`：高地址内核映射页表。
+- `TCR_EL1`：39 位虚拟地址和 4 KiB 页配置。
+- `MAIR_EL1`：普通内存和 Device 内存的属性。
+- `SCTLR_EL1.M`：启用 MMU。
+
+当前普通 RAM 使用 non-cacheable 属性。这种配置便于早期移植和排错，但性能会低于正常的 write-back cache 配置。
+
+## 8. 设置内核栈并进入main
+
+相关文件：`kernel/entry.S`、`kernel/main.c`
+
+进入高地址 `_start` 后，启动代码根据 CPU 编号，从 `stack0` 中选择当前 CPU 的内核栈，然后跳转到 `main()`。
+
+`main()` 中的主要初始化顺序是：
+
+```text
+kinit1
+kvminit
+kvminithart
+kinit2
+consoleinit / printfinit / uartinit
+procinit
+trapinit / trapinithart
+中断控制器初始化
+timerinit
+binit / iinit / fileinit
+ramdiskinit
+userinit
+scheduler
+```
+
+## 9. 两阶段物理内存初始化
+
+临时页表只映射前 2 MiB，所以系统先执行：
+
+```c
+kinit1(end, P2V(EARLYTOP));
+```
+
+此时只能使用内核末尾到 `0x00200000` 之间的物理内存。
+
+建立最终内核页表并切换页表后，再执行：
+
+```c
+kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
+```
+
+将 `0x00200000` 到 `0x07000000` 之间的内存加入空闲页链表。
+
+## 10. 最终内核页表
+
+相关文件：`kernel/vm.c`
+
+最终页表建立以下映射：
+
+| 区域 | 内存属性和权限 |
+| --- | --- |
+| 内核代码 | 普通内存、只读、可执行 |
+| 内核数据和可分配 RAM | 普通内存、可读写、不可执行 |
+| BCM2837 外设空间 | Device、可读写、不可执行 |
+| ARM Local Peripherals | Device、可读写、不可执行 |
+| ramdisk | 普通内存、可读写、不可执行 |
+
+MMIO 必须设置为 Device 类型，防止 CPU 缓存、合并或错误重排设备寄存器访问。
+
+最终页表安装后，内核使用 `TTBR1_EL1` 访问高地址空间，并清除 `TTBR0_EL1` 中的临时低地址映射。
+
+`vm.c` 中若仍出现 “RISC-V Sv39” 注释，它们属于移植前遗留注释；当前实际实现是 AArch64 的三级、39 位页表。
+
+## 11. PL011 UART
+
+相关文件：`kernel/uart.c`
+
+Pi 3 的 PL011 UART 物理地址为：
+
+```text
+0x3f201000
+```
+
+内核通过高地址 MMIO 映射访问它。UART 初始化会配置 FIFO、8 位数据格式、收发功能和收发中断。
+
+早期 `printf` 使用轮询输出，因此在中断系统完成初始化之前也能打印：
+
+```text
+xv6 kernel is booting
+```
+
+系统进入正常运行后，终端输入输出通过 UART 中断和软件环形缓冲区完成。
+
+当前 UART 初始化主要针对 QEMU。真机还需要正确配置 GPIO14/GPIO15 复用、UART 时钟和波特率。
+
+## 12. BCM2837中断控制器
+
+相关文件：`kernel/bcm2837.c`
+
+原来的 QEMU `virt` 平台使用 GICv3。Pi 3 则包含 BCM2837 legacy interrupt controller 和 ARM local peripheral interrupt controller。
+
+为了减少 `trap.c` 等文件的修改，新的 BCM2837 实现继续使用这些旧函数名：
+
+```c
+gicv3init();
+gicv3inithart();
+gic_iar();
+gic_eoi();
+```
+
+名称虽然保留了 `gic`，内部实际已经改为读写 BCM2837 寄存器，它们属于兼容接口。
+
+当前只处理两类 IRQ：
+
+| IRQ | 来源 |
+| ---: | --- |
+| 27 | ARM virtual timer |
+| 57 | PL011 UART |
+
+`gic_iar()` 先检查 local timer pending，再检查 legacy IRQ controller 的 UART pending。没有待处理设备时返回 1023。
+
+`gic_eoi()` 当前不需要实际操作，因为 UART 会在 UART 寄存器中确认中断，定时器则通过重新写入下一次倒计时来清除中断状态。
+
+## 13. ARM虚拟定时器
+
+相关文件：`kernel/timer.c`、`kernel/bcm2837.c`
+
+定时器使用 ARM Generic Timer 的虚拟定时器寄存器：
+
+```text
+CNTFRQ_EL0       定时器频率
+CNTV_TVAL_EL0    下一次中断的倒计时
+CNTV_CTL_EL0     虚拟定时器控制
+```
+
+`timer.c` 负责设置和重新装载定时器；`bcm2837.c` 负责把 virtual timer IRQ 路由给当前 CPU。
+
+中断处理路径为：
+
+```text
+ARM virtual timer
+    -> BCM2837 local interrupt pending
+    -> EL1 IRQ exception vector
+    -> kernelirq/userirq
+    -> devintr
+    -> clockintr + timerintr
+    -> 必要时 yield
+```
+
+## 14. ramdisk和文件系统
+
+相关文件：`kernel/ramdisk.c`、`kernel/bio.c`、`kernel/defs.h`
+
+原来的 `virt` 平台通过 VirtIO block device 访问 `fs.img`。当前 Pi 3 版本改成内存文件系统：
+
+```text
+QEMU loader
+    -> 将 fs.img 复制到物理地址 0x07000000
+    -> 内核把该区域映射到高虚拟地址
+    -> bread/bwrite 调用 ramdiskrw
+    -> ramdiskrw 使用 memmove 读写块
+```
+
+上层文件系统结构没有改变：
+
+```text
+系统调用
+    -> file
+    -> inode
+    -> log
+    -> buffer cache
+    -> ramdiskrw
+```
+
+因此 inode、日志和 buffer cache 仍然工作，只是最底层设备从 VirtIO 磁盘换成了 RAM 中的块镜像。
+
+该 ramdisk 不具有持久性。系统运行期间对文件系统的修改只写入 QEMU 内存，退出 QEMU 后不会同步回宿主机上的 `fs.img`。
+
+## 15. 异常和设备中断分发
+
+相关文件：`kernel/trap.c`、`kernel/trapasm.S`
+
+系统将异常向量表地址写入 `VBAR_EL1`。IRQ 到来后，通过异常向量进入 `kernelirq()` 或 `userirq()`，再由 `devintr()` 判断设备来源：
+
+```text
+IRQ 57 -> uartintr()
+IRQ 27 -> clockintr() + timerintr()
+1023   -> 没有可处理的中断
+```
+
+VirtIO 磁盘中断分支已经删除，因为 ramdisk 的读写是同步内存复制，不产生设备中断。
+
+## 16. 第一个用户进程
+
+硬件、内存和文件系统初始化完成后，内核执行：
+
+```c
+userinit();
+scheduler();
+```
+
+用户态启动链为：
+
+```text
+userinit
+   -> initcode
+   -> exec("/init")
+   -> /init 打开 console
+   -> 启动 sh
+```
+
+能够看到 shell 提示符，说明下面这些功能已经共同工作：
+
+- EL2 到 EL1 的切换。
+- MMU 和内核页表。
+- PL011 UART。
+- 异常向量和设备中断。
+- ARM 虚拟定时器。
+- 物理页分配。
+- ramdisk、buffer cache、日志和 inode。
+- 进程创建、调度、系统调用和 ELF 加载。
+
+## 17. 修改文件与职责对照
+
+| 文件 | 主要作用 |
+| --- | --- |
+| `Makefile` | 使用 Cortex-A53 编译；生成 `kernel8.img`；用 `raspi3b` 启动并装载 `fs.img` |
+| `kernel/memlayout.h` | 定义 Pi 3 RAM、MMIO、UART、IRQ controller、local peripherals 和 ramdisk 地址 |
+| `kernel/kernel.ld` | 设置高虚拟链接地址和 `0x80000` 物理装载地址 |
+| `kernel/entry.S` | EL2 降 EL1、清 BSS、建立临时页表、打开 MMU、设置启动栈 |
+| `kernel/main.c` | 按 Pi 3 当前单核方式组织内核初始化顺序 |
+| `kernel/vm.c` | 建立 RAM、BCM2837 MMIO、local peripherals 和 ramdisk 的最终映射 |
+| `kernel/bcm2837.c` | 实现 Pi 3 legacy IRQ 和 local timer 中断路由，并兼容原 GIC 接口 |
+| `kernel/uart.c` | 驱动 BCM2837 上的 PL011 UART |
+| `kernel/timer.c` | 配置 ARM virtual timer |
+| `kernel/trap.c` | 将 UART 和 timer IRQ 分发给对应处理函数 |
+| `kernel/ramdisk.c` | 把内存中的 `fs.img` 实现为块设备 |
+| `kernel/bio.c` | 将 buffer cache 的底层 I/O 从 VirtIO 改为 ramdisk |
+| `kernel/defs.h` | 声明 ramdisk 和平台相关接口 |
+
+## 18. 当前限制和后续工作
+
+当前已经完成：
+
+- QEMU `raspi3b` 裸镜像启动。
+- EL2 到 EL1 的切换。
+- AArch64 高地址内核和页表。
+- BCM2837 地址布局。
+- PL011 UART。
+- legacy IRQ 和 local virtual timer。
+- ramdisk 文件系统。
+- xv6 用户程序、调度器和 shell。
+
+尚未完成：
+
+- Raspberry Pi 3 真机 UART 的 GPIO 和时钟初始化。
+- SD/eMMC 驱动。
+- 文件系统持久化。
+- CPU1～CPU3 的唤醒与启动同步。
+- 完整的 BCM2837 外设中断支持。
+- cacheable RAM 和缓存维护策略。
+- 设备树解析；当前硬件地址仍然硬编码。
+
+因此，这一版本应理解为“能在 QEMU `raspi3b` 上运行 xv6 的基础移植”。如果要继续支持真机，建议优先完成 UART/GPIO 真机初始化、SD/eMMC 驱动和多核启动。

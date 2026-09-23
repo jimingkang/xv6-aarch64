@@ -59,6 +59,14 @@ void            itrunc(struct inode*);
 void            ramdiskinit(void);
 void            ramdiskrw(struct buf*, int);
 
+// sd.c
+void            sdinit(void);
+int             sdsector(uint32, void*, int);
+
+// fat32.c
+void            fat32init(void);
+void            fat32rw(struct buf*, int);
+
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
@@ -154,6 +162,8 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
+void            kvmdump(void);
+void            uvmdump(pagetable_t, int, char *, char *);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, uint64);
 int             mappages(pagetable_t, uint64, uint64, uint64, uint64);
 pagetable_t     uvmcreate(void);

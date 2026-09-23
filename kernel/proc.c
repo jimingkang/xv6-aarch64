@@ -253,6 +253,9 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  // uvmcopy allocated a separate set of pages and PTEs for the child.
+  // uvmdump(np->pagetable, np->pid, np->name, "fork-copy");
+
   pid = np->pid;
 
   release(&np->lock);

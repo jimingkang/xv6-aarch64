@@ -1,3 +1,7 @@
 1)python3 tools/run_trace_commands.py （gdb client trace)
 2)python3 tools/export_trace_web.py   (convert trace log to animation html)
 3)check xv6-aarch64/trace/xv6_trace.html
+
+
+for rpi3 update:
+1)qemu-system-aarch64 -machine raspi3b -kernel kernel/kernel8.img -display none -serial mon:stdio -device loader,file=fs.img,addr=0x07000000,force-raw=on

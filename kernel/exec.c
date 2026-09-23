@@ -116,6 +116,7 @@ exec(char *path, char **argv)
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
   switchuvm(p);
+  // uvmdump(p->pagetable, p->pid, p->name, "exec-image");
   uvmfree(oldpagetable, oldsz);
 
   return argc; // this ends up in x0, the first argument to main(argc, argv)
