@@ -1,5 +1,7 @@
 # AArch64 ELF 加载后的 D-cache / I-cache 一致性问题
 
+> 后续诊断更正：`DC CVAU + IC IALLU` 是 AArch64 加载可执行代码所需的正确缓存维护，但本次固定的 `ELR=0x13dc / FAR=0x13f48` 异常最终根因不是 I-cache。完整页表日志证明 `sh` 经 `sbrk()` 新增了 `0x13000` 页面，而 `growproc()` 没有执行 TLBI，CPU 继续使用缓存的 L3 translation fault。最终修复是在当前进程页表扩展或收缩后执行 `flush_tlb()`。本文保留 D/I-cache 分析，作为 ELF 加载路径中另一项独立且必要的修正。
+
 本文记录 xv6-aarch64 在 Raspberry Pi 3 真机上执行 `ls` 时发生用户态异常的定位和修复过程。
 
 这个问题出现在普通 RAM 改为 Write-Back Cacheable、并开启 `SCTLR_EL1.C` 和 `SCTLR_EL1.I` 之后。QEMU 中通常不能复现，但 Cortex-A53 真机会暴露出来。

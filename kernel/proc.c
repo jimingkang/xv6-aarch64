@@ -214,6 +214,12 @@ growproc(int n)
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+
+  // This is the currently active TTBR0 page table.  AArch64 may cache a
+  // previous translation fault for a newly allocated heap page, and may keep
+  // translations for pages just removed.  Publishing the PTEs is therefore
+  // not sufficient: invalidate the TLB before returning to EL0.
+  flush_tlb();
   return 0;
 }
 

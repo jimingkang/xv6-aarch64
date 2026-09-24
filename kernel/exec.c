@@ -44,6 +44,8 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.type != ELF_PROG_LOAD)
       continue;
+    printf("exec: path=%s load va=%p filesz=%p memsz=%p off=%p\n",
+           path, ph.vaddr, ph.filesz, ph.memsz, ph.off);
     if(ph.memsz < ph.filesz)
       goto bad;
     if(ph.vaddr + ph.memsz < ph.vaddr)
@@ -115,6 +117,8 @@ exec(char *path, char **argv)
   p->trapframe->elr = elf.entry;  // initial program counter = main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
+  printf("exec: path=%s entry=%p sz=%p sp=%p\n",
+         path, elf.entry, sz, sp);
   uvmsync_icache(pagetable, sz);
   switchuvm(p);
   // uvmdump(p->pagetable, p->pid, p->name, "exec-image");

@@ -390,6 +390,22 @@ transfer_sector(uint32 sector, uchar *data, int write)
   return 0;
 }
 
+// Recover the Arasan command/data state machines after a timeout or CRC
+// error.  Without these resets STATUS can retain CMD/DAT_INHIBIT and every
+// later request fails even though the card itself is still selected.
+static int
+recover_io(void)
+{
+  wr(EMMC_INTERRUPT, 0xffffffffU);
+  wr(EMMC_CONTROL1, rd(EMMC_CONTROL1) | C1_SRST_CMD | C1_SRST_DATA);
+  if(wait_mask(EMMC_CONTROL1, C1_SRST_CMD | C1_SRST_DATA,
+               0, 1000000) < 0)
+    return -1;
+  wr(EMMC_INTERRUPT, 0xffffffffU);
+  sd_delay_us(1000);
+  return 0;
+}
+
 void
 sdinit(void)
 {
@@ -458,11 +474,26 @@ sdsector(uint32 sector, void *buffer, int write)
     return -1;
 
   acquire(&sdlock);
-  int result = transfer_sector(sector, (uchar *)buffer, write);
+  int result = -1;
+  for(int attempt = 1; attempt <= 3; attempt++){
+    result = transfer_sector(sector, (uchar *)buffer, write);
+    if(result == 0)
+      break;
+
+    uint32 status = rd(EMMC_STATUS);
+    uint32 irq = rd(EMMC_INTERRUPT);
+    uint32 control1 = rd(EMMC_CONTROL1);
+    printf("sd: I/O retry lba=%d write=%d attempt=%d phase=%d status=%x irq=%x control1=%x\n",
+           sector, write, attempt, sd_io_phase, status, irq, control1);
+    if(recover_io() < 0){
+      printf("sd: recovery reset timeout control1=%x\n", rd(EMMC_CONTROL1));
+      break;
+    }
+  }
   if(result < 0){
-    printf("sd: I/O failure lba=%d write=%d phase=%d status=%x irq=%x control1=%x\n",
-           sector, write, sd_io_phase, rd(EMMC_STATUS),
-           rd(EMMC_INTERRUPT), rd(EMMC_CONTROL1));
+    printf("sd: I/O failure lba=%d write=%d status=%x irq=%x control1=%x\n",
+           sector, write, rd(EMMC_STATUS), rd(EMMC_INTERRUPT),
+           rd(EMMC_CONTROL1));
   }
   release(&sdlock);
   return result;

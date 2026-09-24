@@ -95,6 +95,10 @@ usertrap(void)
   } else {
     printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+    printf("            sz=%p sp=%p x0=%p x1=%p x2=%p x3=%p\n",
+           p->sz, p->trapframe->sp, p->trapframe->x0,
+           p->trapframe->x1, p->trapframe->x2, p->trapframe->x3);
+    uvmdump(p->pagetable, p->pid, p->name, "usertrap");
     p->killed = 1;
   }
 
