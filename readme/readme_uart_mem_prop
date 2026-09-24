@@ -1,0 +1,320 @@
+# Raspberry Pi 3 串口启动与内存属性问题记录
+
+本文记录 xv6-aarch64 在 Raspberry Pi 3B/3B+ 真机启动过程中解决的两个早期问题：
+
+1. Minicom 打开串口后没有任何 xv6 输出；
+2. 内核输出到 `BPH0abde` 后停止，卡在 `acquire(&kmem.lock)`。
+
+这两个问题分别来自 Mini UART 初始化/启动环境，以及 AArch64 普通内存页表属性配置。
+
+## 1. 串口连接
+
+Raspberry Pi 3 GPIO 排针上的串口使用：
+
+| 排针 | GPIO | 方向 | Mini UART 信号 |
+|---|---:|---|---|
+| Pin 8 | GPIO14 | Pi 输出 | TXD1 |
+| Pin 10 | GPIO15 | Pi 输入 | RXD1 |
+| Pin 6 | GND | 地 | GND |
+
+USB-TTL 与树莓派交叉连接：
+
+```text
+Pi Pin 8  (TXD1) -> USB-TTL RX
+Pi Pin 10 (RXD1) <- USB-TTL TX
+Pi Pin 6  (GND)   -- USB-TTL GND
+```
+
+必须使用 3.3 V TTL 电平，不要把 RS-232 电平直接连接到 GPIO，也不要把 USB-TTL 的 5 V 电源接到 GPIO。
+
+终端参数：
+
+```text
+115200 baud
+8 data bits
+no parity
+1 stop bit
+no hardware/software flow control
+```
+
+例如：
+
+```sh
+minicom -D /dev/tty.usbserial-0001 -b 115200
+```
+
+## 2. 为什么最初 Minicom 没有输出
+
+Pi 3 上 GPIO14/15 可以连接 PL011 UART0 或 AUX Mini UART。当前内核最终选用 AUX Mini UART；它对应 GPIO14/15 的 ALT5 功能。
+
+初始化必须完成以下步骤：
+
+1. 使能 AUX 外设；
+2. 暂停 Mini UART 收发；
+3. 关闭 UART 中断；
+4. 设置 8N1；
+5. 清 FIFO；
+6. 设置 GPIO14/15 为 ALT5；
+7. 完成 BCM2837 的 GPPUD/GPPUDCLK0 pull 配置；
+8. 设置波特率除数；
+9. 使能发送和接收。
+
+相关实现位于：
+
+```text
+kernel/aux.h
+kernel/uart.c
+kernel/entry.S
+```
+
+Mini UART 的波特率依赖 core clock：
+
+```text
+baud = core_freq / (8 * (divisor + 1))
+```
+
+当 `core_freq=250 MHz`、目标波特率为 115200 时：
+
+```text
+divisor = 250000000 / (8 * 115200) - 1 ~= 270
+```
+
+因此 `config.txt` 固定：
+
+```ini
+arm_64bit=1
+enable_uart=1
+uart_2ndstage=1
+core_freq=250
+
+[pi3]
+kernel=kernel8-xv6_rpi3.img
+```
+
+不要再指定项目中曾使用的极简 `armstub-xv6.bin`。该 stub 只有跳转逻辑，后续还导致真机 VideoCore property mailbox 完全不响应。当前 `entry.S` 已能够把 EL3/EL2 入口统一切换到 EL1，直接使用 Raspberry Pi 固件自带的 64 位 armstub。
+
+## 3. 为什么需要汇编阶段的早期 UART
+
+普通 `printf()` 依赖以下设施：
+
+```text
+有效栈 -> BSS -> 页表 -> 内存分配器 -> 自旋锁 -> console/printf
+```
+
+如果内核在这些步骤之前停止，普通日志无法工作。因此 `kernel/entry.S` 增加了不依赖栈、BSS、页表和 C 运行环境的 `early_mini_uart`，并用单字符标记启动进度。
+
+主要标记：
+
+| 标记 | 含义 |
+|---|---|
+| `E` | 已进入 EL1，物理地址 Mini UART 可用 |
+| `B` | BSS 清零完成 |
+| `P` | 临时页表和系统寄存器准备完成 |
+| `H` | MMU 已开启，跳到高地址并建立栈 |
+| `0` | 进入 `main()` |
+| `1` | `kinit1()` 完成 |
+| `2` | 最终内核页表建立完成 |
+| `3` | 切换到最终内核页表 |
+| `4` | `kinit2()` 完成 |
+
+`kalloc.c` 中进一步使用：
+
+| 标记 | 含义 |
+|---|---|
+| `a` | `kinit1()` 已初始化 kmem 锁 |
+| `b` | 即将释放第一张可分配页面 |
+| `d` | 已进入第一次 `kfree()` |
+| `e` | 页面 `memset()` 完成 |
+| `f` | 第一次成功取得 `kmem.lock` |
+| `c` | `kinit1()` 完成 |
+
+QEMU 的 Raspberry Pi 机器把 Mini UART 放在第二个串口，因此使用：
+
+```sh
+qemu-system-aarch64 \
+  -machine raspi3b \
+  -kernel kernel/kernel8.img \
+  -display none \
+  -serial null \
+  -serial mon:stdio \
+  -drive file=fs.img,if=sd,format=raw
+```
+
+`-serial null` 占用/丢弃第一个 PL011 串口，`-serial mon:stdio` 将第二个 Mini UART 接到终端。
+
+## 4. 停在 `BPH0abde` 的含义
+
+真机曾输出：
+
+```text
+BPH0abde
+```
+
+这说明：
+
+```text
+d -> 已进入第一次 kfree()
+e -> memset(page, 1, PGSIZE) 已完成
+没有 f -> acquire(&kmem.lock) 没有返回
+```
+
+相关代码：
+
+```c
+acquire(&kmem.lock);
+if(kmem.freelist == 0)
+  boot_uart_mark('f');
+r->next = kmem.freelist;
+kmem.freelist = r;
+release(&kmem.lock);
+```
+
+当时并不是另一个 CPU 一直占有锁。`acquire()` 使用 AArch64 独占访问实现原子交换，其核心行为类似：
+
+```asm
+retry:
+    ldaxr w1, [x0]
+    cbnz  w1, retry
+    stxr  w2, w3, [x0]
+    cbnz  w2, retry
+```
+
+`LDAXR` 读取到锁为 0，但 `STXR` 持续返回非零，独占写入始终失败，因此形成活锁。QEMU 对内存属性比较宽容，没有暴露这个真机问题。
+
+## 5. 原来的错误内存属性
+
+普通 RAM 原来被映射为：
+
+```text
+Normal Non-cacheable
+缺少 Inner Shareable 属性
+```
+
+同时没有完整设置 TCR 页表遍历缓存属性，也没有开启数据缓存和指令缓存。真实 Cortex-A53 上，这种配置不适合作为多核同步和独占原子操作使用的普通内存。
+
+尤其是 `kmem.lock` 位于普通 RAM：
+
+```text
+LDAXR 建立 exclusive reservation
+              |
+              v
+STXR 因内存属性/共享属性不合适而失败
+              |
+              v
+acquire() 永久重试
+```
+
+严格地说，这是 `STXR` 持续失败导致的活锁，而不是另一个执行单元持锁不释放造成的传统死锁。
+
+## 6. 修正后的 MAIR 和页表属性
+
+`kernel/aarch64.h` 现在为普通 RAM 定义独立的 MAIR index：
+
+```c
+#define AI_DEVICE_nGnRnE_IDX  0x0
+#define AI_NORMAL_NC_IDX      0x1
+#define AI_NORMAL_IDX         0x2
+
+#define MT_DEVICE_nGnRnE  0x00
+#define MT_NORMAL_NC      0x44
+#define MT_NORMAL         0xff
+
+#define PTE_SH_INNER (3 << 8)
+#define PTE_DEVICE   PTE_INDX(AI_DEVICE_nGnRnE_IDX)
+#define PTE_NORMAL   (PTE_INDX(AI_NORMAL_IDX) | PTE_SH_INNER)
+```
+
+最终含义：
+
+| 区域 | 内存类型 |
+|---|---|
+| RAM、内核、用户页面、页表 | Normal Write-Back Cacheable、Inner Shareable |
+| UART、GPIO、EMMC、GIC 等 MMIO | Device-nGnRnE |
+
+不能把 MMIO 改成 Normal Cacheable，否则寄存器读写可能被缓存、合并或重排。
+
+## 7. TCR 页表遍历属性
+
+TTBR0 和 TTBR1 的页表遍历均设置为 Write-Back、Inner Shareable：
+
+```c
+TCR_IRGN0(1) | TCR_ORGN0(1) | TCR_SH0(3)
+TCR_IRGN1(1) | TCR_ORGN1(1) | TCR_SH1(3)
+```
+
+其中：
+
+```text
+IRGN = 01  Inner Write-Back Read-Allocate Write-Allocate
+ORGN = 01  Outer Write-Back Read-Allocate Write-Allocate
+SH   = 11  Inner Shareable
+```
+
+页表本身和页表描述符指向的普通 RAM 属性需要保持合理一致。
+
+## 8. 开启 MMU 和缓存
+
+在写入 TTBR、TCR、MAIR 并完成 TLB/I-cache 同步后，`entry.S` 设置：
+
+```text
+SCTLR_EL1.M = 1   开启 MMU
+SCTLR_EL1.C = 1   开启数据缓存
+SCTLR_EL1.I = 1   开启指令缓存
+```
+
+对应逻辑：
+
+```asm
+tlbi vmalle1
+dsb  ish
+isb
+ic   iallu
+dsb  sy
+isb
+
+mrs x0, sctlr_el1
+orr x0, x0, #1          // M
+orr x0, x0, #(1 << 2)   // C
+orr x0, x0, #(1 << 12)  // I
+msr sctlr_el1, x0
+isb
+```
+
+临时恒等映射和高地址映射、最终内核页表以及用户页表都使用新的 `PTE_NORMAL`。MMIO 映射继续使用 `PTE_DEVICE`。
+
+## 9. 修复后的验证结果
+
+修复后启动标记变为：
+
+```text
+E
+BPH0abdefc123bc4mini-uart: initialized
+
+xv6 kernel is booting
+```
+
+其中 `f` 表示第一次 `acquire(&kmem.lock)` 已成功完成，证明 `LDAXR/STXR` 原子锁路径不再活锁。
+
+真机后续能够继续完成：
+
+```text
+sd: firmware EMMC clock=200000000 Hz
+sd: card initialized (SDHC)
+fat32: MBR partition table
+fat32: selected p1 ... FS.IMG=1048576 bytes ...
+init: starting sh
+$
+```
+
+## 10. 排查顺序总结
+
+遇到“串口没有输出”时，不要立刻假设内核没有运行。建议按以下顺序排查：
+
+1. 确认 USB-TTL 为 3.3 V，TX/RX 交叉，GND 共地；
+2. 确认 115200 8N1、无流控；
+3. 确认 GPIO14/15 使用 ALT5 Mini UART；
+4. 固定 `core_freq` 并校验 baud divisor；
+5. 在 MMU 和 C 运行环境之前加入物理地址 UART 标记；
+6. 根据最后一个字符定位启动阶段；
+7. 如果停在自旋锁，检查 MAIR、PTE Shareability、TCR walk cacheability 和 SCTLR cache 位；
+8. 不要仅以 QEMU 成功为依据，原子访问和缓存一致性必须在 Cortex-A53 真机验证。
