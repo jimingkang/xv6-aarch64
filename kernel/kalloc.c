@@ -10,6 +10,7 @@
 #include "defs.h"
 
 void freerange(void *vstart, void *vend);
+void boot_uart_mark(int c);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -27,6 +28,7 @@ void
 kinit1(void *vstart, void *vend)
 {
   initlock(&kmem.lock, "kmem");
+  boot_uart_mark('a');
   freerange(vstart, vend);
 }
 
@@ -41,8 +43,16 @@ freerange(void *vstart, void *vend)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)vstart);
-  for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
+  int first = 1;
+  for(; p + PGSIZE <= (char*)vend; p += PGSIZE){
+    if(first)
+      boot_uart_mark('b');
     kfree(p);
+    if(first){
+      boot_uart_mark('c');
+      first = 0;
+    }
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -58,11 +68,17 @@ kfree(void *va)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
+  if(kmem.freelist == 0)
+    boot_uart_mark('d');
   memset(va, 1, PGSIZE);
+  if(kmem.freelist == 0)
+    boot_uart_mark('e');
 
   r = (struct run*)va;
 
   acquire(&kmem.lock);
+  if(kmem.freelist == 0)
+    boot_uart_mark('f');
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);

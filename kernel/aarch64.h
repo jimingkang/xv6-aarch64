@@ -235,14 +235,18 @@ typedef uint64 *pagetable_t; // 512 PTEs
 // index is set by mair_el1
 #define AI_DEVICE_nGnRnE_IDX  0x0
 #define AI_NORMAL_NC_IDX      0x1
+#define AI_NORMAL_IDX         0x2
 
 // memory type
 #define MT_DEVICE_nGnRnE  0x0
 #define MT_NORMAL_NC      0x44
+#define MT_NORMAL         0xff
 
 #define PTE_INDX(i) (((i) & 7) << 2)
+#define PTE_SH_INNER (3 << 8)
 #define PTE_DEVICE  PTE_INDX(AI_DEVICE_nGnRnE_IDX)
-#define PTE_NORMAL  PTE_INDX(AI_NORMAL_NC_IDX)
+#define PTE_NORMAL_NC PTE_INDX(AI_NORMAL_NC_IDX)
+#define PTE_NORMAL  (PTE_INDX(AI_NORMAL_IDX) | PTE_SH_INNER)
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa)  ((uint64)(pa) & 0xfffffffff000)
@@ -267,7 +271,13 @@ typedef uint64 *pagetable_t; // 512 PTEs
 
 // translation control register
 #define TCR_T0SZ(n)   ((n) & 0x3f)
+#define TCR_IRGN0(n)  (((n) & 0x3) << 8)
+#define TCR_ORGN0(n)  (((n) & 0x3) << 10)
+#define TCR_SH0(n)    (((n) & 0x3) << 12)
 #define TCR_TG0(n)    (((n) & 0x3) << 14)
 #define TCR_T1SZ(n)   (((n) & 0x3f) << 16)
+#define TCR_IRGN1(n)  (((n) & 0x3) << 24)
+#define TCR_ORGN1(n)  (((n) & 0x3) << 26)
+#define TCR_SH1(n)    (((n) & 0x3) << 28)
 #define TCR_TG1(n)    (((n) & 0x3) << 30)
 #define TCR_IPS(n)    (((n) & 0x7) << 32)

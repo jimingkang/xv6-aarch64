@@ -8,6 +8,7 @@
 
 #define IRQ_PENDING_1       0x204
 #define IRQ_PENDING_2       0x208
+#define ENABLE_IRQS_1       0x210
 #define ENABLE_IRQS_2       0x214
 #define DISABLE_IRQS_1      0x21c
 #define DISABLE_IRQS_2      0x220
@@ -44,11 +45,12 @@ localwrite(uint64 off, uint32 value)
 void
 gicv3init(void)
 {
-  // Start with all legacy GPU interrupts disabled, then enable PL011 UART0.
+  // Start with all legacy GPU interrupts disabled, then enable the AUX
+  // interrupt used by the BCM2837 Mini UART.
   irqwrite(DISABLE_IRQS_1, ~0U);
   irqwrite(DISABLE_IRQS_2, ~0U);
   irqwrite(DISABLE_BASIC_IRQS, ~0U);
-  irqwrite(ENABLE_IRQS_2, 1U << (UART0_IRQ - 32));
+  irqwrite(ENABLE_IRQS_1, 1U << UART0_IRQ);
 }
 
 void
@@ -65,7 +67,7 @@ gic_iar(void)
 
   if(localread(CORE_IRQ_SOURCE(cpu)) & CORE_VIRTUAL_TIMER)
     return TIMER0_IRQ;
-  if(irqread(IRQ_PENDING_2) & (1U << (UART0_IRQ - 32)))
+  if(irqread(IRQ_PENDING_1) & (1U << UART0_IRQ))
     return UART0_IRQ;
   if(irqread(IRQ_PENDING_1))
     return 1023;

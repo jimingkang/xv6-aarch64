@@ -1,6 +1,12 @@
 K=kernel
 U=user
 
+.DEFAULT_GOAL := install-rpi3
+
+RPI3_BOOTFS ?= /Volumes/bootfs
+RPI3_KERNEL_NAME ?= kernel8-xv6_rpi3.img
+RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
+
 OBJS = \
   $K/entry.o \
   $K/start.o \
@@ -84,6 +90,27 @@ $K/kernel: $(OBJS) $K/kernel.ld $U/initcode
 $K/kernel8.img: $K/kernel
 	$(OBJCOPY) -O binary $< $@
 
+$K/armstub.o: $K/armstub.S
+	$(CC) $(ASFLAGS) -c -o $@ $<
+
+$K/armstub.elf: $K/armstub.o
+	$(LD) --section-start=.text=0 -o $@ $<
+
+$K/armstub-xv6.bin: $K/armstub.elf
+	$(OBJCOPY) -O binary $< $@
+
+.PHONY: install-rpi3
+install-rpi3: $K/kernel8.img $K/armstub-xv6.bin
+	@test -d "$(RPI3_BOOTFS)" || { \
+		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
+		exit 1; \
+	}
+	cp $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	cp $K/armstub-xv6.bin "$(RPI3_BOOTFS)/$(RPI3_ARMSTUB_NAME)"
+	sync
+	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	@echo "installed $K/armstub-xv6.bin -> $(RPI3_BOOTFS)/$(RPI3_ARMSTUB_NAME)"
+
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
 	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
@@ -148,7 +175,8 @@ fs.img: mkfs/mkfs $(UPROGS)
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
-	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img fs.img \
+	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img \
+	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img \
 	mkfs/mkfs .gdbinit \
         $U/usys.S \
 	$(UPROGS)
@@ -168,7 +196,8 @@ endif
 SDIMAGE ?= fs.img
 
 QEMUOPTS = -machine raspi3b -kernel $K/kernel8.img -display none
-QEMUOPTS += -serial mon:stdio
+# raspi3b serial[0] is PL011; serial[1] is the AUX Mini UART used by xv6.
+QEMUOPTS += -serial null -serial mon:stdio
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
 
 qemu: $K/kernel8.img fs.img

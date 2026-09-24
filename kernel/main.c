@@ -9,17 +9,23 @@ extern char end[];  // first address after kernel loaded from ELF file
 
 void _entry(void);
 void delay(uint32 c);
+void boot_uart_mark(int c);
 
 // start() jumps here in EL1 on all CPUs.
 void
 main()
 {
+  boot_uart_mark('0');
   if(cpuid() == 0){
     // QEMU's Pi firmware parks secondary cores. This first port runs core 0.
     kinit1(end, P2V(EARLYTOP));  // memory covered by the bootstrap map
+    boot_uart_mark('1');
     kvminit();       // create kernel page table
+    boot_uart_mark('2');
     kvminithart();   // turn on paging
+    boot_uart_mark('3');
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
+    boot_uart_mark('4');
     consoleinit();
     printfinit();
     printf("\n");

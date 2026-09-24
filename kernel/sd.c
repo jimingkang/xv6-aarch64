@@ -140,10 +140,12 @@ sd_gpio_init(void)
   // Disable pulls using the BCM2837 GPPUD sequence.
   *reg(GPIO_BASE, 0x94) = 0;
   sd_delay_us(2);
-  *reg(GPIO_BASE, 0x98) = 0x003f0000U; // GPIO48..53
+  // GPIO48..53 are controlled by GPPUDCLK1, bits 16..21.  GPPUDCLK0
+  // controls GPIO0..31 and was incorrectly selecting GPIO16..21 here.
+  *reg(GPIO_BASE, 0x9c) = 0x003f0000U;
   sd_delay_us(2);
   *reg(GPIO_BASE, 0x94) = 0;
-  *reg(GPIO_BASE, 0x98) = 0;
+  *reg(GPIO_BASE, 0x9c) = 0;
 }
 
 static uint32
@@ -161,11 +163,15 @@ clock_divider(uint32 base, uint32 target)
 static int
 set_clock(uint32 target)
 {
-  uint32 base_mhz = (rd(EMMC_CAP0) >> 8) & 0xff;
+  uint32 cap0 = rd(EMMC_CAP0);
+  uint32 base_mhz = (cap0 >> 8) & 0xff;
   uint32 base = base_mhz ? base_mhz * 1000000U : 100000000U;
 
-  if(wait_mask(EMMC_STATUS, SR_CMD_INHIBIT | SR_DAT_INHIBIT, 0, 1000000) < 0)
+  if(wait_mask(EMMC_STATUS, SR_CMD_INHIBIT | SR_DAT_INHIBIT, 0, 1000000) < 0){
+    printf("sd: clock inhibit target=%d status=%x control1=%x\n",
+           target, rd(EMMC_STATUS), rd(EMMC_CONTROL1));
     return -1;
+  }
 
   uint32 c1 = rd(EMMC_CONTROL1);
   c1 &= ~C1_CLK_EN;
@@ -175,8 +181,11 @@ set_clock(uint32 target)
   c1 &= ~0xffe0U;
   c1 |= clock_divider(base, target) | C1_CLK_INTLEN;
   wr(EMMC_CONTROL1, c1);
-  if(wait_mask(EMMC_CONTROL1, C1_CLK_STABLE, C1_CLK_STABLE, 1000000) < 0)
+  if(wait_mask(EMMC_CONTROL1, C1_CLK_STABLE, C1_CLK_STABLE, 1000000) < 0){
+    printf("sd: clock unstable target=%d base=%d cap0=%x status=%x control1=%x\n",
+           target, base, cap0, rd(EMMC_STATUS), rd(EMMC_CONTROL1));
     return -1;
+  }
 
   wr(EMMC_CONTROL1, c1 | C1_CLK_EN);
   sd_delay_us(1000);

@@ -1,5 +1,5 @@
 //
-// low-level driver routines for pl011 UART.
+// Low-level driver routines for the BCM2837 AUX Mini UART.
 //
 
 #include "types.h"
@@ -9,33 +9,33 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "aux.h"
 
-// the UART control registers are memory-mapped
-// at address UART0. this macro returns the
-// address of one of the registers.
-#define Reg(reg) ((volatile uint32 *)(UART0 + reg))
+#define GPIO_BASE (PERIPHERAL_BASE + 0x200000L)
+#define GPFSEL1    0x04
+#define GPPUD      0x94
+#define GPPUDCLK0  0x98
 
-// the UART control registers.
-// pl011
-#define DR  0x00
-#define FR  0x18
-#define FR_RXFE (1<<4)  // recieve fifo empty
-#define FR_TXFF (1<<5)  // transmit fifo full
-#define FR_RXFF (1<<6)  // recieve fifo full
-#define FR_TXFE (1<<7)  // transmit fifo empty
-#define IBRD  0x24
-#define FBRD  0x28
-#define LCRH  0x2c
-#define LCRH_FEN  (1<<4)
-#define LCRH_WLEN_8BIT  (3<<5)
-#define CR    0x30
-#define IMSC  0x38
-#define INT_RX_ENABLE (1<<4)
-#define INT_TX_ENABLE (1<<5)
-#define ICR   0x44
+static inline volatile uint32 *
+gpio_reg(uint32 offset)
+{
+  return (volatile uint32 *)(GPIO_BASE + offset);
+}
 
-#define ReadReg(reg) (*(Reg(reg)))
-#define WriteReg(reg, v) (*(Reg(reg)) = (v))
+static void
+uart_delay(int count)
+{
+  while(count-- > 0)
+    asm volatile("nop");
+}
+
+static void
+uartputc_early(int c)
+{
+  while((REGS_AUX->mu_lsr & MU_LSR_TX_SPACE) == 0)
+    ;
+  REGS_AUX->mu_io = c;
+}
 
 // the transmit output buffer.
 struct spinlock uart_tx_lock;
@@ -51,23 +51,38 @@ void uartstart();
 void
 uartinit(void)
 {
-  // disable uart
-  WriteReg(CR, 0);
+  // Route GPIO14 (TXD1) and GPIO15 (RXD1) to the Mini UART using ALT5.
+  uint32 fsel = *gpio_reg(GPFSEL1);
+  fsel &= ~((7U << 12) | (7U << 15));
+  fsel |= (2U << 12) | (2U << 15);
+  *gpio_reg(GPFSEL1) = fsel;
 
-  // disable interrupts.
-  WriteReg(IMSC, 0);
+  // Disable GPIO pulls using the BCM2837 legacy GPPUD sequence.
+  *gpio_reg(GPPUD) = 0;
+  uart_delay(150);
+  *gpio_reg(GPPUDCLK0) = (1U << 14) | (1U << 15);
+  uart_delay(150);
+  *gpio_reg(GPPUDCLK0) = 0;
+  asm volatile("dmb sy" ::: "memory");
 
-  // in qemu, it is not necessary to set baudrate.
+  // Enable AUX Mini UART, configure 8N1, clear FIFOs, and set 115200 baud.
+  // BAUD = core_freq / (8 * baud) - 1; config.txt fixes core_freq at 250 MHz.
+  REGS_AUX->enables |= 1U;
+  REGS_AUX->mu_control = 0;
+  REGS_AUX->mu_ier = 0;
+  REGS_AUX->mu_lcr = 3;
+  REGS_AUX->mu_mcr = 0;
+  REGS_AUX->mu_iir = 0xc6;
+  REGS_AUX->mu_baud_rate = 270;
+  REGS_AUX->mu_ier = MU_IER_RX_ENABLE;
+  REGS_AUX->mu_control = 3;  // enable receiver and transmitter
+  asm volatile("dmb sy" ::: "memory");
 
-  // enable FIFOs.
-  // set word length to 8 bits, no parity.
-  WriteReg(LCRH, LCRH_FEN | LCRH_WLEN_8BIT);
-
-  // enable RXE, TXE and enable uart.
-  WriteReg(CR, 0x301);
-
-  // enable transmit and receive interrupts.
-  WriteReg(IMSC, INT_RX_ENABLE | INT_TX_ENABLE);
+  // Earliest real-hardware diagnostic: this does not depend on printf,
+  // interrupts, the console device, or the xv6 buffer cache.
+  char *ready = "mini-uart: initialized\r\n";
+  while(*ready)
+    uartputc_early(*ready++);
 
   initlock(&uart_tx_lock, "uart");
 }
@@ -118,9 +133,9 @@ uartputc_sync(int c)
   }
 
   // wait for ... TODO: comment */
-  while(ReadReg(FR) & FR_TXFF)
+  while((REGS_AUX->mu_lsr & MU_LSR_TX_SPACE) == 0)
     ;
-  WriteReg(DR, c);
+  REGS_AUX->mu_io = c;
 
   pop_off();
 }
@@ -135,13 +150,15 @@ uartstart()
   while(1){
     if(uart_tx_w == uart_tx_r){
       // transmit buffer is empty.
+      REGS_AUX->mu_ier &= ~MU_IER_TX_ENABLE;
       return;
     }
     
-    if(ReadReg(FR) & FR_TXFF){
+    if((REGS_AUX->mu_lsr & MU_LSR_TX_SPACE) == 0){
       // the UART transmit holding register is full,
       // so we cannot give it another byte.
       // it will interrupt when it's ready for a new byte.
+      REGS_AUX->mu_ier |= MU_IER_TX_ENABLE;
       return;
     }
     
@@ -151,7 +168,7 @@ uartstart()
     // maybe uartputc() is waiting for space in the buffer.
     wakeup(&uart_tx_r);
     
-    WriteReg(DR, c);
+    REGS_AUX->mu_io = c;
   }
 }
 
@@ -160,10 +177,9 @@ uartstart()
 int
 uartgetc(void)
 {
-  if(ReadReg(FR) & FR_RXFE)
+  if((REGS_AUX->mu_lsr & MU_LSR_DATA_READY) == 0)
     return -1;
-  else
-    return ReadReg(DR);
+  return REGS_AUX->mu_io & 0xff;
 }
 
 // handle a uart interrupt, raised because input has
@@ -185,6 +201,6 @@ uartintr(void)
   uartstart();
   release(&uart_tx_lock);
 
-  // clear transmit and receive interrupts.
-  WriteReg(ICR, INT_RX_ENABLE|INT_TX_ENABLE);
+  // Mini UART interrupts are cleared by servicing RX/TX. uartstart() also
+  // disables the TX-empty interrupt once the software queue is empty.
 }

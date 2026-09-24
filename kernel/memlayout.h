@@ -37,8 +37,8 @@
 #define LOCAL_BASE_PA      0x40000000L
 #define LOCAL_BASE         (KERNBASE + LOCAL_BASE_PA)
 
-#define UART0       (PERIPHERAL_BASE + 0x201000L)
-#define UART0_IRQ   57
+#define MINI_UART   (PERIPHERAL_BASE + 0x215000L)
+#define UART0_IRQ   29   // BCM2837 AUX interrupt (Mini UART)
 #define TIMER0_IRQ  27
 
 #define IRQCTRL     (PERIPHERAL_BASE + 0x00b000L)
