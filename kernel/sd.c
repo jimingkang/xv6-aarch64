@@ -30,6 +30,21 @@
 #define EMMC_CONTROL2   0x3c
 #define EMMC_CAP0       0x40
 
+#define MBOX_BASE       (PERIPHERAL_BASE + 0x0000b880UL)
+#define MBOX_READ       0x00
+#define MBOX_STATUS     0x18
+#define MBOX_WRITE      0x20
+#define MBOX_EMPTY      0x40000000U
+#define MBOX_FULL       0x80000000U
+#define MBOX_PROP_CH    8U
+#define MBOX_GET_CLOCK_RATE 0x00030002U
+#define MBOX_CLOCK_EMMC 1U
+// The property-mailbox firmware on Pi 3 expects the low ARM physical address
+// in the mailbox word.  This matches LLD's identity-mapped pointer.  Do not
+// use the 0xc0000000 VideoCore RAM alias here; that alias receives no reply on
+// the firmware used by this board.
+#define ARM_TO_VC_BUS(pa) ((uint32)(pa))
+
 #define SR_CMD_INHIBIT  (1U << 0)
 #define SR_DAT_INHIBIT  (1U << 1)
 #define SR_READ_AVAIL   (1U << 11)
@@ -78,6 +93,8 @@ static struct spinlock sdlock;
 static uint32 sd_rca;
 static int sd_sdhc;
 static int sd_ready;
+static int sd_io_phase;
+static uint32 mbox_clock[16] __attribute__((aligned(64)));
 
 static inline volatile uint32 *
 reg(uint64 base, uint32 off)
@@ -96,6 +113,90 @@ wr(uint32 off, uint32 value)
 {
   *reg(EMMC_BASE, off) = value;
   asm volatile("dmb sy" ::: "memory");
+}
+
+static inline uint32
+mbox_rd(uint32 off)
+{
+  return *reg(MBOX_BASE, off);
+}
+
+static inline void
+mbox_wr(uint32 off, uint32 value)
+{
+  *reg(MBOX_BASE, off) = value;
+  asm volatile("dmb sy" ::: "memory");
+}
+
+// The VideoCore property interface accesses this buffer without CPU cache
+// coherency.  Clean the request before ringing the mailbox and invalidate the
+// line before consuming the firmware response.
+static inline void
+cache_clean(void *p)
+{
+  asm volatile("dc cvac, %0\n\tdsb sy" :: "r"(p) : "memory");
+}
+
+static inline void
+cache_invalidate(void *p)
+{
+  asm volatile("dc ivac, %0\n\tdsb sy" :: "r"(p) : "memory");
+}
+
+static uint32
+firmware_emmc_clock(void)
+{
+  uint32 *m = mbox_clock;
+  memset(m, 0, 64);
+  m[0] = 8 * sizeof(uint32);
+  m[1] = 0;                         // property request
+  m[2] = MBOX_GET_CLOCK_RATE;
+  m[3] = 8;                         // value buffer size
+  m[4] = 0;                         // request value length
+  m[5] = MBOX_CLOCK_EMMC;
+  m[6] = 0;                         // returned rate
+  m[7] = 0;                         // end tag
+
+  uint32 pa = (uint32)V2P(m);
+  uint32 bus = ARM_TO_VC_BUS(pa);
+  uint32 request = (bus & ~0xfU) | MBOX_PROP_CH;
+  cache_clean(m);
+
+  uint64 limit = r_cntvct_el0() + r_cntfrq_el0();
+  while(mbox_rd(MBOX_STATUS) & MBOX_FULL)
+    if(r_cntvct_el0() >= limit){
+      printf("sd: mailbox write timeout status=%x pa=%x bus=%x\n",
+             mbox_rd(MBOX_STATUS), pa, bus);
+      return 0;
+    }
+  mbox_wr(MBOX_WRITE, request);
+
+  uint32 response = 0;
+  uint32 last_response = 0;
+  for(;;){
+    while(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)
+      if(r_cntvct_el0() >= limit){
+        printf("sd: mailbox read timeout status=%x pa=%x bus=%x last=%x\n",
+               mbox_rd(MBOX_STATUS), pa, bus, last_response);
+        return 0;
+      }
+    response = mbox_rd(MBOX_READ);
+    last_response = response;
+    // There is only one outstanding property request.  Some Pi firmware
+    // revisions return a different RAM alias (PA/0x40000000/0xc0000000), so
+    // matching the channel plus the response-buffer status is sufficient.
+    if((response & 0xfU) == MBOX_PROP_CH)
+      break;
+  }
+
+  cache_invalidate(m);
+  if(m[1] != 0x80000000U || (m[4] & 0x80000000U) == 0 || m[6] == 0){
+    printf("sd: mailbox bad response raw=%x code=%x taglen=%x id=%d rate=%d\n",
+           response, m[1], m[4], m[5], m[6]);
+    return 0;
+  }
+  printf("sd: firmware EMMC clock=%d Hz\n", m[6]);
+  return m[6];
 }
 
 static void
@@ -165,7 +266,20 @@ set_clock(uint32 target)
 {
   uint32 cap0 = rd(EMMC_CAP0);
   uint32 base_mhz = (cap0 >> 8) & 0xff;
-  uint32 base = base_mhz ? base_mhz * 1000000U : 100000000U;
+  // Prefer the firmware value on both QEMU and hardware.  Besides being the
+  // authoritative Pi clock source, this keeps the mailbox path testable in
+  // QEMU instead of silently bypassing it when CAP0 happens to be populated.
+  uint32 base = firmware_emmc_clock();
+  if(base == 0 && base_mhz)
+    base = base_mhz * 1000000U;
+  if(base == 0){
+    // On the Pi 3 firmware/armstub combination used by the real board the
+    // property mailbox does not reply and CAP0 reports zero.  The firmware
+    // runs the Arasan EMMC base clock at 250 MHz; use that known platform
+    // value instead of the old, incorrect 100 MHz guess.
+    base = 250000000U;
+    printf("sd: no firmware/CAP0 clock; using Pi3 EMMC base=%d Hz\n", base);
+  }
 
   if(wait_mask(EMMC_STATUS, SR_CMD_INHIBIT | SR_DAT_INHIBIT, 0, 1000000) < 0){
     printf("sd: clock inhibit target=%d status=%x control1=%x\n",
@@ -200,7 +314,9 @@ wait_interrupt(uint32 wanted, uint32 timeout_us)
   do {
     uint32 irq = rd(EMMC_INTERRUPT);
     if(irq & (INT_ERROR | INT_ERROR_MASK)){
-      wr(EMMC_INTERRUPT, irq);
+      // Preserve the error bits until the caller prints the complete host
+      // state. The next command normally clears all interrupts, but a failed
+      // xv6 block operation panics first.
       return -1;
     }
     if(irq & wanted){
@@ -243,14 +359,17 @@ static int
 transfer_sector(uint32 sector, uchar *data, int write)
 {
   uint32 arg = sd_sdhc ? sector : sector * SD_SECTOR_SIZE;
+  sd_io_phase = 1; // command
   wr(EMMC_BLKSIZECNT, SD_SECTOR_SIZE | (1U << 16));
   if(send_command(write ? CMD24 : CMD17, arg, 0) < 0)
     return -1;
 
+  sd_io_phase = 2; // buffer-ready interrupt
   uint32 ready = write ? INT_WRITE_RDY : INT_READ_RDY;
   if(wait_interrupt(ready, 1000000) < 0)
     return -1;
 
+  sd_io_phase = 3; // PIO FIFO
   uint32 *words = (uint32 *)data;
   for(int i = 0; i < SD_SECTOR_SIZE / 4; i++){
     if(write){
@@ -264,8 +383,10 @@ transfer_sector(uint32 sector, uchar *data, int write)
     }
   }
 
+  sd_io_phase = 4; // transfer-complete interrupt
   if(wait_interrupt(INT_DATA_DONE, 1000000) < 0)
     return -1;
+  sd_io_phase = 0;
   return 0;
 }
 
@@ -338,6 +459,11 @@ sdsector(uint32 sector, void *buffer, int write)
 
   acquire(&sdlock);
   int result = transfer_sector(sector, (uchar *)buffer, write);
+  if(result < 0){
+    printf("sd: I/O failure lba=%d write=%d phase=%d status=%x irq=%x control1=%x\n",
+           sector, write, sd_io_phase, rd(EMMC_STATUS),
+           rd(EMMC_INTERRUPT), rd(EMMC_CONTROL1));
+  }
   release(&sdlock);
   return result;
 }

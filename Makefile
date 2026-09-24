@@ -100,16 +100,16 @@ $K/armstub-xv6.bin: $K/armstub.elf
 	$(OBJCOPY) -O binary $< $@
 
 .PHONY: install-rpi3
-install-rpi3: $K/kernel8.img $K/armstub-xv6.bin
+install-rpi3: $K/kernel8.img config.txt
 	@test -d "$(RPI3_BOOTFS)" || { \
 		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
 		exit 1; \
 	}
 	cp $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
-	cp $K/armstub-xv6.bin "$(RPI3_BOOTFS)/$(RPI3_ARMSTUB_NAME)"
+	cp config.txt "$(RPI3_BOOTFS)/config.txt"
 	sync
 	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
-	@echo "installed $K/armstub-xv6.bin -> $(RPI3_BOOTFS)/$(RPI3_ARMSTUB_NAME)"
+	@echo "installed config.txt -> $(RPI3_BOOTFS)/config.txt (firmware armstub8)"
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o

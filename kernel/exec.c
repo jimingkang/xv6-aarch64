@@ -115,6 +115,7 @@ exec(char *path, char **argv)
   p->trapframe->elr = elf.entry;  // initial program counter = main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
+  uvmsync_icache(pagetable, sz);
   switchuvm(p);
   // uvmdump(p->pagetable, p->pid, p->name, "exec-image");
   uvmfree(oldpagetable, oldsz);

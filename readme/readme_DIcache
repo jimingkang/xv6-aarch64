@@ -1,0 +1,376 @@
+# AArch64 ELF 加载后的 D-cache / I-cache 一致性问题
+
+本文记录 xv6-aarch64 在 Raspberry Pi 3 真机上执行 `ls` 时发生用户态异常的定位和修复过程。
+
+这个问题出现在普通 RAM 改为 Write-Back Cacheable、并开启 `SCTLR_EL1.C` 和 `SCTLR_EL1.I` 之后。QEMU 中通常不能复现，但 Cortex-A53 真机会暴露出来。
+
+## 1. 故障现象
+
+内核可以从 SD 卡启动，能够解析 FAT32 中的 `FS.IMG` 并进入 shell：
+
+```text
+init: starting sh
+$ ls
+usertrap(): unexpected ec 0x0000000000000000 pid=3
+            elr=0x00000000000013dc far=0x0000000000013f48
+```
+
+最初的 `ec=0` 是错误诊断，并不是真实的异常类型。
+
+## 2. 为什么最初总是打印 EC=0
+
+原来的 `usertrap()` 先读取 Exception Class，然后清除 `ESR_EL1`：
+
+```c
+uint64 ec = (r_esr_el1() >> 26) & 0x3f;
+w_esr_el1(0);
+```
+
+但错误分支打印时又重新读取已经清零的寄存器：
+
+```c
+printf("usertrap(): unexpected ec %p pid=%d\n",
+       r_esr_el1(), p->pid);
+```
+
+因此不管真实异常是什么，日志中都会显示 0。
+
+修正方式是在清除寄存器前保存完整 ESR：
+
+```c
+uint64 esr = r_esr_el1();
+uint64 ec = (esr >> 26) & 0x3f;
+w_esr_el1(0);
+
+printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n",
+       esr, ec, p->pid);
+```
+
+修改位置：
+
+```text
+kernel/trap.c
+```
+
+## 3. 得到的真实异常
+
+修正诊断后，真机输出：
+
+```text
+usertrap(): unexpected esr=0x0000000092000047
+            ec=0x0000000000000024 pid=3
+            elr=0x00000000000013dc
+            far=0x0000000000013f48
+```
+
+### 3.1 ESR_EL1 解码
+
+```text
+ESR_EL1 = 0x92000047
+EC      = ESR[31:26] = 0x24
+ISS     = ESR[24:0]  = 0x47
+```
+
+`EC=0x24` 表示：
+
+```text
+Data Abort taken from a lower Exception Level
+```
+
+也就是 EL0 用户程序发生数据访问异常。
+
+ISS 中：
+
+```text
+WnR  = bit 6 = 1       写访问
+DFSC = bits[5:0] = 7   Translation fault, level 3
+```
+
+因此表面故障是：用户程序在执行地址 `0x13dc` 时，试图写用户虚拟地址 `0x13f48`，但该地址没有有效的 L3 页表映射。
+
+## 4. ELR 暴露出的真正线索
+
+检查 SD 镜像中打包的 `ls` ELF，可以看到其实际可执行代码大约只到：
+
+```text
+0x0bd7
+```
+
+但异常 PC 是：
+
+```text
+ELR_EL1 = 0x13dc
+```
+
+因此问题并不是 `ls` 正常执行到某条访问越界的指令，而是 CPU 执行了这个虚拟地址上以前残留的旧指令流。
+
+这与 `exec()` 复用用户虚拟地址的行为一致：
+
+```text
+sh 使用低虚拟地址 0x0000...
+        |
+        | exec("ls")
+        v
+ls 继续使用相同低虚拟地址 0x0000...
+```
+
+物理页面发生了变化，虚拟地址却相同。如果加载 ELF 后没有正确同步 D-cache 和 I-cache，处理器可能继续执行旧程序留下的指令缓存内容。
+
+## 5. ELF 是怎样写入用户页面的
+
+`exec()` 调用 `loadseg()`，再由 `readi()` 把 ELF 内容写入用户物理页。
+
+内核并不是通过用户低地址写入，而是使用物理页面的高地址 direct-map：
+
+```text
+用户虚拟地址                 物理地址
+0x0000000000000000 --------> 0x06f97000
+
+内核 direct-map 地址          同一物理地址
+0xffffff8006f97000 --------> 0x06f97000
+```
+
+写入路径是：
+
+```text
+SD 卡
+  |
+  v
+文件系统 / readi()
+  |
+  v
+内核高地址普通 store
+  |
+  v
+D-cache 中出现新的 ELF 指令
+```
+
+随后用户从低地址取指：
+
+```text
+EL0 PC 0x0000000000000000
+  |
+  v
+I-cache
+```
+
+AArch64 不保证通过数据访问写入的新指令会自动对指令取指可见。
+
+## 6. 为什么既要处理 D-cache，也要处理 I-cache
+
+### 6.1 清理 D-cache
+
+新 ELF 指令最初可能只存在于 D-cache。必须把它清理到 PoU（Point of Unification）：
+
+```asm
+dc cvau, kernel_high_va
+```
+
+这里使用内核高地址是合理的，因为 ELF 正是通过这个 VA 写入的。
+
+所有相关 cache line 清理完后执行：
+
+```asm
+dsb ish
+```
+
+确保新的指令字节已经到达 PoU，才能继续处理 I-cache。
+
+### 6.2 失效 I-cache
+
+旧指令仍可能存在于 I-cache，必须使其失效。之后用户重新取指时，才会从 PoU 得到新 ELF 内容。
+
+正确的逻辑顺序是：
+
+```text
+D-cache clean to PoU
+        |
+        v
+DSB
+        |
+        v
+I-cache invalidate
+        |
+        v
+DSB + ISB
+```
+
+## 7. 第一版修复为什么仍然失败
+
+第一版实现对每个用户物理页的内核 direct-map 地址执行：
+
+```asm
+dc cvau, kernel_high_va
+ic ivau, kernel_high_va
+```
+
+`IC IVAU` 的含义是：
+
+```text
+Instruction Cache Invalidate by Virtual Address to PoU
+```
+
+问题是同一物理页存在两个虚拟地址 alias：
+
+```text
+0xffffff8006f97000 --+
+                     +--> PA 0x06f97000
+0x0000000000000000 --+
+```
+
+`IC IVAU` 使用的是内核高地址，而用户随后通过低地址执行。操作系统不能假定按高地址维护 I-cache 一定覆盖低地址 alias 对应的缓存身份。
+
+需要强调：这不是硬件中存在一套“内核 I-cache”和另一套“用户 I-cache”。内核与用户共享 CPU 核心的 I-cache；但缓存的索引、标记以及按 VA 维护的操作可能受到不同虚拟地址 alias 的影响。
+
+## 8. 最终修复：DC CVAU + IC IALLU
+
+当前 xv6 采用简单而稳妥的策略：
+
+1. 对每个用户页面的内核 direct-map 地址执行 `DC CVAU`；
+2. 执行 `DSB ISH`；
+3. 使用 `IC IALLU` 使当前 CPU 的全部指令缓存失效；
+4. 执行 `DSB ISH` 和 `ISB`。
+
+核心代码位于 `kernel/vm.c`：
+
+```c
+void
+uvmsync_icache(pagetable_t pagetable, uint64 sz)
+{
+  for(uint64 va = 0; va < PGROUNDUP(sz); va += PGSIZE){
+    uint64 kva = uva2ka(pagetable, va);
+    if(kva == 0)
+      continue;
+
+    for(uint64 p = kva; p < kva + PGSIZE; p += 64)
+      asm volatile("dc cvau, %0" :: "r"(p) : "memory");
+  }
+
+  asm volatile("dsb ish" ::: "memory");
+  asm volatile("ic iallu\n\tdsb ish\n\tisb" ::: "memory");
+}
+```
+
+汇编顺序可以概括为：
+
+```asm
+// 对每条被写过的用户物理页 cache line
+dc cvau, kernel_direct_map_va
+...
+dsb ish
+
+// 不依赖高/低 VA alias
+ic iallu
+dsb ish
+isb
+```
+
+`IC IALLU` 的代价比精确的 `IC IVAU` 大，但 xv6 规模很小，每次 `exec()` 清空当前核心的 I-cache 可以换取更简单可靠的正确性。
+
+## 9. 调用位置
+
+缓存同步不只用于普通 `exec()`。
+
+当前在以下路径调用 `uvmsync_icache()`：
+
+### 9.1 exec
+
+在 ELF 段和用户栈全部写入后、切换用户页表之前：
+
+```c
+p->trapframe->sp = sp;
+uvmsync_icache(pagetable, sz);
+switchuvm(p);
+```
+
+位置：
+
+```text
+kernel/exec.c
+```
+
+### 9.2 初始 initcode
+
+`uvminit()` 把内置的 initcode 复制到第一个用户页面后同步缓存：
+
+```c
+memmove(mem, src, sz);
+uvmsync_icache(pagetable, sz);
+```
+
+### 9.3 fork
+
+`uvmcopy()` 把父进程的页面复制到新物理页后同步新地址空间：
+
+```c
+uvmsync_icache(new, sz);
+```
+
+这避免子进程的新物理页面复用以前执行过的页面时命中旧 I-cache 内容。
+
+## 10. 为什么 QEMU 没有暴露问题
+
+QEMU 经常表现得比真实硬件更强一致：
+
+- 数据写入后，翻译后的代码缓存可能自动失效；
+- 模拟器可能没有精确模拟 Cortex-A53 的全部 cache maintenance 要求；
+- host JIT/TB 管理行为不能等同于真实 ARM I-cache。
+
+因此：
+
+```text
+QEMU 可以执行新 ELF
+```
+
+并不能证明真机上可以省略 `DC CVAU / IC IVAU(or IALLU) / DSB / ISB`。
+
+## 11. 修复验证
+
+修复前：
+
+```text
+$ ls
+usertrap(): unexpected esr=0x92000047 ec=0x24 pid=3
+            elr=0x13dc far=0x13f48
+```
+
+改用 `IC IALLU` 后，执行流不再以该 Data Abort 结束，而是继续进入 `ls` 的文件系统读取路径。
+
+之后出现的：
+
+```text
+panic: fat32: read FS.IMG
+```
+
+是独立的 SDHCI 运行期 I/O 失败，说明 `ls` 已经成功执行并发起系统调用；它不再属于 ELF 指令缓存一致性问题。
+
+## 12. 总结
+
+这次问题的完整因果链为：
+
+```text
+开启 Normal Write-Back Cacheable RAM 和 I-cache
+                |
+                v
+exec 通过内核高 VA 写入新 ELF
+                |
+                v
+新指令留在 D-cache，旧用户指令留在 I-cache
+                |
+                v
+仅按内核高 VA 执行 IC IVAU，未可靠覆盖用户低 VA alias
+                |
+                v
+EL0 执行旧指令流，PC 跳到不属于当前 ls 的 0x13dc
+                |
+                v
+旧指令写未映射地址 0x13f48，引发 Level-3 Data Abort
+                |
+                v
+DC CVAU + DSB + IC IALLU + DSB + ISB
+                |
+                v
+用户态执行新的 ELF 指令
+```
+
+在 AArch64 操作系统中，只刷新 TLB 或切换 TTBR 并不能替代指令缓存同步。修改即将执行的内存后，必须遵守体系结构规定的 D-cache clean、barrier、I-cache invalidate 和 ISB 顺序。

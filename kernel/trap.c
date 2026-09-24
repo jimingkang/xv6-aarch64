@@ -80,7 +80,8 @@ usertrap(void)
 {
   struct proc *p = myproc();
 
-  uint64 ec = (r_esr_el1() >> 26) & 0x3f;
+  uint64 esr = r_esr_el1();
+  uint64 ec = (esr >> 26) & 0x3f;
   w_esr_el1(0);
   if(ec == 21){
     // system call
@@ -92,7 +93,7 @@ usertrap(void)
 
     syscall();
   } else {
-    printf("usertrap(): unexpected ec %p pid=%d\n", r_esr_el1(), p->pid);
+    printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
     p->killed = 1;
   }

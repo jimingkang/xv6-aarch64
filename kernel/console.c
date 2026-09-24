@@ -37,6 +37,10 @@ consputc(int c)
     // if the user typed backspace, overwrite with a space.
     uartputc_sync('\b'); uartputc_sync(' '); uartputc_sync('\b');
   } else {
+    // A serial terminal needs CR-LF to return to column zero.  Sending only
+    // LF makes successive diagnostic lines walk to the right until they wrap.
+    if(c == '\n')
+      uartputc_sync('\r');
     uartputc_sync(c);
   }
 }
@@ -64,6 +68,8 @@ consolewrite(int user_src, uint64 src, int n)
     char c;
     if(either_copyin(&c, user_src, src+i, 1) == -1)
       break;
+    if(c == '\n')
+      uartputc('\r');
     uartputc(c);
   }
 

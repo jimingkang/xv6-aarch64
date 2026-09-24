@@ -271,6 +271,26 @@ uva2ka(pagetable_t pagetable, uint64 va)
   return (uint64)P2V(pa);
 }
 
+// Make instructions written through the kernel's high direct mapping visible
+// through the low EL0 mapping. AArch64 does not guarantee D/I coherence after
+// loading executable bytes. Clean the data by its kernel VA, then invalidate
+// the complete local I-cache: IC IVAU with the high kernel VA is insufficient
+// for the low user-VA alias on implementations with a virtually indexed
+// instruction cache.
+void
+uvmsync_icache(pagetable_t pagetable, uint64 sz)
+{
+  for(uint64 va = 0; va < PGROUNDUP(sz); va += PGSIZE){
+    uint64 kva = uva2ka(pagetable, va);
+    if(kva == 0)
+      continue;
+    for(uint64 p = kva; p < kva + PGSIZE; p += 64)
+      asm volatile("dc cvau, %0" :: "r"(p) : "memory");
+  }
+  asm volatile("dsb ish" ::: "memory");
+  asm volatile("ic iallu\n\tdsb ish\n\tisb" ::: "memory");
+}
+
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
@@ -363,6 +383,7 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
   memset(mem, 0, PGSIZE);
   mappages(pagetable, 0, PGSIZE, V2P(mem), PTE_NORMAL|PTE_U);
   memmove(mem, src, sz);
+  uvmsync_icache(pagetable, sz);
 }
 
 // Allocate PTEs and physical memory to grow process from oldsz to
@@ -489,6 +510,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       goto err;
     }
   }
+  uvmsync_icache(new, sz);
   return 0;
 
  err:
