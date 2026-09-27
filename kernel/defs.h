@@ -126,6 +126,19 @@ int             ksync_reset(int);
 int             ksync_atomic(int, int, int, int);
 int             ksync_destroy(int);
 
+// net.c
+void            netinit(void);
+int             net_udp_bind(int);
+int             net_udp_unbind(int);
+int             net_udp_send(uint32, int, int, uint64, int);
+int             net_udp_recv(int, uint64, uint64, uint64, int);
+void            net_rx(void*, int);
+void            net_set_xmit(int (*)(void*, int));
+
+// usbnet.c
+void            usbnetinit(void);
+void            usbnetpoll(void);
+
 // swtch.S
 void            swtch(struct context*, struct context*);
 

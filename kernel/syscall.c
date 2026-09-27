@@ -113,6 +113,10 @@ extern uint64 sys_sync_signal(void);
 extern uint64 sys_sync_reset(void);
 extern uint64 sys_sync_atomic(void);
 extern uint64 sys_sync_destroy(void);
+extern uint64 sys_udp_bind(void);
+extern uint64 sys_udp_unbind(void);
+extern uint64 sys_udp_send(void);
+extern uint64 sys_udp_recv(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -145,6 +149,10 @@ static uint64 (*syscalls[])(void) = {
 [SYS_sync_reset]  sys_sync_reset,
 [SYS_sync_atomic] sys_sync_atomic,
 [SYS_sync_destroy] sys_sync_destroy,
+[SYS_udp_bind]     sys_udp_bind,
+[SYS_udp_unbind]   sys_udp_unbind,
+[SYS_udp_send]     sys_udp_send,
+[SYS_udp_recv]     sys_udp_recv,
 };
 
 void

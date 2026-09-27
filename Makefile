@@ -29,6 +29,9 @@ OBJS = \
   $K/log.o \
   $K/sleeplock.o \
   $K/sync.o \
+  $K/net.o \
+  $K/sysnet.o \
+  $K/usbnet.o \
   $K/file.o \
   $K/pipe.o \
   $K/exec.o \
@@ -174,6 +177,8 @@ UPROGS=\
 	$U/_ps\
 	$U/_syncdemo\
 	$U/_prodcons\
+	$U/_nettest\
+	$U/_netdns\
 	$U/_ext2ls\
 	$U/_ext2cat\
 	$U/_tcc\
@@ -219,8 +224,19 @@ QEMUOPTS = -machine raspi3b -kernel $K/kernel8.img -display none
 QEMUOPTS += -serial null -serial mon:stdio
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
 
+# QEMU user-mode NAT uses the host's active route (Wi-Fi on a MacBook) without
+# requiring a tap device or root. raspi3b exposes the NIC as a USB CDC/RNDIS
+# adapter; the guest still needs a DWC2 USB host + USB Ethernet driver.
+QEMUNETOPTS = -netdev user,id=net0,ipv4=on,ipv6=off,net=10.0.2.0/24
+QEMUNETOPTS += -device usb-net,netdev=net0,mac=52:54:00:12:34:56
+QEMUNETOPTS += -object filter-dump,id=netdump,netdev=net0,file=packets.pcap
+
 qemu: $K/kernel8.img fs.img
 	$(QEMU) $(QEMUOPTS)
+
+.PHONY: qemu-net
+qemu-net: $K/kernel8.img fs.img
+	$(QEMU) $(QEMUOPTS) $(QEMUNETOPTS)
 
 .gdbinit: .gdbinit.tmpl-aarch64
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@

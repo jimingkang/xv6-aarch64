@@ -45,3 +45,7 @@ entry("sync_signal");
 entry("sync_reset");
 entry("sync_atomic");
 entry("sync_destroy");
+entry("udp_bind");
+entry("udp_unbind");
+entry("udp_send");
+entry("udp_recv");

@@ -33,6 +33,10 @@ int sync_signal(int, int);
 int sync_reset(int);
 int sync_atomic(int, int, int, int);
 int sync_destroy(int);
+int udp_bind(int);
+int udp_unbind(int);
+int udp_send(uint32, int, int, const void*, int);
+int udp_recv(int, uint32*, uint16*, void*, int);
 
 // ulib.c
 int stat(const char*, struct stat*);

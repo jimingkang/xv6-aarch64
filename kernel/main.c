@@ -33,6 +33,8 @@ main()
     printf("\n");
     procinit();      // process table
     syncinit();      // process synchronization objects
+    netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
+    usbnetinit();    // DWC2 + QEMU USB CDC Ethernet (optional)
     trapinit();      // trap vectors
     trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller

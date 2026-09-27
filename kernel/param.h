@@ -12,3 +12,5 @@
 #define FSSIZE       1000  // size of file system in blocks
 #define MAXPATH      128   // maximum file path name
 #define NSYNC         64   // maximum number of kernel synchronization objects
+#define NUDPPORT      16   // maximum number of bound UDP ports
+#define NUDPQUEUE     16   // datagrams queued per UDP port

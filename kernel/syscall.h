@@ -29,3 +29,7 @@
 #define SYS_sync_reset  28
 #define SYS_sync_atomic 29
 #define SYS_sync_destroy 30
+#define SYS_udp_bind     31
+#define SYS_udp_unbind   32
+#define SYS_udp_send     33
+#define SYS_udp_recv     34
