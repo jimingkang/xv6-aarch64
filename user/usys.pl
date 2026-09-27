@@ -49,3 +49,5 @@ entry("udp_bind");
 entry("udp_unbind");
 entry("udp_send");
 entry("udp_recv");
+entry("icmp_send");
+entry("icmp_recv");

@@ -27,6 +27,16 @@ struct udp_port {
 
 static struct udp_port ports[NUDPPORT];
 static struct spinlock porttable_lock;
+static struct {
+  struct spinlock lock;
+  int owner;
+  uint16 id;
+  int ready;
+  uint32 src;
+  uint16 seq;
+  uint16 len;
+  uchar data[ICMP_MAX_PAYLOAD];
+} pingq;
 static int (*netdev_xmit)(void*, int);
 static uint16 ip_id;
 static uchar local_mac[ETH_ADDR_LEN] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x56};
@@ -68,8 +78,69 @@ netinit(void)
 {
   int i;
   initlock(&porttable_lock, "udp ports");
+  initlock(&pingq.lock, "icmp reply");
   for(i = 0; i < NUDPPORT; i++)
     initlock(&ports[i].lock, "udp port");
+}
+
+static void
+icmp_rx(struct ethhdr *eth, struct iphdr *ip, int hlen, int iplen)
+{
+  struct icmphdr *icmp, *reply;
+  struct ethhdr *reth;
+  struct iphdr *rip;
+  uchar *packet;
+  int icmplen = iplen - hlen;
+  int framelen;
+
+  if(icmplen < (int)sizeof(*icmp))
+    return;
+  icmp = (struct icmphdr*)((uchar*)ip + hlen);
+  if(checksum(icmp, icmplen) != 0 || icmp->code != 0)
+    return;
+
+  if(icmp->type == ICMP_ECHO_REPLY){
+    acquire(&pingq.lock);
+    if(pingq.owner != 0 && pingq.id == swap16(icmp->id)){
+      int n = icmplen - sizeof(*icmp);
+      if(n > ICMP_MAX_PAYLOAD)
+        n = ICMP_MAX_PAYLOAD;
+      pingq.src = swap32(ip->src);
+      pingq.seq = swap16(icmp->seq);
+      pingq.len = n;
+      memmove(pingq.data, icmp + 1, n);
+      pingq.ready = 1;
+      wakeup(&pingq);
+    }
+    release(&pingq.lock);
+    return;
+  }
+
+  if(icmp->type != ICMP_ECHO_REQUEST || swap32(ip->dst) != NET_IP_LOCAL ||
+     netdev_xmit == 0)
+    return;
+  framelen = sizeof(*reth) + sizeof(*rip) + icmplen;
+  packet = kalloc();
+  if(packet == 0)
+    return;
+  reth = (struct ethhdr*)packet;
+  memmove(reth->dst, eth->src, ETH_ADDR_LEN);
+  memmove(reth->src, local_mac, ETH_ADDR_LEN);
+  reth->type = swap16(ETH_TYPE_IP);
+  rip = (struct iphdr*)(reth + 1);
+  memmove(rip, ip, hlen + icmplen);
+  rip->src = ip->dst;
+  rip->dst = ip->src;
+  rip->ttl = 64;
+  rip->id = swap16(++ip_id);
+  rip->sum = 0;
+  rip->sum = swap16(checksum(rip, hlen));
+  reply = (struct icmphdr*)((uchar*)rip + hlen);
+  reply->type = ICMP_ECHO_REPLY;
+  reply->sum = 0;
+  reply->sum = swap16(checksum(reply, icmplen));
+  netdev_xmit(packet, framelen);
+  kfree(packet);
 }
 
 void
@@ -242,7 +313,7 @@ net_rx(void *packet, int len)
     return;
   ip = (struct iphdr*)(eth + 1);
   hlen = (ip->vhl & 0xf) * 4;
-  if((ip->vhl >> 4) != 4 || hlen < 20 || ip->proto != IP_PROTO_UDP)
+  if((ip->vhl >> 4) != 4 || hlen < 20)
     return;
   iplen = swap16(ip->len);
   if(iplen < hlen + (int)sizeof(*udp) ||
@@ -250,12 +321,120 @@ net_rx(void *packet, int len)
     return;
   if(checksum(ip, hlen) != 0)
     return;
+  if(ip->proto == IP_PROTO_ICMP){
+    icmp_rx(eth, ip, hlen, iplen);
+    return;
+  }
+  if(ip->proto != IP_PROTO_UDP)
+    return;
   udp = (struct udphdr*)((uchar*)ip + hlen);
   udplen = swap16(udp->len);
   if(udplen < (int)sizeof(*udp) || udplen > iplen - hlen)
     return;
   udp_rx(swap32(ip->src), swap16(udp->sport), swap16(udp->dport),
          (uchar*)(udp + 1), udplen - sizeof(*udp));
+}
+
+int
+net_icmp_send(uint32 dst, int id, int seq, uint64 uaddr, int len)
+{
+  uchar *packet;
+  struct ethhdr *eth;
+  struct iphdr *ip;
+  struct icmphdr *icmp;
+  int framelen;
+
+  if(id < 0 || id > 65535 || seq < 0 || seq > 65535 ||
+     len < 0 || len > ICMP_MAX_PAYLOAD)
+    return -1;
+  framelen = sizeof(*eth) + sizeof(*ip) + sizeof(*icmp) + len;
+  packet = kalloc();
+  if(packet == 0)
+    return -1;
+  memset(packet, 0, framelen);
+  eth = (struct ethhdr*)packet;
+  memmove(eth->src, local_mac, ETH_ADDR_LEN);
+  memmove(eth->dst, dst == NET_IP_LOCAL ? local_mac : gateway_mac,
+          ETH_ADDR_LEN);
+  eth->type = swap16(ETH_TYPE_IP);
+  ip = (struct iphdr*)(eth + 1);
+  ip->vhl = 0x45;
+  ip->len = swap16(sizeof(*ip) + sizeof(*icmp) + len);
+  ip->id = swap16(++ip_id);
+  ip->ttl = 64;
+  ip->proto = IP_PROTO_ICMP;
+  ip->src = swap32(NET_IP_LOCAL);
+  ip->dst = swap32(dst);
+  ip->sum = swap16(checksum(ip, sizeof(*ip)));
+  icmp = (struct icmphdr*)(ip + 1);
+  icmp->type = ICMP_ECHO_REQUEST;
+  icmp->id = swap16(id);
+  icmp->seq = swap16(seq);
+  if(copyin(myproc()->pagetable, (char*)(icmp + 1), uaddr, len) < 0){
+    kfree(packet);
+    return -1;
+  }
+  icmp->sum = swap16(checksum(icmp, sizeof(*icmp) + len));
+
+  acquire(&pingq.lock);
+  if(pingq.owner != 0 && pingq.owner != myproc()->pid){
+    release(&pingq.lock);
+    kfree(packet);
+    return -1;
+  }
+  pingq.owner = myproc()->pid;
+  pingq.id = id;
+  pingq.ready = 0;
+  release(&pingq.lock);
+  if(netdev_xmit == 0 || netdev_xmit(packet, framelen) < 0){
+    acquire(&pingq.lock);
+    if(pingq.owner == myproc()->pid && pingq.id == id)
+      pingq.owner = 0;
+    release(&pingq.lock);
+    kfree(packet);
+    return -1;
+  }
+  kfree(packet);
+  return len;
+}
+
+int
+net_icmp_recv(int id, uint64 srcaddr, uint64 seqaddr, uint64 uaddr, int maxlen)
+{
+  uint32 src;
+  uint16 seq;
+  int n;
+
+  if(maxlen < 0)
+    return -1;
+  acquire(&pingq.lock);
+  if(pingq.owner != myproc()->pid || pingq.id != id){
+    release(&pingq.lock);
+    return -1;
+  }
+  while(!pingq.ready){
+    if(myproc()->killed){
+      pingq.owner = 0;
+      release(&pingq.lock);
+      return -1;
+    }
+    sleep(&pingq, &pingq.lock);
+  }
+  src = pingq.src;
+  seq = pingq.seq;
+  n = pingq.len < maxlen ? pingq.len : maxlen;
+  pingq.ready = 0;
+  pingq.owner = 0;
+  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&src,
+                         sizeof(src)) < 0) ||
+     (seqaddr && copyout(myproc()->pagetable, seqaddr, (char*)&seq,
+                         sizeof(seq)) < 0) ||
+     copyout(myproc()->pagetable, uaddr, (char*)pingq.data, n) < 0){
+    release(&pingq.lock);
+    return -1;
+  }
+  release(&pingq.lock);
+  return n;
 }
 
 int

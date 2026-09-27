@@ -66,9 +66,8 @@ void net_rx(void *packet, int len);
 未来网卡驱动初始化时调用 `net_set_xmit()` 注册发送函数；接收中断把完整 Ethernet frame
 交给 `net_rx()`。这样接入 LAN951x/USB 网卡时不需要修改 UDP/IP 层。
 
-当前已实现本机 UDP loopback 和收到 ARP request 后的 reply 生成；没有网卡驱动时，发往
-非本机地址的 `udp_send()` 返回 -1。尚未实现 ARP cache、IP fragmentation、ICMP、TCP、
-socket 文件描述符接口和动态网络配置。
+当前已实现 UDP loopback、ARP reply、ICMP Echo 和 DWC2 CDC-ECM 网卡。尚未实现通用
+ARP cache、IP fragmentation、TCP、socket 文件描述符接口和动态网络配置。
 
 ## 通过宿主机 Wi-Fi 的 QEMU NAT
 
@@ -98,8 +97,16 @@ xv6 10.0.2.15 -> QEMU gateway 10.0.2.2 -> macOS Wi-Fi -> Internet
 tcpdump -n -r packets.pcap
 ```
 
-注意：配置 QEMU backend 不等于客体已经有驱动。`raspi3b` 没有 PCI/virtio 总线，QEMU 的
-`virtio-net-device` 会报告 `No 'virtio-bus' bus found`；这里必须使用 USB NIC。当前内核
-尚缺 DWC2 USB Host 枚举和 CDC-ECM/RNDIS 驱动，所以此目标目前用于固定并验证虚拟硬件
-配置，`nettest` 仍然只验证 loopback。完成 USB 驱动并调用 `net_set_xmit()`/`net_rx()` 后，
-同一个 `qemu-net` 目标才会真正访问外网。
+`raspi3b` 没有 PCI/virtio 总线，QEMU 的 `virtio-net-device` 会报告
+`No 'virtio-bus' bus found`，所以这里使用 DWC2 USB Host 和 CDC-ECM NIC。`netdns` 验证
+UDP/DNS，`ping` 验证 DNS 解析和 ICMP Echo：
+
+```text
+$ ping 10.0.2.2
+$ ping google.com
+```
+
+内核提供 `icmp_send()` 和 `icmp_recv()` 两个简单 syscall。接收路径验证 IPv4 与 ICMP
+checksum，按 identifier 匹配 Echo Reply 并唤醒等待进程。`ping` 对域名先向 QEMU DNS
+`10.0.2.3` 查询 A 记录，然后连续发送四个 Echo Request。timer tick 为 100 ms，因此当前
+显示的 RTT 精度也是 100 ms。

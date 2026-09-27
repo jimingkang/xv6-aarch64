@@ -5,6 +5,7 @@
 #define ETH_TYPE_IP  0x0800
 #define ETH_TYPE_ARP 0x0806
 #define IP_PROTO_UDP 17
+#define IP_PROTO_ICMP 1
 #define ARP_HTYPE_ETH 1
 #define ARP_OP_REQUEST 1
 #define ARP_OP_REPLY   2
@@ -42,6 +43,18 @@ struct udphdr {
   uint16 len;
   uint16 sum;
 } __attribute__((packed));
+
+struct icmphdr {
+  uint8 type;
+  uint8 code;
+  uint16 sum;
+  uint16 id;
+  uint16 seq;
+} __attribute__((packed));
+
+#define ICMP_ECHO_REPLY   0
+#define ICMP_ECHO_REQUEST 8
+#define ICMP_MAX_PAYLOAD  (NET_MTU - 20 - 8)
 
 struct arphdr {
   uint16 htype;

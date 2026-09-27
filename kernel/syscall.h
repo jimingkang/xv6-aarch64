@@ -33,3 +33,5 @@
 #define SYS_udp_unbind   32
 #define SYS_udp_send     33
 #define SYS_udp_recv     34
+#define SYS_icmp_send    35
+#define SYS_icmp_recv    36

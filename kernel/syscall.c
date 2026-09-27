@@ -117,6 +117,8 @@ extern uint64 sys_udp_bind(void);
 extern uint64 sys_udp_unbind(void);
 extern uint64 sys_udp_send(void);
 extern uint64 sys_udp_recv(void);
+extern uint64 sys_icmp_send(void);
+extern uint64 sys_icmp_recv(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -153,6 +155,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_udp_unbind]   sys_udp_unbind,
 [SYS_udp_send]     sys_udp_send,
 [SYS_udp_recv]     sys_udp_recv,
+[SYS_icmp_send]    sys_icmp_send,
+[SYS_icmp_recv]    sys_icmp_recv,
 };
 
 void

@@ -132,6 +132,8 @@ int             net_udp_bind(int);
 int             net_udp_unbind(int);
 int             net_udp_send(uint32, int, int, uint64, int);
 int             net_udp_recv(int, uint64, uint64, uint64, int);
+int             net_icmp_send(uint32, int, int, uint64, int);
+int             net_icmp_recv(int, uint64, uint64, uint64, int);
 void            net_rx(void*, int);
 void            net_set_xmit(int (*)(void*, int));
 

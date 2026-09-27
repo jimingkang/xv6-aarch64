@@ -92,9 +92,11 @@ static int usb_address;
 static int ep0_mps = 8;
 static int bulk_in_toggle;
 static int bulk_out_toggle;
+static int rx_armed;
 static uchar setup_buf[64] __attribute__((aligned(64)));
 static uchar ctrl_buf[512] __attribute__((aligned(64)));
 static uchar rx_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
+static uchar rx_deliver_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
 static uchar tx_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
 
 static inline uint32
@@ -272,32 +274,76 @@ usbnet_xmit(void *packet, int len)
   return r;
 }
 
+static void
+arm_rx(void)
+{
+  uint32 hcchar;
+  int len = 1536;
+  int packets = (len + 63) / 64;
+
+  wr(HCINT(2), 0x3fff);
+  cache_invalidate_range(rx_buf, len);
+  wr(HCDMA(2), (uint32)V2P(rx_buf));
+  wr(HCTSIZ(2), HCTSIZ_XFERSIZE(len) | HCTSIZ_PKTCNT(packets) |
+                 HCTSIZ_PID(bulk_in_toggle ? PID_DATA1 : PID_DATA0));
+  hcchar = HCCHAR_DEVADDR(usb_address) | HCCHAR_EPNUM(2) |
+           HCCHAR_EPTYPE(EPTYPE_BULK) | HCCHAR_MPS(64) |
+           HCCHAR_EPDIR_IN;
+  wr(HCCHAR(2), hcchar | HCCHAR_CHENA);
+  rx_armed = 1;
+}
+
 void
 usbnetpoll(void)
 {
+  uint32 intr, left;
   int r, packets;
-  static int debug_polls;
+
   if(!usb_ready)
     return;
   // Avoid waiting behind a user sender from timer interrupt context.
   if(!holding(&usb_lock)){
     acquire(&usb_lock);
-    r = channel_xfer(2, usb_address, 2, 1, EPTYPE_BULK, 64,
-                     rx_buf, 1536,
-                     bulk_in_toggle ? PID_DATA1 : PID_DATA0, 2000);
-    if(debug_polls < 5){
-      printf("usbnet: rx poll=%d result=%d intr=%x size=%x\n",
-             debug_polls, r, rd(HCINT(2)), rd(HCTSIZ(2)));
-      debug_polls++;
+    if(!rx_armed){
+      arm_rx();
+      release(&usb_lock);
+      return;
     }
-    if(r > 0)
-      printf("usbnet: received Ethernet frame len=%d\n", r);
+
+    intr = rd(HCINT(2));
+    if(intr & HCINT_NAK)
+      wr(HCINT(2), HCINT_NAK);
+    if(intr & HCINT_ERRORS){
+      halt_channel(2);
+      wr(HCINT(2), intr);
+      rx_armed = 0;
+      arm_rx();
+      release(&usb_lock);
+      return;
+    }
+    if(!(intr & HCINT_XFERCOMPL)){
+      release(&usb_lock);
+      return;
+    }
+
+    left = rd(HCTSIZ(2)) & 0x7ffff;
+    r = left <= 1536 ? 1536 - left : -1;
+    wr(HCINT(2), intr);
+    rx_armed = 0;
+    cache_invalidate_range(rx_buf, 1536);
     if(r > 0){
       packets = (r + 63) / 64;
       if(packets & 1)
         bulk_in_toggle ^= 1;
-      net_rx(rx_buf, r);
+      memmove(rx_deliver_buf, rx_buf, r);
+      // net_rx() may answer ARP synchronously through usbnet_xmit().  Do not
+      // enter the network stack while holding the non-recursive USB lock.
+      release(&usb_lock);
+      net_rx(rx_deliver_buf, r);
+      acquire(&usb_lock);
     }
+    if(!rx_armed)
+      arm_rx();
     release(&usb_lock);
   }
 }
@@ -477,6 +523,7 @@ usbnetinit(void)
     return;
   }
   bulk_in_toggle = bulk_out_toggle = 0;
+  rx_armed = 0;
   usb_ready = 1;
   net_set_xmit(usbnet_xmit);
   printf("usbnet: CDC-ECM ready addr=%d cfg=%d vid=%x pid=%x\n",

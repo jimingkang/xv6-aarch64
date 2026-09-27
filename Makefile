@@ -179,6 +179,7 @@ UPROGS=\
 	$U/_prodcons\
 	$U/_nettest\
 	$U/_netdns\
+	$U/_ping\
 	$U/_ext2ls\
 	$U/_ext2cat\
 	$U/_tcc\
