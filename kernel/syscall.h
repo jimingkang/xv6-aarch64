@@ -20,3 +20,12 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_ps     22
+#define SYS_ext2read 23
+#define SYS_ext2readdir 24
+#define SYS_sync_create 25
+#define SYS_sync_wait   26
+#define SYS_sync_signal 27
+#define SYS_sync_reset  28
+#define SYS_sync_atomic 29
+#define SYS_sync_destroy 30

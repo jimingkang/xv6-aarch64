@@ -104,6 +104,15 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_ps(void);
+extern uint64 sys_ext2read(void);
+extern uint64 sys_ext2readdir(void);
+extern uint64 sys_sync_create(void);
+extern uint64 sys_sync_wait(void);
+extern uint64 sys_sync_signal(void);
+extern uint64 sys_sync_reset(void);
+extern uint64 sys_sync_atomic(void);
+extern uint64 sys_sync_destroy(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,6 +136,15 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_ps]      sys_ps,
+[SYS_ext2read] sys_ext2read,
+[SYS_ext2readdir] sys_ext2readdir,
+[SYS_sync_create] sys_sync_create,
+[SYS_sync_wait]   sys_sync_wait,
+[SYS_sync_signal] sys_sync_signal,
+[SYS_sync_reset]  sys_sync_reset,
+[SYS_sync_atomic] sys_sync_atomic,
+[SYS_sync_destroy] sys_sync_destroy,
 };
 
 void

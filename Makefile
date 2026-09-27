@@ -28,6 +28,7 @@ OBJS = \
   $K/fs.o \
   $K/log.o \
   $K/sleeplock.o \
+  $K/sync.o \
   $K/file.o \
   $K/pipe.o \
   $K/exec.o \
@@ -36,6 +37,7 @@ OBJS = \
   $K/timer.o \
   $K/sd.o \
   $K/fat32.o \
+  $K/ext2.o \
   $K/bcm2837.o \
 
 # Try to infer the correct TOOLPREFIX if not set
@@ -62,6 +64,7 @@ AS = $(TOOLPREFIX)gas
 LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
+AR = $(TOOLPREFIX)ar
 
 CFLAGS = -Wall -Werror -Os -g -fno-omit-frame-pointer -mcpu=cortex-a53+nofp
 CFLAGS += -Wno-error=infinite-recursion
@@ -123,7 +126,11 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+ULIB = $U/libc.a
+
+$U/libc.a: $(LIBC_OBJS)
+	$(AR) rcs $@ $^
 
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
@@ -139,7 +146,7 @@ $U/usys.o : $U/usys.S
 $U/_forktest: $U/forktest.o $(ULIB)
 	# forktest has less library code linked in - needs to be small
 	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $(ULIB)
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
 mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
@@ -161,6 +168,15 @@ UPROGS=\
 	$U/_ln\
 	$U/_ls\
 	$U/_mkdir\
+	$U/_touch\
+	$U/_file\
+	$U/_edit\
+	$U/_ps\
+	$U/_syncdemo\
+	$U/_prodcons\
+	$U/_ext2ls\
+	$U/_ext2cat\
+	$U/_tcc\
 	$U/_rm\
 	$U/_sh\
 	$U/_stressfs\
@@ -180,7 +196,7 @@ clean:
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img \
-	mkfs/mkfs .gdbinit \
+	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
 	$(UPROGS)
 

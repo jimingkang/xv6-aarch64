@@ -15,6 +15,40 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "ext2.h"
+
+uint64
+sys_ext2read(void)
+{
+  char path[MAXPATH];
+  uint64 dst, off;
+  int n, got;
+  void *page;
+  if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &dst) < 0 ||
+     argint(2, &n) < 0 || argaddr(3, &off) < 0 || n < 0 || n > PGSIZE)
+    return -1;
+  if((page = kalloc()) == 0) return -1;
+  got = ext2readfile(path, off, page, n);
+  if(got > 0 && copyout(myproc()->pagetable, dst, page, got) < 0) got = -1;
+  kfree(page);
+  return got;
+}
+
+uint64
+sys_ext2readdir(void)
+{
+  char path[MAXPATH];
+  int index, r;
+  uint64 dst;
+  struct ext2_user_dirent de;
+  if(argstr(0, path, MAXPATH) < 0 || argint(1, &index) < 0 ||
+     argaddr(2, &dst) < 0)
+    return -1;
+  r = ext2readdir(path, index, &de);
+  if(r > 0 && copyout(myproc()->pagetable, dst, (char*)&de, sizeof(de)) < 0)
+    return -1;
+  return r;
+}
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.

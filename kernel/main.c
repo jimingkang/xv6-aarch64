@@ -32,6 +32,7 @@ main()
     printf("xv6 kernel is booting\n");
     printf("\n");
     procinit();      // process table
+    syncinit();      // process synchronization objects
     trapinit();      // trap vectors
     trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller
@@ -42,6 +43,7 @@ main()
     fileinit();      // file table
     sdinit();         // BCM2837 SD/eMMC controller
     fat32init();      // locate FS.IMG in a FAT32 boot partition
+    ext2init();       // optional read-only Linux ext2 partition
     userinit();      // first user process
     // kvmdump();    // enable to show the final kernel page table before init/sh
     __sync_synchronize();

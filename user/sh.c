@@ -53,6 +53,53 @@ int fork1(void);  // Fork but panics on failure.
 void panic(char*);
 struct cmd *parsecmd(char*);
 
+// Maintain a logical absolute path for the pwd builtin.  xv6 has chdir() but
+// no getcwd() syscall, so normalize successful cd arguments in the shell.
+static void
+setcwd(char *cwd, char *path)
+{
+  char input[100], output[100];
+  int i = 0, n = 0;
+
+  if(path[0] != '/'){
+    while(cwd[i] && n < (int)sizeof(input)-1)
+      input[n++] = cwd[i++];
+    if(n > 1 && input[n-1] != '/' && n < (int)sizeof(input)-1)
+      input[n++] = '/';
+  }
+  for(i = 0; path[i] && n < (int)sizeof(input)-1; i++)
+    input[n++] = path[i];
+  input[n] = 0;
+
+  output[0] = '/';
+  n = 1;
+  i = 0;
+  while(input[i]){
+    while(input[i] == '/')
+      i++;
+    int start = i;
+    while(input[i] && input[i] != '/')
+      i++;
+    int len = i - start;
+    if(len == 0 || (len == 1 && input[start] == '.'))
+      continue;
+    if(len == 2 && input[start] == '.' && input[start+1] == '.'){
+      if(n > 1){
+        n--;
+        while(n > 1 && output[n-1] != '/')
+          n--;
+      }
+      continue;
+    }
+    if(n > 1 && output[n-1] != '/' && n < (int)sizeof(output)-1)
+      output[n++] = '/';
+    for(int j = 0; j < len && n < (int)sizeof(output)-1; j++)
+      output[n++] = input[start+j];
+  }
+  output[n] = 0;
+  strcpy(cwd, output);
+}
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -145,6 +192,7 @@ int
 main(void)
 {
   static char buf[100];
+  static char cwd[100] = "/";
   int fd;
 
   // Ensure that three file descriptors are open.
@@ -157,11 +205,19 @@ main(void)
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
-    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+    if(strcmp(buf, "pwd\n") == 0){
+      printf("%s\n", cwd);
+      continue;
+    }
+    if((buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ') ||
+       strcmp(buf, "cd\n") == 0){
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
-      if(chdir(buf+3) < 0)
-        fprintf(2, "cannot cd %s\n", buf+3);
+      char *path = buf[2] == 0 ? "/" : buf+3;
+      if(chdir(path) < 0)
+        fprintf(2, "cannot cd %s\n", path);
+      else
+        setcwd(cwd, path);
       continue;
     }
     if(fork1() == 0)

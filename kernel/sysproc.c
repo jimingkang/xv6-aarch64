@@ -95,3 +95,65 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_ps(void)
+{
+  procdump();
+  return 0;
+}
+
+uint64
+sys_sync_create(void)
+{
+  int type, initial;
+  if(argint(0, &type) < 0 || argint(1, &initial) < 0)
+    return -1;
+  return ksync_create(type, initial);
+}
+
+uint64
+sys_sync_wait(void)
+{
+  int handle;
+  if(argint(0, &handle) < 0)
+    return -1;
+  return ksync_wait(handle);
+}
+
+uint64
+sys_sync_signal(void)
+{
+  int handle, count;
+  if(argint(0, &handle) < 0 || argint(1, &count) < 0)
+    return -1;
+  return ksync_signal(handle, count);
+}
+
+uint64
+sys_sync_reset(void)
+{
+  int handle;
+  if(argint(0, &handle) < 0)
+    return -1;
+  return ksync_reset(handle);
+}
+
+uint64
+sys_sync_atomic(void)
+{
+  int handle, op, value, compare;
+  if(argint(0, &handle) < 0 || argint(1, &op) < 0 ||
+     argint(2, &value) < 0 || argint(3, &compare) < 0)
+    return -1;
+  return ksync_atomic(handle, op, value, compare);
+}
+
+uint64
+sys_sync_destroy(void)
+{
+  int handle;
+  if(argint(0, &handle) < 0)
+    return -1;
+  return ksync_destroy(handle);
+}

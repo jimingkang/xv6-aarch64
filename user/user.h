@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct ext2_user_dirent;
 
 // system calls
 int fork(void);
@@ -23,10 +24,23 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int ps(void);
+int ext2read(const char*, void*, int, uint64);
+int ext2readdir(const char*, int, struct ext2_user_dirent*);
+int sync_create(int, int);
+int sync_wait(int);
+int sync_signal(int, int);
+int sync_reset(int);
+int sync_atomic(int, int, int, int);
+int sync_destroy(int);
 
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);
+char* strncpy(char*, const char*, int);
+char* strcat(char*, const char*);
+int strncmp(const char*, const char*, uint);
+uint strnlen(const char*, uint);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);
 int strcmp(const char*, const char*);

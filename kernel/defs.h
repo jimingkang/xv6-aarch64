@@ -9,6 +9,7 @@ struct sleeplock;
 struct stat;
 struct superblock;
 struct trapframe;
+struct ext2_user_dirent;
 
 // bio.c
 void            binit(void);
@@ -67,6 +68,11 @@ int             sdsector(uint32, void*, int);
 void            fat32init(void);
 void            fat32rw(struct buf*, int);
 
+// ext2.c
+void            ext2init(void);
+int             ext2readfile(char*, uint64, void*, int);
+int             ext2readdir(char*, int, struct ext2_user_dirent*);
+
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
@@ -110,6 +116,15 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+
+// sync.c
+void            syncinit(void);
+int             ksync_create(int, int);
+int             ksync_wait(int);
+int             ksync_signal(int, int);
+int             ksync_reset(int);
+int             ksync_atomic(int, int, int, int);
+int             ksync_destroy(int);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

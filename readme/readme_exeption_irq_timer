@@ -1,0 +1,1108 @@
+# xv6-aarch64（Raspberry Pi 3）异常、中断与定时器初始化
+
+本文对应当前工程代码，而不是标准 xv6-riscv，也不是 QEMU `virt` 机器。当前目标是 Raspberry Pi 3 / BCM2837：外设中断使用 BCM2837 legacy interrupt controller，ARM Generic Timer 使用 BCM2837 ARM-local interrupt routing。
+
+> 注意：函数仍叫 `gicv3init()`、`gic_iar()` 等，但 RPi3 构建实际链接的是 `kernel/bcm2837.c`。这些名字只是为了保持 `trap.c` 的抽象接口；此处并没有初始化真正的 GICv3。仓库中的 `kernel/gicv3.c` 是另一套实现，目前不在 `OBJS` 中。
+
+## 1. 总体调用顺序
+
+启动主线如下：
+
+```text
+GPU firmware / armstub
+        |
+        v
+kernel/entry.S:_entry
+  - 只允许 CPU0 继续
+  - EL3/EL2 -> EL1h
+  - 启动期间屏蔽 D/A/I/F
+  - 建立临时页表、打开 MMU
+  - 建立内核栈
+        |
+        v
+kernel/start.c:start()
+        |
+        v
+kernel/main.c:main()
+  trapinit()          初始化 tickslock
+  trapinithart()      VBAR_EL1 = alltraps
+  gicv3init()         初始化 BCM2837 全局外设中断控制器
+  gicv3inithart()     把本 CPU 的虚拟定时器路由到 IRQ
+  timerinit()         设置 CNTV_TVAL_EL0，启用虚拟定时器
+  ...
+  scheduler()
+        |
+        v
+  intr_on()           第一次真正解除 CPU 的异常屏蔽
+```
+
+初始化顺序不能随意交换：
+
+1. 先安装异常向量，避免 IRQ 到来后没有入口。
+2. 再配置中断控制器和每核路由。
+3. 再启动 timer。
+4. 最后才在调度器中解除 DAIF 屏蔽。
+
+因此 `timerinit()` 执行时 timer 已经开始倒计时，但 IRQ 仍被 PSTATE.DAIF 屏蔽；进入 `scheduler()` 后才会被 CPU 接收。
+
+## 2. 启动时为什么先屏蔽中断
+
+`kernel/entry.S` 将高异常级统一降到 EL1h：
+
+```asm
+mov x0, #0x3c5
+msr spsr_el2, x0        // 或 spsr_el3
+...
+eret
+```
+
+`0x3c5` 的主要含义是：
+
+- 返回 EL1h，EL1 使用 `SP_EL1`；
+- D、A、I、F 都置位，暂时屏蔽 Debug、SError、IRQ、FIQ。
+
+EL2 路径还设置：
+
+```asm
+msr cntvoff_el2, xzr
+mov x0, #3
+msr cnthctl_el2, x0
+```
+
+这消除虚拟计数器偏移，并允许 EL1 使用通用计数器/定时器相关寄存器。随后内核使用的是虚拟定时器寄存器：
+
+```text
+CNTFRQ_EL0     计数器频率
+CNTVCT_EL0     当前虚拟计数值
+CNTV_TVAL_EL0  距离触发还剩多少 tick
+CNTV_CTL_EL0   enable/mask/status
+```
+
+此时还不能开中断，因为页表、内核栈、`VBAR_EL1` 和中断控制器都尚未准备完成。
+
+## 3. 异常向量表的安装
+
+`trapinit()` 只初始化系统时钟计数锁：
+
+```c
+initlock(&tickslock, "time");
+```
+
+真正安装向量表的是每 CPU 执行的 `trapinithart()`：
+
+```c
+w_vbar_el1((uint64)alltraps);
+```
+
+`alltraps` 位于 `kernel/trapasm.S`，使用 `.balign 0x800` 满足 AArch64 对 `VBAR_EL1` 的 2 KiB 对齐要求。AArch64 固定把向量表分为 16 个槽，每槽 0x80 字节：
+
+```text
+VBAR_EL1 + 0x000  当前 EL，使用 SP_EL0：sync
+         + 0x080  当前 EL，使用 SP_EL0：IRQ
+         + 0x100  当前 EL，使用 SP_EL0：FIQ
+         + 0x180  当前 EL，使用 SP_EL0：SError
+
+         + 0x200  当前 EL，使用 SP_ELx：sync -> el1sync
+         + 0x280  当前 EL，使用 SP_ELx：IRQ  -> el1irq
+         + 0x300  当前 EL，使用 SP_ELx：FIQ
+         + 0x380  当前 EL，使用 SP_ELx：SError
+
+         + 0x400  来自低 EL，AArch64：sync -> el0sync
+         + 0x480  来自低 EL，AArch64：IRQ  -> el0irq
+         + 0x500  来自低 EL，AArch64：FIQ
+         + 0x580  来自低 EL，AArch64：SError
+
+         + 0x600  来自低 EL，AArch32：sync
+         + 0x680  来自低 EL，AArch32：IRQ
+         + 0x700  来自低 EL，AArch32：FIQ
+         + 0x780  来自低 EL，AArch32：SError
+```
+
+本内核以 EL1h 运行，用户程序以 AArch64 EL0 运行，所以正常使用四个入口：
+
+```text
+el1sync  内核同步异常
+el1irq   内核执行期间收到 IRQ
+el0sync  用户同步异常，包括系统调用
+el0irq   用户执行期间收到 IRQ
+```
+
+其余槽目前都是 `b .`，一旦进入就会原地停住。这适合 bring-up，但正式内核应让这些槽保存现场并打印 ESR/FAR 后 panic，否则 FIQ/SError 看起来像“无输出死机”。
+
+## 4. 保存现场：EL1 和 EL0 的区别
+
+### 4.1 内核异常/IRQ
+
+`savereg` 在当前内核栈上分配 272 字节并保存：
+
+```text
+x0..x30
+ELR_EL1       异常返回地址
+SPSR_EL1      异常前 PSTATE
+异常发生前的内核 SP
+```
+
+随后：
+
+```asm
+mov x0, sp
+bl kerneltrap          // 同步异常
+```
+
+或：
+
+```asm
+mov x0, sp
+bl kernelirq           // IRQ
+```
+
+处理完由 `restorereg` 恢复现场，最后 `eret`。
+
+如果 IRQ 发生在某进程执行系统调用期间，使用的是该进程的内核栈；如果发生在 scheduler 中，使用的是 CPU 当前的调度器栈。
+
+### 4.2 用户异常/IRQ
+
+`usavereg` 除通用寄存器、`ELR_EL1`、`SPSR_EL1` 外，还保存：
+
+```text
+SP_EL0        用户栈指针
+```
+
+该 272 字节区域就是当前进程的 `struct trapframe` 布局。`usertrapret(tf)` 把 EL1 的 `sp` 切到 trapframe，然后 `urestorereg` 恢复用户寄存器、`ELR_EL1`、`SPSR_EL1`、`SP_EL0`，最后 `eret` 返回 EL0。
+
+```text
+用户运行
+   |
+   | exception/IRQ
+   v
+CPU 根据 VBAR_EL1 选择 el0sync/el0irq
+   |
+   v
+usavereg -> struct trapframe
+   |
+   v
+usertrap()/userirq()
+   |
+   v
+urestorereg -> eret -> 用户运行
+```
+
+## 5. 同步异常和系统调用
+
+EL0 同步异常进入 `usertrap()`：
+
+```c
+uint64 esr = r_esr_el1();
+uint64 ec = (esr >> 26) & 0x3f;
+```
+
+`ESR_EL1.EC` 是异常类型。本项目将 `ec == 21`（十六进制 `0x15`）识别为 AArch64 EL0 执行 `SVC`：
+
+```text
+user/usys.S
+  x7 = SYS_xxx
+  svc #0
+       |
+       v
+el0sync -> usertrap() -> syscall()
+       |
+       v
+根据 x7 查 syscalls[]
+参数来自 x0..x5
+返回值写回 trapframe->x0
+```
+
+硬件保存到 `ELR_EL1` 的地址已经是 `svc` 的下一条指令，所以这里不需要像某些架构那样手工给 PC 加 4。
+
+非系统调用的用户同步异常会打印：
+
+```text
+ESR_EL1 / EC
+ELR_EL1    出错指令地址
+FAR_EL1    数据或取指异常地址
+进程大小、SP、x0..x3
+用户页表
+```
+
+然后设置 `p->killed = 1` 并退出进程。
+
+EL1 同步异常进入 `kerneltrap()`。当前实现不尝试恢复，打印 ESR、EC、ISS、ELR、FAR 后直接 panic。
+
+## 6. BCM2837 中断控制器初始化
+
+RPi3 有两部分中断逻辑：
+
+```text
+BCM2837 legacy interrupt controller
+  - 管理 GPU/peripheral IRQ
+  - 本项目使用 AUX/Mini UART IRQ 29
+
+ARM-local peripherals
+  - 每核中断源和路由
+  - 本项目使用 virtual timer，对应 local source bit 3
+```
+
+物理地址来自 `memlayout.h`：
+
+```text
+PERIPHERAL_BASE_PA = 0x3f000000
+IRQ controller     = 0x3f00b000
+LOCAL_BASE_PA      = 0x40000000
+```
+
+最终页表把它们映射为内核高地址 MMIO，代码通过：
+
+```text
+IRQCTRL   = KERNBASE + 0x3f00b000
+LOCAL_BASE= KERNBASE + 0x40000000
+```
+
+访问。
+
+### 6.1 全局初始化
+
+`gicv3init()` 先关闭 legacy controller 中全部 IRQ，再只打开 AUX IRQ：
+
+```c
+irqwrite(DISABLE_IRQS_1, ~0U);
+irqwrite(DISABLE_IRQS_2, ~0U);
+irqwrite(DISABLE_BASIC_IRQS, ~0U);
+irqwrite(ENABLE_IRQS_1, 1U << UART0_IRQ);
+```
+
+这里 `UART0_IRQ == 29` 实际代表 BCM2837 AUX/Mini UART，不是 PL011 UART0。名称是移植历史遗留。
+
+Mini UART 自己还必须在 `uartinit()` 中打开 RX/TX 中断源；控制器允许和设备自身允许缺一不可：
+
+```text
+Mini UART MU_IER 位
+          AND
+legacy ENABLE_IRQS_1 bit 29
+          AND
+PSTATE.I == 0
+          => CPU 收到 IRQ
+```
+
+### 6.2 每核初始化
+
+`gicv3inithart()` 对当前 CPU 执行：
+
+```c
+localwrite(CORE_TIMER_CONTROL(cpu), CORE_VIRTUAL_TIMER);
+```
+
+即把 ARM virtual timer 信号路由为该核 IRQ。这个步骤必须每个 CPU 分别执行。
+
+当前 `entry.S` 把所有非 CPU0 核心停在 `wfe` 循环，因此实际只有 CPU0 工作；`main()` 中 secondary CPU 初始化分支是为以后 SMP 唤醒保留的，目前正常启动不会到达。
+
+## 7. Generic Timer 初始化
+
+`timerinit()` 的顺序：
+
+```c
+disable_timer();
+reload_timer();
+enable_timer();
+```
+
+### 7.1 disable
+
+修改 `CNTV_CTL_EL0`：
+
+```text
+ENABLE = 0
+IMASK  = 1
+```
+
+保证更新比较值时不会产生中间 IRQ。
+
+### 7.2 reload
+
+当前周期是 100 ms：
+
+```c
+uint64 interval = 100000; // microseconds
+uint64 interval_clk = interval * (CNTFRQ_EL0 / 1000000);
+w_cntv_tval_el0(interval_clk);
+```
+
+因此理论频率为：
+
+```text
+1 second / 100 ms = 10 Hz
+```
+
+`CNTV_TVAL_EL0` 是相对倒计时值。写入后，硬件按照 `CNTFRQ_EL0` 递减到触发条件。
+
+### 7.3 enable
+
+再次修改 `CNTV_CTL_EL0`：
+
+```text
+ENABLE = 1
+IMASK  = 0
+```
+
+这只打开 timer 自身。CPU 是否立刻响应仍取决于 local routing 和 DAIF.I。
+
+## 8. IRQ 完整处理路径
+
+定时器 IRQ：
+
+```text
+CNTV_TVAL 到期
+   |
+   v
+ARM local CORE_IRQ_SOURCE bit 3
+   |
+   v
+CPU IRQ exception
+   |
+   +-- 当时在 EL0 -> alltraps:el0irq -> userirq()
+   |
+   `-- 当时在 EL1 -> alltraps:el1irq -> kernelirq()
+                                      |
+                                      v
+                                  devintr()
+                                      |
+                                      v
+                       gic_iar() 读取 CORE_IRQ_SOURCE
+                                      |
+                                      v
+                            返回 TIMER0_IRQ(27)
+                                      |
+                 +--------------------+-------------------+
+                 |                                        |
+                 v                                        v
+          CPU0: clockintr()                          timerintr()
+          ticks++                                   disable
+          wakeup(&ticks)                            reload 100ms
+                                                    enable
+```
+
+Mini UART IRQ：
+
+```text
+Mini UART RX 有字符或 TX 可继续
+   |
+   v
+legacy IRQ_PENDING_1 bit 29
+   |
+   v
+gic_iar() -> UART0_IRQ(29)
+   |
+   v
+uartintr()
+  - uartgetc() 循环读取 RX，交给 consoleintr()
+  - uartstart() 继续发送软件队列
+  - 队列为空后关闭 TX-empty interrupt
+```
+
+BCM2837 没有 GIC 的 IAR/EOIR 握手机制，所以当前 `gic_eoi()` 是空函数。真正清除中断的方法是服务源设备：
+
+- timer：重写/重新装载 timer；
+- UART：读 RX FIFO、写 TX FIFO，并在不需要时关闭 TX IRQ。
+
+`1023` 在这套兼容接口里表示 spurious/no recognized interrupt。
+
+## 9. IRQ 触发调度
+
+`devintr()` 返回：
+
+```text
+0  未识别
+1  UART 等普通设备
+2  timer
+```
+
+无论 timer IRQ 打断用户还是内核，只要当前确实有 RUNNING 进程，就可能 `yield()`：
+
+```text
+el0irq -> userirq -> devintr == 2 -> yield
+el1irq -> kernelirq -> devintr == 2
+                          且 myproc()!=0、state==RUNNING -> yield
+```
+
+这构成抢占式时间片的基础。当前每次 timer IRQ 都可能让出 CPU，所以时间片约为 100 ms。
+
+只有 CPU0 执行 `clockintr()` 更新全局 `ticks`，避免 SMP 时每个 CPU 同时把时间推进一份；但每个 CPU 的 timer 都可以触发自己的调度。
+
+`sleep(&ticks, ...)` 的进程会在 `clockintr()` 调用 `wakeup(&ticks)` 后重新变为 RUNNABLE，因此 `sleep()`、`uptime()` 等系统调用依赖这条路径。
+
+## 10. DAIF、中断开关和自旋锁
+
+本项目：
+
+```c
+intr_on()  -> msr daifclr, #0xf
+intr_off() -> msr daifset, #0xf
+```
+
+它们实际同时清除/设置 D、A、I、F 四种 mask，不仅是 IRQ mask。
+
+`scheduler()` 每轮调用 `intr_on()`，这是正常运行阶段主要的开中断位置。自旋锁的 `acquire()` 使用 `push_off()`，进入临界区前关闭中断；`release()` 使用 `pop_off()`，只有嵌套计数归零且进入前本来允许中断时才恢复：
+
+```text
+acquire
+  push_off
+    保存原 intena
+    DAIF 全部 mask
+    noff++
+  获取锁
+
+release
+  释放锁
+  pop_off
+    noff--
+    noff==0 && intena -> intr_on
+```
+
+这样可以避免当前 CPU 持锁时被 IRQ 打断，而 IRQ handler 又尝试获取同一把锁造成自死锁。
+
+## 11. 初始化完成的必要条件
+
+要真正收到周期 timer IRQ，以下条件必须同时满足：
+
+```text
+[x] 已经处于 EL1h，并允许访问 timer system registers
+[x] VBAR_EL1 指向 2 KiB 对齐的 alltraps
+[x] CORE_TIMER_CONTROL(cpu) 打开 virtual timer 路由
+[x] CNTV_TVAL_EL0 已装载非零周期
+[x] CNTV_CTL_EL0.ENABLE=1
+[x] CNTV_CTL_EL0.IMASK=0
+[x] PSTATE.DAIF.I=0（scheduler 中 intr_on）
+[x] 当前内核栈有效，异常现场有空间保存
+```
+
+UART IRQ 还需要：
+
+```text
+[x] Mini UART 引脚、波特率和 FIFO 初始化完成
+[x] MU_IER 打开相应 RX/TX 源
+[x] legacy ENABLE_IRQS_1 bit 29 打开
+```
+
+## 12. 当前实现的限制和调试建议
+
+1. **名称容易误导**：`gicv3init()` 实际是 BCM2837 legacy/local controller wrapper。
+2. **只有 CPU0 真正运行**：secondary core 在 `entry.S` 永久 `wfe`，多核 timer 路径尚未实际启用。
+3. **FIQ/SError/错误向量只会死循环**：应逐步改成可打印诊断的公共 fatal vector。
+4. **timer 周期硬编码为 100 ms**：可以打印 `CNTFRQ_EL0` 和计算后的 `interval_clk` 验证真实频率。
+5. **`intr_on()` 同时解除 D/A/I/F**：更精确的实现通常只控制 IRQ 的 I bit，避免意外改变其他异常 mask。
+6. **未知 legacy pending 被当成 1023**：如果未来增加 SD IRQ 或其他外设 IRQ，需要扩展 `gic_iar()` 和 `devintr()`。
+7. **当前 SD 驱动主要轮询**：EMMC 状态寄存器中的 interrupt bits 不等于 CPU IRQ 路径已经接入。
+
+建议在不破坏时序的情况下加入这些调试输出：
+
+```text
+启动时：CurrentEL、VBAR_EL1、DAIF、CNTFRQ_EL0、CNTV_CTL_EL0
+timer IRQ：只打印前 5 次，显示 CNTVCT_EL0、ticks
+未知 IRQ：IRQ_PENDING_1/2、CORE_IRQ_SOURCE
+异常：ESR_EL1、ELR_EL1、FAR_EL1、SPSR_EL1
+```
+
+不要在高频 timer IRQ 中持续 `printf()`；串口输出速度远低于中断频率，会改变调度时序甚至形成新的锁问题。
+
+## 13. 代码索引
+
+```text
+kernel/entry.S       EL3/EL2 -> EL1h、启动时 DAIF、页表与栈
+kernel/main.c        trap/GIC/timer 初始化顺序
+kernel/trapasm.S     VBAR_EL1 向量表、寄存器保存恢复、eret
+kernel/trap.c        sync/IRQ 分流、系统调用、ticks、yield
+kernel/timer.c       ARM virtual generic timer
+kernel/bcm2837.c     BCM2837 legacy IRQ 与 ARM-local timer routing
+kernel/uart.c        Mini UART 中断源和 uartintr()
+kernel/aarch64.h     DAIF、VBAR、ESR、Generic Timer 寄存器封装
+kernel/memlayout.h   IRQ 号和 MMIO 地址
+kernel/spinlock.c    push_off/pop_off 与锁期间中断屏蔽
+kernel/proc.c        scheduler() 开中断、yield/sched、usertrapret
+```
+
+## 14. 与 raspberry-pi-os lesson06 的对比
+
+参考项目：`s-matyukevich/raspberry-pi-os/src/lesson06`。其中 `src/entry.S` 主要是异常向量和异常入口；它的早期启动、EL 切换和页表初始化实际位于 `src/boot.S`。
+
+### 14.1 总览
+
+| 项目 | lesson06 | 当前 xv6-aarch64 |
+|---|---|---|
+| 异常汇编代码 | 集中在 `entry.S` | 启动在 `entry.S`，异常入口在 `trapasm.S` |
+| 向量表 | `vectors`，`.align 11` | `alltraps`，`.balign 0x800` |
+| EL1t、FIQ、SError 等无效入口 | 保存现场、打印 ESR/ELR，再停机 | 多数入口直接 `b .` |
+| EL1h IRQ | `el1_irq -> handle_irq()` | `el1irq -> kernelirq()` |
+| EL0 IRQ | `el0_irq -> handle_irq()` | `el0irq -> userirq()` |
+| 用户同步异常 | SVC、data abort、invalid | SVC；其他异常打印后杀死进程 |
+| 系统调用号 | `w8` | `x7` |
+| IRQ mask 操作 | `daifclr/daifset #2`，只控制 IRQ | `#0xf`，同时控制 D/A/I/F |
+| timer 硬件 | BCM System Timer compare 1 | ARM Generic Virtual Timer |
+| timer 路由 | legacy IRQ controller pending bit 1 | ARM-local virtual timer bit 3 |
+| timer 周期 | 200000 us，约 5 Hz | 100000 us，约 10 Hz |
+| timer 重新装载 | 下一个绝对 compare 值 | 写相对 `CNTV_TVAL_EL0` |
+| timer 清除 | 写 `TIMER_CS_M1` | disable/reload/enable 清除条件 |
+| timer 用途 | `timer_tick()` 驱动教学调度器 | `ticks++`、`wakeup`、`yield` |
+| UART IRQ | lesson06 本阶段没有作为 IRQ 主线 | AUX/Mini UART IRQ 29 |
+| 开 IRQ 时机 | `kernel_main()` 初始化后立即 `enable_irq()` | `scheduler()` 循环中 `intr_on()` |
+| SMP | 非主核忙循环 | 非主核 `wfe`；当前同样只运行 CPU0 |
+
+### 14.2 向量表格式其实基本相同
+
+两边都遵守 AArch64 固定的 2 KiB 向量表格式：
+
+```text
+16 slots × 0x80 bytes = 0x800 bytes
+```
+
+lesson06：
+
+```asm
+.align 11
+vectors:
+    ventry sync_invalid_el1t
+    ventry irq_invalid_el1t
+    ...
+    ventry el1_irq
+    ...
+    ventry el0_sync
+    ventry el0_irq
+```
+
+其中 `ventry` 使用 `.align 7`，保证每个入口位于 128-byte 边界。
+
+当前 xv6：
+
+```asm
+.balign 0x800
+alltraps:
+    b .
+.balign 0x80
+    b .
+...
+.balign 0x80
+    b el1sync
+.balign 0x80
+    b el1irq
+...
+```
+
+布局没有本质区别，只是写法不同。lesson06 把所有非法入口接到 `handle_invalid_entry`，诊断能力更好；当前 xv6 的未实现入口直接死循环，代码更短但发生 FIQ/SError 时很难判断卡在哪里。
+
+### 14.3 保存现场高度相似
+
+lesson06 的 `kernel_entry` 与当前的 `savereg/usavereg` 都分配 272 字节：
+
+```text
+17 × 16 = 272 bytes
+```
+
+并保存：
+
+```text
+x0..x30
+异常前 SP
+ELR_EL1
+SPSR_EL1
+```
+
+两边对于来自 EL0 的异常都读取 `SP_EL0`；对于来自 EL1h 的异常，都用保存现场之前的内核 `sp` 作为原 SP。
+
+差别主要在组织方式：
+
+- lesson06 用带参数的 `kernel_entry el` / `kernel_exit el`，同一套宏处理 EL0 和 EL1；
+- 当前 xv6 分为 `savereg/restorereg` 与 `usavereg/urestorereg`；
+- 当前 xv6 的用户现场与每进程 `struct trapframe` 直接对应，并与 `fork/exec/scheduler` 生命周期结合得更紧。
+
+### 14.4 异常分流方式不同
+
+lesson06 在汇编中直接解析 `ESR_EL1.EC`：
+
+```text
+el0_sync
+  +-- SVC64      -> el0_svc
+  +-- DABT_LOW   -> do_mem_abort
+  `-- other      -> invalid handler
+```
+
+当前 xv6 先完整保存现场，再进入 C 函数 `usertrap()`，由 C 代码读取 ESR：
+
+```text
+el0sync
+  -> usavereg
+  -> usertrap
+       +-- EC 0x15 -> syscall
+       `-- other   -> 打印诊断、p->killed=1
+```
+
+lesson06 已经提供用户 data abort 的 `do_mem_abort()` 恢复入口，适合其教学内存管理；当前 xv6 没有用户缺页恢复逻辑，地址异常直接终止进程。
+
+### 14.5 系统调用 ABI 不同
+
+lesson06：
+
+```text
+syscall number = w8
+arguments      = x0...
+return         = x0
+```
+
+当前 xv6：
+
+```text
+syscall number = x7
+arguments      = x0..x5
+return         = trapframe->x0
+```
+
+因此不能直接把 lesson06 的用户态 `svc` wrapper 拷入当前 xv6；必须同步修改 `usys.S/usys.pl` 或 syscall dispatcher。
+
+两边都会在 syscall C 处理阶段允许 IRQ，并在恢复用户现场前关闭 IRQ。lesson06 在汇编的 `el0_svc` 内调用 `enable_irq/disable_irq`；当前 xv6 在 `usertrap()` 中调用 `intr_on/intr_off`。
+
+### 14.6 最大差异：使用了两种完全不同的 timer
+
+lesson06 使用 BCM System Timer：
+
+```text
+MMIO TIMER_CLO       当前低 32 位微秒计数
+MMIO TIMER_C1        compare channel 1
+MMIO TIMER_CS.M1     channel 1 match/ack
+legacy IRQ pending 1 bit 1
+```
+
+初始化：
+
+```c
+curVal = get32(TIMER_CLO);
+curVal += 200000;
+put32(TIMER_C1, curVal);
+```
+
+中断时：
+
+```c
+curVal += 200000;
+put32(TIMER_C1, curVal);
+put32(TIMER_CS, TIMER_CS_M1);
+timer_tick();
+```
+
+它以绝对 compare 时间工作。每次在上一个目标值上加 200000 us，因此长期周期相对稳定；但如果处理延迟超过一个周期，需要额外考虑追赶问题。
+
+当前 xv6 使用 ARM Generic Virtual Timer：
+
+```text
+CNTFRQ_EL0
+CNTVCT_EL0
+CNTV_TVAL_EL0
+CNTV_CTL_EL0
+ARM-local CORE_IRQ_SOURCE bit 3
+```
+
+初始化和中断后都调用：
+
+```c
+disable_timer();
+reload_timer();       // CNTV_TVAL = 100 ms 对应的 counter ticks
+enable_timer();
+```
+
+它以相对时间重新开始计时，所以实际下一次 IRQ 是“本次 handler 重新装载时刻 + 100 ms”。handler 延迟会累积到时钟漂移中。若要获得更稳定的系统时基，可以改用绝对 `CNTV_CVAL_EL0`，按固定 deadline 累加。
+
+### 14.7 中断控制器不同
+
+lesson06 只打开 BCM System Timer channel 1：
+
+```c
+put32(ENABLE_IRQS_1, SYSTEM_TIMER_IRQ_1);
+```
+
+`handle_irq()` 直接读取 `IRQ_PENDING_1`，只识别 bit 1。
+
+当前 xv6 同时处理两类来源：
+
+```text
+legacy IRQ_PENDING_1 bit 29 -> AUX/Mini UART
+ARM-local CORE_IRQ_SOURCE bit 3 -> Generic Virtual Timer
+```
+
+因此当前 `bcm2837.c:gic_iar()` 是一个软件兼容层：它把两套不同硬件控制器的状态合成为类似 GIC 的 IRQ number，供 `trap.c:devintr()` 使用。
+
+### 14.8 调度语义不同
+
+lesson06 的 timer handler 最后调用：
+
+```c
+timer_tick();
+```
+
+由它维护教学内核的时间片和调度状态。
+
+当前 xv6 把“系统时间”和“抢占”分开表达：
+
+```text
+devintr
+  -> CPU0: clockintr
+       ticks++
+       wakeup(&ticks)
+  -> timerintr
+       reload timer
+  -> 返回 which_dev == 2
+       userirq/kernelirq 调用 yield
+```
+
+这与 xv6 的进程状态、sleep/wakeup、自旋锁和 scheduler 约束结合得更完整，不能只用 lesson06 的 `handle_timer_irq()` 替换。
+
+### 14.9 启动健壮性不同
+
+lesson06 的 `boot.S`：
+
+- 假设从 EL3 启动，直接写 `SCR_EL3/SPSR_EL3/ELR_EL3`；
+- 非主核进入普通死循环；
+- 主要建立 TTBR1 高地址映射；
+- 启用 MMU 后直接跳到高地址 `kernel_main`。
+
+当前 `entry.S`：
+
+- 检查 `CurrentEL`，兼容 EL3、EL2 和已经处于 EL1 的入口；
+- 非主核用 `wfe` 等待，降低空转消耗；
+- 临时同时建立 TTBR0 恒等映射和 TTBR1 高地址映射；
+- 显式映射 Mini UART MMIO；
+- 处理真实固件、不同 armstub 和 QEMU 的入口差异。
+
+所以当前启动代码比 lesson06 更复杂，主要原因不是异常机制不同，而是需要兼容更多启动环境以及 xv6 的完整虚拟内存切换。
+
+### 14.10 哪些设计值得互相借鉴
+
+当前 xv6 可以借鉴 lesson06：
+
+1. 为所有未实现向量提供统一 fatal handler，至少打印 vector type、ESR、ELR、FAR。
+2. `enable_irq/disable_irq` 只改变 DAIF.I，而不是同时改变 D/A/I/F。
+3. timer 改用绝对 deadline，可减少 handler 延迟导致的累计漂移。
+
+lesson06 若要发展成完整 xv6 风格内核，则需要当前实现中的：
+
+1. 分离 `userirq()` 与 `kernelirq()`，根据进程状态安全抢占。
+2. 将异常现场纳入 per-process trapframe 生命周期。
+3. 使用自旋锁嵌套计数安全控制 IRQ。
+4. 让 timer 同时驱动全局 ticks、sleep/wakeup 和 scheduler。
+
+## 15. RPi3 的两级中断控制器与 Generic Timer 连接
+
+### 15.1 Legacy controller 与 ARM-local 不是同一模块
+
+Raspberry Pi 3 / BCM2837 上存在两个不同的中断控制模块：
+
+```text
+Broadcom legacy interrupt controller
+  - ARM physical base: 0x3f00b000
+  - 管理共享 SoC 外设
+  - 全局共享，不是 per-CPU
+
+BCM2836/2837 ARM-local interrupt controller
+  - ARM physical base: 0x40000000
+  - 管理每核 Generic Timer、mailbox/IPI、PMU
+  - 接收 legacy controller 汇总后的 GPU IRQ
+  - 最终连接 Cortex-A53 各核心的 IRQ/FIQ 输入
+```
+
+两者是级联关系，ARM-local 是靠近 CPU cluster 的根路由层，legacy controller 是它下面的共享外设中断控制器：
+
+```text
+                         +----------------------+
+Generic Timer CPU0 ----->|                      |----> CPU0 IRQ/FIQ
+Generic Timer CPU1 ----->| BCM ARM-local        |----> CPU1 IRQ/FIQ
+Mailbox/IPI ------------>| interrupt routing    |----> CPU2 IRQ/FIQ
+PMU -------------------->|                      |----> CPU3 IRQ/FIQ
+                         |          ^           |
+                         +----------|-----------+
+                                    |
+                              GPU IRQ aggregate
+                                    |
+                         +----------|-----------+
+System Timer ----------->|                      |
+Mini UART -------------->| Broadcom legacy     |
+GPIO ------------------->| interrupt controller|
+USB/DMA ---------------->|                      |
+                         +----------------------+
+```
+
+这里的 “GPU IRQ” 不只是图形处理器中断。它是早期 Broadcom/VideoCore 外设域中断经过 legacy controller 汇总后，送往 ARM-local 的一根共享中断线，其中可以包含 UART、GPIO、System Timer、USB、DMA 等来源。
+
+### 15.2 Legacy controller 管理哪些中断
+
+Pi 3 的 legacy controller 位于：
+
+```text
+0x3f00b000
+```
+
+主要寄存器包括：
+
+```text
+IRQ_BASIC_PENDING
+IRQ_PENDING_1
+IRQ_PENDING_2
+ENABLE_IRQS_1
+ENABLE_IRQS_2
+ENABLE_BASIC_IRQS
+DISABLE_IRQS_1
+DISABLE_IRQS_2
+DISABLE_BASIC_IRQS
+```
+
+它负责回答：
+
+> 哪一个共享 Broadcom 外设正在请求中断？
+
+例如当前 Mini UART 使用：
+
+```c
+irqwrite(ENABLE_IRQS_1, 1U << UART0_IRQ);
+```
+
+收到中断后通过：
+
+```c
+irqread(IRQ_PENDING_1) & (1U << UART0_IRQ)
+```
+
+确认具体是 AUX/Mini UART。
+
+legacy controller 本身不为四个 Cortex-A53 核心分别维护 Generic Timer 和 mailbox 状态。它把活动外设中断汇总为 GPU IRQ/FIQ，再交给 ARM-local 决定送往哪个 CPU。
+
+### 15.3 ARM-local 管理哪些中断
+
+ARM-local block 位于：
+
+```text
+0x40000000
+```
+
+重要寄存器：
+
+```text
+0x00c                  GPU interrupt routing
+0x040 + 4*cpu          per-CPU timer interrupt control
+0x050 + 4*cpu          per-CPU mailbox interrupt control
+0x060 + 4*cpu          per-CPU IRQ source
+0x070 + 4*cpu          per-CPU FIQ source
+0x080...               mailbox write-to-set
+0x0c0...               mailbox write-to-clear
+```
+
+每个 CPU 的 IRQ source bits 大致为：
+
+```text
+bit 0  ARM secure physical timer
+bit 1  ARM non-secure physical timer
+bit 2  ARM hypervisor timer
+bit 3  ARM virtual timer
+bit 4  mailbox 0
+bit 5  mailbox 1
+bit 6  mailbox 2
+bit 7  mailbox 3
+bit 8  GPU/legacy aggregate interrupt
+bit 9  PMU interrupt
+```
+
+因此 ARM-local 回答的是：
+
+> 当前这个 CPU 收到的是哪一类 local 或级联中断？
+
+当 bit 8 置位时，还必须继续读取 legacy `IRQ_PENDING_1/2`，才能知道具体是哪一个共享外设。
+
+### 15.4 Generic Timer 直接连接 ARM-local
+
+是的，RPi3 上 ARM Generic Timer 的 interrupt outputs 直接连接到 BCM ARM-local controller，不经过 legacy controller：
+
+```text
+ARM Generic Timer
+   CNTPSIRQ   secure physical timer
+   CNTPNSIRQ  non-secure physical timer
+   CNTHPIRQ   hypervisor timer
+   CNTVIRQ    virtual timer
+        |
+        v
+BCM ARM-local interrupt controller
+        |
+        +-- 选择 IRQ 或 FIQ
+        +-- 对每个 CPU 分别允许/屏蔽
+        `-- 写入对应 CPU 的 IRQ/FIQ source 状态
+        |
+        v
+Cortex-A53 对应核心的 IRQ/FIQ 输入
+```
+
+当前 xv6 使用 virtual timer：
+
+```text
+CNTVCT_EL0
+CNTV_TVAL_EL0 / CNTV_CVAL_EL0
+CNTV_CTL_EL0
+        |
+        | CNTVIRQ
+        v
+CORE_TIMER_CONTROL(cpu) bit 3
+        |
+        v
+CORE_IRQ_SOURCE(cpu) bit 3
+        |
+        v
+CPU IRQ exception
+```
+
+当前路由初始化：
+
+```c
+#define CORE_TIMER_CONTROL(c) (0x40 + 4 * (c))
+#define CORE_IRQ_SOURCE(c)    (0x60 + 4 * (c))
+#define CORE_VIRTUAL_TIMER    (1 << 3)
+
+void gicv3inithart(void)
+{
+  int cpu = cpuid();
+  localwrite(CORE_TIMER_CONTROL(cpu), CORE_VIRTUAL_TIMER);
+}
+```
+
+虽然函数名是 `gicv3inithart()`，这里没有操作 GICv3。它实际表达的是：允许当前 CPU 的 `CNTVIRQ` 通过 BCM ARM-local block 路由到 IRQ。
+
+中断检测：
+
+```c
+if(localread(CORE_IRQ_SOURCE(cpu)) & CORE_VIRTUAL_TIMER)
+  return TIMER0_IRQ;
+```
+
+Generic Timer 不会在 legacy controller 的这些寄存器中出现：
+
+```text
+IRQ_PENDING_1
+IRQ_PENDING_2
+```
+
+### 15.5 外设中断的两级检查
+
+以 Mini UART 为例：
+
+```text
+Mini UART RX/TX event
+        |
+        v
+legacy IRQ_PENDING_1 bit 29
+        |
+        v
+GPU IRQ aggregate
+        |
+        v
+ARM-local CORE_IRQ_SOURCE(cpu) bit 8
+        |
+        v
+CPU IRQ exception
+        |
+        v
+VBAR_EL1 -> el0irq/el1irq
+```
+
+严格的 pending 检查应先判断 ARM-local bit 8，再读取 legacy pending：
+
+```c
+#define CORE_GPU_IRQ (1U << 8)
+
+uint32 source = localread(CORE_IRQ_SOURCE(cpu));
+
+if(source & CORE_VIRTUAL_TIMER)
+  return TIMER0_IRQ;
+
+if(source & CORE_GPU_IRQ){
+  if(irqread(IRQ_PENDING_1) & (1U << UART0_IRQ))
+    return UART0_IRQ;
+}
+```
+
+当前 `bcm2837.c` 在只运行 CPU0、只启用少数 IRQ source 的条件下，直接检查 legacy pending 也能工作；但若以后启用多核或更多外设，建议补上 ARM-local bit 8 的级联检查。
+
+### 15.6 GPU IRQ 目标 CPU
+
+ARM-local 的 `LOCAL_GPU_ROUTING` 位于 offset `0x00c`：
+
+```text
+bits [1:0]  GPU IRQ 目标 CPU
+bits [3:2]  GPU FIQ 目标 CPU
+```
+
+例如：
+
+```text
+00 -> CPU0
+01 -> CPU1
+10 -> CPU2
+11 -> CPU3
+```
+
+这通常把整个 legacy/GPU aggregate 路由到一个 CPU，而不是给每个 legacy 外设分别选择 CPU。当前单核启动路径依赖固件或复位默认值把它送往 CPU0。为了减少对固件状态的依赖，可以在 BCM interrupt 初始化时显式写：
+
+```c
+#define LOCAL_GPU_ROUTING 0x00c
+localwrite(LOCAL_GPU_ROUTING, 0); // IRQ/FIQ 都选择 CPU0
+```
+
+### 15.7 不要混淆两种 “local timer”
+
+BCM ARM-local block 中还有一个 Broadcom 自己的 MMIO local timer。它与 ARM Generic Timer 不是同一个 timer：
+
+```text
+ARM Generic Timer
+  - ARM 架构定义
+  - CNTV_*/CNTP_* 系统寄存器
+  - 每 CPU comparator
+  - 当前 xv6 使用 CNTV virtual timer
+
+BCM ARM-local timer
+  - Broadcom MMIO 外设
+  - local block 中的控制、reload、ack 寄存器
+  - 独立倒计时器
+  - 当前 xv6 没有使用
+```
+
+当前实现的准确描述是：
+
+```text
+ARM Generic Virtual Timer
+        +
+BCM2836/2837 ARM-local interrupt routing
+```
+
+而不是“使用 BCM local timer”，也不是“使用 GIC timer”。
+
+### 15.8 两条完整路径对照
+
+Generic Virtual Timer：
+
+```text
+ARM System Counter
+  -> 当前 CPU CNTV comparator
+  -> CNTVIRQ
+  -> BCM ARM-local timer routing
+  -> CORE_IRQ_SOURCE(cpu) bit 3
+  -> CPU IRQ
+  -> el0irq/el1irq
+  -> timerintr()
+```
+
+BCM System Timer 或 Mini UART：
+
+```text
+Broadcom peripheral
+  -> legacy controller pending bit
+  -> GPU IRQ aggregate
+  -> BCM ARM-local GPU routing
+  -> CORE_IRQ_SOURCE(target_cpu) bit 8
+  -> target CPU IRQ
+  -> el0irq/el1irq
+  -> 再读 legacy pending，识别具体设备
+  -> 在源设备处清除中断条件
+```
+
+总结：
+
+> Generic Timer 直接进入 ARM-local 的 per-CPU timer 输入；共享外设先进入 legacy controller，再以 GPU IRQ 汇总线级联进入 ARM-local bit 8。ARM-local 是最终连接四个 Cortex-A53 CPU IRQ/FIQ 输入的根路由层。
