@@ -119,6 +119,9 @@ extern uint64 sys_udp_send(void);
 extern uint64 sys_udp_recv(void);
 extern uint64 sys_icmp_send(void);
 extern uint64 sys_icmp_recv(void);
+extern uint64 sys_mount(void);
+extern uint64 sys_tty_attach(void);
+extern uint64 sys_vmdump(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -157,6 +160,9 @@ static uint64 (*syscalls[])(void) = {
 [SYS_udp_recv]     sys_udp_recv,
 [SYS_icmp_send]    sys_icmp_send,
 [SYS_icmp_recv]    sys_icmp_recv,
+[SYS_mount]        sys_mount,
+[SYS_tty_attach]   sys_tty_attach,
+[SYS_vmdump]       sys_vmdump,
 };
 
 void

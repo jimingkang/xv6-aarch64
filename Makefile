@@ -12,6 +12,7 @@ OBJS = \
   $K/entry.o \
   $K/start.o \
   $K/console.o \
+	$K/tty.o \
   $K/printf.o \
   $K/uart.o \
   $K/kalloc.o \
@@ -26,6 +27,7 @@ OBJS = \
   $K/sysproc.o \
   $K/bio.o \
   $K/fs.o \
+	$K/vfs.o \
   $K/log.o \
   $K/sleeplock.o \
   $K/sync.o \
@@ -169,6 +171,7 @@ UPROGS=\
 	$U/_init\
 	$U/_kill\
 	$U/_ln\
+	$U/_login\
 	$U/_ls\
 	$U/_mkdir\
 	$U/_touch\
@@ -187,6 +190,7 @@ UPROGS=\
 	$U/_sh\
 	$U/_stressfs\
 	$U/_usertests\
+	$U/_vmmap\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\

@@ -10,6 +10,7 @@ struct stat;
 struct superblock;
 struct trapframe;
 struct ext2_user_dirent;
+struct vnode;
 
 // bio.c
 void            binit(void);
@@ -23,6 +24,12 @@ void            bunpin(struct buf*);
 void            consoleinit(void);
 void            consoleintr(int);
 void            consputc(int);
+int             consoleread(int, uint64, int);
+int             consolewrite(int, uint64, int);
+
+// tty.c
+void            ttyinit(void);
+int             ttyattach(int);
 
 // exec.c
 int             exec(char*, char**);
@@ -72,10 +79,21 @@ void            fat32rw(struct buf*, int);
 void            ext2init(void);
 int             ext2readfile(char*, uint64, void*, int);
 int             ext2readdir(char*, int, struct ext2_user_dirent*);
+int             ext2stat(char*, uint*, ushort*, uint*);
+int             ext2ready(void);
+
+// vfs.c
+void            vfsinit(void);
+int             vfsopen(char*, int, struct vnode**);
+void            vfsclose(struct vnode*);
+int             vfsread(struct vnode*, int, uint64, uint, uint);
+int             vfsstat(struct vnode*, struct stat*);
+int             vfsmount(char*, char*);
 
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
+uint64          kfreepages(void);
 void            kinit1(void *, void *);
 void            kinit2(void *, void *);
 
@@ -116,6 +134,7 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             procvmdump(int);
 
 // sync.c
 void            syncinit(void);

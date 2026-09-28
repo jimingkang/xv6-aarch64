@@ -53,6 +53,74 @@ int fork1(void);  // Fork but panics on failure.
 void panic(char*);
 struct cmd *parsecmd(char*);
 
+static char shell_path[128] = "/bin:/usr/bin:/:.";
+
+static void
+setpath(char *value)
+{
+  strncpy(shell_path, value, sizeof(shell_path) - 1);
+  shell_path[sizeof(shell_path) - 1] = 0;
+}
+
+static void
+loadrc(void)
+{
+  char buf[256];
+  int fd = open("/etc/rc", O_RDONLY);
+  int n, start = 0;
+  if(fd < 0)
+    return;
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if(n <= 0)
+    return;
+  buf[n] = 0;
+  for(int i = 0; i <= n; i++){
+    if(buf[i] != '\n' && buf[i] != 0)
+      continue;
+    buf[i] = 0;
+    if(strncmp(buf + start, "export PATH=", 12) == 0)
+      setpath(buf + start + 12);
+    start = i + 1;
+  }
+}
+
+static void
+execpath(char *command, char **argv)
+{
+  char path[160];
+  char *p = shell_path;
+  if(strchr(command, '/')){
+    exec(command, argv);
+    return;
+  }
+  while(*p){
+    int n = 0;
+    while(*p && *p != ':' && n < (int)sizeof(path) - 2)
+      path[n++] = *p++;
+    if(*p == ':')
+      p++;
+    if(n == 0)
+      path[n++] = '.';
+    if(path[n - 1] != '/')
+      path[n++] = '/';
+    for(int i = 0; command[i] && n < (int)sizeof(path) - 1; i++)
+      path[n++] = command[i];
+    path[n] = 0;
+    exec(path, argv);
+  }
+
+  // The xv6 image still stores its original programs in /.  /bin entries
+  // are compatibility hard links created by init, so retain the root image
+  // as a last-resort boot/recovery path if such a link cannot be read.
+  path[0] = '/';
+  int n = 1;
+  for(int i = 0; command[i] && n < (int)sizeof(path) - 1; i++)
+    path[n++] = command[i];
+  path[n] = 0;
+  exec(path, argv);
+}
+
 // Maintain a logical absolute path for the pwd builtin.  xv6 has chdir() but
 // no getcwd() syscall, so normalize successful cd arguments in the shell.
 static void
@@ -122,7 +190,7 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(1);
-    exec(ecmd->argv[0], ecmd->argv);
+    execpath(ecmd->argv[0], ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
 
@@ -189,22 +257,47 @@ getcmd(char *buf, int nbuf)
 }
 
 int
-main(void)
+main(int argc, char **argv)
 {
   static char buf[100];
   static char cwd[100] = "/";
   int fd;
 
+  // login passes the already-selected home so the logical pwd state matches
+  // the cwd inherited across exec (xv6 does not yet provide getcwd()).
+  if(argc > 1 && argv[1][0] == '/'){
+    strncpy(cwd, argv[1], sizeof(cwd) - 1);
+    cwd[sizeof(cwd) - 1] = 0;
+  }
+
   // Ensure that three file descriptors are open.
-  while((fd = open("console", O_RDWR)) >= 0){
+  while((fd = open("/dev/tty", O_RDWR)) >= 0){
     if(fd >= 3){
       close(fd);
       break;
     }
   }
+  // Compatibility with images created before /dev was introduced.
+  if(fd < 0){
+    while((fd = open("/console", O_RDWR)) >= 0){
+      if(fd >= 3){
+        close(fd);
+        break;
+      }
+    }
+  }
+
+  loadrc();
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
+    if(strncmp(buf, "export PATH=", 12) == 0){
+      int n = strlen(buf);
+      if(n > 0 && buf[n - 1] == '\n')
+        buf[n - 1] = 0;
+      setpath(buf + 12);
+      continue;
+    }
     if(strcmp(buf, "pwd\n") == 0){
       printf("%s\n", cwd);
       continue;

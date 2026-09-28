@@ -27,6 +27,7 @@ main()
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     boot_uart_mark('4');
     consoleinit();
+    ttyinit();
     printfinit();
     printf("\n");
     printf("xv6 kernel is booting\n");
@@ -46,6 +47,7 @@ main()
     sdinit();         // BCM2837 SD/eMMC controller
     fat32init();      // locate FS.IMG in a FAT32 boot partition
     ext2init();       // optional read-only Linux ext2 partition
+    vfsinit();        // mount non-native filesystems behind vnode operations
     userinit();      // first user process
     // kvmdump();    // enable to show the final kernel page table before init/sh
     __sync_synchronize();

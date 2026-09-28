@@ -18,6 +18,20 @@
 #include "ext2.h"
 
 uint64
+sys_mount(void)
+{
+  char source[MAXPATH], target[MAXPATH], fstype[16];
+  int flags;
+  if(argstr(0, source, sizeof(source)) < 0 ||
+     argstr(1, target, sizeof(target)) < 0 ||
+     argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0)
+    return -1;
+  (void)source;
+  (void)flags;
+  return vfsmount(target, fstype);
+}
+
+uint64
 sys_ext2read(void)
 {
   char path[MAXPATH];
@@ -324,10 +338,32 @@ sys_open(void)
   int fd, omode;
   struct file *f;
   struct inode *ip;
+  struct vnode *vn;
   int n;
+  int vr;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
+
+  vr = vfsopen(path, omode, &vn);
+  if(vr != 0){
+    if(vr < 0)
+      return -1;
+    if((f = filealloc()) == 0){
+      vfsclose(vn);
+      return -1;
+    }
+    f->type = FD_VNODE;
+    f->vn = vn;
+    f->off = 0;
+    f->readable = 1;
+    f->writable = 0;
+    if((fd = fdalloc(f)) < 0){
+      fileclose(f);
+      return -1;
+    }
+    return fd;
+  }
 
   begin_op();
 

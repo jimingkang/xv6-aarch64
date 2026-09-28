@@ -35,3 +35,6 @@
 #define SYS_udp_recv     34
 #define SYS_icmp_send    35
 #define SYS_icmp_recv    36
+#define SYS_mount        37
+#define SYS_tty_attach   38
+#define SYS_vmdump       39

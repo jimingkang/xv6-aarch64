@@ -104,6 +104,24 @@ sys_ps(void)
 }
 
 uint64
+sys_tty_attach(void)
+{
+  int ttyno;
+  if(argint(0, &ttyno) < 0)
+    return -1;
+  return ttyattach(ttyno);
+}
+
+uint64
+sys_vmdump(void)
+{
+  int pid;
+  if(argint(0, &pid) < 0 || pid < 0)
+    return -1;
+  return procvmdump(pid);
+}
+
+uint64
 sys_sync_create(void)
 {
   int type, initial;

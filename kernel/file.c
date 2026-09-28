@@ -79,6 +79,8 @@ fileclose(struct file *f)
     begin_op();
     iput(ff.ip);
     end_op();
+  } else if(ff.type == FD_VNODE){
+    vfsclose(ff.vn);
   }
 }
 
@@ -94,6 +96,12 @@ filestat(struct file *f, uint64 addr)
     ilock(f->ip);
     stati(f->ip, &st);
     iunlock(f->ip);
+    if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
+      return -1;
+    return 0;
+  } else if(f->type == FD_VNODE){
+    if(vfsstat(f->vn, &st) < 0)
+      return -1;
     if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;
@@ -122,6 +130,9 @@ fileread(struct file *f, uint64 addr, int n)
     if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
       f->off += r;
     iunlock(f->ip);
+  } else if(f->type == FD_VNODE){
+    if((r = vfsread(f->vn, 1, addr, f->off, n)) > 0)
+      f->off += r;
   } else {
     panic("fileread");
   }
@@ -173,10 +184,11 @@ filewrite(struct file *f, uint64 addr, int n)
       i += r;
     }
     ret = (i == n ? n : -1);
+  } else if(f->type == FD_VNODE){
+    return -1;
   } else {
     panic("filewrite");
   }
 
   return ret;
 }
-

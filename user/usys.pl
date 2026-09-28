@@ -51,3 +51,6 @@ entry("udp_send");
 entry("udp_recv");
 entry("icmp_send");
 entry("icmp_recv");
+entry("mount");
+entry("tty_attach");
+entry("vmdump");

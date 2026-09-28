@@ -223,6 +223,12 @@ ext2init(void)
 }
 
 int
+ext2ready(void)
+{
+  return e2.ready;
+}
+
+int
 ext2readfile(char *path, uint64 off, void *dst, int n)
 {
   struct einode ip;
@@ -248,6 +254,23 @@ ext2readfile(char *path, uint64 off, void *dst, int n)
   }
   release(&e2.lock);
   return done;
+}
+
+int
+ext2stat(char *path, uint *ino, ushort *mode, uint *size)
+{
+  struct einode ip;
+  uint32 inum;
+  acquire(&e2.lock);
+  if(lookup(path, &inum, &ip) < 0){
+    release(&e2.lock);
+    return -1;
+  }
+  *ino = inum;
+  *mode = ip.mode;
+  *size = ip.size > 0xffffffffULL ? 0xffffffffU : ip.size;
+  release(&e2.lock);
+  return 0;
 }
 
 int

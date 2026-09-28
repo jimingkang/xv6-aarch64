@@ -416,3 +416,42 @@ VA 0xffffff80001ff000
 - 页表页面自身。
 
 这不是递归页表技巧，而是因为内核将物理RAM直接映射到 `KERNBASE + PA`，页表页面恰好也位于这段物理RAM中。
+
+## 10. 用 `vmmap` 查看占用的页表数组项
+
+用户命令：
+
+```sh
+vmmap          # 连续打印所有活动 TTBR0 页表
+vmmap 2        # 仅打印 PID 2 对应的 TTBR0 页表
+```
+
+参考图使用的是 x86-64 的 `CR3` 和四级 L4/L3/L2/L1。当前 AArch64 配置是 4KB granule、
+39-bit 用户虚拟地址，因此硬件从 `TTBR0_EL1` 开始进行三级 L1/L2/L3 遍历：
+
+```text
+VA[38:30]       VA[29:21]       VA[20:12]       VA[11:0]
+   L1 index  ->    L2 index  ->    L3 index  -> page offset
+
+TTBR0_EL1
+   +-- L1 entry -> L2 table physical page
+         +-- L2 entry -> L3 table physical page
+               +-- L3 entry -> mapped 4KB physical page
+```
+
+输出不再按进程创建独立章节，而是从每一个有效 TTBR0 根开始，把所有已占用的数组下标展平
+为一条完整路径：
+
+```text
+TTBR0_EL1[root-pa]
+  -> L1[i] -> L2[j] -> L3[k] -> VA page -> PA page
+```
+
+每个叶子项同时打印 `user/kernel`、`RO/RW` 和 `X/XN` 属性。不同地址空间不能在硬件上合并成
+同一张页表，所以多个活动地址空间仍各有一行 `TTBR0_EL1[root-pa]`，但不再显示进程标题或
+按进程分段。`vmmap` 本身也是一个进程，因此无 PID 过滤时也会出现它的 TTBR0 根。
+
+`vmmap` 会先调用 `kvmdump()` 输出所有进程共享的 `TTBR1_EL1` 内核页表。连续的普通 RAM
+和 MMIO L3 叶子按每个 2MB L2 窗口汇总，避免把数万条 4KB 直接映射逐页刷到串口；输出包含
+每个 L2 使用的 L3 页数、首尾 PA、是否连续以及页属性。随后才输出一个或多个 TTBR0 用户
+页表。进程切换只替换 TTBR0，TTBR1 始终保持这棵共享内核页表。

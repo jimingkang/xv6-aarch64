@@ -9,13 +9,85 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-char *argv[] = { "sh", 0 };
+char *argv[] = { "login", 0 };
+
+static char *commands[] = {
+  "cat", "echo", "grep", "kill", "ln", "login", "ls", "mkdir", "touch",
+  "file", "edit", "ps", "nettest", "netdns", "ping", "ext2ls",
+  "ext2cat", "tcc", "rm", "sh", "vmmap", "wc", 0
+};
+
+static void
+create_config(char *path, char *contents)
+{
+  int fd = open(path, O_RDONLY);
+  if(fd >= 0){
+    close(fd);
+    return;
+  }
+  fd = open(path, O_CREATE | O_WRONLY);
+  if(fd >= 0){
+    write(fd, contents, strlen(contents));
+    close(fd);
+  }
+}
+
+static char*
+field(char **cursor)
+{
+  char *p = *cursor, *start;
+  while(*p == ' ' || *p == '\t')
+    p++;
+  if(*p == 0 || *p == '\n' || *p == '#'){
+    *cursor = p;
+    return 0;
+  }
+  start = p;
+  while(*p && *p != ' ' && *p != '\t' && *p != '\n')
+    p++;
+  if(*p)
+    *p++ = 0;
+  *cursor = p;
+  return start;
+}
+
+static void
+mount_fstab(void)
+{
+  char buf[512], *p, *source, *target, *type, *options;
+  int fd = open("/etc/fstab", O_RDONLY);
+  int n;
+  if(fd < 0)
+    return;
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if(n <= 0)
+    return;
+  buf[n] = 0;
+  p = buf;
+  while(*p){
+    source = field(&p);
+    if(source){
+      target = field(&p);
+      type = field(&p);
+      options = field(&p);
+      if(target && type && options)
+        mount(source, target, type, 1); // all current VFS backends are ro
+    }
+    while(*p && *p != '\n')
+      p++;
+    if(*p == '\n')
+      p++;
+  }
+}
 
 int
 main(void)
 {
   int pid, wpid;
 
+  // Bootstrap from the historical root device node, then install the usual
+  // Unix device namespace and use the concrete ttyS0 for local login.
   if(open("console", O_RDWR) < 0){
     mknod("console", CONSOLE, 0);
     open("console", O_RDWR);
@@ -23,16 +95,53 @@ main(void)
   dup(0);  // stdout
   dup(0);  // stderr
 
+  mkdir("dev");
+  mknod("dev/console", CONSOLE, 0);
+  mknod("dev/tty", TTY, 0);
+  mknod("dev/ttyS0", TTYS0, 0);
+  close(0);
+  close(1);
+  close(2);
+  if(open("/dev/ttyS0", O_RDWR) < 0 &&
+     open("/dev/console", O_RDWR) < 0)
+    open("/console", O_RDWR);
+  dup(0);
+  dup(0);
+
+  // Visible mount points.  VFS path routing overlays procfs and ext2 on
+  // these native directories when their corresponding backend is available.
+  mkdir("proc");
+  mkdir("mnt");
+  mkdir("mnt/ext2");
+  mkdir("etc");
+  mkdir("root");
+  mkdir("bin");
+  mkdir("usr");
+  mkdir("usr/bin");
+  for(int i = 0; commands[i]; i++){
+    char dst[64];
+    strcpy(dst, "bin/");
+    strcpy(dst + strlen(dst), commands[i]);
+    link(commands[i], dst);
+  }
+  create_config("etc/hostname", "xv6-rpi3\n");
+  create_config("etc/passwd", "root:xv6:0:0:root:/root:/bin/sh\n");
+  create_config("etc/rc", "export PATH=/bin:/usr/bin:/:.\n");
+  create_config("etc/fstab",
+                "proc /proc procfs ro 0 0\n"
+                "ext2 /mnt/ext2 ext2 ro 0 0\n");
+  mount_fstab();
+
   for(;;){
-    printf("init: starting sh\n");
+    printf("init: starting local login on /dev/ttyS0\n");
     pid = fork();
     if(pid < 0){
       printf("init: fork failed\n");
       exit(1);
     }
     if(pid == 0){
-      exec("sh", argv);
-      printf("init: exec sh failed\n");
+      exec("login", argv);
+      printf("init: exec login failed\n");
       exit(1);
     }
 

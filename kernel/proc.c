@@ -112,6 +112,9 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  p->sid = p->pid;
+  p->pgid = p->pid;
+  p->ctty = -1;
   p->state = USED;
 
   sp = (char*)p->kstack + PGSIZE;
@@ -149,6 +152,9 @@ freeproc(struct proc *p)
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
+  p->sid = 0;
+  p->pgid = 0;
+  p->ctty = -1;
   p->parent = 0;
   p->name[0] = 0;
   p->chan = 0;
@@ -256,6 +262,9 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  np->sid = p->sid;
+  np->pgid = p->pgid;
+  np->ctty = p->ctty;
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -617,4 +626,28 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Print stable-enough snapshots of process page tables for diagnostics.
+// pid == 0 selects every active process.
+int
+procvmdump(int pid)
+{
+  struct proc *p;
+  int found = 0;
+
+  kvmdump();
+  printf("\n=== occupied TTBR0 page-table entries ===\n");
+  printf("VA[38:30]=L1 VA[29:21]=L2 VA[20:12]=L3 VA[11:0]=offset\n");
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED && p->pagetable != 0 &&
+       (pid == 0 || p->pid == pid)){
+      uvmdump(p->pagetable, p->pid, p->name, "vmmap");
+      found++;
+    }
+    release(&p->lock);
+  }
+  printf("=== end occupied TTBR0 page-table entries ===\n\n");
+  return found ? 0 : -1;
 }

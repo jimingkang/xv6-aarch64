@@ -39,6 +39,9 @@ int udp_send(uint32, int, int, const void*, int);
 int udp_recv(int, uint32*, uint16*, void*, int);
 int icmp_send(uint32, int, int, const void*, int);
 int icmp_recv(int, uint32*, uint16*, void*, int);
+int mount(const char*, const char*, const char*, int);
+int tty_attach(int);
+int vmdump(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

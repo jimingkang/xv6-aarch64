@@ -69,7 +69,7 @@ kvmdump(void)
 {
   printf("\n=== kernel page table ===\n");
   printf("L0: omitted (T1SZ=25 gives a 39-bit VA; walk starts at L1)\n");
-  printf("L1 root: va=%p pa=%p\n",
+  printf("TTBR1_EL1 -> L1 root: kva=%p pa=%p\n",
          (uint64)kernel_pagetable, V2P(kernel_pagetable));
 
   for(int i = 0; i < 512; i++){
@@ -153,10 +153,10 @@ kvmdump(void)
 void
 uvmdump(pagetable_t root, int pid, char *name, char *event)
 {
-  printf("\n=== user page table: event=%s pid=%d name=%s ===\n",
-         event, pid, name);
-  printf("L0: omitted; L1 root va=%p pa=%p\n",
-         (uint64)root, V2P(root));
+  (void)pid;
+  (void)name;
+  (void)event;
+  printf("TTBR0_EL1[%p] (root-kva=%p)\n", V2P(root), (uint64)root);
 
   for(int i = 0; i < 512; i++){
     pte_t l1e = root[i];
@@ -164,52 +164,47 @@ uvmdump(pagetable_t root, int pid, char *name, char *event)
       continue;
     uint64 l1va = (uint64)i << PXSHIFT(1);
     if((l1e & PTE_TABLE) == 0){
-      printf(" L1[%d] block va=%p pa=%p flags=%p\n",
+      printf("  -> L1[%d] BLOCK va=%p -> pa=%p flags=%p\n",
              i, l1va, PTE2PA(l1e), PTE_FLAGS(l1e));
       continue;
     }
 
     pagetable_t l2 = (pagetable_t)P2V(PTE2PA(l1e));
-    printf(" L1[%d] va-base=%p table-pa=%p\n",
-           i, l1va, PTE2PA(l1e));
     for(int j = 0; j < 512; j++){
       pte_t l2e = l2[j];
       if((l2e & PTE_VALID) == 0)
         continue;
       uint64 l2va = l1va + ((uint64)j << PXSHIFT(2));
       if((l2e & PTE_TABLE) == 0){
-        printf("  L2[%d] 2MB block va=%p pa=%p flags=%p\n",
-               j, l2va, PTE2PA(l2e), PTE_FLAGS(l2e));
+        printf("  -> L1[%d] -> L2[%d] BLOCK va=%p -> pa=%p flags=%p\n",
+               i, j, l2va, PTE2PA(l2e), PTE_FLAGS(l2e));
         continue;
       }
 
       pagetable_t l3 = (pagetable_t)P2V(PTE2PA(l2e));
-      printf("  L2[%d] 2MB window va=%p..%p table-pa=%p\n",
-             j, l2va, l2va + (1UL << PXSHIFT(2)) - 1,
-             PTE2PA(l2e));
       for(int k = 0; k < 512; k++){
         pte_t l3e = l3[k];
         if((l3e & PTE_V) != PTE_V)
           continue;
         uint64 va = l2va + ((uint64)k << PXSHIFT(3));
-        printf("   L3[%d] va=%p -> pa=%p flags=%p %s %s %s\n",
-               k, va, PTE2PA(l3e), PTE_FLAGS(l3e),
+        printf("  -> L1[%d] -> L2[%d] -> L3[%d] VA=%p -> PA=%p"
+               " flags=%p %s %s %s\n",
+               i, j, k, va, PTE2PA(l3e), PTE_FLAGS(l3e),
                (l3e & PTE_U) ? "user" : "kernel",
                (l3e & PTE_RO) ? "RO" : "RW",
                (l3e & PTE_UXN) ? "XN" : "X");
       }
     }
   }
-  printf("=== end user page table ===\n\n");
 }
 
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.
 //
-// The risc-v Sv39 scheme has three levels of page-table
-// pages. A page-table page contains 512 64-bit PTEs.
-// A 64-bit virtual address is split into five fields:
+// This AArch64 configuration uses a 39-bit TTBR0 address space and three
+// levels of 4KB page-table pages. Each table contains 512 64-bit descriptors.
+// A user virtual address is split into four fields:
 //   39..63 -- must be zero.
 //   30..38 -- 9 bits of level-1 index.
 //   21..29 -- 9 bits of level-2 index.
