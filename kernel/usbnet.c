@@ -8,6 +8,7 @@
 #include "aarch64.h"
 #include "spinlock.h"
 #include "defs.h"
+#include "device.h"
 
 #define DWC2_BASE (PERIPHERAL_BASE + 0x00980000UL)
 
@@ -528,4 +529,32 @@ usbnetinit(void)
   net_set_xmit(usbnet_xmit);
   printf("usbnet: CDC-ECM ready addr=%d cfg=%d vid=%x pid=%x\n",
          usb_address, cfg, vid, pid);
+}
+
+static int
+dwc2_probe(struct device *dev)
+{
+  (void)dev;
+  usbnetinit();
+  return 0;
+}
+
+void
+usbnet_driver_init(void)
+{
+  static struct device dev = {
+    .name = "bcm2837-dwc2",
+    .id = 0,
+    .resource = {
+      { V2P_WO(DWC2_BASE), V2P_WO(DWC2_BASE) + 0x17ffff,
+        IORESOURCE_MEM, "DWC2 USB host" },
+    },
+    .nresource = 1,
+  };
+  static struct device_driver drv = {
+    .name = "bcm2837-dwc2",
+    .probe = dwc2_probe,
+  };
+  platform_device_register(&dev);
+  platform_driver_register(&drv);
 }

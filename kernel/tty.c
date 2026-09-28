@@ -9,6 +9,7 @@
 #include "fs.h"
 #include "file.h"
 #include "defs.h"
+#include "device.h"
 
 static int
 ttycurrentread(int user_dst, uint64 dst, int n)
@@ -45,9 +46,15 @@ ttyattach(int ttyno)
 void
 ttyinit(void)
 {
+  static struct file_operations ttyS0_fops = {
+    .read = consoleread,
+    .write = consolewrite,
+  };
+  static struct file_operations tty_fops = {
+    .read = ttycurrentread,
+    .write = ttycurrentwrite,
+  };
   // ttyS0 is the concrete terminal. /dev/tty dispatches through p->ctty.
-  devsw[TTYS0].read = consoleread;
-  devsw[TTYS0].write = consolewrite;
-  devsw[TTY].read = ttycurrentread;
-  devsw[TTY].write = ttycurrentwrite;
+  register_chrdev(TTYS0, "ttyS0", &ttyS0_fops);
+  register_chrdev(TTY, "tty", &tty_fops);
 }

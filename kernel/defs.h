@@ -69,6 +69,7 @@ void            ramdiskrw(struct buf*, int);
 
 // sd.c
 void            sdinit(void);
+void            sd_driver_init(void);
 int             sdsector(uint32, void*, int);
 
 // fat32.c
@@ -158,6 +159,7 @@ void            net_set_xmit(int (*)(void*, int));
 
 // usbnet.c
 void            usbnetinit(void);
+void            usbnet_driver_init(void);
 void            usbnetpoll(void);
 
 // swtch.S

@@ -1,0 +1,140 @@
+# xv6-aarch64 的 Linux 2.6 风格设备驱动模型
+
+## 1. 为什么不再直接使用 `devsw[]`
+
+原来的字符设备模型只有一张全局函数表：
+
+```text
+inode.major -> devsw[major].read/write
+```
+
+它可以完成 `/dev/console` 的读写，但没有表达“硬件设备”“驱动”“总线”以及
+“设备和驱动何时绑定”。Linux 2.6 设备模型把这些关系拆开：
+
+```text
+             注册 device                 注册 driver
+硬件描述 -----------------> bus_type <----------------- 驱动程序
+                                |
+                           bus->match()
+                                |
+                           driver->probe()
+                                |
+                 字符设备 register_chrdev()
+                                |
+                 /dev inode -> file_operations
+```
+
+本工程现在采用相同的基本分层。核心定义在 `kernel/device.h`，实现位于
+`kernel/device.c`。
+
+## 2. 核心对象
+
+### `struct bus_type`
+
+总线负责匹配规则以及绑定生命周期：
+
+* `name`：总线名字；当前实现了 `platform`。
+* `match(device, driver)`：判断某个驱动能否管理某个设备。
+* `probe(device)`：匹配成功后调用；再转入具体驱动的 `probe`。
+* `remove(device)`：设备移除时进入具体驱动的 `remove`（接口已经保留）。
+
+### `struct device`
+
+描述一个被内核发现或由板级代码声明的硬件实例，包括名字、总线、MMIO/IRQ
+资源、绑定的驱动和私有数据。资源中记录的是 **ARM 物理地址**，驱动实际访问
+寄存器时仍使用内核高地址 MMIO 映射。
+
+### `struct device_driver`
+
+描述一种驱动，包含所属总线以及 `probe/remove` 回调。设备可以先注册，驱动也
+可以先注册；第二方注册时，设备核心都会重新扫描并自动匹配。
+
+### `struct file_operations`
+
+字符设备匹配并初始化成功后，通过 `register_chrdev()` 注册 read/write 操作。
+VFS 的 `FD_DEVICE` 不再直接访问旧的 `devsw[]`，而是经过设备核心分发到
+`file_operations`。
+
+## 3. platform bus
+
+Raspberry Pi 3 的 Mini UART、Arasan EMMC 和 DWC2 都是固定集成在 SoC 内的
+设备，不会像 PCI 那样枚举出 vendor/device ID。因此它们挂在 `platform_bus`：
+
+```text
+platform_device_register(dev)
+          |                         platform_driver_register(drv)
+          +--------------+  +--------------------+
+                         v  v
+             platform_bus.match(name)
+                         |
+                         v
+                    driver.probe
+```
+
+当前 platform 匹配规则是设备名与驱动名完全相同。对应关系为：
+
+| device/driver 名 | 驱动 | 资源 |
+|---|---|---|
+| `bcm2837-mini-uart` | Mini UART/console | AUX MMIO、GPIO MMIO、IRQ 29 |
+| `bcm2837-emmc` | SD/eMMC | EMMC、GPIO、property mailbox MMIO |
+| `bcm2837-dwc2` | USB host/CDC-ECM | DWC2 MMIO |
+
+TTY 是 UART 上面的字符终端抽象，不是另一个 SoC 硬件，所以 `/dev/tty` 和
+`/dev/ttyS0` 只注册字符设备操作，不另外建立 platform device。
+
+## 4. 启动绑定过程
+
+主核启动时执行：
+
+1. `device_init()` 初始化设备核心并注册 `platform_bus`。
+2. `consoleinit()` 注册 Mini UART device，再注册 Mini UART driver。
+3. `platform_bus.match()` 匹配成功，设备核心调用 `uart_probe()`。
+4. `uart_probe()` 初始化硬件并注册 major 1 的 `console`。
+5. `ttyinit()` 注册 major 2 的 `tty` 与 major 3 的 `ttyS0`。
+6. 网络和块设备初始化阶段以相同方式注册 DWC2、EMMC device/driver。
+
+这使初始化顺序不再依赖“设备代码直接调用自己的驱动函数”。以后从设备树或
+USB 枚举代码发现设备时，只需构造 `struct device` 并注册，设备核心就会寻找
+已经存在的匹配驱动；驱动后加载时也会反向扫描已有设备。
+
+## 5. 查看注册结果
+
+启动后执行：
+
+```sh
+cat /proc/devices
+```
+
+输出包括字符设备 major、已注册总线、设备、物理资源和当前绑定的驱动。例如：
+
+```text
+Character devices:
+1 console
+2 tty
+3 ttyS0
+
+Buses:
+  platform
+
+Devices:
+bcm2837-mini-uart bus=platform driver=bcm2837-mini-uart
+  mem 0x3f215000-0x3f215fff AUX/Mini UART
+  mem 0x3f200000-0x3f2000ff GPIO
+  irq 29 AUX IRQ
+```
+
+## 6. 与完整 Linux 模型的边界
+
+目前实现的是适合 xv6 的最小设备核心，并不等同于完整 Linux driver core：
+
+* 已有 bus/device/driver、match/probe 和字符设备 file operations。
+* 支持设备或驱动以任意先后顺序注册，因此支持“发现后自动绑定”。
+* `/dev` 节点仍由 init 创建，没有 devtmpfs/udev。
+* platform 设备目前由板级代码静态描述，尚未解析 DTB 的 `compatible/reg/interrupts`。
+* DWC2 当前只在启动时探测；完整 USB 热插拔还需要端口状态中断、hub 枚举线程、
+  设备断开检测、引用计数以及 unregister/remove 路径。
+* 尚无 sysfs、模块加载器、电源管理和驱动依赖管理。
+
+下一步若继续向 Linux 靠拢，应优先增加 DTB platform populate，再实现
+`device_unregister()/driver_unregister()` 和 DWC2 热插拔事件，这样硬件发现、
+匹配、探测、移除的生命周期才完整。

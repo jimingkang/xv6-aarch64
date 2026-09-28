@@ -1,0 +1,247 @@
+# SoC、DDR、控制器寄存器与 MMIO
+
+## 1. SoC、芯片与开发板
+
+SoC（System on Chip）不是简单地把若干独立芯片焊在同一块板上，而是把 CPU 核、片内互连、
+内存控制器和常用外围控制器集成在同一颗芯片中。
+
+```text
+Raspberry Pi 3 开发板
+├── BCM2837 SoC
+│   ├── 四个 Cortex-A53 CPU 核
+│   ├── MMU、Cache、ARM Generic Timer 接口
+│   ├── VideoCore GPU
+│   ├── SoC 内部互连和地址译码器
+│   ├── DDR 内存控制器
+│   ├── GPIO 控制器
+│   ├── AUX/Mini UART、SPI1、SPI2
+│   ├── PL011 UART
+│   ├── Arasan EMMC/SD 控制器
+│   ├── DWC2 USB 控制器
+│   ├── legacy interrupt controller
+│   └── ARM-local interrupt routing
+├── 外部 LPDDR 芯片
+├── SD 卡
+├── USB 接口
+└── GPIO 排针
+```
+
+因此 AUX/Mini UART 位于 BCM2837 SoC 内部，但在 Cortex-A53 CPU 核外部，属于 Broadcom
+外围设备子系统。DDR 通常是 SoC 外部的独立存储芯片，CPU 经 SoC 内的内存控制器访问它。
+
+## 2. 控制器为什么需要寄存器
+
+控制器向软件提供一组寄存器。以 GPIO 为例：
+
+```text
+GPFSEL   选择引脚功能
+GPSET    设置输出为高电平
+GPCLR    设置输出为低电平
+GPLEV    读取引脚电平
+GPPUD    配置上下拉
+```
+
+UART 也通过寄存器提供数据收发、状态、FIFO、波特率和中断控制。软件通过读写这些寄存器改变
+控制器状态。寄存器是硬件接口，并不是普通 DDR 存储单元。
+
+## 3. MMIO 统一编址
+
+MMIO（Memory-Mapped I/O）把设备寄存器和 RAM 放进同一个 CPU 物理地址空间：
+
+```text
+CPU 物理地址空间
+├── RAM 地址窗口       -> DDR 内存控制器
+├── ROM/片内 SRAM      -> 对应存储控制器
+└── MMIO 地址窗口      -> GPIO、UART、EMMC、USB 等控制器
+```
+
+CPU 对 RAM 和 MMIO 都可使用 `LDR/STR`，但 SoC 地址译码器会把访问发送到不同目标：
+
+```text
+STR 到 PA 0x00100000
+  -> DDR 内存控制器
+  -> 写入外部 LPDDR
+
+STR 到 PA 0x3f200000
+  -> BCM2837 外设总线
+  -> 写入 GPIO 控制寄存器
+```
+
+页表必须为二者设置不同属性：
+
+```text
+DDR：  Normal memory，可缓存，允许正常的推测和合并访问
+MMIO： Device-nGnRnE，不缓存、不聚合、不重排、不推测访问，并设置 XN
+```
+
+因此 MMIO 不只是给寄存器分配地址，还要求 CPU 使用正确的设备内存访问语义。
+
+## 4. Raspberry Pi 3 的物理地址布局
+
+当前 xv6 端口使用的主要 ARM 物理地址范围：
+
+```text
+0x00000000-0x06ffffff   System RAM（当前 PHYSTOP 为 112MB）
+0x00080000-...          xv6 内核镜像
+0x07000000-0x070fffff   QEMU fs.img ramdisk
+0x3f000000-0x3fffffff   BCM2837 外围设备 MMIO 窗口
+0x40000000-0x40000fff   BCM2836/7 ARM-local 外设
+```
+
+BCM2837 外设窗口中的常用控制器：
+
+```text
+0x3f003000-0x3f003fff   BCM System Timer
+0x3f00b000-0x3f00b3ff   legacy interrupt controller
+0x3f00b880-0x3f00b8bf   property mailbox
+0x3f200000-0x3f2000ff   GPIO controller
+0x3f201000-0x3f201fff   PL011 UART0
+0x3f215000-0x3f215fff   AUX block / Mini UART
+0x3f300000-0x3f3000ff   Arasan EMMC/SD
+0x3f980000-0x3f9fffff   DWC2 USB host
+0x40000000-0x40000fff   ARM-local interrupt/timer routing
+```
+
+运行时可以查看：
+
+```sh
+cat /proc/meminfo
+cat /proc/iomem
+```
+
+## 5. Mini UART 的寄存器地址
+
+AUX 模块的 ARM 物理基址为：
+
+```text
+PA 0x3f215000
+```
+
+Mini UART 的主要寄存器从 AUX 基址偏移 `0x40` 开始：
+
+```text
+0x3f215000   AUX_IRQ
+0x3f215004   AUX_ENABLES
+0x3f215040   AUX_MU_IO_REG
+0x3f215044   AUX_MU_IER_REG
+0x3f215048   AUX_MU_IIR_REG
+0x3f21504c   AUX_MU_LCR_REG
+0x3f215050   AUX_MU_MCR_REG
+0x3f215054   AUX_MU_LSR_REG
+0x3f215060   AUX_MU_CNTL_REG
+0x3f215064   AUX_MU_STAT_REG
+0x3f215068   AUX_MU_BAUD_REG
+```
+
+内核通过 TTBR1 的直接映射访问：
+
+```text
+Kernel VA = KERNBASE + PA
+
+0xffffff8000000000 + 0x3f215000
+= 0xffffff803f215000
+```
+
+完整访问路径：
+
+```text
+uart.c 中的 LDR/STR
+   -> VA 0xffffff803f215040 等
+   -> TTBR1_EL1 页表转换
+   -> PA 0x3f215040
+   -> SoC 内部地址译码
+   -> AUX Mini UART 寄存器
+   -> GPIO14/TXD1、GPIO15/RXD1
+   -> Raspberry Pi 引脚 8、10
+```
+
+Mini UART 还需要 GPIO 控制器把 GPIO14 和 GPIO15 配置成 ALT5。当前驱动使用 AUX Mini
+UART，而不是位于 `0x3f201000` 的 PL011 UART0。
+
+## 6. ARM 系统寄存器与 MMIO 寄存器的区别
+
+CPU 核内部的 ARM 系统寄存器不占用 BCM2837 MMIO 地址，使用 `MRS/MSR` 访问：
+
+```asm
+mrs x0, ttbr0_el1
+msr ttbr0_el1, x0
+mrs x0, cntvct_el0
+msr vbar_el1, x0
+```
+
+对比：
+
+| 类型 | 示例 | 访问方式 |
+|---|---|---|
+| CPU 通用寄存器 | `x0`、`sp` | 普通 CPU 指令 |
+| ARM 系统寄存器 | `TTBR0_EL1`、`SCTLR_EL1` | `MRS/MSR` |
+| ARM Generic Timer | `CNTVCT_EL0`、`CNTV_TVAL_EL0` | `MRS/MSR` |
+| BCM 外设寄存器 | GPIO、Mini UART、EMMC | MMIO `LDR/STR` |
+| DDR RAM | 页表、进程内存、内核数据 | Normal-memory `LDR/STR` |
+
+## 7. ARM 地址、VideoCore 总线地址和内核虚拟地址
+
+BCM 文档可能同时给出三种地址视图：
+
+```text
+VideoCore bus address  0x7e215000
+          <-> SoC 地址转换
+ARM physical address   0x3f215000
+          <-> ARM MMU/TTBR1
+Kernel virtual address 0xffffff803f215000
+```
+
+它们访问的是同一套 AUX 硬件寄存器，只是不同总线主设备和软件层看到的地址不同。ARM 不会把
+`0x7e215000` 当作用户虚拟地址再转换到 `0x3f215000`；ARM 驱动应使用 ARM 物理地址，并由
+内核页表建立对应虚拟映射。
+
+## 8. S3C2410 与 Raspberry Pi 的内核加载地址
+
+许多 S3C2410 开发板把外部 SDRAM 接到物理地址 `0x30000000`：
+
+```text
+SDRAM 基址       0x30000000
+Linux 内核位置   0x30008000
+基址内偏移       0x00008000
+```
+
+Raspberry Pi 的 RAM 从 ARM 物理地址零开始。AArch64 `kernel8.img` 的常用加载位置为：
+
+```text
+RAM 基址         0x00000000
+xv6 内核位置     0x00080000
+基址内偏移       0x00080000（512KB）
+```
+
+注意 Raspberry Pi 3 当前使用的是 `0x80000`，不是 `0x8000`。启用最终页表后：
+
+```text
+PA 0x00080000
+  -> TTBR1_EL1
+VA 0xffffff8000080000
+```
+
+这些地址不仅是为了编程方便，还由 SoC 地址译码、内存控制器窗口、Boot ROM/固件、启动协议、
+低地址保留区、设备树位置以及 32/64 位启动约定共同决定。可移植内核应从平台配置或设备树
+读取内存布局，而不能假设所有 ARM 平台的 RAM 都从物理地址零开始。
+
+## 9. 总结
+
+```text
+SoC = CPU 核 + 片内互连 + 内存控制器 + 外围控制器
+DDR = 通常位于 SoC 外部，经内存控制器访问
+控制器 = 通过硬件寄存器接受软件配置
+MMIO = 把设备寄存器分配到统一物理地址空间
+地址译码 = 决定访问发送给 DDR 还是某个外设
+页表属性 = 区分 Normal RAM 与 Device MMIO 的访问语义
+```
+
+对当前系统而言：
+
+```text
+内核代码 PA       0x00080000
+Mini UART PA      0x3f215000（寄存器从 +0x40 开始）
+Mini UART KVA     0xffffff803f215000
+GPIO PA           0x3f200000
+ARM-local PA      0x40000000
+```

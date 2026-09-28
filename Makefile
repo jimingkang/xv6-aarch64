@@ -12,6 +12,7 @@ OBJS = \
   $K/entry.o \
   $K/start.o \
   $K/console.o \
+	$K/device.o \
 	$K/tty.o \
   $K/printf.o \
   $K/uart.o \

@@ -21,6 +21,7 @@
 #include "aarch64.h"
 #include "defs.h"
 #include "proc.h"
+#include "device.h"
 
 #define BACKSPACE 0x100
 #define C(x)  ((x)-'@')  // Control-x
@@ -55,6 +56,26 @@ struct {
   uint w;  // Write index
   uint e;  // Edit index
 } cons;
+
+static int uart_probe(struct device *dev);
+
+static struct device uartdev = {
+  .name = "bcm2837-mini-uart",
+  .id = 0,
+  .resource = {
+    { PERIPHERAL_BASE_PA + 0x215000, PERIPHERAL_BASE_PA + 0x215fff,
+      IORESOURCE_MEM, "AUX/Mini UART" },
+    { PERIPHERAL_BASE_PA + 0x200000, PERIPHERAL_BASE_PA + 0x2000ff,
+      IORESOURCE_MEM, "GPIO" },
+    { UART0_IRQ, UART0_IRQ, IORESOURCE_IRQ, "AUX IRQ" },
+  },
+  .nresource = 3,
+};
+
+static struct device_driver uartdrv = {
+  .name = "bcm2837-mini-uart",
+  .probe = uart_probe,
+};
 
 //
 // user write()s to the console go here.
@@ -188,11 +209,18 @@ void
 consoleinit(void)
 {
   initlock(&cons.lock, "cons");
+  platform_device_register(&uartdev);
+  platform_driver_register(&uartdrv);
+}
 
+static int
+uart_probe(struct device *dev)
+{
+  static struct file_operations fops = {
+    .read = consoleread,
+    .write = consolewrite,
+  };
+  (void)dev;
   uartinit();
-
-  // connect read and write system calls
-  // to consoleread and consolewrite.
-  devsw[CONSOLE].read = consoleread;
-  devsw[CONSOLE].write = consolewrite;
+  return register_chrdev(CONSOLE, "console", &fops);
 }

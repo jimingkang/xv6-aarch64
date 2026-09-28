@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "aarch64.h"
 #include "defs.h"
+#include "device.h"
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -26,6 +27,7 @@ main()
     boot_uart_mark('3');
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     boot_uart_mark('4');
+    device_init();
     consoleinit();
     ttyinit();
     printfinit();
@@ -35,7 +37,7 @@ main()
     procinit();      // process table
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
-    usbnetinit();    // DWC2 + QEMU USB CDC Ethernet (optional)
+    usbnet_driver_init(); // register/probe DWC2 + USB CDC Ethernet
     trapinit();      // trap vectors
     trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller
@@ -44,7 +46,7 @@ main()
     binit();         // buffer cache
     iinit();         // inode table
     fileinit();      // file table
-    sdinit();         // BCM2837 SD/eMMC controller
+    sd_driver_init(); // register/probe BCM2837 SD/eMMC controller
     fat32init();      // locate FS.IMG in a FAT32 boot partition
     ext2init();       // optional read-only Linux ext2 partition
     vfsinit();        // mount non-native filesystems behind vnode operations

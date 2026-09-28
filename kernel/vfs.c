@@ -13,6 +13,7 @@
 #include "ext2.h"
 #include "defs.h"
 #include "vfs.h"
+#include "device.h"
 
 extern char etext[];
 extern char end[];
@@ -267,8 +268,9 @@ proc_vstat(char *path, struct stat *st)
     st->type = T_DIR;
     return 0;
   }
-  if(streq(path, "/meminfo") || streq(path, "/iomem")){
-    st->ino = streq(path, "/meminfo") ? 2 : 3;
+  if(streq(path, "/meminfo") || streq(path, "/iomem") ||
+     streq(path, "/devices")){
+    st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 : 4;
     st->type = T_FILE;
     st->size = 2048;
     return 0;
@@ -303,6 +305,22 @@ proc_vread(char *path, uint64 off, void *dst, int n)
     return proc_memread(0, off, dst, n);
   if(streq(path, "/iomem"))
     return proc_memread(1, off, dst, n);
+  if(streq(path, "/devices")){
+    char *page = kalloc();
+    int len;
+    if(page == 0)
+      return -1;
+    len = device_format(page, PGSIZE);
+    if(off >= (uint64)len)
+      n = 0;
+    else {
+      if(n > len - off)
+        n = len - off;
+      memmove(dst, page + off, n);
+    }
+    kfree(page);
+    return n;
+  }
   if(path[0] != '/' || parsepid(path + 1, &pid, &rest) < 0 ||
      !streq(rest, "/status"))
     return -1;
@@ -353,10 +371,17 @@ proc_vreaddir(char *path, int index, void *arg)
       safestrcpy(de->name, "iomem", sizeof(de->name));
       return 1;
     }
+    if(index == 2){
+      de->ino = 4;
+      de->type = T_FILE;
+      de->size = 2048;
+      safestrcpy(de->name, "devices", sizeof(de->name));
+      return 1;
+    }
     int seen = 0;
     for(p = proc; p < proc + NPROC; p++){
       acquire(&p->lock);
-      if(p->state != UNUSED && seen++ == index - 2){
+      if(p->state != UNUSED && seen++ == index - 3){
         pid = p->pid;
         release(&p->lock);
         de->ino = 1000 + pid;

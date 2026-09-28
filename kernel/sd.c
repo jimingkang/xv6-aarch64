@@ -12,6 +12,7 @@
 #include "sleeplock.h"
 #include "fs.h"
 #include "buf.h"
+#include "device.h"
 
 #define EMMC_BASE       (PERIPHERAL_BASE + 0x00300000UL)
 #define GPIO_BASE       (PERIPHERAL_BASE + 0x00200000UL)
@@ -497,4 +498,36 @@ sdsector(uint32 sector, void *buffer, int write)
   }
   release(&sdlock);
   return result;
+}
+
+static int
+sd_probe(struct device *dev)
+{
+  (void)dev;
+  sdinit();
+  return 0;
+}
+
+void
+sd_driver_init(void)
+{
+  static struct device dev = {
+    .name = "bcm2837-emmc",
+    .id = 0,
+    .resource = {
+      { V2P_WO(EMMC_BASE), V2P_WO(EMMC_BASE) + 0xff,
+        IORESOURCE_MEM, "Arasan EMMC/SD" },
+      { V2P_WO(GPIO_BASE), V2P_WO(GPIO_BASE) + 0xff,
+        IORESOURCE_MEM, "GPIO" },
+      { V2P_WO(MBOX_BASE), V2P_WO(MBOX_BASE) + 0x3f,
+        IORESOURCE_MEM, "property mailbox" },
+    },
+    .nresource = 3,
+  };
+  static struct device_driver drv = {
+    .name = "bcm2837-emmc",
+    .probe = sd_probe,
+  };
+  platform_device_register(&dev);
+  platform_driver_register(&drv);
 }
