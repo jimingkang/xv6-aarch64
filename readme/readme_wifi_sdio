@@ -1,0 +1,361 @@
+# RPi3 Wi-Fi：platform host 与 SDIO bus
+
+## 当前已经实现
+
+### 外置 SD 卡已经迁移到 BCM SDHOST
+
+`kernel/sdhost.c` 已经替换原来用于根磁盘的 Arasan 驱动：
+
+```text
+BCM2835 SDHOST  0x3f202000 + GPIO48--53 -> SD卡、FS.IMG
+Arasan SDHCI    0x3f300000 + GPIO34--39 -> 保留给 BCM43455 SDIO
+```
+
+SDHOST 驱动当前实现：
+
+- GPIO48--53 ALT0 和 BCM2837 pull 配置；
+- 控制器复位、供电、识别时钟和数据时钟；
+- CMD0/CMD8/ACMD41/CMD2/CMD3/CMD7/CMD16；
+- ACMD6 四位总线协商，失败时安全保留一位模式；
+- 设置 `SDHCFG_SLOW_CARD`，强制 data mode 使用完整 11 位 SDCDIV；否则
+  250 MHz core 下分频值 8 会被截成低三位的 0，造成过高时钟和 CRC16 错误；
+- CMD17/CMD24 单扇区 PIO 读写；
+- FIFO、命令、数据状态轮询和三次 I/O 重试；
+- platform device 资源登记。
+
+QEMU 启动和文件系统读写验证后的设备信息为：
+
+```text
+bcm2835-sdhost bus=platform driver=bcm2835-sdhost
+  mem 0x3f202000-0x3f2020ff BCM2835 SDHOST
+  mem 0x3f200000-0x3f2000ff GPIO
+```
+
+新增的 `kernel/sdio.c` 和 `kernel/sdio.h` 提供最小 MMC/SDIO core：
+
+```text
+platform device/driver
+        |
+        v
+     mmc_host + mmc_host_ops
+        |
+        +-- CMD0/CMD5/CMD3/CMD7 枚举
+        +-- CMD52 单字节寄存器访问
+        +-- CMD53 数据传输
+        |
+        v
+     sdio_bus
+        |
+        +-- sdio_func(function 1)
+        +-- sdio_func(function 2)
+        |
+        v
+     sdio_driver(brcmfmac)
+```
+
+SDIO 匹配不使用 platform 设备名称，而使用：
+
+```text
+vendor + device + function
+```
+
+当前 brcmfmac ID 表支持：
+
+```text
+Broadcom vendor  0x02d0
+BCM43430 device  0xa9a6  (当前真实 RPi3 检测结果)
+BCM43455 device  0xa9bf
+function         1
+```
+
+`cat /proc/devices` 可看到 `sdio` 总线。只有 host controller 调用
+`mmc_add_host()` 并成功枚举硬件后，才会出现 `sdio0:1`、`sdio0:2` 设备。
+
+## bootfs firmware 文件
+
+FAT32 驱动现在增加了只读根目录文件接口：
+
+```c
+fat32openroot(name11, &file);
+fat32pread(&file, offset, buffer, length);
+```
+
+为了避免先实现 FAT 长文件名和子目录，bootfs 使用三个 8.3 名称：
+
+```text
+BCM43430.BIN
+BCM43430.TXT
+BCM43430.CLM   （可选）
+
+BCM43455.BIN
+BCM43455.TXT
+BCM43455.CLM
+```
+
+执行 `make install-rpi3` 时，如果指定目录存在正式文件，会自动改名复制：
+
+```sh
+make install-rpi3 \
+  WIFI_FIRMWARE_DIR=/path/to/brcm-firmware
+```
+
+源目录需要包含：
+
+```text
+brcmfmac43430-sdio.bin
+brcmfmac43430-sdio.txt
+brcmfmac43430-sdio.clm_blob  （可选）
+
+brcmfmac43455-sdio.bin
+brcmfmac43455-sdio.txt
+brcmfmac43455-sdio.clm_blob
+```
+
+固件文件必须来自同一兼容发行版本。当前 `firmware/` 中保存的是 Raspberry Pi
+`firmware-nonfree` bookworm 分支为 Pi 3 Model B 提供的可再分发文件；它们不会
+链接进内核，而是在安装时复制到 bootfs。
+
+当前真实板枚举结果为：
+
+```text
+sdio0:1 vendor=02d0 device=a9a6 class=0
+sdio0:2 vendor=02d0 device=a9a6 class=0
+sdio0:3 vendor=02d0 device=a9a6 class=2
+```
+
+因此这是 BCM43430，而不是 BCM43455。驱动只在 function 1 probe 一次；
+function 2 必须等固件下载、backplane clock 可用并写入 SDPCM 协议版本后才能
+启用，不能在初始 probe 中等待其 ready。function 3 不作为独立 Wi-Fi 网卡绑定。
+
+## 下一阶段：Arasan SDIO host
+
+SD 卡控制器冲突已经解除，`kernel/arasan_sdio.c` 现在已经建立第二个
+platform host：
+
+```text
+bcm2837-arasan-sdio bus=platform driver=bcm2837-arasan-sdio
+  mem 0x3f300000-0x3f3000ff Arasan SDHCI/SDIO
+  mem 0x3f200000-0x3f2000ff GPIO34-39
+  mem 0x3f00b880-0x3f00b8bf property mailbox
+```
+
+它实现了：
+
+- GPIO34--39 ALT3、CLK 无 pull、CMD/DAT pull-up；
+- property mailbox 获取 EMMC base clock，并提供 CAP0/200 MHz 回退；
+- Arasan reset、clock divider、1/4-bit host width；
+- `mmc_host_ops.request/set_clock/set_bus_width`；
+- CMD5/CMD52/CMD53 所需的命令响应和 PIO 数据路径；
+- 失败后 command/data state machine reset；
+- 调用 `mmc_add_host()` 枚举 SDIO functions。
+
+QEMU `raspi3b` 没有 BCM43455，预期日志是：
+
+```text
+arasan-sdio: host base-clock=50000000 Hz, probing GPIO34-39
+arasan-sdio: request CMD5 failed ...
+arasan-sdio: no SDIO device found
+```
+
+真实 Pi 3B+ 的下一验证目标是出现：
+
+```text
+sdio: sdio0:1 vendor=2d0 device=a9bf ...
+```
+
+然后继续：
+
+```text
+BCM SDHOST 0x3f202000 + GPIO48--53 -> SD卡/FS.IMG
+Arasan     0x3f300000 + GPIO34--39 -> BCM43455 SDIO
+```
+
+之后的实现顺序是：
+
+1. 在真实 Pi 3B/3B+ 回归 BCM SDHOST 的读写与重启持久性；
+2. 验证真实板 CMD5/CMD52/CMD53 和 function 1/2 CIS；
+3. 完成 Broadcom backplane window 和芯片 core reset；
+4. 用 `fat32pread()` 流式下载 BIN，转换并下载 NVRAM；
+5. 启动芯片并等待 SDPCM `FWREADY`；
+6. 实现 BCDC iovar，使用 `clmload` 下载 CLM；
+7. 实现扫描、关联、WPA2 与 Ethernet frame 收发；
+8. 添加 DHCP，替换当前仅适合 QEMU NAT 的固定地址。
+
+QEMU `raspi3b` 不模拟 BCM43455，因此 QEMU 只能回归总线核心不会破坏原来的
+启动；SDIO 枚举和 firmware 启动必须在真实 Pi 3B+ 上验证。
+
+## BCM43430 function-1 backplane 验证
+
+真实 Pi 3 已经完成 function 1 enable，并确认 bootfs 中的 BCM43430 BIN、TXT、
+CLM 文件可读取。下一步不是提前 enable function 2，而是先用 function 1 访问
+芯片内部 backplane：
+
+```text
+目标 backplane 地址 0x18000000
+        |
+        +-- window = address & 0xffff8000
+        |   写 F1 0x1000a、0x1000b、0x1000c
+        |
+        +-- CMD53 F1 address = (address & 0x7fff) | 0x8000
+            读取 ChipCommon chipid（little endian 32 bit）
+```
+
+新内核预期继续打印：
+
+```text
+brcmfmac: ChipCommon chipid=... chip=43430 rev=... pkg=...
+brcmfmac: backplane access ready; firmware loader not started
+```
+
+若打印 `cannot read ChipCommon chipid`，故障范围已经缩小到 F1 CMD52 窗口设置
+或四字节 CMD53；此时不能继续下载固件。若 chip ID 正确，再实现 AI core 枚举、
+RAM 地址/大小识别、CPU core halt/reset，以及 BIN/NVRAM 下载。
+
+真实板返回 `0x15264345` 时，低 16 位芯片号是 `0x4345`、revision 是 6。
+这不是 SDIO product ID `0xa9a6` 的读取错误：SDIO ID 和 ChipCommon ID 属于两套
+编号，不能直接比较。Linux 的固件映射将 `0x4345 rev 6` 归为 BCM43455，因此驱动
+现在先读取 ChipCommon ID，再选择 `BCM43455.BIN/TXT/CLM`。只有内部芯片号
+`43430`（十进制，即十六进制 `0xa9a6`）才选择 BCM43430 固件。
+
+## BCM43455 固件启动的七个阶段
+
+`kernel/brcmfmac.c` 现在按以下顺序启动芯片，每一步失败都会停止，不会继续操作
+后续硬件状态：
+
+1. 从 ChipCommon `EROMPTR` 读取并解析 DMP/AI EROM descriptors，打印所有 core；
+2. 定位 ChipCommon、SDIO device、ARM CR4、D11 cores，并从 CR4 bank registers
+   动态计算 TCM RAM；BCM4345/6 RAM 基址使用 `0x198000`；
+3. 通过 AI wrapper 的 `IOCTL` 和 `RESET_CTL` halt CR4，并将 D11 保持 reset；
+4. 用 FAT32 顺序读取器读取 `BCM43455.BIN`，从 512 字节开始自适应 CMD53
+   传输长度，并处理 32 KiB backplane window 边界，写入 TCM RAM 后验证
+   reset vector；
+5. 将 TXT NVRAM 转换成 NUL 分隔变量，补双 NUL、四字节对齐及 Broadcom
+   word-count/complement token，然后写入 TCM RAM 尾部并验证 token；
+6. 清 SDIO core interrupt，向地址 0 写 reset vector，释放 CR4 reset；
+7. 写入 SDPCM protocol version，等待 firmware 置 F2 ready，配置 BCM43455
+   watermark/host interrupt mask，并等待 FWREADY/DEVREADY mailbox。
+
+关键成功日志为：
+
+```text
+brcmfmac: EROM at ...
+brcmfmac: core[...] id=83e ...             # ARM CR4
+brcmfmac: core[...] id=829 ...             # SDIO device
+brcmfmac: TCM RAM base=198000 size=... bytes banks=...
+brcmfmac: CR4 halted; wireless cores held in reset
+brcmfmac: firmware download 609309/609309
+brcmfmac: firmware reset-vector=... verified
+brcmfmac: NVRAM ... bytes written at ... token=...
+brcmfmac: CR4 released reset-vector=...
+brcmfmac: F2 ready mailbox=... protocol=4
+brcmfmac: firmware running; SDPCM transport ready
+```
+
+到这里表示固件与 SDPCM transport 已启动，但还不等于 `wlan0` 能传包。后续仍需
+SDPCM frame RX/TX、BCDC control/iovar、CLM load、扫描/关联和 WPA2。
+
+## Raspberry Pi 3B+ 实机验证结果
+
+实机上的 Arasan SDIO 在 byte-mode CMD53 写入 512、256、128 字节时报告
+`irq=0x208000`，其中包含 Data CRC error。驱动逐级减半后在 64 字节稳定，随后
+成功完成整个固件启动流程：
+
+```text
+brcmfmac: CMD53 retry with max-chunk=256
+brcmfmac: CMD53 retry with max-chunk=128
+brcmfmac: CMD53 retry with max-chunk=64
+brcmfmac: firmware download 609309/609309
+brcmfmac: firmware reset-vector=-47c10e68 verified
+brcmfmac: NVRAM 1748 bytes written at 25f92c token=-1b4fe4c
+brcmfmac: CR4 released reset-vector=-47c10e68
+brcmfmac: F2 ready mailbox=40008 protocol=4
+brcmfmac: firmware running; SDPCM transport ready
+```
+
+因此本机当前学习到的稳定 CMD53 最大传输长度是 64 字节。这个限制是运行时
+探测得到的，并非 BCM43455 固件格式规定的固定值。
+
+当前 xv6 `printf` 的 `%x` 路径会把最高位为 1 的 32 位数显示成带负号的十六进制。
+所以上面的 reset vector `-47c10e68` 按原始 32 位位模式是 `0xb83ef198`，NVRAM
+token `-1b4fe4c` 是 `0xfe4b01b4`；写后校验已经通过，它们不是负地址，也不是
+固件损坏。
+
+## SDPCM/BCDC 控制面
+
+固件启动后，驱动不再只停在 F2 ready。当前实现继续完成：
+
+1. 通过 ChipCommon Function 2 FIFO 分段发送、接收 SDPCM 帧；
+2. 校验 SDPCM 16 位长度和反码，并解析 control/event/data channel；
+3. 封装 BCDC dcmd request-id、SET/GET 和固件错误状态；
+4. 发送 `ver` iovar，验证 Function 2 双向控制帧；
+5. 用 `clmload` iovar 将 `BCM43455.CLM` 分块下载给固件；
+6. 读取 `cur_etheraddr`，取得板载无线芯片的真实 MAC；
+7. 发送 `WLC_UP`，将固件网络接口置为 up。
+
+下一次实机启动在原来的 SDPCM ready 日志后应继续显示：
+
+```text
+brcmfmac: firmware version ...
+brcmfmac: CLM 2676 bytes downloaded
+brcmfmac: wlan0 mac=..:..:..:..:..:..
+brcmfmac: control plane ready
+```
+
+若停在 `cannot exchange BCDC control frames`，应先修正 Function 2 FIFO 的帧边界
+或响应读取，不能继续把问题归因于扫描或 WPA2。控制面验证通过以后，再接入扫描、
+关联、WPA2 supplicant offload、SDPCM data channel 和 xv6 Ethernet/IP 层。
+
+第一次实机测试曾直接显示 `cannot exchange BCDC control frames`，且没有 CMD53
+错误或 response timeout。原因是 GET iovar 把 BCDC 请求长度固定成了 2048；再加
+16 字节 BCDC header 后超过驱动允许的 2048 字节控制缓冲，在发送前就被本地检查
+拒绝。GET/SET 现在都使用 `strlen(name) + 1 + data_length` 作为实际请求长度。
+
+## WPA2 关联命令
+
+控制面通过实机验证后，系统增加了 `wifi_connect` 系统调用和 `/bin/wifi` 命令。
+默认 `/etc/wifi.conf` 格式为：
+
+```text
+ssid=TP-Link_B114_5G
+psk=Minghua123
+```
+
+执行 `wifi` 会依次设置 infrastructure mode、open-system 802.11 authentication、
+AES/CCMP、`WPA2_AUTH_PSK`、固件 supplicant 和 passphrase，最后发送 `SET_SSID`。
+驱动通过 `GET_BSSID` 轮询最多 10 秒，成功时打印关联 AP 的 BSSID。也可以临时执行
+`wifi SSID PASSPHRASE`，不修改配置文件。
+
+关联配置必须注意 Broadcom 的 per-BSS iovar 编码。`wpa_auth` 与 `sup_wpa` 不能按
+普通全局 iovar 发送；正确载荷是：
+
+```text
+"bsscfg:wpa_auth\0" + uint32(bsscfgidx=0) + uint32(WPA2_AUTH_PSK)
+"bsscfg:sup_wpa\0"  + uint32(bsscfgidx=0) + uint32(1)
+```
+
+早期实现直接发送 `wpa_auth`/`sup_wpa`，固件对 `SET_VAR(263)` 返回
+`BCME_UNSUPPORTED`。当前实现已改用上述 Linux brcmfmac 相同的 bsscfg 格式，且每个
+关联步骤都有独立错误日志。
+
+这一阶段的验收日志是：
+
+```text
+brcmfmac: associating with SSID TP-Link_B114_5G (WPA2-PSK/AES)
+brcmfmac: associated bssid=...
+wifi: associated
+```
+
+关联成功只证明 802.11/WPA2 链路建立；访问 Internet 还需要启用 SDPCM data channel
+收发、将 Ethernet frame 交给 `net_rx()`，并完成 ARP、DHCP、默认路由和 DNS 配置。
+
+BCM43455 的 7.45 固件对 `SET_WSEC_PMK` 使用传统 `wsec_pmk_t` ABI：两个 16 位
+字段后是 64 字节 `WSEC_MAX_PSK_LEN`。若误用现代 Linux 为 SAE 扩展的 128 字节
+key 数组，总结构从 68 字节变成 132 字节，固件会返回 `BCME_BADARG (-2)`。
+当前驱动按 68 字节旧 ABI 发送 WPA2 passphrase。
+
+进一步实机验证表明，该固件同时返回 `sup_wpa=-23`，并对带
+`WSEC_PASSPHRASE` 标志的明文密码返回 `SET_WSEC_PMK=-2`。因此当前实现采用
+主机派生 PMK：使用 WPA2 标准的 `PBKDF2-HMAC-SHA1(passphrase, SSID, 4096)`
+产生 32 字节 PMK，再以 `key_len=32, flags=0` 发送给固件。针对当前配置，参考
+PMK 为 `266367419da13030798862f51fa9a99c571edbdd33ad868fe70a4c3eb4e5965b`；
+驱动不会把 PMK 或密码打印到串口。

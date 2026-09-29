@@ -28,11 +28,13 @@ main()
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     boot_uart_mark('4');
     device_init();
+    sdio_bus_init();
     consoleinit();
     ttyinit();
     printfinit();
     printf("\n");
     printf("xv6 kernel is booting\n");
+    printf("build: bcm43430-sdio-v2\n");
     printf("\n");
     procinit();      // process table
     syncinit();      // process synchronization objects
@@ -46,8 +48,10 @@ main()
     binit();         // buffer cache
     iinit();         // inode table
     fileinit();      // file table
-    sd_driver_init(); // register/probe BCM2837 SD/eMMC controller
+    sd_driver_init(); // BCM SDHOST owns the external SD memory card
+    arasan_sdio_driver_init(); // Arasan owns BCM43430/43455 on GPIO34--39
     fat32init();      // locate FS.IMG in a FAT32 boot partition
+    brcmfmac_driver_init(); // firmware source is available after FAT32 init
     ext2init();       // optional read-only Linux ext2 partition
     vfsinit();        // mount non-native filesystems behind vnode operations
     userinit();      // first user process

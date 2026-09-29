@@ -54,3 +54,4 @@ entry("icmp_recv");
 entry("mount");
 entry("tty_attach");
 entry("vmdump");
+entry("wifi_connect");

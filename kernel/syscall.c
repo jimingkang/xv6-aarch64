@@ -122,6 +122,7 @@ extern uint64 sys_icmp_recv(void);
 extern uint64 sys_mount(void);
 extern uint64 sys_tty_attach(void);
 extern uint64 sys_vmdump(void);
+extern uint64 sys_wifi_connect(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -163,6 +164,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mount]        sys_mount,
 [SYS_tty_attach]   sys_tty_attach,
 [SYS_vmdump]       sys_vmdump,
+[SYS_wifi_connect] sys_wifi_connect,
 };
 
 void

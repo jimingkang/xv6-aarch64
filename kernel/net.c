@@ -38,10 +38,27 @@ static struct {
   uchar data[ICMP_MAX_PAYLOAD];
 } pingq;
 static int (*netdev_xmit)(void*, int);
+static void (*netdev_poll)(void);
 static uint16 ip_id;
 static uchar local_mac[ETH_ADDR_LEN] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x56};
 // QEMU SLIRP's Ethernet gateway address for the default 10.0.2.0/24 LAN.
 static uchar gateway_mac[ETH_ADDR_LEN] = {0x52, 0x55, 0x0a, 0x00, 0x02, 0x02};
+static uint32 local_ip = NET_IP_LOCAL;
+static uint32 gateway_ip = NET_IP_GATEWAY;
+static uint32 netmask = 0xffffff00U;
+static uint32 dns_ip = 0x0a000203U;
+static int gateway_resolved = 1;
+static struct {
+  uint32 xid;
+  int waiting;
+  int type;
+  uint32 yiaddr;
+  uint32 server;
+  uint32 router;
+  uint32 mask;
+  uint32 dns;
+  uchar server_mac[ETH_ADDR_LEN];
+} dhcp;
 
 static uint16
 swap16(uint16 x)
@@ -116,7 +133,7 @@ icmp_rx(struct ethhdr *eth, struct iphdr *ip, int hlen, int iplen)
     return;
   }
 
-  if(icmp->type != ICMP_ECHO_REQUEST || swap32(ip->dst) != NET_IP_LOCAL ||
+  if(icmp->type != ICMP_ECHO_REQUEST || swap32(ip->dst) != local_ip ||
      netdev_xmit == 0)
     return;
   framelen = sizeof(*reth) + sizeof(*rip) + icmplen;
@@ -147,6 +164,21 @@ void
 net_set_xmit(int (*fn)(void*, int))
 {
   netdev_xmit = fn;
+}
+
+void
+net_set_poll(void (*fn)(void))
+{
+  netdev_poll = fn;
+}
+
+void
+net_set_mac(uint8 *mac)
+{
+  memmove(local_mac, mac, ETH_ADDR_LEN);
+  local_ip = gateway_ip = netmask = dns_ip = 0;
+  gateway_resolved = 0;
+  memset(gateway_mac, 0, sizeof(gateway_mac));
 }
 
 static struct udp_port*
@@ -254,6 +286,50 @@ udp_rx(uint32 src, uint16 sport, uint16 dport, uchar *data, int len)
   release(&p->lock);
 }
 
+static uint32
+dhcp_ip(uchar *p)
+{
+  return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) |
+         ((uint32)p[2] << 8) | p[3];
+}
+
+static void
+dhcp_rx(struct ethhdr *eth, uchar *data, int len)
+{
+  int pos, end, type = 0;
+  uint32 xid;
+
+  if(!dhcp.waiting || len < 240 || data[0] != 2 ||
+     data[1] != 1 || data[2] != 6 ||
+     data[236] != 99 || data[237] != 130 ||
+     data[238] != 83 || data[239] != 99)
+    return;
+  xid = dhcp_ip(data + 4);
+  if(xid != dhcp.xid)
+    return;
+  dhcp.yiaddr = dhcp_ip(data + 16);
+  dhcp.server = dhcp.router = dhcp.mask = dhcp.dns = 0;
+  for(pos = 240; pos < len;){
+    int code = data[pos++];
+    if(code == 0) continue;
+    if(code == 255) break;
+    if(pos >= len) break;
+    end = pos + 1 + data[pos];
+    if(end > len) break;
+    int n = data[pos++];
+    if(code == 53 && n >= 1) type = data[pos];
+    else if(code == 1 && n >= 4) dhcp.mask = dhcp_ip(data + pos);
+    else if(code == 3 && n >= 4) dhcp.router = dhcp_ip(data + pos);
+    else if(code == 6 && n >= 4) dhcp.dns = dhcp_ip(data + pos);
+    else if(code == 54 && n >= 4) dhcp.server = dhcp_ip(data + pos);
+    pos += n;
+  }
+  if(type == 2 || type == 5){
+    dhcp.type = type;
+    memmove(dhcp.server_mac, eth->src, ETH_ADDR_LEN);
+  }
+}
+
 static void
 arp_rx(struct ethhdr *eth, int len)
 {
@@ -267,8 +343,14 @@ arp_rx(struct ethhdr *eth, int len)
   arp = (struct arphdr*)(eth + 1);
   if(swap16(arp->htype) != ARP_HTYPE_ETH ||
      swap16(arp->ptype) != ETH_TYPE_IP || arp->hlen != ETH_ADDR_LEN ||
-     arp->plen != 4 || swap16(arp->op) != ARP_OP_REQUEST ||
-     swap32(arp->tpa) != NET_IP_LOCAL)
+     arp->plen != 4)
+    return;
+  if(swap16(arp->op) == ARP_OP_REPLY && swap32(arp->spa) == gateway_ip){
+    memmove(gateway_mac, arp->sha, ETH_ADDR_LEN);
+    gateway_resolved = 1;
+    return;
+  }
+  if(swap16(arp->op) != ARP_OP_REQUEST || swap32(arp->tpa) != local_ip)
     return;
 
   packet = kalloc();
@@ -286,11 +368,31 @@ arp_rx(struct ethhdr *eth, int len)
   reply->plen = 4;
   reply->op = swap16(ARP_OP_REPLY);
   memmove(reply->sha, local_mac, ETH_ADDR_LEN);
-  reply->spa = swap32(NET_IP_LOCAL);
+  reply->spa = swap32(local_ip);
   memmove(reply->tha, arp->sha, ETH_ADDR_LEN);
   reply->tpa = arp->spa;
   netdev_xmit(packet, framelen);
   kfree(packet);
+}
+
+static int
+arp_request(uint32 target)
+{
+  uchar packet[sizeof(struct ethhdr) + sizeof(struct arphdr)];
+  struct ethhdr *eth = (struct ethhdr*)packet;
+  struct arphdr *arp = (struct arphdr*)(eth + 1);
+  memset(packet, 0, sizeof(packet));
+  memset(eth->dst, 0xff, ETH_ADDR_LEN);
+  memmove(eth->src, local_mac, ETH_ADDR_LEN);
+  eth->type = swap16(ETH_TYPE_ARP);
+  arp->htype = swap16(ARP_HTYPE_ETH);
+  arp->ptype = swap16(ETH_TYPE_IP);
+  arp->hlen = ETH_ADDR_LEN; arp->plen = 4;
+  arp->op = swap16(ARP_OP_REQUEST);
+  memmove(arp->sha, local_mac, ETH_ADDR_LEN);
+  arp->spa = swap32(local_ip);
+  arp->tpa = swap32(target);
+  return netdev_xmit ? netdev_xmit(packet, sizeof(packet)) : -1;
 }
 
 void
@@ -331,8 +433,141 @@ net_rx(void *packet, int len)
   udplen = swap16(udp->len);
   if(udplen < (int)sizeof(*udp) || udplen > iplen - hlen)
     return;
-  udp_rx(swap32(ip->src), swap16(udp->sport), swap16(udp->dport),
+  if(swap16(udp->sport) == 67 && swap16(udp->dport) == 68)
+    dhcp_rx(eth, (uchar*)(udp + 1), udplen - sizeof(*udp));
+  uint32 udp_src = swap32(ip->src);
+  // Preserve the original QEMU-facing user ABI: programs historically use
+  // 10.0.2.3 as the DNS endpoint.  On a DHCP-configured interface translate
+  // that stable alias to/from the real resolver learned from option 6.
+  if(dns_ip && dns_ip != 0x0a000203U && udp_src == dns_ip &&
+     swap16(udp->sport) == 53)
+    udp_src = 0x0a000203U;
+  udp_rx(udp_src, swap16(udp->sport), swap16(udp->dport),
          (uchar*)(udp + 1), udplen - sizeof(*udp));
+}
+
+static int
+dhcp_send(int type, uint32 requested, uint32 server)
+{
+  uchar *packet, *bootp, *opt;
+  struct ethhdr *eth;
+  struct iphdr *ip;
+  struct udphdr *udp;
+  int bootplen, framelen;
+
+  packet = kalloc();
+  if(packet == 0)
+    return -1;
+  memset(packet, 0, PGSIZE);
+  eth = (struct ethhdr*)packet;
+  memset(eth->dst, 0xff, ETH_ADDR_LEN);
+  memmove(eth->src, local_mac, ETH_ADDR_LEN);
+  eth->type = swap16(ETH_TYPE_IP);
+  ip = (struct iphdr*)(eth + 1);
+  udp = (struct udphdr*)(ip + 1);
+  bootp = (uchar*)(udp + 1);
+  bootp[0] = 1; bootp[1] = 1; bootp[2] = 6;
+  bootp[4] = dhcp.xid >> 24; bootp[5] = dhcp.xid >> 16;
+  bootp[6] = dhcp.xid >> 8; bootp[7] = dhcp.xid;
+  bootp[10] = 0x80; // broadcast reply flag, network byte order
+  memmove(bootp + 28, local_mac, ETH_ADDR_LEN);
+  bootp[236] = 99; bootp[237] = 130;
+  bootp[238] = 83; bootp[239] = 99;
+  opt = bootp + 240;
+  *opt++ = 53; *opt++ = 1; *opt++ = type;
+  if(requested){
+    *opt++ = 50; *opt++ = 4;
+    *opt++ = requested >> 24; *opt++ = requested >> 16;
+    *opt++ = requested >> 8; *opt++ = requested;
+  }
+  if(server){
+    *opt++ = 54; *opt++ = 4;
+    *opt++ = server >> 24; *opt++ = server >> 16;
+    *opt++ = server >> 8; *opt++ = server;
+  }
+  *opt++ = 55; *opt++ = 3; *opt++ = 1; *opt++ = 3; *opt++ = 6;
+  *opt++ = 255;
+  bootplen = opt - bootp;
+  if(bootplen < 300) bootplen = 300;
+  udp->sport = swap16(68); udp->dport = swap16(67);
+  udp->len = swap16(sizeof(*udp) + bootplen);
+  ip->vhl = 0x45;
+  ip->len = swap16(sizeof(*ip) + sizeof(*udp) + bootplen);
+  ip->id = swap16(++ip_id); ip->ttl = 64; ip->proto = IP_PROTO_UDP;
+  ip->src = 0; ip->dst = 0xffffffffU;
+  ip->sum = swap16(checksum(ip, sizeof(*ip)));
+  framelen = sizeof(*eth) + sizeof(*ip) + sizeof(*udp) + bootplen;
+  int result = netdev_xmit ? netdev_xmit(packet, framelen) : -1;
+  kfree(packet);
+  return result;
+}
+
+static int
+dhcp_wait(int wanted, uint32 seconds)
+{
+  uint64 deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * seconds;
+  while(r_cntvct_el0() < deadline){
+    if(dhcp.type == wanted)
+      return 0;
+    if(netdev_poll)
+      netdev_poll();
+    asm volatile("yield" ::: "memory");
+  }
+  return -1;
+}
+
+int
+net_dhcp(void)
+{
+  uint32 offered, server;
+  if(netdev_xmit == 0 || netdev_poll == 0)
+    return -1;
+  memset(&dhcp, 0, sizeof(dhcp));
+  dhcp.xid = (uint32)r_cntvct_el0() ^
+             ((uint32)local_mac[2] << 24) ^
+             ((uint32)local_mac[5] << 8);
+  dhcp.waiting = 1;
+  if(dhcp_send(1, 0, 0) < 0 || dhcp_wait(2, 5) < 0){
+    dhcp.waiting = 0;
+    printf("dhcp: no offer\n");
+    return -1;
+  }
+  offered = dhcp.yiaddr;
+  server = dhcp.server;
+  dhcp.type = 0;
+  if(dhcp_send(3, offered, server) < 0 || dhcp_wait(5, 5) < 0){
+    dhcp.waiting = 0;
+    printf("dhcp: no acknowledgement\n");
+    return -1;
+  }
+  local_ip = dhcp.yiaddr;
+  netmask = dhcp.mask ? dhcp.mask : 0xffffff00U;
+  gateway_ip = dhcp.router ? dhcp.router : dhcp.server;
+  dns_ip = dhcp.dns ? dhcp.dns : gateway_ip;
+  memmove(gateway_mac, dhcp.server_mac, ETH_ADDR_LEN);
+  dhcp.waiting = 0;
+  printf("dhcp: address=%d.%d.%d.%d gateway=%d.%d.%d.%d dns=%d.%d.%d.%d\n",
+         (local_ip>>24)&255, (local_ip>>16)&255, (local_ip>>8)&255, local_ip&255,
+         (gateway_ip>>24)&255, (gateway_ip>>16)&255,
+         (gateway_ip>>8)&255, gateway_ip&255,
+         (dns_ip>>24)&255, (dns_ip>>16)&255, (dns_ip>>8)&255, dns_ip&255);
+  gateway_resolved = 0;
+  if(gateway_ip && arp_request(gateway_ip) >= 0){
+    uint64 deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * 2;
+    while(!gateway_resolved && r_cntvct_el0() < deadline){
+      netdev_poll();
+      asm volatile("yield" ::: "memory");
+    }
+  }
+  if(gateway_resolved)
+    printf("arp: gateway %d.%d.%d.%d is %x:%x:%x:%x:%x:%x\n",
+           (gateway_ip>>24)&255, (gateway_ip>>16)&255,
+           (gateway_ip>>8)&255, gateway_ip&255,
+           gateway_mac[0], gateway_mac[1], gateway_mac[2],
+           gateway_mac[3], gateway_mac[4], gateway_mac[5]);
+  else
+    printf("arp: gateway reply timeout; using DHCP server MAC\n");
+  return 0;
 }
 
 int
@@ -354,7 +589,7 @@ net_icmp_send(uint32 dst, int id, int seq, uint64 uaddr, int len)
   memset(packet, 0, framelen);
   eth = (struct ethhdr*)packet;
   memmove(eth->src, local_mac, ETH_ADDR_LEN);
-  memmove(eth->dst, dst == NET_IP_LOCAL ? local_mac : gateway_mac,
+  memmove(eth->dst, dst == local_ip ? local_mac : gateway_mac,
           ETH_ADDR_LEN);
   eth->type = swap16(ETH_TYPE_IP);
   ip = (struct iphdr*)(eth + 1);
@@ -363,7 +598,7 @@ net_icmp_send(uint32 dst, int id, int seq, uint64 uaddr, int len)
   ip->id = swap16(++ip_id);
   ip->ttl = 64;
   ip->proto = IP_PROTO_ICMP;
-  ip->src = swap32(NET_IP_LOCAL);
+  ip->src = swap32(local_ip);
   ip->dst = swap32(dst);
   ip->sum = swap16(checksum(ip, sizeof(*ip)));
   icmp = (struct icmphdr*)(ip + 1);
@@ -445,6 +680,10 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   struct iphdr *ip;
   struct udphdr *udp;
   int framelen;
+  uint32 wire_dst = dst;
+
+  if(dst == 0x0a000203U && dns_ip)
+    wire_dst = dns_ip;
 
   if(sport <= 0 || sport > 65535 || dport <= 0 || dport > 65535 ||
      len < 0 || len > UDP_MAX_PAYLOAD)
@@ -456,7 +695,7 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   memset(packet, 0, framelen);
   eth = (struct ethhdr*)packet;
   memmove(eth->src, local_mac, ETH_ADDR_LEN);
-  if(dst == NET_IP_LOOPBACK || dst == NET_IP_LOCAL)
+  if(dst == NET_IP_LOOPBACK || dst == local_ip)
     memmove(eth->dst, local_mac, ETH_ADDR_LEN);
   else
     memmove(eth->dst, gateway_mac, ETH_ADDR_LEN);
@@ -467,8 +706,8 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   ip->id = swap16(++ip_id);
   ip->ttl = 64;
   ip->proto = IP_PROTO_UDP;
-  ip->src = swap32(NET_IP_LOCAL);
-  ip->dst = swap32(dst == NET_IP_LOOPBACK ? NET_IP_LOCAL : dst);
+  ip->src = swap32(local_ip);
+  ip->dst = swap32(dst == NET_IP_LOOPBACK ? local_ip : wire_dst);
   ip->sum = swap16(checksum(ip, sizeof(*ip)));
   udp = (struct udphdr*)(ip + 1);
   udp->sport = swap16(sport);
@@ -480,7 +719,7 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
     return -1;
   }
 
-  if(dst == NET_IP_LOOPBACK || dst == NET_IP_LOCAL){
+  if(dst == NET_IP_LOOPBACK || dst == local_ip){
     net_rx(packet, framelen);
     kfree(packet);
     return len;

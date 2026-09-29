@@ -3,6 +3,4 @@ enable_uart=1
 uart_2ndstage=1
 disable_commandline_tags=1
 core_freq=250
-
-[pi3]
-kernel=kernel8-xv6_rpi3.img
+kernel=kernel8.img

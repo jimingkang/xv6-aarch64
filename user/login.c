@@ -85,7 +85,7 @@ main(void)
       if(home[0] && chdir(home) < 0)
         chdir("/");
       exec(shell, argv);
-      exec("/sh", argv);
+      exec("/bin/sh", argv);
       printf("login: cannot execute %s\n", shell);
       exit(1);
     }

@@ -67,3 +67,14 @@ sys_icmp_recv(void)
     return -1;
   return net_icmp_recv(id, src, seq, buf, maxlen);
 }
+
+uint64
+sys_wifi_connect(void)
+{
+  char ssid[33];
+  char passphrase[64];
+  if(argstr(0, ssid, sizeof(ssid)) < 0 ||
+     argstr(1, passphrase, sizeof(passphrase)) < 0)
+    return -1;
+  return brcmfmac_connect(ssid, passphrase);
+}

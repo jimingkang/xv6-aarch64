@@ -14,6 +14,7 @@
 #include "sleeplock.h"
 #include "fs.h"
 #include "buf.h"
+#include "fat32.h"
 
 #define SECTOR_SIZE       512
 #define FAT32_EOC         0x0ffffff8U
@@ -102,6 +103,47 @@ short_name_is_fsimg(const uchar *entry)
 }
 
 static int
+short_name_equal(const uchar *entry, const char *name11)
+{
+  for(int i = 0; i < 11; i++)
+    if(entry[i] != (uchar)name11[i])
+      return 0;
+  return 1;
+}
+
+static int
+find_root_file(uint32 root, const char *name11, uint32 *first_cluster,
+               uint32 *size)
+{
+  uint32 cluster = root;
+  for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
+    if(cluster < 2 || cluster >= FAT32_EOC)
+      return -1;
+    uint32 first_sector = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      if(sdsector(first_sector + s, scratch, 0) < 0)
+        return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        uchar *entry = scratch + off;
+        if(entry[0] == 0x00)
+          return -1;
+        if(entry[0] == 0xe5 || entry[11] == 0x0f ||
+           (entry[11] & 0x18))
+          continue;
+        if(short_name_equal(entry, name11)){
+          *first_cluster = ((uint32)le16(entry + 20) << 16) |
+                           le16(entry + 26);
+          *size = le32(entry + 28);
+          return 0;
+        }
+      }
+    }
+    cluster = fat_next(cluster);
+  }
+  return -1;
+}
+
+static int
 find_fsimg(uint32 root, uint32 *first_cluster, uint32 *size)
 {
   uint32 cluster = root;
@@ -184,6 +226,115 @@ setup_fat32(uint32 partition_lba)
   diskmap.file_size = file_size;
   diskmap.fat = 1;
   return 0;
+}
+
+int
+fat32openroot(char *name11, struct fat32_file *file)
+{
+  if(!diskmap.fat || name11 == 0 || file == 0 || strlen(name11) != 11)
+    return -1;
+  // FAT32 root starts at cluster 2 on the Pi bootfs images currently used.
+  // Re-read the BPB because diskmap intentionally only retains block mapping
+  // fields needed by the xv6 filesystem container.
+  if(sdsector(diskmap.partition_lba, scratch, 0) < 0)
+    return -1;
+  uint32 root = le32(scratch + 44);
+  return find_root_file(root, name11, &file->first_cluster, &file->size);
+}
+
+int
+fat32pread(struct fat32_file *file, uint32 offset, void *dst, int n)
+{
+  uint32 cluster, cluster_bytes, skip;
+  uchar *out = dst;
+  int done = 0;
+  if(file == 0 || dst == 0 || n < 0 || offset > file->size)
+    return -1;
+  if((uint32)n > file->size - offset)
+    n = file->size - offset;
+  cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
+  cluster = file->first_cluster;
+  skip = offset / cluster_bytes;
+  for(uint32 i = 0; i < skip; i++){
+    cluster = fat_next(cluster);
+    if(cluster < 2 || cluster >= FAT32_EOC)
+      return -1;
+  }
+  offset %= cluster_bytes;
+  while(done < n){
+    if(cluster < 2 || cluster >= FAT32_EOC)
+      return -1;
+    uint32 sector_index = offset / SECTOR_SIZE;
+    uint32 sector_offset = offset % SECTOR_SIZE;
+    while(sector_index < diskmap.sectors_per_cluster && done < n){
+      if(sdsector(cluster_lba(cluster) + sector_index, scratch, 0) < 0)
+        return -1;
+      int take = SECTOR_SIZE - sector_offset;
+      if(take > n - done)
+        take = n - done;
+      memmove(out + done, scratch + sector_offset, take);
+      done += take;
+      sector_index++;
+      sector_offset = 0;
+    }
+    offset = 0;
+    if(done < n)
+      cluster = fat_next(cluster);
+  }
+  return done;
+}
+
+int
+fat32readerinit(struct fat32_reader *reader, struct fat32_file *file)
+{
+  if(reader == 0 || file == 0 || file->first_cluster < 2)
+    return -1;
+  memset(reader, 0, sizeof(*reader));
+  reader->file = *file;
+  reader->cluster = file->first_cluster;
+  return 0;
+}
+
+// Sequential FAT32 reader.  Unlike fat32pread(), it retains the current
+// cluster and therefore does not walk the chain from its beginning for every
+// 512-byte firmware chunk.
+int
+fat32readnext(struct fat32_reader *reader, void *dst, int n)
+{
+  uint32 cluster_bytes;
+  uchar *out = dst;
+  int done = 0;
+
+  if(reader == 0 || dst == 0 || n < 0 || reader->position > reader->file.size)
+    return -1;
+  if((uint32)n > reader->file.size - reader->position)
+    n = reader->file.size - reader->position;
+  cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
+
+  while(done < n){
+    uint32 sector_index, sector_offset;
+    int take;
+
+    if(reader->cluster < 2 || reader->cluster >= FAT32_EOC)
+      return -1;
+    sector_index = reader->cluster_offset / SECTOR_SIZE;
+    sector_offset = reader->cluster_offset % SECTOR_SIZE;
+    if(sdsector(cluster_lba(reader->cluster) + sector_index, scratch, 0) < 0)
+      return -1;
+    take = SECTOR_SIZE - sector_offset;
+    if(take > n - done)
+      take = n - done;
+    memmove(out + done, scratch + sector_offset, take);
+    done += take;
+    reader->position += take;
+    reader->cluster_offset += take;
+    if(reader->cluster_offset == cluster_bytes &&
+       reader->position < reader->file.size){
+      reader->cluster = fat_next(reader->cluster);
+      reader->cluster_offset = 0;
+    }
+  }
+  return done;
 }
 
 void

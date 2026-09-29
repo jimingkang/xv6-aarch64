@@ -75,6 +75,9 @@ int             sdsector(uint32, void*, int);
 // fat32.c
 void            fat32init(void);
 void            fat32rw(struct buf*, int);
+struct fat32_file;
+int             fat32openroot(char*, struct fat32_file*);
+int             fat32pread(struct fat32_file*, uint32, void*, int);
 
 // ext2.c
 void            ext2init(void);
@@ -156,6 +159,21 @@ int             net_icmp_send(uint32, int, int, uint64, int);
 int             net_icmp_recv(int, uint64, uint64, uint64, int);
 void            net_rx(void*, int);
 void            net_set_xmit(int (*)(void*, int));
+void            net_set_poll(void (*)(void));
+void            net_set_mac(uint8*);
+int             net_dhcp(void);
+
+// sdio.c / brcmfmac.c
+void            sdio_bus_init(void);
+void            brcmfmac_driver_init(void);
+int             brcmfmac_connect(char*, char*);
+void            brcmfmac_poll(void);
+void            wpa_pbkdf2(char*, char*, uint8*);
+void            wpa_make_snonce(uint8*, uint8*, uint64, uint8*);
+void            wpa_derive_ptk(uint8*, uint8*, uint8*, uint8*, uint8*, uint8*);
+void            wpa_eapol_mic(uint8*, void*, int, uint8*);
+int             wpa_aes_unwrap(uint8*, uint8*, int, uint8*);
+void            arasan_sdio_driver_init(void);
 
 // usbnet.c
 void            usbnetinit(void);

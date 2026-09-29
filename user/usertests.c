@@ -172,7 +172,7 @@ copyinstr2(char *s)
       big[i] = 'x';
     big[PGSIZE] = '\0';
     char *args2[] = { big, big, big, 0 };
-    ret = exec("echo", args2);
+    ret = exec("/bin/echo", args2);
     if(ret != -1){
       printf("exec(echo, BIG) returned %d, not -1\n", fd);
       exit(1);
@@ -696,7 +696,7 @@ exectest(char *s)
       printf("%s: wrong fd\n", s);
       exit(1);
     }
-    if(exec("echo", echoargv) < 0){
+    if(exec("/bin/echo", echoargv) < 0){
       printf("%s: exec echo failed\n", s);
       exit(1);
     }
@@ -2400,7 +2400,7 @@ bigargtest(char *s)
     for(i = 0; i < MAXARG-1; i++)
       args[i] = "bigargs test: failed\n                                                                                                                                                                                                       ";
     args[MAXARG-1] = 0;
-    exec("echo", args);
+    exec("/bin/echo", args);
     fd = open("bigarg-ok", O_CREATE);
     close(fd);
     exit(0);
@@ -2666,7 +2666,7 @@ badarg(char *s)
     char *argv[2];
     argv[0] = (char*)0xffffffff;
     argv[1] = 0;
-    exec("echo", argv);
+    exec("/bin/echo", argv);
   }
   
   exit(0);
@@ -2699,7 +2699,7 @@ execout(char *s)
       
       close(1);
       char *args[] = { "echo", "x", 0 };
-      exec("echo", args);
+      exec("/bin/echo", args);
       exit(0);
     } else {
       wait((int*)0);

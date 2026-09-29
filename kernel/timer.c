@@ -67,5 +67,6 @@ timerintr()
   // The first USB network driver uses bounded polling. A later interrupt-mode
   // DWC2 driver can remove this hook without changing the network stack.
   usbnetpoll();
+  brcmfmac_poll();
   enable_timer();
 }

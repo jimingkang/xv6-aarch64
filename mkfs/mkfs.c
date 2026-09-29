@@ -69,7 +69,7 @@ int
 main(int argc, char *argv[])
 {
   int i, cc, fd;
-  uint rootino, inum, off;
+  uint rootino, binino, inum, off;
   struct dirent de;
   char buf[BSIZE];
   struct dinode din;
@@ -127,6 +127,24 @@ main(int argc, char *argv[])
   strcpy(de.name, "..");
   iappend(rootino, &de, sizeof(de));
 
+  // Build /bin into the image itself.  init must not have to manufacture the
+  // executable namespace on every boot.
+  binino = ialloc(T_DIR);
+  bzero(&de, sizeof(de));
+  de.inum = xshort(binino);
+  strcpy(de.name, "bin");
+  iappend(rootino, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(binino);
+  strcpy(de.name, ".");
+  iappend(binino, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(rootino);
+  strcpy(de.name, "..");
+  iappend(binino, &de, sizeof(de));
+
   for(i = 2; i < argc; i++){
     // get rid of "user/"
     char *shortname;
@@ -152,10 +170,25 @@ main(int argc, char *argv[])
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, shortname, DIRSIZ);
-    iappend(rootino, &de, sizeof(de));
+    iappend(binino, &de, sizeof(de));
+
+    // The bootstrap code enters user space with exec("init"), so /init is
+    // the sole executable retained at the root.  All commands live in /bin.
+    int rootlink = strcmp(shortname, "init") == 0;
+    if(rootlink){
+      bzero(&de, sizeof(de));
+      de.inum = xshort(inum);
+      strncpy(de.name, shortname, DIRSIZ);
+      iappend(rootino, &de, sizeof(de));
+    }
 
     while((cc = read(fd, buf, sizeof(buf))) > 0)
       iappend(inum, buf, cc);
+
+    // /bin/init and /init refer to the same inode.
+    rinode(inum, &din);
+    din.nlink = xshort(rootlink ? 2 : 1);
+    winode(inum, &din);
 
     close(fd);
   }
@@ -166,6 +199,13 @@ main(int argc, char *argv[])
   off = ((off/BSIZE) + 1) * BSIZE;
   din.size = xint(off);
   winode(rootino, &din);
+
+  // Directory sizes are rounded to a complete filesystem block in xv6.
+  rinode(binino, &din);
+  off = xint(din.size);
+  off = ((off/BSIZE) + 1) * BSIZE;
+  din.size = xint(off);
+  winode(binino, &din);
 
   balloc(freeblock);
 

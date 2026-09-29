@@ -42,6 +42,7 @@ struct device_driver {
 struct device {
   char *name;
   int id;
+  struct device *parent;
   struct bus_type *bus;
   struct resource resource[DEVICE_RES_MAX];
   int nresource;

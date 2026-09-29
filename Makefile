@@ -4,15 +4,21 @@ U=user
 .DEFAULT_GOAL := install-rpi3
 
 RPI3_BOOTFS ?= /Volumes/bootfs
-RPI3_KERNEL_NAME ?= kernel8-xv6_rpi3.img
+RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
 RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
 RPI3_FS_NAME ?= FS.IMG
+WIFI_FIRMWARE_DIR ?= firmware
+SUDO ?= sudo
 
 OBJS = \
   $K/entry.o \
   $K/start.o \
   $K/console.o \
 	$K/device.o \
+	$K/sdio.o \
+	$K/arasan_sdio.o \
+	$K/brcmfmac.o \
+	$K/wpa_crypto.o \
 	$K/tty.o \
   $K/printf.o \
   $K/uart.o \
@@ -41,7 +47,7 @@ OBJS = \
   $K/sysfile.o \
   $K/trapasm.o \
   $K/timer.o \
-  $K/sd.o \
+  $K/sdhost.o \
   $K/fat32.o \
   $K/ext2.o \
   $K/bcm2837.o \
@@ -115,9 +121,36 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
 		exit 1; \
 	}
-	cp $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
-	cp fs.img "$(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
-	cp config.txt "$(RPI3_BOOTFS)/config.txt"
+	$(SUDO) cp -f $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	$(SUDO) cp -f fs.img "$(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
+	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
+	@cmp -s $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
+		echo "error: installed kernel differs from $K/kernel8.img" 1>&2; \
+		exit 1; \
+	}
+	@cmp -s config.txt "$(RPI3_BOOTFS)/config.txt" || { \
+		echo "error: installed config.txt differs from workspace" 1>&2; \
+		exit 1; \
+	}
+	@if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" "$(RPI3_BOOTFS)/BCM43430.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt" "$(RPI3_BOOTFS)/BCM43430.TXT"; \
+		if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.clm_blob"; then \
+			$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.clm_blob" "$(RPI3_BOOTFS)/BCM43430.CLM"; \
+		fi; \
+		echo "installed BCM43430 firmware files -> $(RPI3_BOOTFS)"; \
+	else \
+		echo "BCM43430 firmware not installed (BIN/TXT required; set WIFI_FIRMWARE_DIR=...)"; \
+	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.bin" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.txt" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.clm_blob"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.bin" "$(RPI3_BOOTFS)/BCM43455.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.txt" "$(RPI3_BOOTFS)/BCM43455.TXT"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.clm_blob" "$(RPI3_BOOTFS)/BCM43455.CLM"; \
+		echo "installed BCM43455 firmware files -> $(RPI3_BOOTFS)"; \
+	fi
 	sync
 	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	@echo "installed fs.img -> $(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
@@ -184,6 +217,7 @@ UPROGS=\
 	$U/_nettest\
 	$U/_netdns\
 	$U/_ping\
+	$U/_wifi\
 	$U/_ext2ls\
 	$U/_ext2cat\
 	$U/_tcc\

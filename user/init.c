@@ -11,12 +11,6 @@
 
 char *argv[] = { "login", 0 };
 
-static char *commands[] = {
-  "cat", "echo", "grep", "kill", "ln", "login", "ls", "mkdir", "touch",
-  "file", "edit", "ps", "nettest", "netdns", "ping", "ext2ls",
-  "ext2cat", "tcc", "rm", "sh", "vmmap", "wc", 0
-};
-
 static void
 create_config(char *path, char *contents)
 {
@@ -118,18 +112,15 @@ main(void)
   mkdir("bin");
   mkdir("usr");
   mkdir("usr/bin");
-  for(int i = 0; commands[i]; i++){
-    char dst[64];
-    strcpy(dst, "bin/");
-    strcpy(dst + strlen(dst), commands[i]);
-    link(commands[i], dst);
-  }
   create_config("etc/hostname", "xv6-rpi3\n");
   create_config("etc/passwd", "root:xv6:0:0:root:/root:/bin/sh\n");
   create_config("etc/rc", "export PATH=/bin:/usr/bin:/:.\n");
   create_config("etc/fstab",
                 "proc /proc procfs ro 0 0\n"
                 "ext2 /mnt/ext2 ext2 ro 0 0\n");
+  create_config("etc/wifi.conf",
+                "ssid=TP-Link_B114_5G\n"
+                "psk=Minghua123\n");
   mount_fstab();
 
   for(;;){
@@ -140,7 +131,7 @@ main(void)
       exit(1);
     }
     if(pid == 0){
-      exec("login", argv);
+      exec("/bin/login", argv);
       printf("init: exec login failed\n");
       exit(1);
     }
