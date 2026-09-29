@@ -1,4 +1,45 @@
-# RPi3 Wi-Fi：platform host 与 SDIO bus
+# RPi3 BCM43430/BCM43455 Wi-Fi 移植文档
+
+本文档记录 xv6-aarch64 在 Raspberry Pi 3 上的 Wi-Fi 移植路径：从
+Platform 控制器、MMC/SDIO 枚举、Broadcom backplane 和固件启动，一直到
+WPA2 四次握手、DHCP、ARP、DNS 和 Internet `ping`。
+
+## 总体软硬件结构
+
+RPi3 上的外置 SD 存储卡与板载 Wi-Fi 都使用 SD 协议族，但不是同一个
+控制器：
+
+```text
+BCM2835 SDHOST  0x3f202000 + GPIO48--53
+    -> SD memory card
+    -> FAT32 bootfs / FS.IMG
+
+Arasan SDHCI    0x3f300000 + GPIO34--39
+    -> SDIO card
+    -> BCM43430/BCM43455 Wi-Fi
+```
+
+驱动分层为：
+
+```text
+platform_bus
+  |
+  +-- bcm2837-arasan-sdio device <-> Arasan platform driver
+        |
+        +-- mmc_host + mmc_host_ops
+              |
+              +-- sdio_bus 枚举 sdio0:1 / sdio0:2 / sdio0:3
+                    |
+                    +-- vendor/device/function ID 匹配
+                          |
+                          +-- brcmfmac
+                                |
+                                +-- F1: backplane/control
+                                +-- F2: SDPCM control/event/data
+                                +-- BCDC + firmware + WPA2
+                                      |
+                                      +-- xv6 Ethernet/IPv4/UDP/ICMP
+```
 
 ## 当前已经实现
 
@@ -123,7 +164,10 @@ sdio0:2 vendor=02d0 device=a9a6 class=0
 sdio0:3 vendor=02d0 device=a9a6 class=2
 ```
 
-因此这是 BCM43430，而不是 BCM43455。驱动只在 function 1 probe 一次；
+注意：`0xa9a6` 是 SDIO product ID，不能单独用它判断应加载
+BCM43430 还是 BCM43455 固件。驱动会继续读取 ChipCommon chip ID；当
+backplane 报告 `chip=0x4345 rev=6` 时，应选择 BCM43455 固件。驱动只在
+function 1 probe 一次；
 function 2 必须等固件下载、backplane clock 可用并写入 SDPCM 协议版本后才能
 启用，不能在初始 probe 中等待其 ready。function 3 不作为独立 Wi-Fi 网卡绑定。
 
@@ -316,8 +360,8 @@ brcmfmac: control plane ready
 默认 `/etc/wifi.conf` 格式为：
 
 ```text
-ssid=TP-Link_B114_5G
-psk=Minghua123
+ssid=<access-point-name>
+psk=<wpa2-passphrase>
 ```
 
 执行 `wifi` 会依次设置 infrastructure mode、open-system 802.11 authentication、
@@ -340,7 +384,7 @@ AES/CCMP、`WPA2_AUTH_PSK`、固件 supplicant 和 passphrase，最后发送 `SE
 这一阶段的验收日志是：
 
 ```text
-brcmfmac: associating with SSID TP-Link_B114_5G (WPA2-PSK/AES)
+brcmfmac: associating with SSID <access-point-name> (WPA2-PSK/AES)
 brcmfmac: associated bssid=...
 wifi: associated
 ```
@@ -356,6 +400,186 @@ key 数组，总结构从 68 字节变成 132 字节，固件会返回 `BCME_BAD
 进一步实机验证表明，该固件同时返回 `sup_wpa=-23`，并对带
 `WSEC_PASSPHRASE` 标志的明文密码返回 `SET_WSEC_PMK=-2`。因此当前实现采用
 主机派生 PMK：使用 WPA2 标准的 `PBKDF2-HMAC-SHA1(passphrase, SSID, 4096)`
-产生 32 字节 PMK，再以 `key_len=32, flags=0` 发送给固件。针对当前配置，参考
-PMK 为 `266367419da13030798862f51fa9a99c571edbdd33ad868fe70a4c3eb4e5965b`；
-驱动不会把 PMK 或密码打印到串口。
+产生 32 字节 PMK，再以 `key_len=32, flags=0` 发送给固件。PMK 等价于敏感
+密钥材料，驱动不会把 PMK 或密码打印到串口。
+
+## 主机侧 WPA2 四次握手
+
+当固件不支持 `sup_wpa` 和 `SET_WSEC_PMK` 时，不能把“802.11 已关联”
+当成“WPA2 已完成”。当前驱动在主机侧完成 WPA2-PSK/CCMP 握手：
+
+1. 从 `/etc/wifi.conf` 读取 SSID 和 passphrase；
+2. 用 PBKDF2-HMAC-SHA1 派生 32 字节 PMK；
+3. 接收 AP 的 EAPOL-Key M1，生成 SNonce；
+4. 用 PRF 从 PMK、ANonce、SNonce、AP MAC 和 STA MAC 派生 PTK；
+5. 按照关联时得到的 RSN IE 组装 M2，计算 MIC 后发送；
+6. 收到 M3 后校验 replay counter 和 MIC，解密 key data；
+7. 解析 GTK KDE，安装 pairwise CCMP key 和 group CCMP key；
+8. 发送 M4，只有成功后才把链路标记为可用。
+
+成功日志为：
+
+```text
+brcmfmac: 802.11 associated bssid=...
+brcmfmac: association RSN IE captured len=22 ...
+brcmfmac: received EAPOL frame len=113 key-info=08a
+brcmfmac: sent WPA2 EAPOL M2 ...
+brcmfmac: received WPA2 EAPOL M3 key-info=13ca ...
+brcmfmac: M3 verified; GTK index=1 pending install
+brcmfmac: sent WPA2 EAPOL M4
+brcmfmac: WPA2 four-way handshake complete
+```
+
+M1 重传时可以重发 M2，但不能在每次重传时无条件更换 SNonce，否则 AP
+和 STA 计算的 PTK 会不一致。M3 必须在 MIC 校验成功后才安装密钥和发
+M4；不能仅根据 `key-info` 判定握手成功。
+
+## Ethernet、DHCP、ARP、DNS 和 ICMP
+
+WPA2 完成后，驱动将 SDPCM data channel 中的 Ethernet frame 交给
+`net_rx()`，并将 xv6 网络栈的发送回调绑定到 `brcmfmac_xmit()`。然后
+`net_dhcp()` 执行：
+
+```text
+DHCP DISCOVER -> OFFER -> REQUEST -> ACK
+                         |
+                         +-- IPv4 address
+                         +-- subnet mask
+                         +-- default gateway
+                         +-- DNS server
+```
+
+获得地址后，网络栈用 ARP 解析默认网关 MAC，DNS 解析域名，再由
+ICMP echo request/reply 完成 `ping`。已通过的实机验收日志是：
+
+```text
+brcmfmac: WPA2 four-way handshake complete
+dhcp: address=192.168.0.201 gateway=192.168.0.1 dns=192.168.0.1
+arp: gateway 192.168.0.1 is ...
+brcmfmac: wlan0 IPv4 ready
+wifi: associated
+$ ping google.com
+PING google.com (...): 32 data bytes
+32 bytes from ...: icmp_seq=1 time=100 ms
+```
+
+这里的 `100 ms` 是当前 xv6 timer/tick 精度下的粗略值，不是高精度 RTT。
+
+## 用户态配置与命令
+
+`/bin/wifi` 有两种用法：
+
+```sh
+# 读取 /etc/wifi.conf
+/bin/wifi
+
+# 临时传入，不改配置文件
+/bin/wifi SSID PASSPHRASE
+```
+
+`/etc/wifi.conf` 格式：
+
+```text
+ssid=<access-point-name>
+psk=<wpa2-passphrase>
+```
+
+配置文件包含明文密码，不应提交到公开仓库，也不应在串口日志中
+打印。当前 xv6 没有完整的 Unix 权限保护，因此该文件只适合开发测试。
+
+## 编译、安装与实机验证
+
+bootfs 默认挂载点是 `/Volumes/bootfs`，内核文件默认名为
+`kernel8-xv6_wifi.img`。先确认 SD 卡设备号和挂载点，不要把写入命令
+用在 macOS 系统盘上：
+
+```sh
+diskutil list
+ls -ld /Volumes/bootfs
+```
+
+固件目录包含下列文件后执行：
+
+```sh
+make install-rpi3 WIFI_FIRMWARE_DIR=firmware
+```
+
+Makefile 会安装：
+
+```text
+kernel/kernel8.img -> /Volumes/bootfs/kernel8-xv6_wifi.img
+fs.img             -> /Volumes/bootfs/FS.IMG
+config.txt         -> /Volumes/bootfs/config.txt
+BCM43455.{BIN,TXT,CLM} -> /Volumes/bootfs/
+```
+
+如果 FAT32 卷的所有者或挂载权限不允许普通 `cp`，安装目标会通过
+Makefile 的 `SUDO` 变量处理复制。复制后会比对内核和 `config.txt`，并执行
+`sync`。
+
+上电后按下列阶段定位失败点：
+
+```text
+1. arasan-sdio: ... probing GPIO34-39       host 层
+2. sdio: sdio0:1 ...                       SDIO 枚举
+3. ChipCommon chipid / EROM / TCM           backplane 层
+4. firmware running; SDPCM transport ready  固件与传输层
+5. firmware version / CLM / wlan0 MAC       BCDC 控制层
+6. WPA2 four-way handshake complete         无线安全层
+7. dhcp / arp / wlan0 IPv4 ready            IP 层
+8. ping google.com                          DNS + Internet 数据路径
+```
+
+QEMU `raspi3b` 不模拟板载 Broadcom Wi-Fi，因此只能用它回归内核启动和
+SDIO 核心的失败路径；固件、WPA2 和实际网络必须在 RPi3 实机验证。
+
+## 与总线—设备—驱动模型的对应
+
+当前不是在 `main()` 里直接调用 Wi-Fi probe，而是通过两级总线完成绑定：
+
+| 层次 | 设备 | 驱动 | 匹配方式 |
+|---|---|---|---|
+| Platform | `bcm2837-arasan-sdio` | Arasan host driver | 名称 |
+| SDIO | `sdio0:1` | `brcmfmac` | vendor + device + function |
+
+`device_register()` 和 `driver_register()` 都会扫描另一方，所以先枚举设备、
+后注册 brcmfmac 也能自动绑定。brcmfmac 不直接访问 Arasan MMIO，而是
+经 `sdio_cmd52()`/`sdio_cmd53()` 和 `mmc_host_ops`传输，这是正确的分层。
+
+它仍是精简模型，与 Linux 完整设备模型相比还缺少：
+
+- `mmc_host -> SDIO card -> function` 全部注册为设备的完整父子层级；
+- `sdio_claim_host()` 式的 per-host 串行化；
+- driver remove/unregister、引用计数、热插拔和 deferred probe；
+- 通用 firmware loader，目前 brcmfmac 直接依赖 bootfs FAT32；
+- `struct net_device`/`register_netdev()`，目前网络层仍是单网卡全局回调；
+- 独立的 cfg80211/wpa_supplicant/DHCP 策略层。
+
+因此可以说：Platform 和 SDIO 两层已符合总线设备驱动模型的核心原则；
+网络设备生命周期和用户空间无线策略仍是 xv6 专用的简化实现。
+
+## 代码导航
+
+| 文件 | 职责 |
+|---|---|
+| `kernel/device.c`, `kernel/device.h` | bus/device/driver 注册与绑定 |
+| `kernel/sdhost.c` | 外置 SD memory card，提供 bootfs/FS.IMG |
+| `kernel/arasan_sdio.c` | Wi-Fi 的 Arasan SDIO host |
+| `kernel/sdio.c`, `kernel/sdio.h` | MMC/SDIO core、Function 枚举、CMD52/CMD53 |
+| `kernel/brcmfmac.c` | backplane、firmware、SDPCM、BCDC、WPA2、收发 |
+| `kernel/fat32.c` | 从 bootfs 读取 BIN/TXT/CLM 和 FS.IMG |
+| `kernel/net.c` | Ethernet/ARP/IPv4/UDP/DHCP/DNS/ICMP |
+| `kernel/sysnet.c` | `wifi_connect` 系统调用 |
+| `user/wifi.c` | `/bin/wifi` 配置命令 |
+| `user/ping.c` | `/bin/ping` Internet 连通性测试 |
+| `user/init.c` | `/etc/wifi.conf` 初始化 |
+| `Makefile` | 编译、FS.IMG 打包、bootfs 和固件安装 |
+
+## 已知限制与后续改造
+
+1. 当前主要验证 WPA2-PSK/AES，未实现 WPA3、802.1X 和 roaming；
+2. Wi-Fi 状态为全局单例，不支持多网卡；
+3. 数据接收主要依赖 timer polling，尚未建立完整的 SDIO IRQ 路径；
+4. CMD53 传输长度在实机上会自适应降到 64 字节，吞吐率不高；
+5. 配置文件尚无可靠的文件权限保护；
+6. 应将全局 `brcmf_bus` 改为 `dev->driver_data` 指向的 per-device 私有状态。
