@@ -95,6 +95,36 @@ bus_register(struct bus_type *bus)
 }
 
 int
+bus_unregister(struct bus_type *bus)
+{
+  int i;
+  if(bus == 0)
+    return -1;
+  acquire(&device_core.lock);
+  for(i = 0; i < device_core.ndevice; i++)
+    if(device_core.devices[i]->bus == bus){
+      release(&device_core.lock);
+      return -1;
+    }
+  for(i = 0; i < device_core.ndriver; i++)
+    if(device_core.drivers[i]->bus == bus){
+      release(&device_core.lock);
+      return -1;
+    }
+  for(i = 0; i < device_core.nbus; i++){
+    if(device_core.buses[i] != bus)
+      continue;
+    for(; i + 1 < device_core.nbus; i++)
+      device_core.buses[i] = device_core.buses[i + 1];
+    device_core.buses[--device_core.nbus] = 0;
+    release(&device_core.lock);
+    return 0;
+  }
+  release(&device_core.lock);
+  return -1;
+}
+
+int
 device_register(struct device *dev)
 {
   if(dev == 0 || dev->name == 0)
@@ -113,6 +143,33 @@ device_register(struct device *dev)
 }
 
 int
+device_unregister(struct device *dev)
+{
+  int i;
+  if(dev == 0)
+    return -1;
+  acquire(&device_core.lock);
+  for(i = 0; i < device_core.ndevice; i++)
+    if(device_core.devices[i] == dev)
+      break;
+  if(i == device_core.ndevice){
+    release(&device_core.lock);
+    return -1;
+  }
+  // Remove the object from discovery before calling the driver.  remove()
+  // may unregister children and must not run under the device-core lock.
+  for(; i + 1 < device_core.ndevice; i++)
+    device_core.devices[i] = device_core.devices[i + 1];
+  device_core.devices[--device_core.ndevice] = 0;
+  release(&device_core.lock);
+  if(dev->driver && dev->bus && dev->bus->remove)
+    dev->bus->remove(dev);
+  dev->driver = 0;
+  dev->driver_data = 0;
+  return 0;
+}
+
+int
 driver_register(struct device_driver *drv)
 {
   if(drv == 0 || drv->name == 0)
@@ -126,6 +183,38 @@ driver_register(struct device_driver *drv)
   release(&device_core.lock);
   for(int i = 0; i < device_core.ndevice; i++)
     bind(device_core.devices[i], drv);
+  return 0;
+}
+
+int
+driver_unregister(struct device_driver *drv)
+{
+  int i;
+  if(drv == 0)
+    return -1;
+  acquire(&device_core.lock);
+  for(i = 0; i < device_core.ndriver; i++)
+    if(device_core.drivers[i] == drv)
+      break;
+  if(i == device_core.ndriver){
+    release(&device_core.lock);
+    return -1;
+  }
+  for(; i + 1 < device_core.ndriver; i++)
+    device_core.drivers[i] = device_core.drivers[i + 1];
+  device_core.drivers[--device_core.ndriver] = 0;
+  release(&device_core.lock);
+  // Unbind all devices owned by this driver.  Keep the devices registered so
+  // a replacement driver can bind later.
+  for(i = 0; i < device_core.ndevice; i++){
+    struct device *dev = device_core.devices[i];
+    if(dev->driver != drv)
+      continue;
+    if(dev->bus && dev->bus->remove)
+      dev->bus->remove(dev);
+    dev->driver = 0;
+    dev->driver_data = 0;
+  }
   return 0;
 }
 
@@ -235,6 +324,10 @@ device_format(char *buf, int max)
     p = putstr(p, end, d->bus ? d->bus->name : "(none)");
     p = putstr(p, end, " driver=");
     p = putstr(p, end, d->driver ? d->driver->name : "(unbound)");
+    if(d->parent){
+      p = putstr(p, end, " parent=");
+      p = putstr(p, end, d->parent->name);
+    }
     p = putstr(p, end, "\n");
     for(int j = 0; j < d->nresource; j++){
       p = putstr(p, end, "  ");

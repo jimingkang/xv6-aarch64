@@ -39,3 +39,4 @@
 #define SYS_tty_attach   38
 #define SYS_vmdump       39
 #define SYS_wifi_connect 40
+#define SYS_net_dhcp     41

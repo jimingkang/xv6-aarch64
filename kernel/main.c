@@ -29,6 +29,7 @@ main()
     boot_uart_mark('4');
     device_init();
     sdio_bus_init();
+    usb_bus_init();
     consoleinit();
     ttyinit();
     printfinit();
@@ -39,7 +40,7 @@ main()
     procinit();      // process table
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
-    usbnet_driver_init(); // register/probe DWC2 + USB CDC Ethernet
+    dwc2_driver_init();   // register/probe DWC2 USB host controller
     trapinit();      // trap vectors
     trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller
@@ -52,6 +53,7 @@ main()
     arasan_sdio_driver_init(); // Arasan owns BCM43430/43455 on GPIO34--39
     fat32init();      // locate FS.IMG in a FAT32 boot partition
     brcmfmac_driver_init(); // firmware source is available after FAT32 init
+    mt7601u_driver_init(); // bind enumerated USB MT7601U after firmware source
     ext2init();       // optional read-only Linux ext2 partition
     vfsinit();        // mount non-native filesystems behind vnode operations
     userinit();      // first user process

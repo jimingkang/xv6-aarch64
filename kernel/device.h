@@ -52,8 +52,11 @@ struct device {
 
 void device_init(void);
 int bus_register(struct bus_type *bus);
+int bus_unregister(struct bus_type *bus);
 int device_register(struct device *dev);
+int device_unregister(struct device *dev);
 int driver_register(struct device_driver *drv);
+int driver_unregister(struct device_driver *drv);
 int platform_device_register(struct device *dev);
 int platform_driver_register(struct device_driver *drv);
 extern struct bus_type platform_bus;

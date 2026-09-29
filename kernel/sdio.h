@@ -21,6 +21,7 @@
 #define MMC_DATA_WRITE      2
 
 struct mmc_host;
+struct sdio_card;
 
 struct mmc_command {
   uint32 opcode;
@@ -48,14 +49,24 @@ struct mmc_host_ops {
 };
 
 struct mmc_host {
+  struct device dev;
   char *name;
   struct device *parent;
   const struct mmc_host_ops *ops;
   void *private;
   uint32 ocr;
   uint16 rca;
+  int registered;
+  struct sdio_card *card;
   int function_count;
   struct sdio_func *functions[SDIO_MAX_FUNCS];
+};
+
+struct sdio_card {
+  struct device dev;
+  struct mmc_host *host;
+  uint32 ocr;
+  uint16 rca;
 };
 
 struct sdio_func {
@@ -67,7 +78,7 @@ struct sdio_func {
   uint8 class;
   uint16 block_size;
   uint32 cis;
-  struct sdio_func *card;
+  struct sdio_card *card;
 };
 
 struct sdio_device_id {
@@ -86,9 +97,12 @@ struct sdio_driver {
 extern struct bus_type sdio_bus;
 
 void sdio_bus_init(void);
+int sdio_bus_exit(void);
 int mmc_add_host(struct mmc_host *host);
+int mmc_remove_host(struct mmc_host *host);
 int sdio_scan_host(struct mmc_host *host);
 int sdio_register_driver(struct sdio_driver *driver);
+int sdio_unregister_driver(struct sdio_driver *driver);
 int sdio_cmd52(struct sdio_func *func, int write, uint32 addr, uint8 *value);
 int sdio_cmd53(struct sdio_func *func, int write, uint32 addr,
                int increment, void *buffer, int len);

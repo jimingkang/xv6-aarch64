@@ -1,0 +1,61 @@
+# xv6 多网卡路由与 ARP
+
+当前网络层不再用一组全局的 `local_ip/gateway_ip/gateway_mac` 表示所有
+接口。每个 `struct net_device` 保存自己的 IPv4 配置：
+
+```c
+uint32 ip_addr;
+uint32 netmask;
+uint32 gateway;
+uint32 dns;
+```
+
+## 发送路径
+
+```text
+目标 IPv4
+  -> 路由表最长前缀匹配
+  -> route.dev 和下一跳 route.gateway
+  -> 用 (下一跳 IP, route.dev) 查 ARP 表
+  -> dev->ops->start_xmit(dev, frame, len)
+```
+
+直连网络路由的 gateway 为 0；此时下一跳就是目标地址。多条同长度路由
+用 metric 选择，数值较小者优先。每张网卡 DHCP 成功后自动添加：
+
+1. 一条该接口的直连子网路由；
+2. 一条指向 DHCP 网关的默认路由。
+
+## 接收路径
+
+驱动必须调用：
+
+```c
+net_rx_dev(netdev, frame, length);
+```
+
+不能只调用旧的 `net_rx(frame, length)`，因为网络层必须知道数据来自
+`wlan0`、`wlan1` 还是 `usb0`。ARP 回复也必须从收到请求的同一个接口发出。
+
+## ARP 隔离
+
+ARP 表的键是 `(ip, dev)`，不是单独的 IP。同一个 `192.168.0.1` 可以在
+两张网卡后面对应不同的 MAC 地址，互相不会覆盖。接口注销时，它拥有的
+路由和 ARP 项同时删除。
+
+## DHCP
+
+`net_dhcp_dev(dev)` 给指定网卡获取地址；旧的 `net_dhcp()` 仍然给默认
+网卡获取地址。当前 DHCP 事务是串行的，因此两张网卡应依次配置，不能在
+两个 CPU 上同时启动 DHCP。
+
+当 BCM43455 和将来完成的 MT7601U 都可用时，预期设备结构为：
+
+```text
+wlan0 -> BCM43455 SDIO -> 独立 IP/网关/DNS
+wlan1 -> MT7601U USB  -> 独立 IP/网关/DNS
+```
+
+两个接口可以同时收包。发包由路由表选择接口，默认路由按 metric 决定。
+MT7601U 的 SoftMAC/固件初始化尚未完成以前，系统已经具备双网卡网络层，
+但物理上仍只会出现已经成功注册的 `wlan0`。

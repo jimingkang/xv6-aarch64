@@ -10,6 +10,7 @@
 #include "device.h"
 #include "sdio.h"
 #include "fat32.h"
+#include "net.h"
 
 // Broadcom function-1 backplane aperture.  The three SBADDR registers select
 // one 32 KiB backplane window; bit 15 in the CMD53 address selects 32-bit
@@ -114,10 +115,13 @@
 #define BCDC_DCMD_SET                 0x02
 #define BCDC_DCMD_ERROR               0x01
 #define BRCMF_C_UP                    2
+#define BRCMF_C_DOWN                  3
 #define BRCMF_C_SET_INFRA             20
 #define BRCMF_C_SET_AUTH              22
 #define BRCMF_C_GET_BSSID             23
 #define BRCMF_C_SET_SSID              26
+#define BRCMF_C_SCAN                  50
+#define BRCMF_C_SCAN_RESULTS          51
 #define BRCMF_C_SET_WSEC              134
 #define BRCMF_C_GET_VAR               262
 #define BRCMF_C_SET_VAR               263
@@ -135,6 +139,8 @@
 #define BRCMF_CLM_CHUNK               1024
 #define CRYPTO_ALGO_AES_CCM           4
 #define WL_PRIMARY_KEY                (1U << 1)
+#define BRCMF_EVENT_MASK_LEN          16
+#define BRCMF_SCAN_RESULTS_LEN        1900
 
 struct brcmf_core {
   uint16 id;
@@ -172,6 +178,20 @@ struct brcmf_bcdc_header {
   uint8 data_offset;
 };
 
+struct brcmf_event_msg {
+  uint16 version;
+  uint16 flags;
+  uint32 event_type;
+  uint32 status;
+  uint32 reason;
+  uint32 auth_type;
+  uint32 data_len;
+  uint8 addr[6];
+  char ifname[16];
+  uint8 ifidx;
+  uint8 bsscfgidx;
+} __attribute__((packed));
+
 struct brcmf_dload_data {
   uint16 flag;
   uint16 type;
@@ -184,6 +204,18 @@ struct brcmf_ssid {
   uint32 length;
   uint8 value[32];
 };
+
+struct brcmf_scan_params {
+  struct brcmf_ssid ssid;
+  uint8 bssid[6];
+  char bss_type;
+  uint8 scan_type;
+  int nprobes;
+  int active_time;
+  int passive_time;
+  int home_time;
+  uint32 channel_num;
+} __attribute__((packed));
 
 struct brcmf_wsec_pmk {
   uint16 key_len;
@@ -213,7 +245,8 @@ struct brcmf_wsec_key {
   uint8 end_pad[2];
 };
 
-static struct {
+struct brcmf_bus_state {
+  int used;
   struct spinlock lock;
   struct spinlock iovar_lock;
   struct sdio_func *f1;
@@ -254,7 +287,47 @@ static struct {
   int keys_pending;
   int handshake_done;
   int m2_sent;
-} brcmf_bus;
+  struct net_device netdev;
+  uint8 scan_results[BRCMF_SCAN_RESULTS_LEN];
+};
+
+#define BRCMF_MAX_DEVICES 2
+static struct brcmf_bus_state brcmf_devices[BRCMF_MAX_DEVICES];
+
+// Functions below operate on an explicitly selected per-device instance.
+// Keeping the old field spelling makes the transport code readable while
+// ensuring every access resolves through that function's local bus pointer.
+#define brcmf_bus (*bus)
+
+static struct brcmf_bus_state *
+brcmf_alloc_bus(void)
+{
+  for(int i = 0; i < BRCMF_MAX_DEVICES; i++){
+    if(brcmf_devices[i].used)
+      continue;
+    memset(&brcmf_devices[i], 0, sizeof(brcmf_devices[i]));
+    brcmf_devices[i].used = 1;
+    initlock(&brcmf_devices[i].lock, "brcmfmac");
+    initlock(&brcmf_devices[i].iovar_lock, "brcmf-iovar");
+    return &brcmf_devices[i];
+  }
+  return 0;
+}
+
+static void
+brcmf_free_bus(struct brcmf_bus_state *bus)
+{
+  if(bus)
+    memset(bus, 0, sizeof(*bus));
+}
+
+static int brcmfmac_xmit(struct net_device*, void*, int);
+static void brcmfmac_poll_device(struct net_device*);
+
+static const struct net_device_ops brcmf_netdev_ops = {
+  .start_xmit = brcmfmac_xmit,
+  .poll = brcmfmac_poll_device,
+};
 
 static const struct sdio_device_id brcmf_ids[] = {
   { SDIO_VENDOR_BROADCOM, SDIO_DEVICE_BCM43430, 1 },
@@ -821,7 +894,7 @@ brcmf_start_f2(struct sdio_func *func, struct brcmf_chip *chip)
 // SDPCM frame may be split into several byte-mode CMD53 operations; the FIFO
 // address itself must not be incremented between operations.
 static int
-brcmf_f2_transfer(int write, void *buffer, int length)
+brcmf_f2_transfer(struct brcmf_bus_state *bus, int write, void *buffer, int length)
 {
   uint8 *p = buffer;
   uint32 addr;
@@ -846,7 +919,8 @@ brcmf_f2_transfer(int write, void *buffer, int length)
 }
 
 static void
-brcmf_sdpcm_header(uint8 *p, uint16 length, uint8 channel)
+brcmf_sdpcm_header(struct brcmf_bus_state *bus, uint8 *p, uint16 length,
+                   uint8 channel)
 {
   memset(p, 0, SDPCM_HEADER_LEN);
   p[0] = length;
@@ -859,7 +933,7 @@ brcmf_sdpcm_header(uint8 *p, uint16 length, uint8 channel)
 }
 
 static int
-brcmf_send_ether_locked(void *frame, int length)
+brcmf_send_ether_locked(struct brcmf_bus_state *bus, void *frame, int length)
 {
   struct brcmf_bcdc_header *bcdc;
   int frame_len, wire_len;
@@ -871,12 +945,13 @@ brcmf_send_ether_locked(void *frame, int length)
   memmove(bcdc + 1, frame, length);
   frame_len = SDPCM_HEADER_LEN + sizeof(*bcdc) + length;
   wire_len = (frame_len + 3) & ~3;
-  brcmf_sdpcm_header(brcmf_bus.tx, frame_len, SDPCM_DATA_CHANNEL);
-  return brcmf_f2_transfer(1, brcmf_bus.tx, wire_len);
+  brcmf_sdpcm_header(bus, brcmf_bus.tx, frame_len, SDPCM_DATA_CHANNEL);
+  return brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len);
 }
 
 static int
-brcmf_wpa_send_m2_locked(uint8 *m1, int m1len, uint8 *ap)
+brcmf_wpa_send_m2_locked(struct brcmf_bus_state *bus, uint8 *m1, int m1len,
+                         uint8 *ap)
 {
   static const uint8 default_rsn_ie[] = {
     0x30, 0x14, 0x01, 0x00,             // RSN v1
@@ -921,7 +996,7 @@ brcmf_wpa_send_m2_locked(uint8 *m1, int m1len, uint8 *ap)
   memmove(key + 95, rsn_ie, rsn_ie_len);
   // MIC bytes key[77..92] are still zero while calculating the MIC.
   wpa_eapol_mic(brcmf_bus.ptk, eapol, 4 + body_len, key + 77);
-  if(brcmf_send_ether_locked(frame, total) < 0)
+  if(brcmf_send_ether_locked(bus, frame, total) < 0)
     return -1;
   brcmf_bus.m2_sent++;
   printf("brcmfmac: sent WPA2 EAPOL M2 replay=%x%x%x%x rsn=%d%s\n",
@@ -931,7 +1006,7 @@ brcmf_wpa_send_m2_locked(uint8 *m1, int m1len, uint8 *ap)
 }
 
 static int
-brcmf_wpa_send_m4_locked(void)
+brcmf_wpa_send_m4_locked(struct brcmf_bus_state *bus)
 {
   uint8 frame[14 + 4 + 95], *eapol, *key;
   int body_len = 95;
@@ -951,14 +1026,14 @@ brcmf_wpa_send_m4_locked(void)
   key[2] = 0x08 | brcmf_bus.m3_desc_version;
   memmove(key + 5, brcmf_bus.m3_replay, 8);
   wpa_eapol_mic(brcmf_bus.ptk, eapol, 4 + body_len, key + 77);
-  if(brcmf_send_ether_locked(frame, sizeof(frame)) < 0)
+  if(brcmf_send_ether_locked(bus, frame, sizeof(frame)) < 0)
     return -1;
   printf("brcmfmac: sent WPA2 EAPOL M4\n");
   return 0;
 }
 
 static void
-brcmf_wpa_rx_locked(uint8 *ether, int length)
+brcmf_wpa_rx_locked(struct brcmf_bus_state *bus, uint8 *ether, int length)
 {
   uint8 *eapol, *key;
   uint16 body_len, info;
@@ -986,7 +1061,7 @@ brcmf_wpa_rx_locked(uint8 *ether, int length)
     }
     wpa_derive_ptk(brcmf_bus.pmk, ether + 6, brcmf_bus.mac,
                    key + 13, brcmf_bus.snonce, brcmf_bus.ptk);
-    if(brcmf_wpa_send_m2_locked(eapol, 4 + body_len, ether + 6) < 0)
+    if(brcmf_wpa_send_m2_locked(bus, eapol, 4 + body_len, ether + 6) < 0)
       printf("brcmfmac: failed to transmit WPA2 EAPOL M2\n");
   } else if((info & 0x0188) == 0x0188){
     uint8 received_mic[16], calculated_mic[16], plain[64];
@@ -1003,7 +1078,7 @@ brcmf_wpa_rx_locked(uint8 *ether, int length)
       return;
     }
     if(brcmf_bus.handshake_done){
-      brcmf_wpa_send_m4_locked();
+      brcmf_wpa_send_m4_locked(bus);
       return;
     }
     if((info & 0x1000) == 0 || data_len > (int)sizeof(plain) + 8 ||
@@ -1049,7 +1124,8 @@ brcmf_wpa_rx_locked(uint8 *ether, int length)
 // which lets the host discover the full frame length before reading the tail.
 // Returns 1 for a frame, 0 when no frame is pending, and -1 on corruption/I/O.
 static int
-brcmf_rx_frame_locked(uint8 *channel, uint8 **payload, int *payload_len)
+brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
+                      uint8 **payload, int *payload_len)
 {
   uint32 intstatus;
   uint16 length, check;
@@ -1062,7 +1138,7 @@ brcmf_rx_frame_locked(uint8 *channel, uint8 **payload, int *payload_len)
     return 0;
 
   memset(brcmf_bus.rx, 0, sizeof(brcmf_bus.rx));
-  if(brcmf_f2_transfer(0, brcmf_bus.rx, 64) < 0)
+  if(brcmf_f2_transfer(bus, 0, brcmf_bus.rx, 64) < 0)
     return -1;
   length = brcmf_bus.rx[0] | ((uint16)brcmf_bus.rx[1] << 8);
   check = brcmf_bus.rx[2] | ((uint16)brcmf_bus.rx[3] << 8);
@@ -1077,7 +1153,7 @@ brcmf_rx_frame_locked(uint8 *channel, uint8 **payload, int *payload_len)
     rest = length - 64;
     rounded = (rest + 3) & ~3;
     if(64 + rounded > BRCMF_FRAME_MAX ||
-       brcmf_f2_transfer(0, brcmf_bus.rx + 64, rounded) < 0)
+       brcmf_f2_transfer(bus, 0, brcmf_bus.rx + 64, rounded) < 0)
       return -1;
   }
   *channel = brcmf_bus.rx[5] & 0x0f;
@@ -1090,13 +1166,13 @@ brcmf_rx_frame_locked(uint8 *channel, uint8 **payload, int *payload_len)
 }
 
 static int
-brcmf_rx_dispatch_locked(void)
+brcmf_rx_dispatch_locked(struct brcmf_bus_state *bus)
 {
   struct brcmf_bcdc_dcmd *dcmd;
   uint8 channel, *payload;
   int length, result;
 
-  result = brcmf_rx_frame_locked(&channel, &payload, &length);
+  result = brcmf_rx_frame_locked(bus, &channel, &payload, &length);
   if(result <= 0)
     return result;
   if(channel == SDPCM_CONTROL_CHANNEL){
@@ -1108,6 +1184,32 @@ brcmf_rx_dispatch_locked(void)
     if(brcmf_bus.ctl_len > BRCMF_DCMD_MAX)
       brcmf_bus.ctl_len = BRCMF_DCMD_MAX;
     memmove(brcmf_bus.ctl, payload, brcmf_bus.ctl_len);
+  } else if(channel == SDPCM_EVENT_CHANNEL){
+    // Broadcom events use an Ethernet header, a 10-byte bcmeth header and a
+    // network-byte-order brcm_event_msg.  Printing status/reason makes join
+    // failures distinguishable from the later GET_BSSID=-17 polling result.
+    if(length >= 14 + 10 + (int)sizeof(struct brcmf_event_msg)){
+      uint8 *ether = payload;
+      struct brcmf_event_msg *event =
+        (struct brcmf_event_msg*)(ether + 14 + 10);
+      uint16 type = ((uint16)ether[12] << 8) | ether[13];
+      if(type == 0x886c){
+        uint32 event_type = ((uint32)((uint8*)&event->event_type)[0] << 24) |
+          ((uint32)((uint8*)&event->event_type)[1] << 16) |
+          ((uint32)((uint8*)&event->event_type)[2] << 8) |
+          ((uint8*)&event->event_type)[3];
+        uint32 status = ((uint32)((uint8*)&event->status)[0] << 24) |
+          ((uint32)((uint8*)&event->status)[1] << 16) |
+          ((uint32)((uint8*)&event->status)[2] << 8) |
+          ((uint8*)&event->status)[3];
+        uint32 reason = ((uint32)((uint8*)&event->reason)[0] << 24) |
+          ((uint32)((uint8*)&event->reason)[1] << 16) |
+          ((uint32)((uint8*)&event->reason)[2] << 8) |
+          ((uint8*)&event->reason)[3];
+        printf("brcmfmac: event type=%d status=%d reason=%d\n",
+               event_type, status, reason);
+      }
+    }
   } else if(channel == SDPCM_DATA_CHANNEL){
     struct brcmf_bcdc_header *bcdc;
     uint8 *ether;
@@ -1129,7 +1231,7 @@ brcmf_rx_dispatch_locked(void)
       if(type == 0x888e)
         brcmf_bus.eapol_rx++;
       if(type == 0x888e)
-        brcmf_wpa_rx_locked(ether, length);
+        brcmf_wpa_rx_locked(bus, ether, length);
       else if(brcmf_bus.handshake_done &&
               length <= (int)sizeof(brcmf_bus.net_rx) &&
               brcmf_bus.net_rx_len == 0){
@@ -1144,22 +1246,28 @@ brcmf_rx_dispatch_locked(void)
 }
 
 static int
-brcmfmac_xmit(void *frame, int length)
+brcmfmac_xmit(struct net_device *netdev, void *frame, int length)
 {
+  struct brcmf_bus_state *bus = netdev ? netdev->priv : 0;
   int result;
+  if(bus == 0)
+    return -1;
   if(!brcmf_bus.handshake_done)
     return -1;
   acquire(&brcmf_bus.lock);
-  result = brcmf_send_ether_locked(frame, length);
+  result = brcmf_send_ether_locked(bus, frame, length);
   release(&brcmf_bus.lock);
   return result;
 }
 
-void
-brcmfmac_poll(void)
+static void
+brcmfmac_poll_device(struct net_device *netdev)
 {
+  struct brcmf_bus_state *bus = netdev ? netdev->priv : 0;
   int length = 0;
 
+  if(bus == 0)
+    return;
   if(!brcmf_bus.ready || !brcmf_bus.handshake_done)
     return;
   acquire(&brcmf_bus.lock);
@@ -1169,7 +1277,7 @@ brcmfmac_poll(void)
   }
   brcmf_bus.polling = 1;
   if(brcmf_bus.net_rx_len == 0)
-    brcmf_rx_dispatch_locked();
+    brcmf_rx_dispatch_locked(bus);
   if(brcmf_bus.net_rx_len){
     length = brcmf_bus.net_rx_len;
     memmove(brcmf_bus.net_deliver, brcmf_bus.net_rx, length);
@@ -1177,14 +1285,15 @@ brcmfmac_poll(void)
   }
   release(&brcmf_bus.lock);
   if(length)
-    net_rx(brcmf_bus.net_deliver, length);
+    net_rx_dev(netdev, brcmf_bus.net_deliver, length);
   acquire(&brcmf_bus.lock);
   brcmf_bus.polling = 0;
   release(&brcmf_bus.lock);
 }
 
 static int
-brcmf_dcmd(uint32 command, void *data, int length, int set)
+brcmf_dcmd(struct brcmf_bus_state *bus, uint32 command, void *data, int length,
+           int set)
 {
   struct brcmf_bcdc_dcmd *request, *reply;
   uint16 id;
@@ -1204,16 +1313,16 @@ brcmf_dcmd(uint32 command, void *data, int length, int set)
     memmove(request + 1, data, length);
   frame_len = SDPCM_HEADER_LEN + sizeof(*request) + length;
   wire_len = (frame_len + 3) & ~3;
-  brcmf_sdpcm_header(brcmf_bus.tx, frame_len, SDPCM_CONTROL_CHANNEL);
+  brcmf_sdpcm_header(bus, brcmf_bus.tx, frame_len, SDPCM_CONTROL_CHANNEL);
   brcmf_bus.ctl_len = 0;
-  if(brcmf_f2_transfer(1, brcmf_bus.tx, wire_len) < 0){
+  if(brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len) < 0){
     release(&brcmf_bus.lock);
     return -1;
   }
 
   deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * 3;
   while(r_cntvct_el0() < deadline){
-    int r = brcmf_rx_dispatch_locked();
+    int r = brcmf_rx_dispatch_locked(bus);
     if(r < 0){
       release(&brcmf_bus.lock);
       return -1;
@@ -1230,8 +1339,11 @@ brcmf_dcmd(uint32 command, void *data, int length, int set)
   }
   reply = (struct brcmf_bcdc_dcmd*)brcmf_bus.ctl;
   if((reply->flags & BCDC_DCMD_ERROR) || reply->status != 0){
-    printf("brcmfmac: BCDC command %d failed status=%d flags=%x\n",
-           command, reply->status, reply->flags);
+    // GET_BSSID returning NOTASSOCIATED is expected while an asynchronous
+    // join is in progress; printing it forty times hides the useful event.
+    if(command != BRCMF_C_GET_BSSID || reply->status != -17)
+      printf("brcmfmac: BCDC command %d failed status=%d flags=%x\n",
+             command, reply->status, reply->flags);
     release(&brcmf_bus.lock);
     return -1;
   }
@@ -1245,7 +1357,7 @@ brcmf_dcmd(uint32 command, void *data, int length, int set)
 }
 
 static int
-brcmf_iovar(char *name, void *data, int length, int set)
+brcmf_iovar(struct brcmf_bus_state *bus, char *name, void *data, int length, int set)
 {
   uint8 *buffer = brcmf_bus.iovar_buf;
   int namelen = strlen(name) + 1;
@@ -1263,7 +1375,7 @@ brcmf_iovar(char *name, void *data, int length, int set)
   // is the actual name plus requested result capacity, not the whole local
   // scratch buffer (which would exceed BRCMF_DCMD_MAX after the BCDC header).
   total = namelen + length;
-  if(brcmf_dcmd(set ? BRCMF_C_SET_VAR : BRCMF_C_GET_VAR,
+  if(brcmf_dcmd(bus, set ? BRCMF_C_SET_VAR : BRCMF_C_GET_VAR,
                 buffer, total, set) < 0){
     release(&brcmf_bus.iovar_lock);
     return -1;
@@ -1274,8 +1386,73 @@ brcmf_iovar(char *name, void *data, int length, int set)
   return 0;
 }
 
+static int __attribute__((unused))
+brcmf_scan_for_ssid(struct brcmf_bus_state *bus, char *wanted)
+{
+  struct brcmf_scan_params params;
+  uint8 *results = brcmf_bus.scan_results;
+  uint32 count, record_len;
+  int n, pos = 12, found = 0;
+
+  memset(&params, 0, sizeof(params));
+  memset(params.bssid, 0xff, sizeof(params.bssid));
+  params.bss_type = 2;       // any infrastructure/IBSS type
+  params.scan_type = 0;      // active scan
+  params.nprobes = -1;
+  params.active_time = -1;
+  params.passive_time = -1;
+  params.home_time = -1;
+  params.channel_num = 0;
+  printf("brcmfmac: active scan started\n");
+  if(brcmf_dcmd(bus, BRCMF_C_SCAN, &params, sizeof(params), 1) < 0){
+    printf("brcmfmac: active scan command failed\n");
+    return -1;
+  }
+  for(int wait = 0; wait < 12; wait++){
+    acquire(&brcmf_bus.lock);
+    for(int pending = 0; pending < 8; pending++)
+      if(brcmf_rx_dispatch_locked(bus) <= 0)
+        break;
+    release(&brcmf_bus.lock);
+    brcmf_delay_us(250000);
+  }
+
+  memset(results, 0, BRCMF_SCAN_RESULTS_LEN);
+  *(uint32*)results = BRCMF_SCAN_RESULTS_LEN;
+  n = brcmf_dcmd(bus, BRCMF_C_SCAN_RESULTS, results,
+                 BRCMF_SCAN_RESULTS_LEN, 0);
+  if(n < 12){
+    printf("brcmfmac: cannot read scan results\n");
+    return -1;
+  }
+  count = *(uint32*)(results + 8);
+  printf("brcmfmac: scan results count=%d\n", count);
+  for(uint32 i = 0; i < count && pos + 19 <= n; i++){
+    uint8 ssid_len;
+    char name[33];
+    record_len = *(uint32*)(results + pos + 4);
+    if(record_len < 19 || pos + (int)record_len > n)
+      break;
+    ssid_len = results[pos + 18];
+    if(ssid_len > 32 || 19 + ssid_len > record_len)
+      ssid_len = 0;
+    memset(name, 0, sizeof(name));
+    memmove(name, results + pos + 19, ssid_len);
+    printf("brcmfmac: scan ssid=%s bssid=%x:%x:%x:%x:%x:%x\n",
+           name, results[pos + 8], results[pos + 9], results[pos + 10],
+           results[pos + 11], results[pos + 12], results[pos + 13]);
+    if(strlen(wanted) == ssid_len &&
+       strncmp(name, wanted, ssid_len) == 0)
+      found = 1;
+    pos += record_len;
+  }
+  if(!found)
+    printf("brcmfmac: target SSID %s not visible in scan\n", wanted);
+  return found ? 0 : -1;
+}
+
 static int
-brcmf_download_clm(struct fat32_file *file)
+brcmf_download_clm(struct brcmf_bus_state *bus, struct fat32_file *file)
 {
   uint8 buffer[sizeof(struct brcmf_dload_data) + BRCMF_CLM_CHUNK];
   struct brcmf_dload_data *download = (struct brcmf_dload_data*)buffer;
@@ -1297,7 +1474,7 @@ brcmf_download_clm(struct fat32_file *file)
     download->type = DL_TYPE_CLM;
     download->len = chunk;
     if(fat32pread(file, offset, download->data, chunk) != chunk ||
-       brcmf_iovar("clmload", buffer,
+       brcmf_iovar(bus, "clmload", buffer,
                    sizeof(struct brcmf_dload_data) + chunk, 1) < 0)
       return -1;
     offset += chunk;
@@ -1307,7 +1484,8 @@ brcmf_download_clm(struct fat32_file *file)
 }
 
 static int
-brcmf_control_plane_start(struct sdio_func *func, struct brcmf_chip *chip,
+brcmf_control_plane_start(struct brcmf_bus_state *bus, struct sdio_func *func,
+                          struct brcmf_chip *chip,
                           struct fat32_file *clm, int have_clm)
 {
   char version[256];
@@ -1323,25 +1501,35 @@ brcmf_control_plane_start(struct sdio_func *func, struct brcmf_chip *chip,
   brcmf_bus.ready = 1;
 
   memset(version, 0, sizeof(version));
-  if(brcmf_iovar("ver", version, sizeof(version) - 1, 0) < 0){
+  if(brcmf_iovar(bus, "ver", version, sizeof(version) - 1, 0) < 0){
     printf("brcmfmac: cannot exchange BCDC control frames\n");
     return -1;
   }
   version[sizeof(version) - 1] = 0;
   printf("brcmfmac: firmware version %s\n", version);
-  if(have_clm && brcmf_download_clm(clm) < 0){
+  if(have_clm && brcmf_download_clm(bus, clm) < 0){
     printf("brcmfmac: CLM download failed\n");
     return -1;
   }
-  if(brcmf_iovar("cur_etheraddr", mac, sizeof(mac), 0) < 0){
+  if(brcmf_iovar(bus, "cur_etheraddr", mac, sizeof(mac), 0) < 0){
     printf("brcmfmac: cannot read Wi-Fi MAC address\n");
     return -1;
   }
   printf("brcmfmac: wlan0 mac=%x:%x:%x:%x:%x:%x\n",
          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   memmove(brcmf_bus.mac, mac, sizeof(mac));
-  if(brcmf_dcmd(BRCMF_C_UP, 0, 0, 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_UP, 0, 0, 1) < 0){
     printf("brcmfmac: cannot bring firmware interface up\n");
+    return -1;
+  }
+  brcmf_bus.netdev.dev.name = "wlan0";
+  brcmf_bus.netdev.dev.parent = &func->dev;
+  brcmf_bus.netdev.ops = &brcmf_netdev_ops;
+  brcmf_bus.netdev.priv = bus;
+  brcmf_bus.netdev.mtu = NET_MTU;
+  memmove(brcmf_bus.netdev.mac, mac, sizeof(mac));
+  if(register_netdev(&brcmf_bus.netdev) < 0){
+    printf("brcmfmac: cannot register wlan0\n");
     return -1;
   }
   printf("brcmfmac: control plane ready\n");
@@ -1349,7 +1537,7 @@ brcmf_control_plane_start(struct sdio_func *func, struct brcmf_chip *chip,
 }
 
 static int
-brcmf_bsscfg_iovar_int(char *name, uint32 value)
+brcmf_bsscfg_iovar_int(struct brcmf_bus_state *bus, char *name, uint32 value)
 {
   char full[64];
   uint32 values[2];
@@ -1363,11 +1551,12 @@ brcmf_bsscfg_iovar_int(char *name, uint32 value)
   full[n] = 0;
   values[0] = 0; // primary interface bsscfg index
   values[1] = value;
-  return brcmf_iovar(full, values, sizeof(values), 1);
+  return brcmf_iovar(bus, full, values, sizeof(values), 1);
 }
 
 static int
-brcmf_install_ccmp_key(uint32 index, uint8 *data, uint8 *peer, int primary)
+brcmf_install_ccmp_key(struct brcmf_bus_state *bus, uint32 index, uint8 *data,
+                       uint8 *peer, int primary)
 {
   uint8 request[4 + sizeof(struct brcmf_wsec_key)];
   struct brcmf_wsec_key *key;
@@ -1384,29 +1573,29 @@ brcmf_install_ccmp_key(uint32 index, uint8 *data, uint8 *peer, int primary)
     key->flags = WL_PRIMARY_KEY;
   if(peer)
     memmove(key->ea, peer, 6);
-  return brcmf_iovar("bsscfg:wsec_key", request, sizeof(request), 1);
+  return brcmf_iovar(bus, "bsscfg:wsec_key", request, sizeof(request), 1);
 }
 
 // Called outside brcmf_bus.lock.  M3 reception only stages key material;
 // issuing a synchronous iovar while dispatching RX under that lock would
 // recursively acquire it and deadlock.
 static int
-brcmf_finish_wpa_handshake(void)
+brcmf_finish_wpa_handshake(struct brcmf_bus_state *bus)
 {
   if(!brcmf_bus.keys_pending)
     return 0;
-  if(brcmf_install_ccmp_key(0, brcmf_bus.ptk + 32,
+  if(brcmf_install_ccmp_key(bus, 0, brcmf_bus.ptk + 32,
                             brcmf_bus.ap, 0) < 0){
     printf("brcmfmac: pairwise CCMP key install failed\n");
     return -1;
   }
-  if(brcmf_install_ccmp_key(brcmf_bus.gtk_index, brcmf_bus.gtk,
+  if(brcmf_install_ccmp_key(bus, brcmf_bus.gtk_index, brcmf_bus.gtk,
                             0, 1) < 0){
     printf("brcmfmac: group CCMP key install failed\n");
     return -1;
   }
   acquire(&brcmf_bus.lock);
-  if(brcmf_wpa_send_m4_locked() < 0){
+  if(brcmf_wpa_send_m4_locked(bus) < 0){
     release(&brcmf_bus.lock);
     printf("brcmfmac: EAPOL M4 transmit failed\n");
     return -1;
@@ -1423,7 +1612,7 @@ brcmf_finish_wpa_handshake(void)
 // silently discards M2 if a locally reconstructed IE differs in capabilities
 // or suite ordering.
 static void
-brcmf_read_assoc_rsn_ie(void)
+brcmf_read_assoc_rsn_ie(struct brcmf_bus_state *bus)
 {
   uint8 *ies = brcmf_bus.assoc_ies;
   uint32 lengths[2];
@@ -1436,14 +1625,15 @@ brcmf_read_assoc_rsn_ie(void)
   // BCME_BUFTOOSHORT (-14) for an 8-byte request.  Use the normal
   // WL_ASSOC_INFO_MAX-style work buffer and then consume its first 8 bytes.
   memset(ies, 0, sizeof(brcmf_bus.assoc_ies));
-  if(brcmf_iovar("assoc_info", ies, sizeof(brcmf_bus.assoc_ies), 0) < 0)
+  if(brcmf_iovar(bus, "assoc_info", ies,
+                 sizeof(brcmf_bus.assoc_ies), 0) < 0)
     return;
   memmove(lengths, ies, sizeof(lengths));
   req_len = lengths[0];
   if(req_len <= 0 || req_len > (int)sizeof(brcmf_bus.assoc_ies))
     return;
   memset(ies, 0, sizeof(brcmf_bus.assoc_ies));
-  if(brcmf_iovar("assoc_req_ies", ies, req_len, 0) < 0)
+  if(brcmf_iovar(bus, "assoc_req_ies", ies, req_len, 0) < 0)
     return;
   for(pos = 0; pos + 2 <= req_len; pos += 2 + ies[pos + 1]){
     int len = 2 + ies[pos + 1];
@@ -1465,38 +1655,91 @@ brcmf_read_assoc_rsn_ie(void)
 int
 brcmfmac_connect(char *ssid, char *passphrase)
 {
+  struct net_device *netdev = netdev_find("wlan0");
+  struct brcmf_bus_state *bus = netdev ? netdev->priv : 0;
   struct brcmf_wsec_pmk pmk;
   struct brcmf_ssid network;
   uint8 bssid[6];
-  uint32 value;
+  uint8 event_mask[BRCMF_EVENT_MASK_LEN];
+  uint8 country[12];
+  char country_name[3], country_code[3];
+  uint32 value, country_rev;
   int ssid_len, key_len, host_eapol = 0, link_reported = 0;
 
-  if(!brcmf_bus.ready || ssid == 0 || passphrase == 0)
+  if(bus == 0 || !brcmf_bus.ready || ssid == 0 || passphrase == 0)
     return -1;
   ssid_len = strlen(ssid);
   key_len = strlen(passphrase);
   if(ssid_len <= 0 || ssid_len > 32 || key_len < 8 || key_len > 63)
     return -1;
 
+  // Reinitialize the firmware interface for a fresh join.  This clears a
+  // stale scan/auth state left by an earlier failed invocation of /bin/wifi.
+  if(brcmf_dcmd(bus, BRCMF_C_DOWN, 0, 0, 1) < 0 ||
+     brcmf_dcmd(bus, BRCMF_C_UP, 0, 0, 1) < 0){
+    printf("brcmfmac: cannot reset firmware interface\n");
+    return -1;
+  }
+  brcmf_delay_us(20000);
+
+  // Subscribe to join/auth/assoc/link/PSK events before starting the join.
+  // Firmware otherwise completes control commands but may leave the host
+  // blind to the actual association failure status.
+  memset(event_mask, 0, sizeof(event_mask));
+  if(brcmf_iovar(bus, "event_msgs", event_mask,
+                 sizeof(event_mask), 0) < 0)
+    memset(event_mask, 0, sizeof(event_mask));
+  static const uint8 join_events[] = {
+    0, 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 16, 19, 46
+  };
+  for(uint i = 0; i < sizeof(join_events); i++)
+    event_mask[join_events[i] / 8] |= 1U << (join_events[i] % 8);
+  if(brcmf_iovar(bus, "event_msgs", event_mask,
+                 sizeof(event_mask), 1) < 0)
+    printf("brcmfmac: warning: cannot enable association events\n");
+
+  // Linux brcmfmac disables minimum-power-consumption mode while scanning
+  // and associating, then allows normal power management after link-up.
+  value = 0;
+  if(brcmf_iovar(bus, "mpc", &value, sizeof(value), 1) < 0)
+    printf("brcmfmac: warning: cannot disable mpc\n");
+  memset(country, 0, sizeof(country));
+  if(brcmf_iovar(bus, "country", country, sizeof(country), 0) == 0){
+    memmove(&country_rev, country + 4, sizeof(country_rev));
+    country_name[0] = country[0] ? country[0] : '-';
+    country_name[1] = country[1] ? country[1] : '-';
+    country_name[2] = 0;
+    country_code[0] = country[8] ? country[8] : '-';
+    country_code[1] = country[9] ? country[9] : '-';
+    country_code[2] = 0;
+    printf("brcmfmac: regulatory country=%s rev=%d ccode=%s\n",
+           country_name, country_rev, country_code);
+  }
+  // Do not make a legacy BRCMF_C_SCAN_RESULTS dump a prerequisite for
+  // joining.  Its response can approach 2 KiB, while the current xv6 SDIO
+  // host supports only single-block CMD53 transfers.  SET_SSID below asks
+  // the FullMAC firmware to scan for and join this exact SSID itself.
+  printf("brcmfmac: direct join target=%s\n", ssid);
+
   // Use the FullMAC firmware supplicant.  The host supplies WPA2 policy and
   // the ASCII passphrase; authentication, the 4-way handshake and CCMP key
   // installation are then performed inside the BCM43455 firmware.
   value = 1;
-  if(brcmf_dcmd(BRCMF_C_SET_INFRA, &value, sizeof(value), 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_SET_INFRA, &value, sizeof(value), 1) < 0){
     printf("brcmfmac: connect step SET_INFRA failed\n");
     goto fail;
   }
   value = 0; // open-system 802.11 authentication before WPA2 association
-  if(brcmf_dcmd(BRCMF_C_SET_AUTH, &value, sizeof(value), 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_SET_AUTH, &value, sizeof(value), 1) < 0){
     printf("brcmfmac: connect step SET_AUTH failed\n");
     goto fail;
   }
   value = AES_ENABLED;
-  if(brcmf_dcmd(BRCMF_C_SET_WSEC, &value, sizeof(value), 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_SET_WSEC, &value, sizeof(value), 1) < 0){
     printf("brcmfmac: connect step SET_WSEC failed\n");
     goto fail;
   }
-  if(brcmf_bsscfg_iovar_int("wpa_auth", WPA2_AUTH_PSK) < 0){
+  if(brcmf_bsscfg_iovar_int(bus, "wpa_auth", WPA2_AUTH_PSK) < 0){
     printf("brcmfmac: connect step bsscfg:wpa_auth failed\n");
     goto fail;
   }
@@ -1504,7 +1747,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
   // though they accept SET_WSEC_PMK and perform the PSK handshake as part of
   // the ordinary FullMAC join.  Linux treats FWSUP as a probed optional
   // feature too, so do not make this iovar a prerequisite for association.
-  if(brcmf_bsscfg_iovar_int("sup_wpa", 1) < 0)
+  if(brcmf_bsscfg_iovar_int(bus, "sup_wpa", 1) < 0)
     printf("brcmfmac: firmware sup_wpa unsupported; continuing with PMK join\n");
 
   memset(&pmk, 0, sizeof(pmk));
@@ -1522,7 +1765,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
   brcmf_bus.handshake_done = 0;
   brcmf_bus.m2_sent = 0;
   printf("brcmfmac: host-derived WPA2 PMK ready (32 bytes)\n");
-  if(brcmf_dcmd(BRCMF_C_SET_WSEC_PMK, &pmk, sizeof(pmk), 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_SET_WSEC_PMK, &pmk, sizeof(pmk), 1) < 0){
     printf("brcmfmac: SET_WSEC_PMK unsupported; host EAPOL required\n");
     host_eapol = 1;
   }
@@ -1532,7 +1775,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
   memmove(network.value, ssid, ssid_len);
   printf("brcmfmac: associating with SSID %s (WPA2-PSK/AES)\n", ssid);
   brcmf_bus.eapol_rx = 0;
-  if(brcmf_dcmd(BRCMF_C_SET_SSID, &network, sizeof(network), 1) < 0){
+  if(brcmf_dcmd(bus, BRCMF_C_SET_SSID, &network, sizeof(network), 1) < 0){
     printf("brcmfmac: connect step SET_SSID failed\n");
     goto fail;
   }
@@ -1542,24 +1785,29 @@ brcmfmac_connect(char *ssid, char *passphrase)
   for(int i = 0; i < 40; i++){
     int finish;
     memset(bssid, 0, sizeof(bssid));
-    if(brcmf_dcmd(BRCMF_C_GET_BSSID, bssid, sizeof(bssid), 0) >= 0 &&
+    if(brcmf_dcmd(bus, BRCMF_C_GET_BSSID, bssid, sizeof(bssid), 0) >= 0 &&
        (bssid[0] | bssid[1] | bssid[2] | bssid[3] | bssid[4] | bssid[5])){
       if(!link_reported){
         printf("brcmfmac: 802.11 associated bssid=%x:%x:%x:%x:%x:%x\n",
                bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         link_reported = 1;
-        brcmf_read_assoc_rsn_ie();
+        brcmf_read_assoc_rsn_ie(bus);
       }
       if(!host_eapol)
         return 0;
     }
     if(host_eapol && brcmf_bus.keys_pending){
-      finish = brcmf_finish_wpa_handshake();
+      finish = brcmf_finish_wpa_handshake(bus);
       if(finish > 0){
-        net_set_mac(brcmf_bus.mac);
-        net_set_xmit(brcmfmac_xmit);
-        net_set_poll(brcmfmac_poll);
-        if(net_dhcp() < 0){
+        // M4 has reached the SDIO FIFO, but the AP still needs a short time
+        // to validate it and open the controlled port.  Drain RX while that
+        // transition completes before sending the first DHCP broadcast.
+        uint64 ready_at = r_cntvct_el0() + r_cntfrq_el0() / 2;
+        while(r_cntvct_el0() < ready_at){
+          netdev_poll_one(netdev);
+          asm volatile("yield" ::: "memory");
+        }
+        if(net_dhcp_dev(netdev) < 0){
           printf("brcmfmac: associated, but DHCP failed\n");
           return -1;
         }
@@ -1569,6 +1817,14 @@ brcmfmac_connect(char *ssid, char *passphrase)
       if(finish < 0)
         goto fail;
     }
+    // Association events can arrive just after the GET_BSSID control reply.
+    // Drain a bounded number now instead of leaving their status/reason codes
+    // queued until the next BCDC request.
+    acquire(&brcmf_bus.lock);
+    for(int pending = 0; pending < 8; pending++)
+      if(brcmf_rx_dispatch_locked(bus) <= 0)
+        break;
+    release(&brcmf_bus.lock);
     brcmf_delay_us(250000);
   }
   if(host_eapol && link_reported)
@@ -1586,6 +1842,7 @@ fail:
 static int
 brcmf_probe(struct sdio_func *func)
 {
+  struct brcmf_bus_state *bus;
   struct fat32_file code, nvram, clm;
   struct brcmf_chip bc;
   char *chip, *bin_name, *txt_name, *clm_name;
@@ -1679,9 +1936,31 @@ brcmf_probe(struct sdio_func *func)
   if(brcmf_start_f2(func, &bc) < 0)
     return -1;
   printf("brcmfmac: firmware running; SDPCM transport ready\n");
-  if(brcmf_control_plane_start(func, &bc, &clm, have_clm) < 0)
+  bus = brcmf_alloc_bus();
+  if(bus == 0){
+    printf("brcmfmac: no free per-device state\n");
     return -1;
+  }
+  func->dev.driver_data = bus;
+  if(brcmf_control_plane_start(bus, func, &bc, &clm, have_clm) < 0){
+    func->dev.driver_data = 0;
+    brcmf_free_bus(bus);
+    return -1;
+  }
   return 0;
+}
+
+static void
+brcmf_remove(struct sdio_func *func)
+{
+  struct brcmf_bus_state *bus = func ? func->dev.driver_data : 0;
+  if(bus == 0)
+    return;
+  brcmf_bus.ready = 0;
+  if(brcmf_bus.netdev.running)
+    unregister_netdev(&brcmf_bus.netdev);
+  func->dev.driver_data = 0;
+  brcmf_free_bus(bus);
 }
 
 static struct sdio_driver brcmf_driver = {
@@ -1690,13 +1969,18 @@ static struct sdio_driver brcmf_driver = {
   },
   .id_table = brcmf_ids,
   .probe = brcmf_probe,
+  .remove = brcmf_remove,
 };
 
 void
 brcmfmac_driver_init(void)
 {
-  memset(&brcmf_bus, 0, sizeof(brcmf_bus));
-  initlock(&brcmf_bus.lock, "brcmfmac");
-  initlock(&brcmf_bus.iovar_lock, "brcmf-iovar");
+  memset(brcmf_devices, 0, sizeof(brcmf_devices));
   sdio_register_driver(&brcmf_driver);
+}
+
+void
+brcmfmac_driver_exit(void)
+{
+  sdio_unregister_driver(&brcmf_driver);
 }

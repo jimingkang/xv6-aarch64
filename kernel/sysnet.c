@@ -1,6 +1,7 @@
 #include "types.h"
 #include "aarch64.h"
 #include "defs.h"
+#include "net.h"
 
 uint64
 sys_udp_bind(void)
@@ -73,8 +74,28 @@ sys_wifi_connect(void)
 {
   char ssid[33];
   char passphrase[64];
+  int result;
   if(argstr(0, ssid, sizeof(ssid)) < 0 ||
      argstr(1, passphrase, sizeof(passphrase)) < 0)
     return -1;
-  return brcmfmac_connect(ssid, passphrase);
+  // BCM43455 control requests and MT7601U scans are both bounded polling
+  // transactions.  Do not let timer-driven USB channel changes stretch a
+  // FullMAC BCDC response past its deadline.
+  mt7601u_pause(1);
+  result = brcmfmac_connect(ssid, passphrase);
+  mt7601u_pause(0);
+  return result;
+}
+
+uint64
+sys_net_dhcp(void)
+{
+  char name[16];
+  struct net_device *dev;
+  if(argstr(0, name, sizeof(name)) < 0)
+    return -1;
+  dev = netdev_find(name);
+  if(dev == 0)
+    return -1;
+  return net_dhcp_dev(dev);
 }

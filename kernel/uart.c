@@ -84,6 +84,11 @@ uartinit(void)
   while(*ready)
     uartputc_early(*ready++);
 
+  // With core_freq/core_freq_min fixed at 250 MHz this divisor produces
+  // 250000000 / (8 * (270 + 1)) = 115313 baud (0.10% above 115200).
+  // Keep this early diagnostic numeric-free so it remains usable before
+  // printf/console initialization.
+
   initlock(&uart_tx_lock, "uart");
 }
 

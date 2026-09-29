@@ -75,6 +75,8 @@ struct arasan_host {
 
 static struct arasan_host arasan;
 static uint32 clock_message[16] __attribute__((aligned(64)));
+static struct device *arasan_device;
+static struct device_driver *arasan_driver;
 
 static inline volatile uint32 *
 reg(uint64 base, uint32 offset)
@@ -340,6 +342,7 @@ arasan_probe(struct device *dev)
   arasan.mmc.parent = dev;
   arasan.mmc.ops = &arasan_ops;
   arasan.mmc.private = &arasan;
+  dev->driver_data = &arasan;
   if(arasan_set_clock(&arasan.mmc, SDIO_INIT_CLOCK) < 0)
     return -1;
 
@@ -351,6 +354,16 @@ arasan_probe(struct device *dev)
   }
   arasan_set_clock(&arasan.mmc, SDIO_DATA_CLOCK);
   return 0;
+}
+
+static void
+arasan_remove(struct device *dev)
+{
+  struct arasan_host *host = dev ? dev->driver_data : 0;
+  if(host && host->mmc.registered)
+    mmc_remove_host(&host->mmc);
+  wr(EMMC_IRPT_EN, 0);
+  wr(EMMC_IRPT_MASK, 0);
 }
 
 void
@@ -372,7 +385,21 @@ arasan_sdio_driver_init(void)
   static struct device_driver drv = {
     .name = "bcm2837-arasan-sdio",
     .probe = arasan_probe,
+    .remove = arasan_remove,
   };
+  arasan_device = &dev;
+  arasan_driver = &drv;
   platform_device_register(&dev);
   platform_driver_register(&drv);
+}
+
+void
+arasan_sdio_driver_exit(void)
+{
+  if(arasan_driver)
+    driver_unregister(arasan_driver);
+  if(arasan_device)
+    device_unregister(arasan_device);
+  arasan_driver = 0;
+  arasan_device = 0;
 }

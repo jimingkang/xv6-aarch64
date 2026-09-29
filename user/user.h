@@ -43,6 +43,7 @@ int mount(const char*, const char*, const char*, int);
 int tty_attach(int);
 int vmdump(int);
 int wifi_connect(const char*, const char*);
+int net_dhcp(const char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

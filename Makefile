@@ -16,7 +16,9 @@ OBJS = \
   $K/console.o \
 	$K/device.o \
 	$K/sdio.o \
+	$K/usb.o \
 	$K/arasan_sdio.o \
+	$K/mt7601u.o \
 	$K/brcmfmac.o \
 	$K/wpa_crypto.o \
 	$K/tty.o \
@@ -40,6 +42,7 @@ OBJS = \
   $K/sync.o \
   $K/net.o \
   $K/sysnet.o \
+  $K/dwc2.o \
   $K/usbnet.o \
   $K/file.o \
   $K/pipe.o \
@@ -151,6 +154,12 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.clm_blob" "$(RPI3_BOOTFS)/BCM43455.CLM"; \
 		echo "installed BCM43455 firmware files -> $(RPI3_BOOTFS)"; \
 	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin" "$(RPI3_BOOTFS)/MT7601U.BIN"; \
+		echo "installed MT7601U firmware -> $(RPI3_BOOTFS)/MT7601U.BIN"; \
+	else \
+		echo "MT7601U firmware not installed (set WIFI_FIRMWARE_DIR=...)"; \
+	fi
 	sync
 	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	@echo "installed fs.img -> $(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
@@ -218,6 +227,7 @@ UPROGS=\
 	$U/_netdns\
 	$U/_ping\
 	$U/_wifi\
+	$U/_dhcp\
 	$U/_ext2ls\
 	$U/_ext2cat\
 	$U/_tcc\

@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "aarch64.h"
 #include "defs.h"
+#include "net.h"
 
 // armv8 generic timer driver
 
@@ -64,9 +65,16 @@ timerintr()
 {
   disable_timer();
   reload_timer();
-  // The first USB network driver uses bounded polling. A later interrupt-mode
-  // DWC2 driver can remove this hook without changing the network stack.
-  usbnetpoll();
-  brcmfmac_poll();
+  // Poll host controllers only from CPU0.  Every CPU owns a Generic Timer,
+  // but USB/SDIO host state is shared and must not be driven concurrently
+  // from four hard-IRQ contexts.
+  if(cpuid() == 0){
+    // Network devices currently use bounded polling.  The timer knows only
+    // the net_device layer; individual drivers own their poll callbacks.
+    netdev_poll_all();
+    // MT7601U is not a net_device until its SoftMAC has associated.
+    if(netdev_find("wlan1") == 0)
+      mt7601u_poll();
+  }
   enable_timer();
 }

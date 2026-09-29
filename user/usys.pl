@@ -55,3 +55,4 @@ entry("mount");
 entry("tty_attach");
 entry("vmdump");
 entry("wifi_connect");
+entry("net_dhcp");

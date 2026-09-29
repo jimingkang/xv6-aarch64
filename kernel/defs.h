@@ -11,6 +11,9 @@ struct superblock;
 struct trapframe;
 struct ext2_user_dirent;
 struct vnode;
+struct net_device;
+struct device;
+struct usb_device;
 
 // bio.c
 void            binit(void);
@@ -158,27 +161,36 @@ int             net_udp_recv(int, uint64, uint64, uint64, int);
 int             net_icmp_send(uint32, int, int, uint64, int);
 int             net_icmp_recv(int, uint64, uint64, uint64, int);
 void            net_rx(void*, int);
-void            net_set_xmit(int (*)(void*, int));
-void            net_set_poll(void (*)(void));
-void            net_set_mac(uint8*);
+void            net_rx_dev(struct net_device*, void*, int);
 int             net_dhcp(void);
+int             net_dhcp_dev(struct net_device*);
+void            netdev_poll_all(void);
 
 // sdio.c / brcmfmac.c
 void            sdio_bus_init(void);
 void            brcmfmac_driver_init(void);
+void            brcmfmac_driver_exit(void);
 int             brcmfmac_connect(char*, char*);
-void            brcmfmac_poll(void);
 void            wpa_pbkdf2(char*, char*, uint8*);
 void            wpa_make_snonce(uint8*, uint8*, uint64, uint8*);
 void            wpa_derive_ptk(uint8*, uint8*, uint8*, uint8*, uint8*, uint8*);
 void            wpa_eapol_mic(uint8*, void*, int, uint8*);
 int             wpa_aes_unwrap(uint8*, uint8*, int, uint8*);
 void            arasan_sdio_driver_init(void);
+void            arasan_sdio_driver_exit(void);
+void            usb_bus_init(void);
+void            mt7601u_driver_init(void);
+void            mt7601u_driver_exit(void);
+void            mt7601u_poll(void);
+void            mt7601u_pause(int);
 
-// usbnet.c
-void            usbnetinit(void);
-void            usbnet_driver_init(void);
-void            usbnetpoll(void);
+// dwc2.c / usbnet.c
+void            dwc2_driver_init(void);
+int             dwc2_cdc_xmit(void*, int);
+void            dwc2_cdc_poll(void);
+int             usbnet_attach(struct usb_device*);
+void            usbnet_detach(void);
+void            usbnet_rx(void*, int);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

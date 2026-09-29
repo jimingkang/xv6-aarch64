@@ -10,6 +10,7 @@
 #include "kernel/fcntl.h"
 
 char *argv[] = { "login", 0 };
+char *wifi_argv[] = { "wifi", 0 };
 
 static void
 create_config(char *path, char *contents)
@@ -119,9 +120,21 @@ main(void)
                 "proc /proc procfs ro 0 0\n"
                 "ext2 /mnt/ext2 ext2 ro 0 0\n");
   create_config("etc/wifi.conf",
-                "ssid=TP-Link_B114_5G\n"
+                "ssid=TP-Link_B114\n"
                 "psk=Minghua123\n");
   mount_fstab();
+
+  // Bring up the configured wireless network before offering a login shell.
+  // /bin/wifi reads /etc/wifi.conf, associates and obtains IPv4 by DHCP.
+  printf("init: connecting Wi-Fi from /etc/wifi.conf\n");
+  pid = fork();
+  if(pid == 0){
+    exec("/bin/wifi", wifi_argv);
+    printf("init: exec /bin/wifi failed\n");
+    exit(1);
+  }
+  if(pid > 0)
+    wait(0);
 
   for(;;){
     printf("init: starting local login on /dev/ttyS0\n");
