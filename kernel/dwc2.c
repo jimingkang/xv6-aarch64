@@ -13,6 +13,7 @@
 
 #define DWC2_BASE (PERIPHERAL_BASE + 0x00980000UL)
 #define USB_MBOX_BASE (PERIPHERAL_BASE + 0x0000b880UL)
+#define SYS_TIMER_CLO (*(volatile uint32 *)(PERIPHERAL_BASE + 0x00003004UL))
 
 #define GAHBCFG   0x008
 #define GUSBCFG   0x00c
@@ -181,9 +182,11 @@ usb_firmware_power_on(void)
 static void
 udelay(uint32 us)
 {
-  uint64 ticks = ((uint64)r_cntfrq_el0() * us + 999999) / 1000000;
-  uint64 start = r_cntvct_el0();
-  while(r_cntvct_el0() - start < ticks)
+  // BCM2837 System Timer CLO is a firmware-independent 1 MHz free-running
+  // counter.  Do not use CNTFRQ/CNTVCT here: their setup depends on the
+  // firmware armstub and differed between the tested Pi 3B and Pi 3B+.
+  uint32 start = SYS_TIMER_CLO;
+  while((uint32)(SYS_TIMER_CLO - start) < us)
     asm volatile("yield" ::: "memory");
 }
 
@@ -578,7 +581,15 @@ dwc2_init(void)
     printf("dwc2: firmware USB HCD power request failed\n");
   else
     printf("dwc2: firmware USB HCD power on\n");
+
+  // A Pi 3B may power-cycle the LAN9512/9514 and DWC2 clock when firmware
+  // transfers ownership of the USB power domain.  The 3B+ usually settles
+  // much faster, which hid this requirement on the original test board.
+  // Do not touch DWC2 registers until that transition has completed.
+  udelay(1000000);
+  printf("dwc2: probing core at pa=%p\n", V2P(DWC2_BASE));
   id = rd(GSNPSID);
+  printf("dwc2: core id=%x\n", id);
   if((id >> 16) != 0x4f54){
     printf("dwc2: no DWC2 controller id=%x\n", id);
     return;

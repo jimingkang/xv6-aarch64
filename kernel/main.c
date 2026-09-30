@@ -41,9 +41,12 @@ main()
     rnginit();       // BCM2837 hardware random source for cryptographic keys
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
+    // Install synchronous exception vectors before probing optional MMIO.
+    // An inaccessible controller must produce an ESR/FAR diagnostic instead
+    // of silently stopping at the last driver printk.
+    trapinit();
+    trapinithart();
     dwc2_driver_init();   // register/probe DWC2 USB host controller
-    trapinit();      // trap vectors
-    trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller
     gicv3inithart();
     timerinit();
