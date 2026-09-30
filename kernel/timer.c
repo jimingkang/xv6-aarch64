@@ -75,6 +75,7 @@ timerintr()
     // MT7601U is not a net_device until its SoftMAC has associated.
     if(netdev_find("wlan1") == 0)
       mt7601u_poll();
+    net_tcp_tick();
   }
   enable_timer();
 }

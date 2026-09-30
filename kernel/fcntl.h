@@ -3,3 +3,7 @@
 #define O_RDWR    0x002
 #define O_CREATE  0x200
 #define O_TRUNC   0x400
+#define O_NONBLOCK 0x800
+
+#define F_GETFL 3
+#define F_SETFL 4

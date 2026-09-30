@@ -1,15 +1,23 @@
 struct vnode;
+struct epoll;
+struct pty;
 
 struct file {
-  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_VNODE } type;
+  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_VNODE, FD_SOCKET,
+         FD_EPOLL, FD_PTY } type;
   int ref; // reference count
   char readable;
   char writable;
+  int flags;          // open-file-description status flags (O_NONBLOCK, ...)
   struct pipe *pipe; // FD_PIPE
   struct inode *ip;  // FD_INODE and FD_DEVICE
   struct vnode *vn;  // FD_VNODE
   uint off;          // FD_INODE
   short major;       // FD_DEVICE
+  int socket;        // FD_SOCKET: TCP connection handle
+  struct epoll *epoll; // FD_EPOLL
+  struct pty *pty;     // FD_PTY
+  char pty_master;     // FD_PTY: master endpoint when non-zero
 };
 
 #define major(dev)  ((dev) >> 16 & 0xFFFF)

@@ -27,6 +27,54 @@ struct udp_port {
 };
 
 static struct udp_port ports[NUDPPORT];
+#define NTCP 16
+#define TCP_BACKLOG_MAX 16
+#define TCP_RX_SIZE 2048
+#define TCP_CLOSED 0
+#define TCP_LISTEN 1
+#define TCP_SYN_RCVD 2
+#define TCP_ESTABLISHED 3
+#define TCP_CLOSE_WAIT 4
+#define TCP_FIN 0x01
+#define TCP_SYN 0x02
+#define TCP_PSH 0x08
+#define TCP_ACK 0x10
+struct tcp_conn {
+  struct spinlock lock;
+  int state;
+  int owner;
+  int accepted;
+  int parent;
+  int backlog;
+  int pending;
+  int aq_head;
+  int aq_tail;
+  int aq_count;
+  int acceptq[TCP_BACKLOG_MAX];
+  uint16 local_port;
+  uint16 remote_port;
+  uint32 remote_ip;
+  uint32 snd_nxt;
+  uint32 rcv_nxt;
+  struct net_device *dev;
+  uchar remote_mac[ETH_ADDR_LEN];
+  int rxlen;
+  uchar rx[TCP_RX_SIZE];
+  uint32 ooo_seq;
+  int ooo_len;
+  uchar ooo[TCP_RX_SIZE];
+  int tx_unacked;
+  uint32 tx_seq;
+  uint8 tx_flags;
+  int tx_len;
+  uchar tx[NET_MTU - 40];
+  uint32 tx_deadline;
+  uint8 tx_retries;
+  int tx_failed;
+};
+static struct tcp_conn tcp_connections[NTCP];
+static uint32 tcp_clock;
+static struct tcp_conn *tcp_handle(int);
 static struct spinlock porttable_lock;
 static struct {
   struct spinlock lock;
@@ -218,6 +266,270 @@ checksum(void *data, int len)
   return (uint16)~sum;
 }
 
+static uint32
+checksum_add(uint32 sum, void *data, int len)
+{
+  uchar *p = data;
+  while(len > 1){
+    sum += ((uint16)p[0] << 8) | p[1];
+    p += 2;
+    len -= 2;
+  }
+  if(len)
+    sum += (uint16)p[0] << 8;
+  return sum;
+}
+
+static uint16
+tcp_checksum(uint32 src, uint32 dst, void *segment, int len)
+{
+  uint32 sum = 0;
+  uchar tail[4];
+  sum = checksum_add(sum, &src, 4);
+  sum = checksum_add(sum, &dst, 4);
+  tail[0] = 0;
+  tail[1] = IP_PROTO_TCP;
+  tail[2] = len >> 8;
+  tail[3] = len;
+  sum = checksum_add(sum, tail, sizeof(tail));
+  sum = checksum_add(sum, segment, len);
+  while(sum >> 16)
+    sum = (sum & 0xffff) + (sum >> 16);
+  return (uint16)~sum;
+}
+
+static int
+tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
+                   void *data, int len)
+{
+  uchar *packet;
+  struct ethhdr *eth;
+  struct iphdr *ip;
+  struct tcphdr *tcp;
+  int framelen;
+  if(c->dev == 0 || len < 0 || len > NET_MTU - 40)
+    return -1;
+  framelen = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp) + len;
+  packet = kalloc();
+  if(packet == 0)
+    return -1;
+  memset(packet, 0, framelen);
+  eth = (struct ethhdr*)packet;
+  memmove(eth->dst, c->remote_mac, ETH_ADDR_LEN);
+  memmove(eth->src, c->dev->mac, ETH_ADDR_LEN);
+  eth->type = swap16(ETH_TYPE_IP);
+  ip = (struct iphdr*)(eth + 1);
+  ip->vhl = 0x45;
+  ip->len = swap16(sizeof(*ip) + sizeof(*tcp) + len);
+  ip->id = swap16(++ip_id);
+  ip->ttl = 64;
+  ip->proto = IP_PROTO_TCP;
+  ip->src = swap32(c->dev->ip_addr);
+  ip->dst = swap32(c->remote_ip);
+  ip->sum = swap16(checksum(ip, sizeof(*ip)));
+  tcp = (struct tcphdr*)(ip + 1);
+  tcp->sport = swap16(c->local_port);
+  tcp->dport = swap16(c->remote_port);
+  tcp->seq = swap32(sequence);
+  tcp->ack = swap32(c->rcv_nxt);
+  tcp->offset = 5 << 4;
+  tcp->flags = flags;
+  tcp->window = swap16(TCP_RX_SIZE - c->rxlen);
+  if(len)
+    memmove(tcp + 1, data, len);
+  tcp->sum = swap16(tcp_checksum(ip->src, ip->dst, tcp,
+                                  sizeof(*tcp) + len));
+  int result = netdev_xmit_on(c->dev, packet, framelen);
+  kfree(packet);
+  return result < 0 ? -1 : len;
+}
+
+static int
+tcp_send_locked(struct tcp_conn *c, uint8 flags, void *data, int len)
+{
+  return tcp_send_at_locked(c, c->snd_nxt, flags, data, len);
+}
+
+static int
+tcp_track_send_locked(struct tcp_conn *c, uint8 flags, void *data, int len)
+{
+  int sequence_bytes = len + ((flags & TCP_SYN) != 0) +
+                       ((flags & TCP_FIN) != 0);
+  if(c->tx_unacked || len > (int)sizeof(c->tx))
+    return -1;
+  c->tx_seq = c->snd_nxt;
+  c->tx_flags = flags;
+  c->tx_len = len;
+  if(len)
+    memmove(c->tx, data, len);
+  if(tcp_send_at_locked(c, c->tx_seq, flags, c->tx, len) < 0)
+    return -1;
+  c->snd_nxt += sequence_bytes;
+  c->tx_unacked = sequence_bytes != 0;
+  c->tx_retries = 0;
+  c->tx_failed = 0;
+  c->tx_deadline = tcp_clock + 5; // 500 ms with the current timer period.
+  return len;
+}
+
+static void
+tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
+       int hlen, int iplen)
+{
+  struct tcphdr *tcp = (struct tcphdr*)((uchar*)ip + hlen);
+  int tcplen = iplen - hlen;
+  int thlen, datalen;
+  uint16 dport, sport;
+  uint32 seq, ack;
+  struct tcp_conn *c = 0;
+  if(dev == 0 || tcplen < (int)sizeof(*tcp) ||
+     tcp_checksum(ip->src, ip->dst, tcp, tcplen) != 0)
+    return;
+  thlen = (tcp->offset >> 4) * 4;
+  if(thlen < 20 || thlen > tcplen)
+    return;
+  datalen = tcplen - thlen;
+  dport = swap16(tcp->dport);
+  sport = swap16(tcp->sport);
+  seq = swap32(tcp->seq);
+  ack = swap32(tcp->ack);
+
+  // Prefer an existing four-tuple over a listener on the same local port.
+  // A listener remains present after accept(), so selecting it first would
+  // misdirect data for an established child connection.
+  for(int i = 0; i < NTCP; i++){
+    acquire(&tcp_connections[i].lock);
+    if(tcp_connections[i].state >= TCP_SYN_RCVD &&
+       tcp_connections[i].local_port == dport &&
+       tcp_connections[i].remote_port == sport &&
+       tcp_connections[i].remote_ip == swap32(ip->src)){
+      c = &tcp_connections[i];
+      break;
+    }
+    release(&tcp_connections[i].lock);
+  }
+  if(c == 0){
+    for(int i = 0; i < NTCP; i++){
+      acquire(&tcp_connections[i].lock);
+      if(tcp_connections[i].state == TCP_LISTEN &&
+         tcp_connections[i].local_port == dport){
+        c = &tcp_connections[i];
+        break;
+      }
+      release(&tcp_connections[i].lock);
+    }
+  }
+  if(c == 0)
+    return;
+
+  if(c->state == TCP_LISTEN){
+    if(!(tcp->flags & TCP_SYN)){
+      release(&c->lock);
+      return;
+    }
+    int parent = (int)(c - tcp_connections) + 1;
+    struct tcp_conn *child = 0;
+    for(int i = 0; i < NTCP; i++){
+      if(i == parent - 1)
+        continue;
+      acquire(&tcp_connections[i].lock);
+      if(tcp_connections[i].state == TCP_CLOSED){
+        child = &tcp_connections[i];
+        break;
+      }
+      release(&tcp_connections[i].lock);
+    }
+    if(child == 0 || c->pending >= c->backlog){
+      if(child)
+        release(&child->lock);
+      release(&c->lock);
+      return;
+    }
+    memset((uchar*)child + sizeof(struct spinlock), 0,
+           sizeof(struct tcp_conn) - sizeof(struct spinlock));
+    child->state = TCP_SYN_RCVD;
+    child->owner = c->owner;
+    child->parent = parent;
+    child->local_port = dport;
+    child->remote_ip = swap32(ip->src);
+    child->remote_port = sport;
+    child->dev = dev;
+    memmove(child->remote_mac, eth->src, ETH_ADDR_LEN);
+    child->rcv_nxt = seq + 1;
+    child->snd_nxt = ((uint32)r_cntvct_el0() ^ child->remote_ip) | 1;
+    c->pending++;
+    tcp_track_send_locked(child, TCP_SYN | TCP_ACK, 0, 0);
+    release(&child->lock);
+    release(&c->lock);
+    return;
+  }
+  if(c->state == TCP_SYN_RCVD && (tcp->flags & TCP_ACK) &&
+     ack == c->snd_nxt){
+    c->tx_unacked = 0;
+    c->state = TCP_ESTABLISHED;
+    int parent = c->parent;
+    release(&c->lock);
+    struct tcp_conn *listener = tcp_handle(parent);
+    if(listener){
+      acquire(&listener->lock);
+      if(listener->state == TCP_LISTEN &&
+         listener->aq_count < listener->backlog){
+        listener->acceptq[listener->aq_tail] = (int)(c - tcp_connections) + 1;
+        listener->aq_tail = (listener->aq_tail + 1) % TCP_BACKLOG_MAX;
+        listener->aq_count++;
+        wakeup(listener);
+        epollnotify();
+      }
+      release(&listener->lock);
+    }
+    return;
+  }
+  if((tcp->flags & TCP_ACK) && c->tx_unacked && ack >= c->snd_nxt){
+    c->tx_unacked = 0;
+    c->tx_retries = 0;
+    wakeup(c);
+    epollnotify();
+  }
+  if((c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
+     datalen > 0){
+    if(seq == c->rcv_nxt){
+      int room = TCP_RX_SIZE - c->rxlen;
+      int n = datalen < room ? datalen : room;
+      if(n > 0){
+        memmove(c->rx + c->rxlen, (uchar*)tcp + thlen, n);
+        c->rxlen += n;
+        c->rcv_nxt += n;
+        // One held out-of-order segment is enough to bridge the common case
+        // where two adjacent Wi-Fi frames arrive in reverse poll order.
+        if(c->ooo_len && c->ooo_seq == c->rcv_nxt &&
+           c->ooo_len <= TCP_RX_SIZE - c->rxlen){
+          memmove(c->rx + c->rxlen, c->ooo, c->ooo_len);
+          c->rxlen += c->ooo_len;
+          c->rcv_nxt += c->ooo_len;
+          c->ooo_len = 0;
+        }
+        wakeup(c);
+        epollnotify();
+      }
+    } else if(seq > c->rcv_nxt && datalen <= (int)sizeof(c->ooo) &&
+              (c->ooo_len == 0 || seq < c->ooo_seq)){
+      c->ooo_seq = seq;
+      c->ooo_len = datalen;
+      memmove(c->ooo, (uchar*)tcp + thlen, datalen);
+    }
+    // ACK current rcv_nxt for new, duplicate and out-of-order segments.
+    tcp_send_locked(c, TCP_ACK, 0, 0);
+  }
+  if((tcp->flags & TCP_FIN) && seq + datalen == c->rcv_nxt){
+    c->rcv_nxt++;
+    c->state = TCP_CLOSE_WAIT;
+    tcp_send_locked(c, TCP_ACK, 0, 0);
+    wakeup(c);
+    epollnotify();
+  }
+  release(&c->lock);
+}
+
 void
 netinit(void)
 {
@@ -226,6 +538,8 @@ netinit(void)
   initlock(&pingq.lock, "icmp reply");
   for(i = 0; i < NUDPPORT; i++)
     initlock(&ports[i].lock, "udp port");
+  for(i = 0; i < NTCP; i++)
+    initlock(&tcp_connections[i].lock, "tcp conn");
   memset(netdevices, 0, sizeof(netdevices));
   memset(routes, 0, sizeof(routes));
   memset(arp_cache, 0, sizeof(arp_cache));
@@ -621,6 +935,10 @@ net_rx_dev(struct net_device *dev, void *packet, int len)
     icmp_rx(dev, eth, ip, hlen, iplen);
     return;
   }
+  if(ip->proto == IP_PROTO_TCP){
+    tcp_rx(dev, eth, ip, hlen, iplen);
+    return;
+  }
   if(ip->proto != IP_PROTO_UDP)
     return;
   udp = (struct udphdr*)((uchar*)ip + hlen);
@@ -644,6 +962,296 @@ void
 net_rx(void *packet, int len)
 {
   net_rx_dev(active_netdev, packet, len);
+}
+
+static struct tcp_conn*
+tcp_handle(int handle)
+{
+  if(handle <= 0 || handle > NTCP)
+    return 0;
+  return &tcp_connections[handle - 1];
+}
+
+int
+net_tcp_listen(int port, int backlog)
+{
+  if(port <= 0 || port > 65535)
+    return -1;
+  if(backlog < 1)
+    backlog = 1;
+  if(backlog > TCP_BACKLOG_MAX)
+    backlog = TCP_BACKLOG_MAX;
+  for(int i = 0; i < NTCP; i++){
+    acquire(&tcp_connections[i].lock);
+    if(tcp_connections[i].state == TCP_CLOSED){
+      memset((uchar*)&tcp_connections[i] + sizeof(struct spinlock), 0,
+             sizeof(struct tcp_conn) - sizeof(struct spinlock));
+      tcp_connections[i].state = TCP_LISTEN;
+      tcp_connections[i].owner = myproc()->pid;
+      tcp_connections[i].local_port = port;
+      tcp_connections[i].backlog = backlog;
+      release(&tcp_connections[i].lock);
+      printf("tcp: listening on %d handle=%d\n", port, i + 1);
+      return i + 1;
+    }
+    release(&tcp_connections[i].lock);
+  }
+  return -1;
+}
+
+int
+net_tcp_accept(int handle, int nonblock)
+{
+  struct tcp_conn *listener = tcp_handle(handle);
+  struct tcp_conn *child;
+  int child_handle;
+  if(listener == 0)
+    return -1;
+  acquire(&listener->lock);
+  if(listener->owner != myproc()->pid || listener->state == TCP_CLOSED ||
+     listener->accepted){
+    release(&listener->lock);
+    return -1;
+  }
+  if(listener->state != TCP_LISTEN){
+    release(&listener->lock);
+    return -1;
+  }
+  while(listener->aq_count == 0){
+    if(nonblock){
+      release(&listener->lock);
+      return -1;
+    }
+    if(myproc()->killed){
+      release(&listener->lock);
+      return -1;
+    }
+    sleep(listener, &listener->lock);
+  }
+
+  child_handle = listener->acceptq[listener->aq_head];
+  listener->aq_head = (listener->aq_head + 1) % TCP_BACKLOG_MAX;
+  listener->aq_count--;
+  if(listener->pending > 0)
+    listener->pending--;
+  release(&listener->lock);
+  child = tcp_handle(child_handle);
+  if(child == 0)
+    return -1;
+  acquire(&child->lock);
+  if(child->state != TCP_ESTABLISHED || child->parent != handle){
+    release(&child->lock);
+    return -1;
+  }
+  child->accepted = 1;
+  release(&child->lock);
+  return child_handle;
+}
+
+int
+net_tcp_poll(int handle, int events)
+{
+  struct tcp_conn *c = tcp_handle(handle);
+  int ready = 0;
+  if(c == 0)
+    return 0;
+  acquire(&c->lock);
+  if(c->state == TCP_LISTEN){
+    if((events & 1) && c->aq_count)
+      ready |= 1;
+  } else if(c->accepted){
+    if((events & 1) && (c->rxlen || c->state == TCP_CLOSE_WAIT))
+      ready |= 1;
+    if((events & 4) && c->state == TCP_ESTABLISHED && !c->tx_unacked)
+      ready |= 4;
+  }
+  if(c->tx_failed || c->state == TCP_CLOSED)
+    ready |= 8;
+  release(&c->lock);
+  return ready;
+}
+
+int
+net_tcp_read(int handle, uint64 uaddr, int maxlen, int nonblock)
+{
+  struct tcp_conn *c = tcp_handle(handle);
+  int n;
+  if(c == 0 || maxlen < 0)
+    return -1;
+  acquire(&c->lock);
+  if(c->owner != myproc()->pid || !c->accepted){
+    release(&c->lock);
+    return -1;
+  }
+  while(c->rxlen == 0 && c->state == TCP_ESTABLISHED){
+    if(nonblock){
+      release(&c->lock);
+      return -1;
+    }
+    if(myproc()->killed){
+      release(&c->lock);
+      return -1;
+    }
+    sleep(c, &c->lock);
+  }
+  if(c->rxlen == 0 && c->state == TCP_CLOSE_WAIT){
+    release(&c->lock);
+    return 0;
+  }
+  n = c->rxlen < maxlen ? c->rxlen : maxlen;
+  if(copyout(myproc()->pagetable, uaddr, (char*)c->rx, n) < 0){
+    release(&c->lock);
+    return -1;
+  }
+  memmove(c->rx, c->rx + n, c->rxlen - n);
+  c->rxlen -= n;
+  release(&c->lock);
+  return n;
+}
+
+int
+net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
+{
+  struct tcp_conn *c = tcp_handle(handle);
+  uchar data[NET_MTU - 40];
+  int done = 0;
+  if(c == 0 || len < 0)
+    return -1;
+  if(nonblock && len > (int)sizeof(data))
+    len = sizeof(data);
+  while(done < len){
+    int n = len - done;
+    if(n > (int)sizeof(data))
+      n = sizeof(data);
+    if(copyin(myproc()->pagetable, (char*)data, uaddr + done, n) < 0)
+      return -1;
+    acquire(&c->lock);
+    if(c->owner != myproc()->pid || !c->accepted ||
+       c->state != TCP_ESTABLISHED){
+      release(&c->lock);
+      return -1;
+    }
+    while(c->tx_unacked && !c->tx_failed){
+      if(nonblock){
+        release(&c->lock);
+        return done ? done : -1;
+      }
+      if(myproc()->killed){
+        release(&c->lock);
+        return -1;
+      }
+      sleep(c, &c->lock);
+    }
+    if(c->tx_failed ||
+       tcp_track_send_locked(c, TCP_ACK | TCP_PSH, data, n) < 0){
+      release(&c->lock);
+      return -1;
+    }
+    if(nonblock){
+      release(&c->lock);
+      return done + n;
+    }
+    while(c->tx_unacked && !c->tx_failed){
+      if(myproc()->killed){
+        release(&c->lock);
+        return -1;
+      }
+      sleep(c, &c->lock);
+    }
+    if(c->tx_failed){
+      release(&c->lock);
+      return -1;
+    }
+    release(&c->lock);
+    done += n;
+  }
+  return done;
+}
+
+int
+net_tcp_close(int handle)
+{
+  struct tcp_conn *c = tcp_handle(handle);
+  int was_listener;
+  if(c == 0)
+    return -1;
+  acquire(&c->lock);
+  if(c->owner != myproc()->pid){
+    release(&c->lock);
+    return -1;
+  }
+  was_listener = c->state == TCP_LISTEN;
+  if(c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT){
+    while(c->tx_unacked && !c->tx_failed)
+      sleep(c, &c->lock);
+    if(!c->tx_failed && tcp_track_send_locked(c, TCP_FIN | TCP_ACK, 0, 0) >= 0)
+      while(c->tx_unacked && !c->tx_failed)
+        sleep(c, &c->lock);
+  }
+  c->state = TCP_CLOSED;
+  c->owner = 0;
+  c->accepted = 0;
+  c->rxlen = 0;
+  wakeup(c);
+  epollnotify();
+  release(&c->lock);
+  // Closing a listener drops only queued/half-open children.  Connections
+  // already returned by accept() remain independent, as they do on Linux.
+  if(was_listener){
+    for(int i = 0; i < NTCP; i++){
+      struct tcp_conn *child = &tcp_connections[i];
+      acquire(&child->lock);
+      if(child->parent == handle && !child->accepted){
+        child->state = TCP_CLOSED;
+        child->owner = 0;
+        child->parent = 0;
+        child->tx_unacked = 0;
+        wakeup(child);
+      }
+      release(&child->lock);
+    }
+  }
+  return 0;
+}
+
+void
+net_tcp_tick(void)
+{
+  tcp_clock++;
+  for(int i = 0; i < NTCP; i++){
+    struct tcp_conn *c = &tcp_connections[i];
+    acquire(&c->lock);
+    if(c->tx_unacked && (int)(tcp_clock - c->tx_deadline) >= 0){
+      if(c->tx_retries >= 5){
+        int parent = c->state == TCP_SYN_RCVD ? c->parent : 0;
+        c->tx_unacked = 0;
+        c->tx_failed = 1;
+        printf("tcp: retransmission timeout port=%d\n", c->local_port);
+        wakeup(c);
+        epollnotify();
+        if(parent){
+          c->state = TCP_CLOSED;
+          c->owner = 0;
+          c->parent = 0;
+          release(&c->lock);
+          struct tcp_conn *listener = tcp_handle(parent);
+          if(listener){
+            acquire(&listener->lock);
+            if(listener->pending > 0)
+              listener->pending--;
+            release(&listener->lock);
+          }
+          continue;
+        }
+      } else {
+        c->tx_retries++;
+        tcp_send_at_locked(c, c->tx_seq, c->tx_flags,
+                           c->tx, c->tx_len);
+        c->tx_deadline = tcp_clock + 5;
+      }
+    }
+    release(&c->lock);
+  }
 }
 
 static int

@@ -124,6 +124,19 @@ extern uint64 sys_tty_attach(void);
 extern uint64 sys_vmdump(void);
 extern uint64 sys_wifi_connect(void);
 extern uint64 sys_net_dhcp(void);
+extern uint64 sys_tcp_listen(void);
+extern uint64 sys_tcp_accept(void);
+extern uint64 sys_tcp_read(void);
+extern uint64 sys_tcp_write(void);
+extern uint64 sys_tcp_close(void);
+extern uint64 sys_socket_listen(void);
+extern uint64 sys_socket_accept(void);
+extern uint64 sys_epoll_create(void);
+extern uint64 sys_epoll_ctl(void);
+extern uint64 sys_epoll_wait(void);
+extern uint64 sys_fcntl(void);
+extern uint64 sys_pty_open(void);
+extern uint64 sys_getrandom(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -167,6 +180,19 @@ static uint64 (*syscalls[])(void) = {
 [SYS_vmdump]       sys_vmdump,
 [SYS_wifi_connect] sys_wifi_connect,
 [SYS_net_dhcp]     sys_net_dhcp,
+[SYS_tcp_listen]   sys_tcp_listen,
+[SYS_tcp_accept]   sys_tcp_accept,
+[SYS_tcp_read]     sys_tcp_read,
+[SYS_tcp_write]    sys_tcp_write,
+[SYS_tcp_close]    sys_tcp_close,
+[SYS_socket_listen] sys_socket_listen,
+[SYS_socket_accept] sys_socket_accept,
+[SYS_epoll_create] sys_epoll_create,
+[SYS_epoll_ctl]    sys_epoll_ctl,
+[SYS_epoll_wait]   sys_epoll_wait,
+[SYS_fcntl]        sys_fcntl,
+[SYS_pty_open]     sys_pty_open,
+[SYS_getrandom]    sys_getrandom,
 };
 
 void

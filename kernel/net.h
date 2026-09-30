@@ -8,6 +8,7 @@
 #define ETH_TYPE_ARP 0x0806
 #define IP_PROTO_UDP 17
 #define IP_PROTO_ICMP 1
+#define IP_PROTO_TCP 6
 #define ARP_HTYPE_ETH 1
 #define ARP_OP_REQUEST 1
 #define ARP_OP_REPLY   2
@@ -93,6 +94,18 @@ struct udphdr {
   uint16 dport;
   uint16 len;
   uint16 sum;
+} __attribute__((packed));
+
+struct tcphdr {
+  uint16 sport;
+  uint16 dport;
+  uint32 seq;
+  uint32 ack;
+  uint8 offset;
+  uint8 flags;
+  uint16 window;
+  uint16 sum;
+  uint16 urgent;
 } __attribute__((packed));
 
 struct icmphdr {

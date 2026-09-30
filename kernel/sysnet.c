@@ -99,3 +99,17 @@ sys_net_dhcp(void)
     return -1;
   return net_dhcp_dev(dev);
 }
+
+uint64 sys_tcp_listen(void) { int p; return argint(0, &p) < 0 ? -1 : net_tcp_listen(p, 4); }
+uint64 sys_tcp_accept(void) { int h; return argint(0, &h) < 0 ? -1 : net_tcp_accept(h, 0); }
+uint64 sys_tcp_read(void) {
+  int h, n; uint64 p;
+  return argint(0, &h) < 0 || argaddr(1, &p) < 0 || argint(2, &n) < 0 ?
+         -1 : net_tcp_read(h, p, n, 0);
+}
+uint64 sys_tcp_write(void) {
+  int h, n; uint64 p;
+  return argint(0, &h) < 0 || argaddr(1, &p) < 0 || argint(2, &n) < 0 ?
+         -1 : net_tcp_write(h, p, n, 0);
+}
+uint64 sys_tcp_close(void) { int h; return argint(0, &h) < 0 ? -1 : net_tcp_close(h); }

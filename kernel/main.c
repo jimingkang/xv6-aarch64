@@ -38,6 +38,7 @@ main()
     printf("build: bcm43430-sdio-v2\n");
     printf("\n");
     procinit();      // process table
+    rnginit();       // BCM2837 hardware random source for cryptographic keys
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
     dwc2_driver_init();   // register/probe DWC2 USB host controller

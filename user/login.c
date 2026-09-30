@@ -70,7 +70,6 @@ main(void)
     printf("login: cannot acquire ttyS0\n");
     exit(1);
   }
-
   for(int attempt = 0; attempt < 3; attempt++){
     printf("\nxv6-rpi3 login: ");
     gets(name, sizeof(name));

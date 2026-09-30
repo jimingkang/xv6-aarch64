@@ -1,6 +1,7 @@
 struct stat;
 struct rtcdate;
 struct ext2_user_dirent;
+struct epoll_event;
 
 // system calls
 int fork(void);
@@ -44,6 +45,19 @@ int tty_attach(int);
 int vmdump(int);
 int wifi_connect(const char*, const char*);
 int net_dhcp(const char*);
+int tcp_listen(int);
+int tcp_accept(int);
+int tcp_read(int, void*, int);
+int tcp_write(int, const void*, int);
+int tcp_close(int);
+int socket_listen(int, int);
+int socket_accept(int);
+int epoll_create(void);
+int epoll_ctl(int, int, int, struct epoll_event*);
+int epoll_wait(int, struct epoll_event*, int, int);
+int fcntl(int, int, int);
+int pty_open(int*);
+int getrandom(void*, int);
 
 // ulib.c
 int stat(const char*, struct stat*);

@@ -1,8 +1,11 @@
 struct buf;
 struct context;
 struct file;
+struct epoll;
+struct epoll_event;
 struct inode;
 struct pipe;
+struct pty;
 struct proc;
 struct spinlock;
 struct sleeplock;
@@ -42,6 +45,12 @@ struct file*    filealloc(void);
 void            fileclose(struct file*);
 struct file*    filedup(struct file*);
 void            fileinit(void);
+void            epollinit(void);
+void            epollnotify(void);
+struct epoll*   epollalloc(void);
+void            epollclose(struct epoll*);
+int             epollctl(struct epoll*, int, int, struct file*, struct epoll_event*);
+int             epollwait(struct epoll*, uint64, int, int);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
@@ -116,6 +125,13 @@ void            pipeclose(struct pipe*, int);
 int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
+// pty.c
+int             ptyalloc(struct file**, struct file**);
+void            ptyclose(struct pty*, int);
+int             ptyread(struct pty*, int, uint64, int);
+int             ptywrite(struct pty*, int, uint64, int);
+int             ptypoll(struct pty*, int, int);
+
 // printf.c
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
@@ -160,6 +176,13 @@ int             net_udp_send(uint32, int, int, uint64, int);
 int             net_udp_recv(int, uint64, uint64, uint64, int);
 int             net_icmp_send(uint32, int, int, uint64, int);
 int             net_icmp_recv(int, uint64, uint64, uint64, int);
+int             net_tcp_listen(int, int);
+int             net_tcp_accept(int, int);
+int             net_tcp_read(int, uint64, int, int);
+int             net_tcp_write(int, uint64, int, int);
+int             net_tcp_close(int);
+int             net_tcp_poll(int, int);
+void            net_tcp_tick(void);
 void            net_rx(void*, int);
 void            net_rx_dev(struct net_device*, void*, int);
 int             net_dhcp(void);
@@ -273,6 +296,10 @@ void            gic_eoi(uint32);
 // timer.c
 void            timerinit(void);
 void            timerintr(void);
+
+// rng.c
+void            rnginit(void);
+int             rngbytes(void *, int);
 
 // virtio_disk.c
 void            virtio_disk_init(void);

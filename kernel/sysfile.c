@@ -16,6 +16,7 @@
 #include "file.h"
 #include "fcntl.h"
 #include "ext2.h"
+#include "epoll.h"
 
 uint64
 sys_mount(void)
@@ -98,6 +99,128 @@ fdalloc(struct file *f)
     }
   }
   return -1;
+}
+
+uint64
+sys_socket_listen(void)
+{
+  int port, backlog, handle, fd;
+  struct file *f;
+  if(argint(0, &port) < 0 || argint(1, &backlog) < 0 ||
+     (handle = net_tcp_listen(port, backlog)) < 0)
+    return -1;
+  if((f = filealloc()) == 0){
+    net_tcp_close(handle);
+    return -1;
+  }
+  f->type = FD_SOCKET;
+  f->readable = 1;
+  f->writable = 1;
+  f->socket = handle;
+  if((fd = fdalloc(f)) < 0){
+    fileclose(f);
+    return -1;
+  }
+  return fd;
+}
+
+uint64
+sys_socket_accept(void)
+{
+  struct file *listener, *child;
+  int child_handle, child_fd;
+  if(argfd(0, 0, &listener) < 0 || listener->type != FD_SOCKET)
+    return -1;
+  if((child_handle = net_tcp_accept(listener->socket,
+          (listener->flags & O_NONBLOCK) != 0)) < 0)
+    return -1;
+  if((child = filealloc()) == 0){
+    net_tcp_close(child_handle);
+    return -1;
+  }
+  child->type = FD_SOCKET;
+  child->readable = 1;
+  child->writable = 1;
+  child->socket = child_handle;
+  if((child_fd = fdalloc(child)) < 0){
+    fileclose(child);
+    return -1;
+  }
+  return child_fd;
+}
+
+uint64
+sys_fcntl(void)
+{
+  struct file *f;
+  int cmd, value;
+  if(argfd(0, 0, &f) < 0 || argint(1, &cmd) < 0 || argint(2, &value) < 0)
+    return -1;
+  if(cmd == F_GETFL)
+    return f->flags;
+  if(cmd == F_SETFL){
+    f->flags = (f->flags & ~O_NONBLOCK) | (value & O_NONBLOCK);
+    return 0;
+  }
+  return -1;
+}
+
+uint64
+sys_epoll_create(void)
+{
+  struct epoll *ep;
+  struct file *f;
+  int fd;
+  if((ep = epollalloc()) == 0)
+    return -1;
+  if((f = filealloc()) == 0){
+    epollclose(ep);
+    return -1;
+  }
+  f->type = FD_EPOLL;
+  f->readable = f->writable = 0;
+  f->epoll = ep;
+  if((fd = fdalloc(f)) < 0){
+    fileclose(f);
+    return -1;
+  }
+  return fd;
+}
+
+uint64
+sys_epoll_ctl(void)
+{
+  struct file *epfile, *target;
+  struct epoll_event event, *eventp = 0;
+  int op, fd;
+  uint64 address;
+  if(argfd(0, 0, &epfile) < 0 || epfile->type != FD_EPOLL ||
+     argint(1, &op) < 0 || argint(2, &fd) < 0 ||
+     argaddr(3, &address) < 0)
+    return -1;
+  if(op != EPOLL_CTL_DEL){
+    if(copyin(myproc()->pagetable, (char*)&event, address,
+              sizeof(event)) < 0)
+      return -1;
+    eventp = &event;
+  }
+  if(fd < 0 || fd >= NOFILE || (target = myproc()->ofile[fd]) == 0 ||
+     target == epfile)
+    return -1;
+  return epollctl(epfile->epoll, op, fd, target, eventp);
+}
+
+uint64
+sys_epoll_wait(void)
+{
+  struct file *epfile;
+  uint64 events;
+  int maxevents, timeout;
+  if(argfd(0, 0, &epfile) < 0 || epfile->type != FD_EPOLL ||
+     argaddr(1, &events) < 0 || argint(2, &maxevents) < 0 ||
+     argint(3, &timeout) < 0)
+    return -1;
+  return epollwait(epfile->epoll, events, maxevents, timeout);
 }
 
 uint64
@@ -410,6 +533,7 @@ sys_open(void)
   f->ip = ip;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+  f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);
@@ -553,4 +677,34 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+// Create a pseudoterminal pair. fdarray[0] is the master used by sshd;
+// fdarray[1] is the slave attached to the child shell's fd 0/1/2.
+uint64
+sys_pty_open(void)
+{
+  uint64 fdarray;
+  struct file *master, *slave;
+  int fdm = -1, fds = -1;
+  struct proc *p = myproc();
+
+  if(argaddr(0, &fdarray) < 0 || ptyalloc(&master, &slave) < 0)
+    return -1;
+  if((fdm = fdalloc(master)) < 0 || (fds = fdalloc(slave)) < 0)
+    goto bad;
+  if(copyout(p->pagetable, fdarray, (char *)&fdm, sizeof(fdm)) < 0 ||
+     copyout(p->pagetable, fdarray + sizeof(fdm), (char *)&fds,
+             sizeof(fds)) < 0)
+    goto bad;
+  return 0;
+
+bad:
+  if(fdm >= 0)
+    p->ofile[fdm] = 0;
+  if(fds >= 0)
+    p->ofile[fds] = 0;
+  fileclose(master);
+  fileclose(slave);
+  return -1;
 }

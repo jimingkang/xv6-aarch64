@@ -10,7 +10,10 @@
 #include "kernel/fcntl.h"
 
 char *argv[] = { "login", 0 };
-char *wifi_argv[] = { "wifi", 0 };
+
+// Bring wlan0 up from /etc/wifi.conf before starting the local login service.
+// /bin/wifi performs association, WPA2, DHCP and gateway ARP setup.
+#define AUTO_START_WIFI 1
 
 static void
 create_config(char *path, char *contents)
@@ -124,8 +127,10 @@ main(void)
                 "psk=Minghua123\n");
   mount_fstab();
 
-  // Bring up the configured wireless network before offering a login shell.
-  // /bin/wifi reads /etc/wifi.conf, associates and obtains IPv4 by DHCP.
+#if AUTO_START_WIFI
+  // Optional automatic network bring-up. /bin/wifi reads wifi.conf,
+  // associates, and obtains an IPv4 address through DHCP.
+  char *wifi_argv[] = { "wifi", 0 };
   printf("init: connecting Wi-Fi from /etc/wifi.conf\n");
   pid = fork();
   if(pid == 0){
@@ -135,6 +140,7 @@ main(void)
   }
   if(pid > 0)
     wait(0);
+#endif
 
   for(;;){
     printf("init: starting local login on /dev/ttyS0\n");

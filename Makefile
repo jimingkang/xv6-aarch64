@@ -26,6 +26,7 @@ OBJS = \
   $K/uart.o \
   $K/kalloc.o \
   $K/spinlock.o \
+  $K/rng.o \
   $K/string.o \
   $K/main.o \
   $K/vm.o \
@@ -45,7 +46,9 @@ OBJS = \
   $K/dwc2.o \
   $K/usbnet.o \
   $K/file.o \
+  $K/epoll.o \
   $K/pipe.o \
+  $K/pty.o \
   $K/exec.o \
   $K/sysfile.o \
   $K/trapasm.o \
@@ -174,7 +177,8 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o \
+	$U/tweetnacl.o $U/ssh_crypto.o
 ULIB = $U/libc.a
 
 $U/libc.a: $(LIBC_OBJS)
@@ -228,6 +232,10 @@ UPROGS=\
 	$U/_ping\
 	$U/_wifi\
 	$U/_dhcp\
+	$U/_tcpd\
+	$U/_epollserver\
+	$U/_ptytest\
+	$U/_sshd\
 	$U/_ext2ls\
 	$U/_ext2cat\
 	$U/_tcc\
@@ -246,7 +254,7 @@ fs.img: mkfs/mkfs $(UPROGS)
 
 -include kernel/*.d user/*.d
 
-clean: 
+clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img \
@@ -254,6 +262,24 @@ clean:
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
 	$(UPROGS)
+	# Remove numbered duplicate build products created by repeated Finder/copy
+	# operations (for example "_cat 12", "libc 28.a", "kernel 10").
+	# Every pattern is restricted to a known generated basename/extension so
+	# source files such as *.c, *.h, initcode.S and usys.pl remain untouched.
+	find $U -maxdepth 1 -type f \( \
+		-name '_* [0-9]*' -o \
+		-name 'initcode [0-9]*' -o -name 'initcode [0-9]*.out' -o \
+		-name 'libc [0-9]*.a' -o -name 'usys [0-9]*.S' \
+	\) -delete
+	find $K -maxdepth 1 -type f \( \
+		-name 'kernel [0-9]*' -o -name 'kernel8 [0-9]*.img' -o \
+		-name 'armstub [0-9]*.o' -o -name 'armstub [0-9]*.elf' -o \
+		-name 'armstub-xv6 [0-9]*.bin' \
+	\) -delete
+	find mkfs -maxdepth 1 -type f -name 'mkfs [0-9]*' -delete
+	rm -rf $U/obj $U/.deps $U/build $K/obj $K/.deps $K/build
+
+.PHONY: clean
 
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)

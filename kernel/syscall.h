@@ -40,3 +40,16 @@
 #define SYS_vmdump       39
 #define SYS_wifi_connect 40
 #define SYS_net_dhcp     41
+#define SYS_tcp_listen   42
+#define SYS_tcp_accept   43
+#define SYS_tcp_read     44
+#define SYS_tcp_write    45
+#define SYS_tcp_close    46
+#define SYS_socket_listen 47
+#define SYS_socket_accept 48
+#define SYS_epoll_create 49
+#define SYS_epoll_ctl    50
+#define SYS_epoll_wait   51
+#define SYS_fcntl        52
+#define SYS_pty_open     53
+#define SYS_getrandom    54

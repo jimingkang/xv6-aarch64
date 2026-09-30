@@ -97,6 +97,33 @@ sys_uptime(void)
 }
 
 uint64
+sys_getrandom(void)
+{
+  uint64 destination;
+  int length;
+  uchar bytes[64];
+  int done = 0;
+
+  if(argaddr(0, &destination) < 0 || argint(1, &length) < 0 ||
+     length < 0 || length > 4096)
+    return -1;
+  while(done < length){
+    int chunk = length - done;
+    if(chunk > sizeof(bytes))
+      chunk = sizeof(bytes);
+    if(rngbytes(bytes, chunk) != chunk ||
+       copyout(myproc()->pagetable, destination + done,
+               (char *)bytes, chunk) < 0){
+      memset(bytes, 0, sizeof(bytes));
+      return -1;
+    }
+    done += chunk;
+  }
+  memset(bytes, 0, sizeof(bytes));
+  return done;
+}
+
+uint64
 sys_ps(void)
 {
   procdump();

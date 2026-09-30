@@ -13,6 +13,8 @@
 #include "stat.h"
 #include "proc.h"
 #include "device.h"
+#include "epoll.h"
+#include "fcntl.h"
 
 struct {
   struct spinlock lock;
@@ -23,6 +25,7 @@ void
 fileinit(void)
 {
   initlock(&ftable.lock, "ftable");
+  epollinit();
 }
 
 // Allocate a file structure.
@@ -34,6 +37,7 @@ filealloc(void)
   acquire(&ftable.lock);
   for(f = ftable.file; f < ftable.file + NFILE; f++){
     if(f->ref == 0){
+      memset(f, 0, sizeof(*f));
       f->ref = 1;
       release(&ftable.lock);
       return f;
@@ -81,6 +85,12 @@ fileclose(struct file *f)
     end_op();
   } else if(ff.type == FD_VNODE){
     vfsclose(ff.vn);
+  } else if(ff.type == FD_SOCKET){
+    net_tcp_close(ff.socket);
+  } else if(ff.type == FD_EPOLL){
+    epollclose(ff.epoll);
+  } else if(ff.type == FD_PTY){
+    ptyclose(ff.pty, ff.pty_master);
   }
 }
 
@@ -128,6 +138,10 @@ fileread(struct file *f, uint64 addr, int n)
     if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
       f->off += r;
     iunlock(f->ip);
+  } else if(f->type == FD_PTY){
+    r = ptyread(f->pty, f->pty_master, addr, n);
+  } else if(f->type == FD_SOCKET){
+    r = net_tcp_read(f->socket, addr, n, (f->flags & O_NONBLOCK) != 0);
   } else if(f->type == FD_VNODE){
     if((r = vfsread(f->vn, 1, addr, f->off, n)) > 0)
       f->off += r;
@@ -182,6 +196,10 @@ filewrite(struct file *f, uint64 addr, int n)
     ret = (i == n ? n : -1);
   } else if(f->type == FD_VNODE){
     return -1;
+  } else if(f->type == FD_SOCKET){
+    ret = net_tcp_write(f->socket, addr, n, (f->flags & O_NONBLOCK) != 0);
+  } else if(f->type == FD_PTY){
+    ret = ptywrite(f->pty, f->pty_master, addr, n);
   } else {
     panic("filewrite");
   }
