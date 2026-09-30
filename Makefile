@@ -7,6 +7,9 @@ RPI3_BOOTFS ?= /Volumes/bootfs
 RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
 RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
 RPI3_FS_NAME ?= FS.IMG
+# Raw xv6 partition device.  Intentionally empty: callers must name the exact
+# partition (for example /dev/rdisk4s3) to prevent accidental whole-disk writes.
+RPI3_XV6_DEV ?=
 WIFI_FIRMWARE_DIR ?= firmware
 SUDO ?= sudo
 
@@ -128,7 +131,16 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		exit 1; \
 	}
 	$(SUDO) cp -f $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
-	$(SUDO) cp -f fs.img "$(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
+	@if test -n "$(RPI3_XV6_DEV)"; then \
+		case "$(RPI3_XV6_DEV)" in \
+		  /dev/disk*s[0-9]*|/dev/rdisk*s[0-9]*) ;; \
+		  *) echo "error: RPI3_XV6_DEV must be a partition device such as /dev/rdisk4s3" 1>&2; exit 1 ;; \
+		esac; \
+		test -e "$(RPI3_XV6_DEV)" || { echo "error: $(RPI3_XV6_DEV) does not exist" 1>&2; exit 1; }; \
+		$(SUDO) dd if=fs.img of="$(RPI3_XV6_DEV)" bs=1048576 conv=sync; \
+	else \
+		$(SUDO) cp -f fs.img "$(RPI3_BOOTFS)/$(RPI3_FS_NAME)"; \
+	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
 	@cmp -s $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
 		echo "error: installed kernel differs from $K/kernel8.img" 1>&2; \
@@ -165,8 +177,31 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 	fi
 	sync
 	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
-	@echo "installed fs.img -> $(RPI3_BOOTFS)/$(RPI3_FS_NAME)"
+	@if test -n "$(RPI3_XV6_DEV)"; then \
+		echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"; \
+	else \
+		echo "installed fs.img -> $(RPI3_BOOTFS)/$(RPI3_FS_NAME) (compatibility mode)"; \
+	fi
 	@echo "installed config.txt -> $(RPI3_BOOTFS)/config.txt (firmware armstub8)"
+
+.PHONY: install-rpi3-rawfs
+install-rpi3-rawfs: fs.img
+	@test -n "$(RPI3_XV6_DEV)" || { \
+		echo "error: set RPI3_XV6_DEV to the xv6 partition, never the whole disk" 1>&2; \
+		echo "example: make install-rpi3-rawfs RPI3_XV6_DEV=/dev/rdisk4s3" 1>&2; \
+		exit 1; \
+	}
+	@case "$(RPI3_XV6_DEV)" in \
+	  /dev/disk*s[0-9]*|/dev/rdisk*s[0-9]*) ;; \
+	  *) echo "error: RPI3_XV6_DEV must be a partition device, never a whole disk" 1>&2; exit 1 ;; \
+	esac
+	@test -e "$(RPI3_XV6_DEV)" || { \
+		echo "error: $(RPI3_XV6_DEV) does not exist" 1>&2; \
+		exit 1; \
+	}
+	$(SUDO) dd if=fs.img of="$(RPI3_XV6_DEV)" bs=1048576 conv=sync
+	sync
+	@echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o

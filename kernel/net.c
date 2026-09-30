@@ -30,6 +30,7 @@ static struct udp_port ports[NUDPPORT];
 #define NTCP 16
 #define TCP_BACKLOG_MAX 16
 #define TCP_RX_SIZE 2048
+#define TCP_TXQ_SIZE 8192
 #define TCP_CLOSED 0
 #define TCP_LISTEN 1
 #define TCP_SYN_RCVD 2
@@ -68,6 +69,8 @@ struct tcp_conn {
   uint8 tx_flags;
   int tx_len;
   uchar tx[NET_MTU - 40];
+  int txq_len;
+  uchar txq[TCP_TXQ_SIZE];
   uint32 tx_deadline;
   uint8 tx_retries;
   int tx_failed;
@@ -372,6 +375,32 @@ tcp_track_send_locked(struct tcp_conn *c, uint8 flags, void *data, int len)
   return len;
 }
 
+// Keep one segment in the retransmission slot, while allowing write(2) to
+// queue following bytes without waiting for a round-trip ACK.  Interactive
+// SSH otherwise pays a full RTT for every echoed character.
+static void
+tcp_start_queued_locked(struct tcp_conn *c)
+{
+  int n;
+
+  if(c->tx_unacked || c->tx_failed || c->txq_len == 0 ||
+     (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT))
+    return;
+  n = c->txq_len;
+  if(n > (int)sizeof(c->tx))
+    n = sizeof(c->tx);
+  if(tcp_track_send_locked(c, TCP_ACK | TCP_PSH, c->txq, n) < 0){
+    c->tx_failed = 1;
+    wakeup(c);
+    epollnotify();
+    return;
+  }
+  memmove(c->txq, c->txq + n, c->txq_len - n);
+  c->txq_len -= n;
+  wakeup(c);
+  epollnotify();
+}
+
 static void
 tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
        int hlen, int iplen)
@@ -487,6 +516,7 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
   if((tcp->flags & TCP_ACK) && c->tx_unacked && ack >= c->snd_nxt){
     c->tx_unacked = 0;
     c->tx_retries = 0;
+    tcp_start_queued_locked(c);
     wakeup(c);
     epollnotify();
   }
@@ -1062,7 +1092,8 @@ net_tcp_poll(int handle, int events)
   } else if(c->accepted){
     if((events & 1) && (c->rxlen || c->state == TCP_CLOSE_WAIT))
       ready |= 1;
-    if((events & 4) && c->state == TCP_ESTABLISHED && !c->tx_unacked)
+    if((events & 4) && c->state == TCP_ESTABLISHED &&
+       c->txq_len < TCP_TXQ_SIZE)
       ready |= 4;
   }
   if(c->tx_failed || c->state == TCP_CLOSED)
@@ -1113,25 +1144,17 @@ int
 net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
 {
   struct tcp_conn *c = tcp_handle(handle);
-  uchar data[NET_MTU - 40];
   int done = 0;
   if(c == 0 || len < 0)
     return -1;
-  if(nonblock && len > (int)sizeof(data))
-    len = sizeof(data);
   while(done < len){
-    int n = len - done;
-    if(n > (int)sizeof(data))
-      n = sizeof(data);
-    if(copyin(myproc()->pagetable, (char*)data, uaddr + done, n) < 0)
-      return -1;
     acquire(&c->lock);
     if(c->owner != myproc()->pid || !c->accepted ||
        c->state != TCP_ESTABLISHED){
       release(&c->lock);
-      return -1;
+      return done ? done : -1;
     }
-    while(c->tx_unacked && !c->tx_failed){
+    while(c->txq_len == TCP_TXQ_SIZE && !c->tx_failed){
       if(nonblock){
         release(&c->lock);
         return done ? done : -1;
@@ -1142,28 +1165,25 @@ net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
       }
       sleep(c, &c->lock);
     }
-    if(c->tx_failed ||
-       tcp_track_send_locked(c, TCP_ACK | TCP_PSH, data, n) < 0){
-      release(&c->lock);
-      return -1;
-    }
-    if(nonblock){
-      release(&c->lock);
-      return done + n;
-    }
-    while(c->tx_unacked && !c->tx_failed){
-      if(myproc()->killed){
-        release(&c->lock);
-        return -1;
-      }
-      sleep(c, &c->lock);
-    }
     if(c->tx_failed){
       release(&c->lock);
-      return -1;
+      return done ? done : -1;
     }
-    release(&c->lock);
+    int n = len - done;
+    int room = TCP_TXQ_SIZE - c->txq_len;
+    if(n > room)
+      n = room;
+    if(copyin(myproc()->pagetable, (char*)c->txq + c->txq_len,
+              uaddr + done, n) < 0){
+      release(&c->lock);
+      return done ? done : -1;
+    }
+    c->txq_len += n;
     done += n;
+    tcp_start_queued_locked(c);
+    release(&c->lock);
+    if(nonblock)
+      break;
   }
   return done;
 }
@@ -1182,7 +1202,7 @@ net_tcp_close(int handle)
   }
   was_listener = c->state == TCP_LISTEN;
   if(c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT){
-    while(c->tx_unacked && !c->tx_failed)
+    while((c->tx_unacked || c->txq_len) && !c->tx_failed)
       sleep(c, &c->lock);
     if(!c->tx_failed && tcp_track_send_locked(c, TCP_FIN | TCP_ACK, 0, 0) >= 0)
       while(c->tx_unacked && !c->tx_failed)
@@ -1206,6 +1226,7 @@ net_tcp_close(int handle)
         child->owner = 0;
         child->parent = 0;
         child->tx_unacked = 0;
+        child->txq_len = 0;
         wakeup(child);
       }
       release(&child->lock);
@@ -1225,6 +1246,7 @@ net_tcp_tick(void)
       if(c->tx_retries >= 5){
         int parent = c->state == TCP_SYN_RCVD ? c->parent : 0;
         c->tx_unacked = 0;
+        c->txq_len = 0;
         c->tx_failed = 1;
         printf("tcp: retransmission timeout port=%d\n", c->local_port);
         wakeup(c);

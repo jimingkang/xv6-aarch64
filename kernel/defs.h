@@ -295,7 +295,7 @@ void            gic_eoi(uint32);
 
 // timer.c
 void            timerinit(void);
-void            timerintr(void);
+int             timerintr(void);
 
 // rng.c
 void            rnginit(void);

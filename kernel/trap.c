@@ -163,11 +163,13 @@ devintr()
     uartintr();
     dev = 1;
   } else if(irq == TIMER0_IRQ){
-    if(cpuid() == 0){
+    int logical_tick = timerintr();
+    if(cpuid() == 0 && logical_tick){
       clockintr();
     }
-    timerintr();
-    dev = 2;
+    // The intermediate 10 ms interrupts service polled devices without
+    // changing xv6's original 100 ms scheduling/ticks semantics.
+    dev = logical_tick ? 2 : 1;
   } else if(irq == 1023){
     // do nothing
   } else if(irq){

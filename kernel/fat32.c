@@ -1,10 +1,9 @@
-// Minimal FAT32 container driver for an xv6 fs.img file.
+// Boot FAT32 reader plus xv6 root-block mapper.
 //
 // The Raspberry Pi sees the whole SD card, not macOS names such as disk4s1.
-// Locate a FAT32 partition through the MBR, find FS.IMG in its root directory,
-// cache the file's cluster chain, and expose its already-allocated data sectors
-// as the xv6 block device.  File growth and FAT metadata updates are purposely
-// not supported; fs.img is copied to the FAT volume at its final fixed size.
+// Prefer an MBR partition of type 0x7f containing a raw xv6 filesystem.  The
+// FAT32 boot partition remains mounted internally for Wi-Fi firmware.  For old
+// cards, FS.IMG in FAT32 is retained as a compatibility fallback.
 
 #include "types.h"
 #include "aarch64.h"
@@ -19,9 +18,14 @@
 #define SECTOR_SIZE       512
 #define FAT32_EOC         0x0ffffff8U
 #define MAX_FILE_CLUSTERS 4096
+#define XV6_PARTITION_TYPE 0x7f
 
 static struct {
   int fat;
+  int container;
+  int raw_root;
+  uint32 root_lba;
+  uint32 root_sectors;
   uint32 partition_lba;
   uint32 fat_lba;
   uint32 data_lba;
@@ -45,6 +49,7 @@ partition_type_name(uchar type)
   case 0x0c: return "FAT32-LBA";
   case 0x0e: return "FAT16-LBA";
   case 0x83: return "Linux";
+  case XV6_PARTITION_TYPE: return "xv6 raw filesystem";
   case 0xee: return "GPT-protective";
   default:   return "unknown";
   }
@@ -198,13 +203,20 @@ setup_fat32(uint32 partition_lba)
   printf("fat32: FAT lba=%d data lba=%d\n",
          diskmap.fat_lba, diskmap.data_lba);
 
+  // FAT32 is useful for firmware even when the root filesystem resides in a
+  // separate raw partition and FS.IMG no longer exists.
+  diskmap.fat = 1;
+  diskmap.container = 0;
+  diskmap.cluster_count = 0;
+  diskmap.file_size = 0;
+
   uint32 first_cluster;
   uint32 file_size;
   if(find_fsimg(root, &first_cluster, &file_size) < 0)
-    return -1;
+    return 0;
   if(file_size < FSSIZE * BSIZE){
     printf("fat32: FS.IMG too small: %d bytes\n", file_size);
-    return -1;
+    return 0;
   }
 
   uint32 needed = (file_size +
@@ -224,7 +236,22 @@ setup_fat32(uint32 partition_lba)
   }
 
   diskmap.file_size = file_size;
-  diskmap.fat = 1;
+  diskmap.container = 1;
+  return 0;
+}
+
+static int
+setup_raw_root(uint32 start, uint32 sectors)
+{
+  // xv6 block 1 is the superblock.  With 1024-byte blocks it starts two
+  // 512-byte sectors after the beginning of the partition.
+  if(start == 0 || sectors < FSSIZE * (BSIZE / SECTOR_SIZE) ||
+     sdsector(start + BSIZE / SECTOR_SIZE, scratch, 0) < 0 ||
+     le32(scratch) != FSMAGIC || le32(scratch + 4) != FSSIZE)
+    return -1;
+  diskmap.raw_root = 1;
+  diskmap.root_lba = start;
+  diskmap.root_sectors = sectors;
   return 0;
 }
 
@@ -344,10 +371,13 @@ fat32init(void)
     panic("fat32: sector 0");
 
   // A superfloppy FAT32 volume has its BPB directly in sector zero.
-  if(is_fat32_boot_sector(scratch) && setup_fat32(0) == 0){
-    printf("fat32: FS.IMG found in superfloppy, size=%d\n",
-           diskmap.file_size);
-    return;
+  if(is_fat32_boot_sector(scratch)){
+    if(setup_fat32(0) == 0 && diskmap.container){
+      printf("fat32: FS.IMG found in superfloppy, size=%d\n",
+             diskmap.file_size);
+      return;
+    }
+    panic("xv6fs: FAT32 superfloppy has no FS.IMG");
   }
 
   // Otherwise inspect the four DOS/MBR partition entries.
@@ -372,17 +402,49 @@ fat32init(void)
              start, end, sectors, sectors / 2048);
     }
 
+    // Root storage is independent from bootfs.  Prefer partition type 0x7f,
+    // but also accept another primary partition when its block-1 superblock
+    // carries the xv6 magic.  macOS diskutil can create MBR Linux partitions
+    // but cannot assign an arbitrary 0x7f type without editing the MBR.
+    for(int i = 0; i < 4; i++){
+      const uchar *part = entries[i];
+      uint32 start = le32(part + 8);
+      uint32 sectors = le32(part + 12);
+      if(part[4] != 0 && part[4] != 0x05 && part[4] != 0x0f &&
+         part[4] != 0x0b && part[4] != 0x0c &&
+         setup_raw_root(start, sectors) == 0){
+        printf("xv6fs: selected raw p%d lba=%d sectors=%d size=%d MiB\n",
+               i + 1, start, sectors, sectors / 2048);
+        break;
+      }
+    }
+
+    // bootfs is still needed for BCM/MT7601 firmware.  It no longer needs to
+    // contain FS.IMG when a valid raw xv6 partition was found.
     for(int i = 0; i < 4; i++){
       const uchar *part = entries[i];
       uchar type = part[4];
       uint32 start = le32(part + 8);
       if((type == 0x0b || type == 0x0c) && start != 0 &&
          setup_fat32(start) == 0){
-        printf("fat32: selected p%d lba=%d FS.IMG=%d bytes clusters=%d\n",
-               i + 1, start, diskmap.file_size, diskmap.cluster_count);
-        return;
+        printf("fat32: selected p%d lba=%d", i + 1, start);
+        if(diskmap.container)
+          printf(" FS.IMG=%d bytes clusters=%d",
+                 diskmap.file_size, diskmap.cluster_count);
+        else
+          printf(" firmware-only (no FS.IMG)");
+        printf("\n");
+        break;
       }
     }
+
+    if(diskmap.raw_root)
+      return;
+    if(diskmap.container){
+      printf("xv6fs: using FAT32 FS.IMG compatibility mapping\n");
+      return;
+    }
+    panic("xv6fs: no raw partition or FS.IMG");
   }
 
   // QEMU development mode attaches fs.img itself as the SD card.
@@ -393,7 +455,12 @@ fat32init(void)
 static uint32
 file_sector_lba(uint32 file_sector)
 {
-  if(!diskmap.fat)
+  if(diskmap.raw_root){
+    if(file_sector >= diskmap.root_sectors)
+      panic("xv6fs: sector outside raw partition");
+    return diskmap.root_lba + file_sector;
+  }
+  if(!diskmap.container)
     return file_sector;
 
   uint32 index = file_sector / diskmap.sectors_per_cluster;
