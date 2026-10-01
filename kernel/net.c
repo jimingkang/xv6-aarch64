@@ -1882,3 +1882,75 @@ net_udp_tryrecv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
   kfree(d);
   return n;
 }
+
+// Sleep on the UDP port until a datagram arrives, but retain a tick-based
+// deadline for protocols such as TFTP that must retransmit after packet loss.
+// udp_rx() provides the fast path by waking the port immediately.  The timer
+// calls net_udp_timeout_tick() only so a receiver can notice expiration when
+// no packet arrives.
+int
+net_udp_recv_timeout(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
+                     int maxlen, int timeout_ticks)
+{
+  struct udp_port *p = findport(port);
+  struct udp_dgram *d;
+  uint deadline;
+  int n;
+
+  if(p == 0 || maxlen < 0 || timeout_ticks < 0){
+    if(p)
+      release(&p->lock);
+    return -1;
+  }
+  deadline = ticks + timeout_ticks;
+  p->waiters++;
+  while(p->head == 0 && p->used){
+    if(myproc()->killed){
+      p->waiters--;
+      release(&p->lock);
+      return -1;
+    }
+    if((int)(ticks - deadline) >= 0){
+      p->waiters--;
+      release(&p->lock);
+      return 0;
+    }
+    sleep(p, &p->lock);
+  }
+  if(!p->used){
+    p->waiters--;
+    release(&p->lock);
+    return -1;
+  }
+  d = p->head;
+  p->head = d->next;
+  if(p->head == 0)
+    p->tail = 0;
+  p->queued--;
+  p->waiters--;
+  release(&p->lock);
+
+  n = d->len < maxlen ? d->len : maxlen;
+  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&d->src,
+                         sizeof(d->src)) < 0) ||
+     (sportaddr && copyout(myproc()->pagetable, sportaddr, (char*)&d->sport,
+                           sizeof(d->sport)) < 0) ||
+     copyout(myproc()->pagetable, uaddr, (char*)d->data, n) < 0){
+    kfree(d);
+    return -1;
+  }
+  kfree(d);
+  return n;
+}
+
+void
+net_udp_timeout_tick(void)
+{
+  for(int i = 0; i < NUDPPORT; i++){
+    struct udp_port *p = &ports[i];
+    acquire(&p->lock);
+    if(p->used && p->waiters)
+      wakeup(p);
+    release(&p->lock);
+  }
+}

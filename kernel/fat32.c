@@ -19,6 +19,9 @@
 #define FAT32_EOC         0x0ffffff8U
 #define MAX_FILE_CLUSTERS 65536
 #define XV6_PARTITION_TYPE 0x7f
+#define FAT_LFN_MAX 20
+#define FAT_LFN_CHARS 255
+#define FAT_LFN_STORAGE (FAT_LFN_MAX * 13)
 
 static struct {
   int fat;
@@ -54,6 +57,8 @@ static int fat_set_next(uint32 cluster, uint32 next);
 static int fat_alloc_cluster(uint32 *cluster_out);
 static int fat_free_chain(uint32 cluster);
 static int fat_mark_fsinfo_unknown(void);
+static uint32 fat_slot_cluster(const uchar entry[32]);
+static void entry_name(uchar *entry, char *out);
 
 int
 fat32ready(void)
@@ -89,6 +94,161 @@ struct fat_dir_slot {
   uint16 offset;
   uchar entry[32];
 };
+
+struct fat_path_match {
+  struct fat_dir_slot short_slot;
+  int lfn_count;
+  struct fat_dir_slot lfn_slots[FAT_LFN_MAX];
+};
+
+static int
+fat_path_name(char *path, char name[FAT_LFN_CHARS + 1], int *length)
+{
+  int n = 0;
+  if(path == 0 || path[0] != '/' || path[1] == 0)
+    return -1;
+  for(char *p = path + 1; *p; p++){
+    uchar c = *p;
+    if(c == '/' || c < 0x20 || c > 0x7e ||
+       c == '"' || c == '*' || c == ':' || c == '<' ||
+       c == '>' || c == '?' || c == '\\' || c == '|')
+      return -1;
+    if(n == FAT_LFN_CHARS)
+      return -1;
+    name[n++] = c;
+  }
+  if(n == 0 || name[n - 1] == '.' || name[n - 1] == ' ')
+    return -1;
+  name[n] = 0;
+  *length = n;
+  return 0;
+}
+
+static uchar
+fat_lfn_checksum(const uchar name[11])
+{
+  uchar sum = 0;
+  for(int i = 0; i < 11; i++)
+    sum = (sum >> 1) + (sum << 7) + name[i];
+  return sum;
+}
+
+static uint16
+fat_lfn_char(const uchar entry[32], int index)
+{
+  static const uchar offsets[13] = {
+    1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30
+  };
+  int off = offsets[index % 13];
+  return le16(entry + off);
+}
+
+static int
+fat_lfn_matches(const uint16 chars[FAT_LFN_STORAGE],
+                const char *name, int length)
+{
+  int i;
+  for(i = 0; i < length; i++){
+    uint16 c = chars[i];
+    char expected = name[i];
+    if(expected >= 'a' && expected <= 'z')
+      expected -= 'a' - 'A';
+    if(c > 0x7f)
+      return 0;
+    if(c >= 'a' && c <= 'z')
+      c -= 'a' - 'A';
+    if(c != (uchar)expected)
+      return 0;
+  }
+  return chars[length] == 0 || chars[length] == 0xffff;
+}
+
+static int
+fat_find_path(char *path, struct fat_path_match *match)
+{
+  char name[FAT_LFN_CHARS + 1], short_name[11];
+  uint16 lfn_chars[FAT_LFN_STORAGE];
+  struct fat_dir_slot lfn_slots[FAT_LFN_MAX];
+  uint32 cluster = diskmap.root_cluster;
+  int name_len, have_short, lfn_count = 0, next_order = 0;
+  uchar lfn_sum = 0;
+
+  if(!diskmap.fat || match == 0 ||
+     fat_path_name(path, name, &name_len) < 0)
+    return -1;
+  have_short = path_to_name11(path, short_name) == 0;
+  memset(lfn_chars, 0xff, sizeof(lfn_chars));
+  for(uint32 visited = 0; visited < diskmap.total_clusters; visited++){
+    if(cluster < 2 || cluster >= diskmap.total_clusters + 2)
+      return -1;
+    uint32 first = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      uint32 sector = first + s;
+      if(sdsector(sector, scratch, 0) < 0)
+        return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        uchar *entry = scratch + off;
+        if(entry[0] == 0)
+          return 0;
+        if(entry[0] == 0xe5){
+          lfn_count = next_order = 0;
+          continue;
+        }
+        if(entry[11] == 0x0f){
+          int order = entry[0] & 0x1f;
+          if(entry[0] & 0x40){
+            memset(lfn_chars, 0xff, sizeof(lfn_chars));
+            lfn_count = order <= FAT_LFN_MAX ? 0 : FAT_LFN_MAX;
+            next_order = order;
+            lfn_sum = entry[13];
+          }
+          if(order == 0 || order > FAT_LFN_MAX ||
+             order != next_order || entry[12] != 0 ||
+             le16(entry + 26) != 0 || entry[13] != lfn_sum ||
+             lfn_count >= FAT_LFN_MAX){
+            lfn_count = next_order = 0;
+            continue;
+          }
+          for(int i = 0; i < 13; i++)
+            lfn_chars[(order - 1) * 13 + i] = fat_lfn_char(entry, i);
+          lfn_slots[lfn_count].sector = sector;
+          lfn_slots[lfn_count].offset = off;
+          memmove(lfn_slots[lfn_count].entry, entry, 32);
+          lfn_count++;
+          next_order--;
+          continue;
+        }
+        if(entry[11] & 0x08){
+          lfn_count = next_order = 0;
+          continue;
+        }
+        int short_match = have_short &&
+                          memcmp(entry, short_name, 11) == 0;
+        int long_match = lfn_count > 0 && next_order == 0 &&
+                         lfn_sum == fat_lfn_checksum(entry) &&
+                         fat_lfn_matches(lfn_chars, name, name_len);
+        if(short_match || long_match){
+          match->short_slot.sector = sector;
+          match->short_slot.offset = off;
+          memmove(match->short_slot.entry, entry, 32);
+          match->lfn_count = long_match ? lfn_count : 0;
+          if(long_match)
+            memmove(match->lfn_slots, lfn_slots,
+                    lfn_count * sizeof(lfn_slots[0]));
+          return 1;
+        }
+        lfn_count = next_order = 0;
+      }
+    }
+    uint32 next = fat_next(cluster);
+    if(next >= FAT32_EOC)
+      return 0;
+    if(next < 2)
+      return -1;
+    cluster = next;
+  }
+  return -1;
+}
 
 static int
 fat_find_root(char name[11], struct fat_dir_slot *found,
@@ -169,22 +329,124 @@ fat_write_slot(struct fat_dir_slot *slot, const uchar entry[32])
 }
 
 static int
-fat_new_root_slot(struct fat_dir_slot *slot)
+fat_reserve_root_slots(int count, struct fat_dir_slot *slots)
 {
-  uint32 tail, cluster;
-  char empty[11];
-  memset(empty, 0, sizeof(empty));
-  memset(slot, 0, sizeof(*slot));
-  if(fat_find_root(empty, 0, slot, &tail) < 0)
+  int started = 0, found = 0;
+  uint32 cluster = diskmap.root_cluster;
+  uint32 tail = 0;
+  if(count <= 0 || count > FAT_LFN_MAX + 2)
     return -1;
-  if(slot->sector != 0)
-    return 0;
-  if(fat_alloc_cluster(&cluster) < 0 ||
-     fat_set_next(tail, cluster) < 0)
-    return -1;
-  slot->sector = cluster_lba(cluster);
-  slot->offset = 0;
-  memset(slot->entry, 0, sizeof(slot->entry));
+
+  for(uint32 visited = 0; visited < diskmap.total_clusters; visited++){
+    if(cluster < 2 || cluster >= diskmap.total_clusters + 2)
+      return -1;
+    uint32 first = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      uint32 sector = first + s;
+      if(sdsector(sector, scratch, 0) < 0)
+        return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        if(!started && scratch[off] == 0)
+          started = 1;
+        if(started){
+          slots[found].sector = sector;
+          slots[found].offset = off;
+          memmove(slots[found].entry, scratch + off, 32);
+          if(++found == count)
+            return 0;
+        }
+      }
+    }
+    tail = cluster;
+    uint32 next = fat_next(cluster);
+    if(next >= FAT32_EOC){
+      uint32 new_cluster;
+      if(fat_alloc_cluster(&new_cluster) < 0 ||
+         fat_set_next(tail, new_cluster) < 0)
+        return -1;
+      cluster = new_cluster;
+      started = 1;
+      continue;
+    }
+    if(next < 2)
+      return -1;
+    cluster = next;
+  }
+  return -1;
+}
+
+static void
+fat_lfn_set_char(uchar entry[32], int index, uint16 value)
+{
+  static const uchar offsets[13] = {
+    1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30
+  };
+  int off = offsets[index % 13];
+  entry[off] = value;
+  entry[off + 1] = value >> 8;
+}
+
+static void
+fat_make_lfn_entry(uchar entry[32], const char *name, int length,
+                   int order, int count, uchar checksum)
+{
+  memset(entry, 0xff, 32);
+  entry[0] = order | (order == count ? 0x40 : 0);
+  entry[11] = 0x0f;
+  entry[12] = 0;
+  entry[13] = checksum;
+  entry[26] = 0;
+  entry[27] = 0;
+  for(int i = 0; i < 13; i++){
+    int char_index = (order - 1) * 13 + i;
+    uint16 value = 0xffff;
+    if(char_index < length)
+      value = (uchar)name[char_index];
+    else if(char_index == length)
+      value = 0;
+    fat_lfn_set_char(entry, i, value);
+  }
+}
+
+static int
+fat_make_short_alias(const char *name, int length, char short_name[11])
+{
+  char base[8], ext[3];
+  int base_len = 0, ext_len = 0, dot = -1;
+  memset(short_name, ' ', 11);
+  for(int i = 0; i < length; i++)
+    if(name[i] == '.')
+      dot = i;
+  for(int i = 0; i < (dot < 0 ? length : dot) && base_len < 6; i++){
+    char c = name[i];
+    if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+       (c >= '0' && c <= '9')){
+      if(c >= 'a' && c <= 'z')
+        c -= 'a' - 'A';
+      base[base_len++] = c;
+    }
+  }
+  if(base_len == 0){
+    base[0] = 'X';
+    base[1] = 'V';
+    base[2] = '6';
+    base_len = 3;
+  }
+  if(dot >= 0){
+    for(int i = dot + 1; i < length && ext_len < 3; i++){
+      char c = name[i];
+      if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9')){
+        if(c >= 'a' && c <= 'z')
+          c -= 'a' - 'A';
+        ext[ext_len++] = c;
+      }
+    }
+  }
+  memmove(short_name, base, base_len);
+  short_name[base_len] = '~';
+  short_name[base_len + 1] = '1';
+  memmove(short_name + 8, ext, ext_len);
   return 0;
 }
 
@@ -201,49 +463,17 @@ entry_name(uchar *entry, char *out)
 }
 
 static int
-fat32lookuproot(char name[11], struct fat32_dirent *de)
-{
-  uint32 cluster;
-  if(!diskmap.fat || de == 0 ||
-     sdsector(diskmap.partition_lba, scratch, 0) < 0)
-    return -1;
-  cluster = le32(scratch + 44);
-  for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
-    if(cluster < 2 || cluster >= FAT32_EOC)
-      return -1;
-    uint32 first = cluster_lba(cluster);
-    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
-      if(sdsector(first + s, scratch, 0) < 0)
-        return -1;
-      for(int off = 0; off < SECTOR_SIZE; off += 32){
-        uchar *e = scratch + off;
-        if(e[0] == 0)
-          return -1;
-        if(e[0] == 0xe5 || e[11] == 0x0f || (e[11] & 0x08))
-          continue;
-        if(memcmp(e, name, 11) != 0)
-          continue;
-        memset(de, 0, sizeof(*de));
-        de->cluster = ((uint32)le16(e + 20) << 16) | le16(e + 26);
-        de->size = le32(e + 28);
-        de->directory = (e[11] & 0x10) != 0;
-        entry_name(e, de->name);
-        return 0;
-      }
-    }
-    cluster = fat_next(cluster);
-  }
-  return -1;
-}
-
-static int
 fat32readdirroot_locked(int index, struct fat32_dirent *de)
 {
   uint32 cluster;
   int seen = 0;
+  uint16 lfn_chars[FAT_LFN_STORAGE];
+  int lfn_count = 0, next_order = 0;
+  uchar lfn_sum = 0;
   if(!diskmap.fat || index < 0 || de == 0 ||
      sdsector(diskmap.partition_lba, scratch, 0) < 0)
     return -1;
+  memset(lfn_chars, 0xff, sizeof(lfn_chars));
   cluster = le32(scratch + 44);
   for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
     if(cluster < 2 || cluster >= FAT32_EOC) return 0;
@@ -253,13 +483,56 @@ fat32readdirroot_locked(int index, struct fat32_dirent *de)
       for(int off = 0; off < SECTOR_SIZE; off += 32){
         uchar *e = scratch + off;
         if(e[0] == 0) return 0;
-        if(e[0] == 0xe5 || e[11] == 0x0f || (e[11] & 0x08)) continue;
-        if(seen++ != index) continue;
+        if(e[0] == 0xe5){
+          lfn_count = next_order = 0;
+          continue;
+        }
+        if(e[11] == 0x0f){
+          int order = e[0] & 0x1f;
+          if(e[0] & 0x40){
+            memset(lfn_chars, 0xff, sizeof(lfn_chars));
+            lfn_count = 0;
+            next_order = order;
+            lfn_sum = e[13];
+          }
+          if(order == 0 || order > FAT_LFN_MAX || order != next_order ||
+             e[12] != 0 || le16(e + 26) != 0 || e[13] != lfn_sum){
+            lfn_count = next_order = 0;
+            continue;
+          }
+          for(int i = 0; i < 13; i++)
+            lfn_chars[(order - 1) * 13 + i] = fat_lfn_char(e, i);
+          lfn_count++;
+          next_order--;
+          continue;
+        }
+        if(e[11] & 0x08){
+          lfn_count = next_order = 0;
+          continue;
+        }
+        if(seen++ != index){
+          lfn_count = next_order = 0;
+          continue;
+        }
         memset(de, 0, sizeof(*de));
         de->cluster = ((uint32)le16(e + 20) << 16) | le16(e + 26);
         de->size = le32(e + 28);
         de->directory = (e[11] & 0x10) != 0;
-        entry_name(e, de->name);
+        if(lfn_count > 0 && next_order == 0 &&
+           lfn_sum == fat_lfn_checksum(e)){
+          int n = 0;
+          while(n < (int)sizeof(de->name) - 1 &&
+                lfn_chars[n] != 0 && lfn_chars[n] != 0xffff &&
+                lfn_chars[n] <= 0x7f){
+            de->name[n] = lfn_chars[n];
+            n++;
+          }
+          de->name[n] = 0;
+          if(n == 0)
+            entry_name(e, de->name);
+        } else {
+          entry_name(e, de->name);
+        }
         return 1;
       }
     }
@@ -280,13 +553,18 @@ fat32readdirroot(int index, struct fat32_dirent *de)
 static int
 fat32statpath_locked(char *path, struct fat32_dirent *de)
 {
-  char name[11];
+  struct fat_path_match match;
   if(path[0] == '/' && path[1] == 0){
     memset(de, 0, sizeof(*de)); de->directory = 1; return 0;
   }
-  if(path_to_name11(path, name) < 0)
+  if(fat_find_path(path, &match) != 1)
     return -1;
-  return fat32lookuproot(name, de);
+  memset(de, 0, sizeof(*de));
+  de->cluster = fat_slot_cluster(match.short_slot.entry);
+  de->size = le32(match.short_slot.entry + 28);
+  de->directory = (match.short_slot.entry[11] & 0x10) != 0;
+  entry_name(match.short_slot.entry, de->name);
+  return 0;
 }
 
 int
@@ -699,11 +977,11 @@ static int
 fat_load_write_state(char *path, struct fat32_file *file,
                      struct fat_dir_slot *slot)
 {
-  char name[11];
-  if(path_to_name11(path, name) < 0 ||
-     fat_find_root(name, slot, 0, 0) != 1 ||
-     (slot->entry[11] & 0x10))
+  struct fat_path_match match;
+  if(fat_find_path(path, &match) != 1 ||
+     (match.short_slot.entry[11] & 0x10))
     return -1;
+  *slot = match.short_slot;
   file->first_cluster = fat_slot_cluster(slot->entry);
   file->size = le32(slot->entry + 28);
   file->last_cluster = 0;
@@ -741,23 +1019,67 @@ fat32openwrite(char *path, struct fat32_file *file)
 }
 
 int
-fat32createfile(char *path)
+fat32openpath(char *path, struct fat32_file *file)
 {
-  char name[11];
-  struct fat_dir_slot found, free_slot;
-  uchar entry[32];
-  if(!diskmap.fat || path_to_name11(path, name) < 0)
+  struct fat_dir_slot slot;
+  if(!diskmap.fat || path == 0 || file == 0)
     return -1;
   acquire(&fat32_lock);
-  int result = fat_find_root(name, &found, 0, 0);
-  if(result != 0)
+  int result = fat_load_write_state(path, file, &slot);
+  release(&fat32_lock);
+  return result;
+}
+
+int
+fat32createfile(char *path)
+{
+  char name[FAT_LFN_CHARS + 1], short_name[11], parsed_short[11];
+  struct fat_path_match match;
+  struct fat_dir_slot slots[FAT_LFN_MAX + 2];
+  uchar entry[32];
+  int length, lfn_count, slot_count, exists;
+  if(!diskmap.fat || fat_path_name(path, name, &length) < 0)
+    return -1;
+  acquire(&fat32_lock);
+  exists = fat_find_path(path, &match);
+  if(exists != 0)
     goto bad;
-  if(fat_new_root_slot(&free_slot) < 0)
+  if(path_to_name11(path, parsed_short) == 0){
+    memmove(short_name, parsed_short, sizeof(short_name));
+    lfn_count = 0;
+  } else {
+    fat_make_short_alias(name, length, short_name);
+    lfn_count = (length + 12) / 13;
+    int available = 0;
+    for(int suffix = '1'; suffix <= '9'; suffix++){
+      short_name[7] = suffix;
+      int found = fat_find_root(short_name, 0, 0, 0);
+      if(found == 0){
+        available = 1;
+        break;
+      }
+      if(found < 0)
+        goto bad;
+    }
+    if(!available)
+      goto bad;
+  }
+  slot_count = lfn_count + 2;
+  if(fat_reserve_root_slots(slot_count, slots) < 0)
+    goto bad;
+  for(int i = 0; i < lfn_count; i++){
+    fat_make_lfn_entry(entry, name, length, lfn_count - i,
+                       lfn_count, fat_lfn_checksum((uchar*)short_name));
+    if(fat_write_slot(&slots[i], entry) < 0)
+      goto bad;
+  }
+  memset(entry, 0, sizeof(entry));
+  memmove(entry, short_name, sizeof(short_name));
+  entry[11] = 0x20;
+  if(fat_write_slot(&slots[lfn_count], entry) < 0)
     goto bad;
   memset(entry, 0, sizeof(entry));
-  memmove(entry, name, sizeof(name));
-  entry[11] = 0x20;
-  if(fat_write_slot(&free_slot, entry) < 0)
+  if(fat_write_slot(&slots[lfn_count + 1], entry) < 0)
     goto bad;
   release(&fat32_lock);
   return 0;
@@ -769,15 +1091,16 @@ bad:
 int
 fat32truncatefile(char *path, struct fat32_file *file)
 {
-  char name[11];
+  struct fat_path_match match;
   struct fat_dir_slot slot;
   uint32 old_cluster;
-  if(!diskmap.fat || path_to_name11(path, name) < 0 || file == 0)
+  if(!diskmap.fat || path == 0 || file == 0)
     return -1;
   acquire(&fat32_lock);
-  if(fat_find_root(name, &slot, 0, 0) != 1 ||
-     (slot.entry[11] & 0x10))
+  if(fat_find_path(path, &match) != 1 ||
+     (match.short_slot.entry[11] & 0x10))
     goto bad;
+  slot = match.short_slot;
   old_cluster = fat_slot_cluster(slot.entry);
   fat_slot_set_cluster(slot.entry, 0);
   memset(slot.entry + 28, 0, 4);
@@ -797,26 +1120,27 @@ int
 fat32writefile(char *path, struct fat32_file *file, uint32 offset,
                int user_src, uint64 src, int n)
 {
-  char name[11];
+  struct fat_path_match match;
   struct fat_dir_slot slot;
   uint32 cluster_bytes;
   int done = 0, error = 0;
 
   if(!diskmap.fat || file == 0 || n < 0 ||
      (uint32)n > 0xffffffffU - offset ||
-     path_to_name11(path, name) < 0)
+     path == 0)
     return -1;
   if(n == 0)
     return 0;
   acquire(&fat32_lock);
   if(offset != file->size ||
-     fat_find_root(name, &slot, 0, 0) != 1 ||
-     (slot.entry[11] & 0x10) ||
-     fat_slot_cluster(slot.entry) != file->first_cluster ||
-     le32(slot.entry + 28) != file->size){
+     fat_find_path(path, &match) != 1 ||
+     (match.short_slot.entry[11] & 0x10) ||
+     fat_slot_cluster(match.short_slot.entry) != file->first_cluster ||
+     le32(match.short_slot.entry + 28) != file->size){
     error = 1;
     goto out;
   }
+  slot = match.short_slot;
 
   cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
   while(done < n){

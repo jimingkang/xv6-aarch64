@@ -183,9 +183,11 @@ SD 卡
 `open/read/close` 路径读取 FAT 文件，不再需要 FAT32 专用系统调用。
 
 FAT32 VFS 支持根目录的 `stat`、`readdir`、普通文件读取，以及有限的创建、截断、顺序写入和
-重命名。写支持面向 `/boot` 根目录中的 8.3 文件名，不支持子目录、长文件名、随机位置写入或
-并发写入。实现不提供 FAT 日志和崩溃恢复，写入期间断电可能损坏分区；修改启动分区前应备份
-SD 卡。FSInfo 的空闲簇计数会在分配/释放簇后标记为未知，避免保留过时计数。
+重命名。文件名查找、新文件创建和目录枚举支持 ASCII 长文件名（LFN）；LFN缺失或校验失败时
+才回退显示 FAT 8.3 短名别名。
+不支持子目录、非 ASCII LFN、随机位置写入或并发写入。实现不提供 FAT 日志和崩溃恢复，写入期间
+断电可能损坏分区；修改启动分区前应备份 SD 卡。FSInfo 的空闲簇计数会在分配/释放簇后标记为
+未知，避免保留过时计数。
 
 `/boot` 的读写性由 `/etc/fstab` 决定。首次创建的配置使用 `rw`；已有系统的配置文件不会被
 自动改写，如果其中仍为 `bootfs /boot fat32 ro 0 0`，请先改成 `rw` 并重启。启动日志应显示
@@ -197,22 +199,31 @@ QEMU 当前直接把 `fs.img` 作为 SD 介质，没有 FAT32 分区，因此 QE
 
 ### TFTP 下载启动镜像
 
-`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，默认远端文件名为 `kernel8.img`，并将其写入
-`/boot/KERNEL8.IMG`：
+`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，并在 `/boot` 下沿用远端文件名：
 
 ```sh
 tftp 192.168.1.20
 tftp 192.168.1.20 kernel8.img
 ```
 
-第二个参数可指定服务器上的其他文件名。下载先写入 `/boot/KERNL8.TMP`；只有最后一个短数据块
-收到并写入成功后，才将临时文件重命名为 `/boot/KERNEL8.IMG`，覆盖已有目标文件。失败时目标
-文件保持不变，临时文件可能保留并会在下次运行时截断重用。客户端使用固定本地 UDP 端口
-49152，需确保该端口未被其他进程占用；目标路径是 FAT32 根目录中的 8.3 名称。
+第二个参数可指定服务器上的其他 basename，例如
+`tftp 192.168.1.20 kernel8-xv6_wifi.img` 会保存为 `/boot/kernel8-xv6_wifi.img`。
+客户端直接创建或截断目标文件，因此传输失败或按 Ctrl+C 中止时，目标路径会留下部分文件；
+再次下载相同文件会先截断它。客户端使用固定本地 UDP 端口 49152，需确保该端口未被其他进程占用。
 传输中每累计收到 16 KiB 会显示累计字节数和平均速度（KB/s）；完成时显示耗时与平均速度。
 TFTP 不协商文件总长度，因此进度以已接收字节数和速度显示，不显示百分比。串口终端按
-Ctrl+C 可向当前前台命令进程组发送 SIGINT 并终止下载；未完成的 `.TMP` 文件会保留，
-重试时自动截断，已存在的最终镜像不会被替换。
+Ctrl+C 可向当前前台命令进程组发送 SIGINT 并终止下载。下载使用远端basename作为FAT长文件名，
+因此接收 `kernel8-xv6_wifi.img` 后，`ls /boot` 和后续 `open()` 都使用同一个名称。
+
+为了把这个名称经普通 `struct dirent` 返回给 `ls`，原生 xv6 的 `DIRSIZ` 从14扩大为30；
+`struct dirent` 总长由16变为32字节，仍可整除1 KiB文件系统块。该修改改变了原生xv6磁盘目录
+格式，升级后必须重新生成并烧录 `fs.img`，不能仅替换内核后继续使用旧根文件系统。
+
+早期版本在每次 `udp_tryrecv()` 暂时无数据时调用 `sleep(1)`。xv6 的一个逻辑 tick 是
+100 ms，而标准 TFTP 每块只有512字节，因此形成 `512 B / 100 ms ≈ 5 KB/s` 的固定上限。
+现在新增 `udp_recv_timeout()`：进程睡在对应 UDP port 的 wait channel 上，Wi-Fi IRQ/NAPI
+收到数据并完成 UDP 入队后立即 `wakeup()`；逻辑 tick 只唤醒等待者检查超时期限，以便丢包
+时重发 RRQ 或 ACK。正常传输不再等待下一个100 ms tick，同时仍保留 TFTP 的超时重试行为。
 
 `mv old-path new-path` 调用内核 `rename()`。当前只支持同一个可读写 FAT32 挂载中的根目录
 文件重命名或替换；不支持跨挂载点移动、目录移动或原生 xv6 文件系统中的重命名。
@@ -305,7 +316,7 @@ static struct vnode_ops fat32_ops = {
 - `fat_vstat()` 调用 `fat32statpath()`，把 FAT 属性转换成 xv6 的 `struct stat`。
 - `fat_vreaddir()` 调用 `fat32readdirroot()`，把一个 FAT 32-byte directory entry 转换为
   xv6 `struct dirent`，供普通 `ls` 使用。
-- `fat_vread()` 把路径转换为 11-byte FAT 8.3 名称，通过 `fat32openroot()` 找到首簇和大小，
+- `fat_vread()` 通过 `fat32openpath()` 解析 FAT 短名或长文件名并找到首簇和大小，
   再由 `fat32pread()` 沿 FAT cluster chain 读取数据，供普通 `cat` 使用。
 
 FAT 空文件的 first cluster 合法值为 0，而 xv6 `ls` 把 inode 0 当作未使用目录项。为避免
@@ -348,8 +359,9 @@ cat /boot/CONFIG.TXT
 ```
 
 写打开只允许 `O_WRONLY`；可创建新文件、用 `O_TRUNC` 清空文件，然后顺序追加数据。为避免
-假装支持随机写，非空文件未使用 `O_TRUNC` 打开会失败。`rename()` 仅支持同一 FAT32 挂载内的
-根目录文件重命名/替换；删除、子目录写入和随机偏移写仍不支持。
+假装支持随机写，非空文件未使用 `O_TRUNC` 打开会失败。长文件名可创建、查找、截断和顺序写入；
+`rename()` 目前仍只支持 8.3 名称的同一 FAT32 挂载根目录文件重命名/替换。删除、子目录写入和
+随机偏移写仍不支持。
 
 #### 7. 验证结果
 
@@ -426,6 +438,12 @@ root:xv6:0:0:root:/root:/bin/sh
 shell；登录进程退出后 init 会重新显示登录提示。当前 xv6 尚无 uid/gid 和权限检查，因此这层
 认证是进入 shell 的入口控制，并不构成 Linux 那样的多用户权限隔离。console 驱动也还没有
 termios echo 开关，所以当前输入密码时字符仍会回显。
+
+交互 shell 把 `exit` 和 `logout` 实现为内建命令：它们直接结束当前 shell，而不是 fork 一个
+只能结束自身的子进程。login退出后由init回收，并重新启动新的login提示。执行外部命令时，shell
+把该命令的进程组设为TTY前台进程组；Mini UART收到 `Ctrl+C`（ASCII ETX, `0x03`）后清空当前
+输入行并向前台进程组投递SIGINT，唤醒阻塞进程并将其终止，随后shell恢复为前台进程。这样
+TFTP、ping以及管线中的整个前台进程组都可以被 `Ctrl+C` 中止，而不会杀死login或init。
 
 内核现在提供最小 TTY 层。进程结构新增 `sid`、`pgid` 和 `ctty`；login 调用
 `tty_attach(0)` 成为新 session 和 process-group leader，并把 `ttyS0` 设为 controlling

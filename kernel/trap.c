@@ -145,6 +145,9 @@ clockintr()
   ticks++;
   wakeup(&ticks);
   release(&tickslock);
+  // Timed UDP receivers normally wake immediately from udp_rx().  This
+  // periodic wake is only for checking an expired receive deadline.
+  net_udp_timeout_tick();
 }
 
 // check if it's an external interrupt and handle it.

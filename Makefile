@@ -7,6 +7,8 @@ KERNEL_IMAGE = $K/kernel8-xv6_wifi.img
 RPI3_BOOTFS ?= /Volumes/bootfs
 RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
 RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
+TFTPBOOT_DIR ?= /private/tftpboot
+TFTPBOOT_KERNEL ?= $(TFTPBOOT_DIR)/$(RPI3_KERNEL_NAME)
 # Raw xv6 partition device.  Intentionally empty: callers must name the exact
 # partition (for example /dev/rdisk4s3) to prevent accidental whole-disk writes.
 RPI3_XV6_DEV ?=
@@ -20,6 +22,7 @@ OBJS = \
 	$K/device.o \
 	$K/sdio.o \
 	$K/usb.o \
+	$K/usbkbd.o \
 	$K/arasan_sdio.o \
 	$K/mt7601u.o \
 	$K/brcmfmac.o \
@@ -126,7 +129,23 @@ $K/armstub-xv6.bin: $K/armstub.elf
 	$(OBJCOPY) -O binary $< $@
 
 .PHONY: build
-build: $(KERNEL_IMAGE) fs.img config.txt
+build: $(KERNEL_IMAGE) fs.img config.txt install-tftp
+
+# Keep the image exported by the host TFTP server synchronized with the image
+# just built.  /private/tftpboot is normally owned by root on macOS, hence
+# SUDO is used just like the physical-SD installation targets below.
+.PHONY: install-tftp
+install-tftp: $(KERNEL_IMAGE)
+	@test -d "$(TFTPBOOT_DIR)" || { \
+		echo "error: TFTPBOOT_DIR $(TFTPBOOT_DIR) does not exist" 1>&2; \
+		exit 1; \
+	}
+	$(SUDO) cp -f $(KERNEL_IMAGE) "$(TFTPBOOT_KERNEL)"
+	@cmp -s $(KERNEL_IMAGE) "$(TFTPBOOT_KERNEL)" || { \
+		echo "error: TFTP image differs from $(KERNEL_IMAGE)" 1>&2; \
+		exit 1; \
+	}
+	@echo "installed $(KERNEL_IMAGE) -> $(TFTPBOOT_KERNEL)"
 
 .PHONY: install-rpi3
 install-rpi3: $(KERNEL_IMAGE) fs.img config.txt

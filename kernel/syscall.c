@@ -118,6 +118,7 @@ extern uint64 sys_udp_unbind(void);
 extern uint64 sys_udp_send(void);
 extern uint64 sys_udp_recv(void);
 extern uint64 sys_udp_tryrecv(void);
+extern uint64 sys_udp_recv_timeout(void);
 extern uint64 sys_icmp_send(void);
 extern uint64 sys_icmp_recv(void);
 extern uint64 sys_mount(void);
@@ -177,6 +178,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_udp_send]     sys_udp_send,
 [SYS_udp_recv]     sys_udp_recv,
 [SYS_udp_tryrecv] sys_udp_tryrecv,
+[SYS_udp_recv_timeout] sys_udp_recv_timeout,
 [SYS_tty_set_foreground] sys_tty_set_foreground,
 [SYS_icmp_send]    sys_icmp_send,
 [SYS_icmp_recv]    sys_icmp_recv,

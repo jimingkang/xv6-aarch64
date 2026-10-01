@@ -39,6 +39,7 @@ int udp_unbind(int);
 int udp_send(uint32, int, int, const void*, int);
 int udp_recv(int, uint32*, uint16*, void*, int);
 int udp_tryrecv(int, uint32*, uint16*, void*, int);
+int udp_recv_timeout(int, uint32*, uint16*, void*, int, int);
 int icmp_send(uint32, int, int, const void*, int);
 int icmp_recv(int, uint32*, uint16*, void*, int);
 int mount(const char*, const char*, const char*, int);

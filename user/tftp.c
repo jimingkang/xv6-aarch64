@@ -9,6 +9,7 @@
 #define TFTP_RETRIES 5
 #define TFTP_TIMEOUT_TICKS 10
 #define TFTP_PROGRESS_BYTES (16 * 1024)
+#define TFTP_PATH_SIZE 128
 
 static int
 parse_ipv4(const char *text, uint32 *address)
@@ -78,12 +79,15 @@ static int
 wait_packet(uint32 server, uint16 *server_port, int port,
             uchar *packet, int capacity)
 {
-  for(int tick = 0; tick < TFTP_TIMEOUT_TICKS; tick++){
+  for(;;){
     uint32 source;
     uint16 source_port;
-    int n = udp_tryrecv(port, &source, &source_port, packet, capacity);
+    int n = udp_recv_timeout(port, &source, &source_port, packet, capacity,
+                             TFTP_TIMEOUT_TICKS);
     if(n < 0)
       return -1;
+    if(n == 0)
+      return 0;
     if(n > 0){
       if(source != server)
         continue;
@@ -93,9 +97,7 @@ wait_packet(uint32 server, uint16 *server_port, int port,
         *server_port = source_port;
       return n;
     }
-    sleep(1);
   }
-  return 0;
 }
 
 static int
@@ -137,22 +139,25 @@ receive_first_data(uint32 server, int port, const uchar *rrq, int rrq_len,
 static int
 download(uint32 server, const char *remote_name)
 {
-  static const char temporary_path[] = "/boot/KERNL8.TMP";
-  static const char final_path[] = "/boot/KERNEL8.IMG";
+  char final_path[TFTP_PATH_SIZE] = "/boot/";
   uchar rrq[256], packet[TFTP_PACKET_SIZE];
   uint16 server_port = 0, expected_block = 1, last_ack = 0;
-  int rrq_len, packet_len, fd, total = 0, retries = 0;
+  int rrq_len, packet_len, fd, total = 0, retries = 0, name_len;
   int start_ticks, last_progress = 0;
 
   rrq_len = make_rrq(rrq, sizeof(rrq), remote_name);
-  if(rrq_len < 0){
-    printf("tftp: remote filename is empty or too long\n");
+  name_len = strlen(remote_name);
+  if(rrq_len < 0 || name_len == 0 ||
+     name_len + sizeof("/boot/") > sizeof(final_path) ||
+     strchr(remote_name, '/') != 0){
+    printf("tftp: invalid remote basename or filename is too long\n");
     return -1;
   }
-  fd = open(temporary_path, O_WRONLY | O_CREATE | O_TRUNC);
+  memmove(final_path + sizeof("/boot/") - 1, remote_name, name_len + 1);
+  fd = open(final_path, O_WRONLY | O_CREATE | O_TRUNC);
   if(fd < 0){
     printf("tftp: cannot create %s (check that /boot is mounted rw)\n",
-           temporary_path);
+           final_path);
     return -1;
   }
   if(udp_bind(LOCAL_PORT) < 0){
@@ -256,11 +261,6 @@ download(uint32 server, const char *remote_name)
     printf("tftp: failed to release UDP port\n");
     return -1;
   }
-  if(rename(temporary_path, final_path) < 0){
-    printf("tftp: download complete but cannot replace %s; "
-           "file remains at %s\n", final_path, temporary_path);
-    return -1;
-  }
   if(total != last_progress)
     print_progress(total, start_ticks);
   int elapsed = uptime() - start_ticks;
@@ -273,6 +273,7 @@ download(uint32 server, const char *remote_name)
 failed:
   close(fd);
   udp_unbind(LOCAL_PORT);
+  printf("tftp: incomplete download remains at %s\n", final_path);
   return -1;
 }
 

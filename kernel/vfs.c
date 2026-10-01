@@ -113,21 +113,10 @@ fat_vstat(char *path, struct stat *st)
 static int
 fat_vread(char *path, uint64 off, void *dst, int n)
 {
-  char name[11];
   struct fat32_file file;
   struct fat32_dirent fe;
-  int dot = 0;
   if(fat32statpath(path, &fe) < 0 || fe.directory) return -1;
-  memset(name, ' ', sizeof(name));
-  int b = 0, e = 8;
-  for(char *p = path + 1; *p; p++){
-    char c = *p;
-    if(c == '.'){ dot = 1; continue; }
-    if(c >= 'a' && c <= 'z') c -= 'a' - 'A';
-    if(!dot && b < 8) name[b++] = c;
-    else if(e < 11) name[e++] = c;
-  }
-  if(fat32openroot(name, &file) < 0) return -1;
+  if(fat32openpath(path, &file) < 0) return -1;
   return fat32pread(&file, off, dst, n);
 }
 

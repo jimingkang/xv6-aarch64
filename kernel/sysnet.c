@@ -58,6 +58,18 @@ sys_udp_tryrecv(void)
 }
 
 uint64
+sys_udp_recv_timeout(void)
+{
+  int port, maxlen, timeout;
+  uint64 src, sport, buf;
+  if(argint(0, &port) < 0 || argaddr(1, &src) < 0 ||
+     argaddr(2, &sport) < 0 || argaddr(3, &buf) < 0 ||
+     argint(4, &maxlen) < 0 || argint(5, &timeout) < 0)
+    return -1;
+  return net_udp_recv_timeout(port, src, sport, buf, maxlen, timeout);
+}
+
+uint64
 sys_icmp_send(void)
 {
   int dst, id, seq, len;

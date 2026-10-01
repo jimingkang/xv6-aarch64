@@ -1873,7 +1873,7 @@ fourteen(char *s)
 {
   int fd;
 
-  // DIRSIZ is 14.
+  // Exercise a name longer than DIRSIZ.
 
   if(mkdir("12345678901234") != 0){
     printf("%s: mkdir 12345678901234 failed\n", s);

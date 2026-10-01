@@ -19,11 +19,13 @@ struct fat32_dirent {
   uint32 cluster;
   uint32 size;
   int directory;
-  char name[13];
+  // xv6 DIRSIZ is 30; reserve one byte for the C terminator.
+  char name[31];
 };
 
 int fat32ready(void);
 int fat32openroot(char *name11, struct fat32_file *file);
+int fat32openpath(char *path, struct fat32_file *file);
 int fat32openwrite(char *path, struct fat32_file *file);
 int fat32createfile(char *path);
 int fat32truncatefile(char *path, struct fat32_file *file);

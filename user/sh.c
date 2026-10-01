@@ -306,6 +306,11 @@ main(int argc, char **argv)
       printf("%s\n", cwd);
       continue;
     }
+    // This must be a shell builtin: running /bin/exit in a child would only
+    // terminate that child and leave the interactive shell alive.  Returning
+    // from sh lets login/init reap it and start the next login session.
+    if(strcmp(buf, "exit\n") == 0 || strcmp(buf, "logout\n") == 0)
+      break;
     if((buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ') ||
        strcmp(buf, "cd\n") == 0){
       // Chdir must be called by the parent, not the child.

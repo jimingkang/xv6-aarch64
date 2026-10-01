@@ -16,10 +16,24 @@ usb_match(struct device *dev, struct device_driver *driver)
 
   if(udrv->id_table == 0)
     return 0;
-  for(id = udrv->id_table; id->vendor || id->product; id++)
-    if((id->vendor == USB_ANY_ID || id->vendor == udev->vendor) &&
-       (id->product == USB_ANY_ID || id->product == udev->product))
+  for(id = udrv->id_table; id->vendor || id->product || id->match_flags; id++){
+    uint8 flags = id->match_flags;
+    // Two-field legacy ID tables mean an exact VID:PID pair (with
+    // USB_ANY_ID wildcards), as they did before class matching was added.
+    if(flags == 0)
+      flags = USB_DEVICE_ID_MATCH_VENDOR | USB_DEVICE_ID_MATCH_PRODUCT;
+    if((!(flags & USB_DEVICE_ID_MATCH_VENDOR) || id->vendor == USB_ANY_ID ||
+        id->vendor == udev->vendor) &&
+       (!(flags & USB_DEVICE_ID_MATCH_PRODUCT) || id->product == USB_ANY_ID ||
+        id->product == udev->product) &&
+       (!(flags & USB_DEVICE_ID_MATCH_CLASS) ||
+        id->class == udev->class) &&
+       (!(flags & USB_DEVICE_ID_MATCH_SUBCLASS) ||
+        id->subclass == udev->subclass) &&
+       (!(flags & USB_DEVICE_ID_MATCH_PROTOCOL) ||
+        id->protocol == udev->protocol))
       return 1;
+  }
   return 0;
 }
 

@@ -50,6 +50,7 @@ entry("udp_unbind");
 entry("udp_send");
 entry("udp_recv");
 entry("udp_tryrecv");
+entry("udp_recv_timeout");
 entry("icmp_send");
 entry("icmp_recv");
 entry("mount");

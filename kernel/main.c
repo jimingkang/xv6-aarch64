@@ -57,6 +57,7 @@ main()
     rnginit();       // BCM2837 hardware random source for cryptographic keys
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
+    usbkbd_driver_init(); // bind USB HID boot keyboards during enumeration
     dwc2_driver_init();   // register/probe DWC2 USB host controller
     trapinit();      // trap vectors
     trapinithart();  // install trap vector

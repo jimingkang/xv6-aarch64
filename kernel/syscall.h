@@ -56,3 +56,4 @@
 #define SYS_rename       55
 #define SYS_udp_tryrecv  56
 #define SYS_tty_set_foreground 57
+#define SYS_udp_recv_timeout 58
