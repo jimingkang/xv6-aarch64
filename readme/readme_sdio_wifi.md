@@ -338,7 +338,7 @@ ICMP Echo → `wlan0` → BCDC data → SDPCM → CMD53 → BCM43455。
 
 ---
 
-## 11. 接收、发送与轮询模型
+## 11. 接收、发送与 IRQ/workqueue 模型
 
 ### 发送
 
@@ -365,16 +365,36 @@ flowchart LR
     RX --> PROTO["ARP / IPv4 / UDP / ICMP / DHCP"]
 ```
 
-当前 xv6 使用 **SDIO DAT1 IRQ**：BCM43455 拉起 DAT1 后，Arasan 产生 legacy
-IRQ 62。顶半部屏蔽 card interrupt、设置 pending bit，并把
-`net_deferred_work` 加入 `system_wq`。可调度的 `kworker` 执行 CMD53、SDPCM
-解析和网络栈投递，排空后重新打开 card interrupt。无 pending bit 时 `.poll()`
-立即返回，不再周期性读取芯片完成状态。
+当前 xv6 使用 **SDIO DAT1 IRQ + 每设备私有 workqueue**：BCM43455 拉起 DAT1
+后，Arasan 产生 legacy IRQ 62。顶半部屏蔽 card interrupt、设置 pending bit，
+调用 `brcmfmac_sdio_irq()`，把该设备的 `rx_work` 投递到 `brcmf0_wq`。顶半部
+不执行 CMD53，也不进入网络协议栈。
 
-这里经历过一个中间实现：IRQ 只设置 pending，真正收包由 CPU0 下一次10 ms
-Generic Timer hard IRQ 执行。现在 Timer 也只调用 `net_deferred_schedule()` 排队，
-不再直接进入驱动。BCM43455 burst 每轮最多处理16项；未排空时由 worker 重新
-排同一个 work，形成类似 NAPI budget 的连续下半部处理。
+```mermaid
+flowchart LR
+    DAT1["BCM43455 DAT1"] --> IRQ["Arasan IRQ 62 top half"]
+    IRQ --> MASK["mask card IRQ + pending=1"]
+    MASK --> Q["queue bus->rx_work"]
+    Q --> W["brcmf0_wq kworker"]
+    W --> C["CMD53 / SDPCM / BCDC"]
+    C --> N["net_rx_dev"]
+    C -->|drained| RE["ack + re-enable DAT1 IRQ"]
+    C -->|仍有 burst| Q
+```
+
+`brcmf0_wq` 属于具体 `brcmf_bus_state`，不再借用全局 `system_wq` 或网络公共
+work。这避免 SDIO 慢速 CMD53 阻塞 DWC2、TCP timer 等其它下半部。每轮最多
+处理 16 个 frame；未排空时重新投递同一个 work，形成类似 NAPI budget 的
+有界处理。`queue_work()` 会合并重复请求，因此 IRQ burst 不会无限堆积节点。
+
+这里经历过两个中间实现：最早由 CPU0 的 10 ms Generic Timer 直接轮询；之后
+IRQ 只设置 pending，Timer 再把全局 `net_deferred_work` 排队。现在数据接收完全
+由 DAT1 IRQ 驱动，Timer 只推进 workqueue 的有序 delayed-work 时钟。
+
+连接阶段另有每设备私有 `state_work`：`SET_SSID` 后每 50 ms 检查一次连接截止
+时间，10 秒到期便设置 timeout；只有发现 Arasan card IRQ pending 时才补投递
+RX work，所以它是连接 watchdog，不是恢复周期性 SDIO 轮询。连接成功、失败或
+设备移除时都会同步取消 delayed work。连接状态由设备 `bus->lock` 保护。
 
 这与芯片内部固件自己的调度不是一回事：所有 `brcmf_*` C 函数都由 ARM CPU
 执行；BCM43455 内部运行的是下载进去的 `.BIN` 固件。
@@ -385,7 +405,7 @@ Generic Timer hard IRQ 执行。现在 Timer 也只调用 `net_deferred_schedule
 
 MT7601U 属于 DWC2 USB SoftMAC 路径，不是 SDIO 总线设备。它的枚举、firmware、
 DMA、host-channel IRQ、SoftMAC、WPA2 和 `wlan1` 数据面已迁移到专门文档：
-[readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。本文件后续只描述板载
+[readme_usb_wifi_MT7601.md](readme_usb_wifi_MT7601.md)。本文件后续只描述板载
 BCM43430/43455 SDIO FullMAC。
 
 ---
@@ -429,7 +449,8 @@ flowchart TD
 - `wlan0` 的 `register_netdev()` 与 remove/unregister；
 - WPA2-PSK 主机四次握手补充路径；
 - DHCP、ARP、DNS、路由和 Internet ping；
-- SDIO DAT1 → Arasan IRQ 62 顶半部 → system_wq/kworker 下半部；
+- SDIO DAT1 → Arasan IRQ 62 顶半部 → 每设备 `brcmf*_wq` 下半部；
+- 私有 RX work、连接 watchdog delayed work 及同步取消生命周期；
 
 ### 后续改进
 
@@ -439,7 +460,8 @@ flowchart TD
 4. WPA3、开放网络和更多加密组合；
 5. 网络配置工具与多网卡策略路由；
 6. SDIO IRQ 风暴、丢中断和 remove 生命周期压力测试；
-7. 需要更高吞吐时，为不同设备增加独立 workqueue/NAPI 调度。
+7. 增加 RX/TX 字节数、IRQ 合并、budget 用尽和队列延迟统计，再据此调优 budget；
+8. 将连接主流程也改为完全异步状态机，移除用户系统调用中的 250 ms 等待循环。
 
 ---
 
@@ -637,10 +659,180 @@ QEMU `raspi3b` 不模拟 BCM43455，只能回归内核启动、总线核心以�
 | `kernel/wpa_crypto.c` | PBKDF2、PTK、MIC、AES unwrap |
 | `kernel/fat32.c` | bootfs firmware 和 FS.IMG 文件访问 |
 | `kernel/net.c`, `kernel/net.h` | net_device、Ethernet、ARP、IPv4、DHCP、ICMP |
-| `kernel/workqueue.c`, `kernel/workqueue.h` | system_wq、kworker 与通用下半部队列 |
+| `kernel/workqueue.c`, `kernel/workqueue.h` | 命名 workqueue、有序 delayed work 与 kworker |
 | `kernel/proc.c`, `kernel/proc.h` | `kthread_create()` 和内核线程调度上下文 |
 | `kernel/sysnet.c` | `wifi_connect` 系统调用 |
 | `user/wifi.c` | `/bin/wifi` 配置与连接命令 |
 | `user/ping.c` | Internet 连通性测试 |
 | `user/init.c` | 开机自动执行 `/bin/wifi` |
 | `Makefile` | 构建、FS.IMG、bootfs 与 firmware 安装 |
+
+---
+
+## 21. 从 Timer 轮询到 SDIO IRQ 下半部的实现演进
+
+本节原来记录在通用 bug 文档中，现集中到 SDIO Wi-Fi 专题文档。
+
+### 21.1 原始 Timer 轮询
+
+最初没有使用 SDIO DAT1 中断，CPU0 每次 Generic Timer IRQ 都执行：
+
+```text
+timerintr()                         hard IRQ
+  -> netdev_poll_all()
+     -> brcmfmac_poll_device()
+        -> CMD53 读取 BCM43455 F2
+        -> SDPCM/BCDC/Ethernet 解析
+        -> net_rx_dev()
+```
+
+为了改善 SSH 回显，硬件 Timer 曾从100 ms缩短到10 ms，每十次才增加一次 xv6
+逻辑 `ticks`。它能降低等待时间，但无数据时仍检查设备，而且完整接收路径运行在
+hard IRQ 中，不能睡眠并会拉长 Timer 中断。
+
+### 21.2 SDIO IRQ + Timer deferred poll 过渡方案
+
+加入 BCM2837 legacy IRQ 62、Arasan `CARD_INT` 和 SDIO CCCR function interrupt
+后，芯片能够通过 DAT1 通知 CPU：
+
+```text
+BCM43455 F2 frame
+  -> SDIO DAT1
+  -> Arasan CARD_INT
+  -> BCM2837 pending-2 bit 30 (IRQ 62)
+  -> arasan_sdio_irq()
+       mask CARD_INT
+       clear host interrupt
+       arasan_card_irq_pending = 1
+  -> return from IRQ
+```
+
+第一版仍等下一次10 ms Timer 调用 `netdev_poll_all()`。它消除了无条件 CMD53
+读取，但耗时处理仍处在 Timer hard IRQ 上下文，因此只是过渡方案。
+
+### 21.3 当前每设备 workqueue 方案
+
+当前完整路径如下：
+
+```text
+SDIO IRQ 62                         hard IRQ top half
+  -> arasan_sdio_irq()
+       mask/ack CARD_INT
+       pending = 1
+       brcmfmac_sdio_irq()
+          -> queue_work(bus->wq, &bus->rx_work)
+          -> wakeup(brcmf0_wq)
+  -> return from IRQ
+
+scheduler
+  -> brcmf0_wq kworker              process-context bottom half
+       -> brcmfmac_poll_device()
+            -> bounded CMD53 drain (最多16项)
+            -> SDPCM/BCDC/EAPOL/Ethernet
+            -> net_rx_dev()
+            -> drained: ack/unmask CARD_INT
+            -> not drained: queue rx_work once more
+       -> sleep(brcmf0_wq)
+```
+
+相同 work 在 pending 时不会重复入队；若 IRQ 在回调运行期间到达，`rerun` 只记录
+一次补跑。因此既不会漏掉 burst，也不会为每个中断无限追加队列节点。
+
+### 21.4 IRQ 62 和三层中断开关
+
+SDIO 接收能产生 CPU IRQ，需要同时打开三层开关：
+
+1. **SDIO card CCCR**：`sdio_claim_irq()` 用 CMD52 设置 `INT_ENABLE(0x04)` 的
+   master bit 和 function 1 bit；remove 时由 `sdio_release_irq()` 清除。
+2. **BCM43455 内部**：`SDIO_CORE_HOSTINTMASK` 控制 mailbox/frame 事件是否送到
+   DAT1。
+3. **Arasan + BCM2837**：`EMMC_IRPT_EN/IRPT_MASK` 打开 `CARD_INT`，legacy
+   controller 打开 pending-2 bit 30，也就是 IRQ 62。
+
+顶半部只做 mask、ack、pending 和 work 入队，不执行 CMD52/CMD53，不获取
+`brcmf_bus.lock`，也不进入协议栈。
+
+### 21.5 连接 watchdog delayed work
+
+`BRCMF_C_SET_SSID` 发出后，设备私有 `state_work` 每50 ms检查一次连接状态，
+10秒到期后设置 `connect_timedout`。watchdog 只有看到 Arasan card IRQ pending
+时才补投递 RX，因此不是旧式周期轮询。
+
+`connect_active`、`connect_timedout` 和 `connect_deadline` 由 `bus->lock` 保护。
+重新 arm delayed work 与停止路径也通过该锁排序；成功、失败及 remove 均调用
+`cancel_delayed_work_sync()`，避免回调在设备释放后执行或停止后再次入队。
+
+### 21.6 workqueue、内核线程和锁
+
+启动后相关队列类似：
+
+```text
+workqueue: system_wq worker=0 pid=1
+workqueue: net_wq worker=0 pid=5
+workqueue: brcmf0_wq worker=0 pid=6
+workqueue: brcmf1_wq worker=0 pid=7
+```
+
+SDIO Wi-Fi 路径涉及的队列和工作项如下：
+
+| 队列/工作项 | 类型 | 触发源 | 功能 |
+|---|---|---|---|
+| `brcmf0_wq` | 设备0专用 workqueue，1个worker | `brcmfmac_driver_init()` | 执行板载BCM43455的RX和连接watchdog |
+| `brcmf1_wq` | 设备1预留专用 workqueue，1个worker | `brcmfmac_driver_init()` | 支持第二个brcmfmac设备实例，不与设备0共用状态 |
+| `bus->rx_work` | 每设备普通 work | SDIO DAT1/Arasan IRQ 62 | CMD53读取F2、解析SDPCM/BCDC/EAPOL/数据帧 |
+| `bus->state_work` | 每设备 delayed work | `SET_SSID`连接阶段 | 每50 ms检查pending IRQ和10秒连接deadline |
+| `net_wq` | 网络层专用 workqueue，1个worker | `netinit()` | 执行独立于网卡的TCP重传定时任务 |
+| `tcp_retransmit_work` | delayed work | TCP存在未确认段 | 按所有连接中最早的`tx_deadline`运行 |
+| `system_wq` | 通用队列，4个worker | `schedule_work()` | 通用fallback；当前BCM43455接收路径不使用 |
+
+```mermaid
+flowchart TD
+    DAT1["BCM43455 DAT1 IRQ"] --> RX["bus->rx_work"]
+    RX --> BWQ["brcmf0_wq"]
+    BWQ --> SDPCM["CMD53 / SDPCM / BCDC / net_rx_dev"]
+
+    JOIN["SET_SSID"] --> DW["bus->state_work: 50 ms watchdog"]
+    DW --> SORT["全局expires有序delayed链表"]
+    SORT -->|到期| BWQ
+
+    TCP["最早TCP tx_deadline"] --> SORT
+    SORT -->|到期| TW["tcp_retransmit_work"]
+    TW --> NWQ["net_wq"]
+```
+
+普通 `rx_work` 由硬件IRQ立即入设备队列；`state_work` 和 TCP work 先进入
+`kernel/workqueue.c` 的全局 `delayed_head`。该链表按 `expires` 递增排序，CPU0
+每10 ms只移出已经到期的表头项目，并按项目的 `target` 投递到 `brcmf0_wq`、
+`brcmf1_wq` 或 `net_wq`。因此时间排序与任务执行相互分离。
+
+| 对象 | 上下文 | 作用 |
+|---|---|---|
+| Arasan IRQ top half | hard IRQ | mask/ack、记录 pending、投递 RX work |
+| `brcmf0_wq.lock` | hard IRQ/进程 | 保护 work FIFO 和 pending/running/rerun |
+| `brcmf0_wq` kworker | 内核进程 | CMD53、帧解析、WPA2 和网络栈投递 |
+| `bus->lock` | worker/系统调用 | 串行化 SDPCM、BCDC 和连接状态 |
+| Generic Timer | hard IRQ | 推进 ordered delayed-work 时钟 |
+
+`kworker` 使用 xv6 进程槽、独立内核栈和 scheduler 上下文，但不返回 EL0；它是
+内核线程，不是用户进程。不同设备的私有队列可以在不同 CPU 并发，同一设备的
+work 不会并发执行。
+
+### 21.7 构建与真机验证
+
+```sh
+make -j4 kernel/kernel8.img
+make qemu
+```
+
+QEMU 只能验证内核、workqueue 和“没有 SDIO 设备”的启动路径。真实 RPi3 应看到：
+
+```text
+workqueue: brcmf0_wq worker=0 pid=...
+brcmfmac: SDIO DAT1 IRQ receive enabled
+brcmfmac: WPA2 four-way handshake complete
+dhcp: address=... gateway=... dns=...
+brcmfmac: wlan0 IPv4 ready
+```
+
+随后应持续运行 `ping` 和 SSH 交互，确认 IRQ 能立即收包，并确认 burst 处理后
+`CARD_INT` 被正确重新打开，不会出现运行一段时间后停止接收。

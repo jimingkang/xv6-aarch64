@@ -6,15 +6,11 @@
 .section ".text"
 .global _entry
 _entry:
-        // The LLD armstub can release every core at the same entry address.
-        // Keep only core 0 running until xv6 has an explicit SMP bring-up
-        // path; otherwise a secondary can consume the unfinished page table.
-        mrs x14, mpidr_el1
-        and x14, x14, #0xff
-        cbz x14, 1f
-0:      wfe
-        b 0b
-1:
+        // Remember the hardware CPU id.  Every core must first normalize its
+        // exception level; secondary cores then wait until CPU0 has built the
+        // bootstrap page tables.
+        mrs x15, mpidr_el1
+        and x15, x15, #0xff
         // LLD's custom armstub preserves EL3, while the firmware armstub and
         // QEMU normally enter in EL2.  Normalize either path to EL1h.
         mrs x0, CurrentEL
@@ -51,6 +47,8 @@ _entry:
         ldr x0, =((3 << 28) | (3 << 22) | (1 << 20) | (1 << 11))
         msr sctlr_el1, x0
         isb
+
+        cbnz x15, secondary_wait
 
         // The working LLD path accesses peripherals only after EL3 -> EL1.
         // Keep the marker before stacks/MMU, but never poll Mini UART at EL3.
@@ -158,6 +156,23 @@ l2kpgt_loop:
 
         str x8, [x0, x5, lsl #3]    // l1kpgt[l1idx] = table entry
 
+        // Publish the completed bootstrap tables to cores already released
+        // by an armstub.  stlr/ldar plus SEV provides the required ordering.
+        adrp x10, secondary_release
+        add x10, x10, :lo12:secondary_release
+        mov w11, #1
+        stlr w11, [x10]
+        sev
+        b entryothers
+
+secondary_wait:
+        adrp x10, secondary_release
+        add x10, x10, :lo12:secondary_release
+4:      ldar w11, [x10]
+        cbnz w11, entryothers
+        wfe
+        b 4b
+
 entryothers:  // secondary CPU starts here
         // load pagetable
         adrp x0, l1entrypgt
@@ -217,6 +232,13 @@ _start:
         b main
 
         b .   // spin
+
+.section ".data"
+.align 3
+secondary_release:
+        .word 0
+
+.section ".text"
 
 // Configure GPIO14/15 and AUX Mini UART using physical addresses, then emit
 // "E\r\n".  No stack, BSS, page table, interrupt, or C runtime is required.

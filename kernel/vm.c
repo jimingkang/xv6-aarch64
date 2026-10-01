@@ -34,6 +34,11 @@ kvmmake(void)
   kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE,
          PTE_NORMAL | PTE_XN);
 
+  // Raspberry Pi AArch64 secondary-core spin-table slots live at physical
+  // 0xe0..0xf0.  Keep only page zero in the high direct map so CPU0 can
+  // publish _entry after switching away from the bootstrap page table.
+  kvmmap(kpgtbl, KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
+
   // map kernel text executable and read-only.
   kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
 

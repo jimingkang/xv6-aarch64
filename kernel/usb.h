@@ -15,7 +15,7 @@ struct usb_host_ops {
   int (*bulk_rx_arm)(struct usb_device *udev, int endpoint,
                      void *data, int length);
   // -2: still pending/rearmed after NAK, -1: hard error, >=0: bytes complete.
-  int (*bulk_rx_complete)(struct usb_device *udev, int endpoint);
+  int (*bulk_rx_complete)(struct usb_device *udev, int endpoint, void **data);
 };
 
 struct usb_device {

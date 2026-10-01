@@ -4,6 +4,7 @@
 #include "aarch64.h"
 #include "defs.h"
 #include "net.h"
+#include "workqueue.h"
 
 // armv8 generic timer driver
 
@@ -74,11 +75,10 @@ timerintr()
   logical_tick = timer_divider[cpu] == 10;
   if(logical_tick)
     timer_divider[cpu] = 0;
-  // Every CPU owns a Generic Timer, but shared network state is maintained by
-  // one schedulable kworker.  The hard IRQ only queues work; it never performs
-  // SDIO/USB transfers or enters the network stack.
+  // CPU0 advances the ordered delayed-work clock.  Due callbacks are merely
+  // queued here and execute later in their process-context workqueues.
   if(cpu == 0){
-    net_deferred_schedule(logical_tick);
+    workqueue_timer_tick();
   }
   enable_timer();
   return logical_tick;

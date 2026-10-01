@@ -197,12 +197,12 @@ void            net_rx_dev(struct net_device*, void*, int);
 int             net_dhcp(void);
 int             net_dhcp_dev(struct net_device*);
 void            netdev_poll_all(void);
-void            net_deferred_schedule(int);
 
 // sdio.c / brcmfmac.c
 void            sdio_bus_init(void);
 void            brcmfmac_driver_init(void);
 void            brcmfmac_driver_exit(void);
+void            brcmfmac_sdio_irq(void);
 int             brcmfmac_connect(char*, char*);
 void            wpa_pbkdf2(char*, char*, uint8*);
 void            wpa_make_snonce(uint8*, uint8*, uint64, uint8*);
@@ -215,6 +215,7 @@ void            usb_bus_init(void);
 void            mt7601u_driver_init(void);
 void            mt7601u_driver_exit(void);
 void            mt7601u_poll(void);
+void            mt7601u_rx_irq(void);
 void            mt7601u_pause(int);
 
 // dwc2.c / usbnet.c

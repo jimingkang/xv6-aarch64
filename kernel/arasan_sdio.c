@@ -386,7 +386,7 @@ arasan_sdio_irq(void)
     wr(EMMC_IRPT_EN, 0);
     wr(EMMC_INTERRUPT, INT_CARD_INT);
     arasan_card_irq_pending = 1;
-    net_deferred_schedule(0);
+    brcmfmac_sdio_irq();
   }
 }
 

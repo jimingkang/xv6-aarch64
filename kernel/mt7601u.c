@@ -8,6 +8,7 @@
 #include "usb.h"
 #include "fat32.h"
 #include "net.h"
+#include "workqueue.h"
 
 #define MT_VEND_MULTI_READ 7
 #define MT_VEND_DEV_MODE   1
@@ -215,7 +216,6 @@ struct mt7601u_device {
   uint32 mgmt_frames;
   uint32 scan_seen;
   uint8 scan_channel;
-  uint16 scan_dwell;
   int target_found;
   uint8 target_bssid[6];
   uint16 target_capability;
@@ -223,8 +223,9 @@ struct mt7601u_device {
   uint8 target_rsn_ie_len;
   uint16 tx_sequence;
   uint8 link_state;
-  uint16 link_age;
   uint8 link_retries;
+  uint64 state_deadline;
+  uint64 scan_deadline;
   uint8 pmk[32];
   uint8 anonce[32];
   uint8 snonce[32];
@@ -241,20 +242,32 @@ struct mt7601u_device {
   uint8 net_rx[MT_NET_FRAME_MAX];
   int net_rx_len;
   int paused;
+  struct work_struct rx_work;
+  struct delayed_work state_work;
   struct mt7601u_scan_entry scan[MT_SCAN_MAX];
 };
 
 static struct mt7601u_device mt7601u;
+static struct workqueue mt7601u_wq;
 static uint8 mt_fw_buf[MT_FW_CHUNK + 12] __attribute__((aligned(64)));
 static uint8 mt_mcu_buf[1024] __attribute__((aligned(64)));
 static uint8 mt_mcu_resp[1024] __attribute__((aligned(64)));
-static uint8 mt_rx_buf[MT_RX_BUF_SIZE] __attribute__((aligned(64)));
+#define MT_RX_REQUESTS 4
+static uint8 mt_rx_buf[MT_RX_REQUESTS][MT_RX_BUF_SIZE]
+  __attribute__((aligned(64)));
 static uint8 mt_tx_buf[MT_TX_BUF_SIZE] __attribute__((aligned(64)));
 static uint8 mt_data_buf[MT_NET_FRAME_MAX + 64] __attribute__((aligned(64)));
 static uint8 mt_eapol_buf[256] __attribute__((aligned(64)));
 
 static int mt7601u_net_xmit(struct net_device*, void*, int);
 static void mt7601u_net_poll(struct net_device*);
+static void mt7601u_rx_worker(struct work_struct*);
+static void mt7601u_state_worker(struct work_struct*);
+
+#define MT_STATE_SOON_JIFFIES       1
+#define MT_SCAN_DWELL_JIFFIES      50
+#define MT_RESPONSE_TIMEOUT_JIFFIES 100
+#define MT_WPA_TIMEOUT_JIFFIES     500
 
 static const struct net_device_ops mt7601u_netdev_ops = {
   .start_xmit = mt7601u_net_xmit,
@@ -962,7 +975,9 @@ mt7601u_rx_eapol(struct mt7601u_device *dev, uint8 *eapol, int length)
   // Association and the WPA2 handshake share MT_LINK_ASSOCIATED.  Refresh
   // its watchdog for every structurally valid EAPOL-Key frame so an M1/M3
   // exchange in progress is not mistaken for a permanently lost M1.
-  dev->link_age = 0;
+  dev->state_deadline = workqueue_now() + MT_WPA_TIMEOUT_JIFFIES;
+  mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                   MT_WPA_TIMEOUT_JIFFIES);
   key = eapol + 4;
   info = ((uint16)key[1] << 8) | key[2];
   if((info & 0x0088) == 0x0088 && (info & 0x0100) == 0){
@@ -1085,12 +1100,17 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
     uint16 status = mt_get16(frame + 28);
     if(status == 0 && dev->link_state == MT_LINK_AUTH_SENT){
       dev->link_state = MT_LINK_ASSOC_PENDING;
-      dev->link_age = 0;
       dev->link_retries = 0;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_STATE_SOON_JIFFIES);
       printf("mt7601u: Open-System authentication accepted\n");
     } else if(status != 0) {
       printf("mt7601u: authentication rejected status=%d\n", status);
       dev->link_state = MT_LINK_AUTH_PENDING;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_STATE_SOON_JIFFIES);
     }
     return;
   }
@@ -1103,12 +1123,17 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
     if(status == 0 && dev->link_state == MT_LINK_ASSOC_SENT){
       uint16 aid = mt_get16(frame + 28) & 0x3fff;
       dev->link_state = MT_LINK_ASSOCIATED;
-      dev->link_age = 0;
+      dev->state_deadline = workqueue_now() + MT_WPA_TIMEOUT_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_WPA_TIMEOUT_JIFFIES);
       printf("mt7601u: 802.11 associated aid=%d; WPA2 handshake pending\n",
              aid);
     } else if(status != 0) {
       printf("mt7601u: association rejected status=%d\n", status);
       dev->link_state = MT_LINK_AUTH_PENDING;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_STATE_SOON_JIFFIES);
     }
     return;
   }
@@ -1220,8 +1245,10 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
       if(ap->rsn_ie_len)
         memmove(dev->target_rsn_ie, ap->rsn_ie, ap->rsn_ie_len);
       dev->link_state = MT_LINK_AUTH_PENDING;
-      dev->link_age = 0;
       dev->link_retries = 0;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_STATE_SOON_JIFFIES);
       // Enable hardware address matching/automatic ACK for this BSS.  The
       // receive filter remains broad until association has completed.
       if(mt7601u_write32(dev->udev, 0x1010, bssid0) < 0 ||
@@ -1317,104 +1344,105 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
   }
 }
 
-void
-mt7601u_poll(void)
+static void
+mt7601u_service(int service_rx, int service_state)
 {
   int got, deliver = 0, register_needed = 0;
+  uint64 now = workqueue_now();
+  void *rx_data = 0;
   struct mt7601u_device *dev = &mt7601u;
   if(!dev->used || !dev->mcu_running || !dev->endpoints_ready || dev->paused ||
      dev->udev == 0)
     return;
   acquire(&dev->lock);
-  if(dev->udev->ops->bulk_rx_arm && dev->udev->ops->bulk_rx_complete){
-    if(dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
-                                   mt_rx_buf, sizeof(mt_rx_buf)) < 0)
-      got = -1;
-    else
-      got = dev->udev->ops->bulk_rx_complete(dev->udev,
-                                              dev->udev->bulk_in_ep);
+  if(service_rx && dev->udev->ops->bulk_rx_arm &&
+     dev->udev->ops->bulk_rx_complete){
+    got = dev->udev->ops->bulk_rx_complete(dev->udev,
+                                            dev->udev->bulk_in_ep,
+                                            &rx_data);
     if(got >= 0){
       if(got > 0)
-        mt7601u_rx_parse(dev, mt_rx_buf, got);
+        mt7601u_rx_parse(dev, rx_data, got);
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
-                                  mt_rx_buf, sizeof(mt_rx_buf));
-    } else if(got == -1) {
-      // A hard channel error leaves the slot disarmed; recover without
-      // reverting to synchronous 2-ms endpoint polling.
+                                  rx_data, MT_RX_BUF_SIZE);
+    } else if(got == -1 && rx_data) {
+      // Return a failed request's buffer to the ring; the remaining queued
+      // buffers kept the endpoint live while this completion was handled.
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
-                                  mt_rx_buf, sizeof(mt_rx_buf));
+                                  rx_data, MT_RX_BUF_SIZE);
     }
-  } else {
+  } else if(service_rx) {
     got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep, 1,
-                               mt_rx_buf, sizeof(mt_rx_buf));
+                               mt_rx_buf[0], MT_RX_BUF_SIZE);
     if(got > 0)
-      mt7601u_rx_parse(dev, mt_rx_buf, got);
+      mt7601u_rx_parse(dev, mt_rx_buf[0], got);
   }
 
-  if(dev->link_state == MT_LINK_AUTH_PENDING){
+  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
     if(dev->link_retries >= 3){
       printf("mt7601u: authentication timeout\n");
       dev->link_state = MT_LINK_SCAN;
+      dev->target_found = 0;
+      dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
     } else {
       int sent = mt7601u_send_auth(dev);
       dev->link_retries++;
       if(sent == 0){
         dev->link_state = MT_LINK_AUTH_SENT;
-        dev->link_age = 0;
+        dev->state_deadline = now + MT_RESPONSE_TIMEOUT_JIFFIES;
+      } else {
+        dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
       }
     }
-  } else if(dev->link_state == MT_LINK_AUTH_SENT){
-    if(++dev->link_age >= 100){
+  } else if(service_state && dev->link_state == MT_LINK_AUTH_SENT){
+    if((long)(now - dev->state_deadline) >= 0){
       dev->link_state = MT_LINK_AUTH_PENDING;
-      dev->link_age = 0;
+      dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
     }
-  } else if(dev->link_state == MT_LINK_ASSOC_PENDING){
+  } else if(service_state && dev->link_state == MT_LINK_ASSOC_PENDING){
     if(dev->link_retries >= 3){
       printf("mt7601u: association timeout\n");
       dev->link_state = MT_LINK_AUTH_PENDING;
       dev->link_retries = 0;
+      dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
     } else {
       int sent = mt7601u_send_assoc(dev);
       dev->link_retries++;
       if(sent == 0){
         dev->link_state = MT_LINK_ASSOC_SENT;
-        dev->link_age = 0;
+        dev->state_deadline = now + MT_RESPONSE_TIMEOUT_JIFFIES;
+      } else {
+        dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
       }
     }
-  } else if(dev->link_state == MT_LINK_ASSOC_SENT){
-    if(++dev->link_age >= 100){
+  } else if(service_state && dev->link_state == MT_LINK_ASSOC_SENT){
+    if((long)(now - dev->state_deadline) >= 0){
       dev->link_state = MT_LINK_ASSOC_PENDING;
-      dev->link_age = 0;
+      dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
     }
-  } else if(dev->link_state == MT_LINK_ASSOCIATED &&
+  } else if(service_state && dev->link_state == MT_LINK_ASSOCIATED &&
             !dev->handshake_done){
     // EP4 completion is IRQ-driven, but retain a five-second protocol
     // watchdog in case the AP never sends M1 or a USB channel hard-fails.
-    if(++dev->link_age >= 500){
+    if((long)(now - dev->state_deadline) >= 0){
       printf("mt7601u: WPA2 M1 timeout; reassociating\n");
       dev->link_state = MT_LINK_ASSOC_PENDING;
-      dev->link_age = 0;
       dev->link_retries = 0;
+      dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
       dev->handshake_started = 0;
       memset(dev->anonce, 0, sizeof(dev->anonce));
       memset(dev->snonce, 0, sizeof(dev->snonce));
       memset(dev->ptk, 0, sizeof(dev->ptk));
     }
-  } else if(dev->link_state == MT_LINK_SCAN && dev->target_found){
-    // A transient lost response should not permanently strand the adapter.
-    if(++dev->link_age >= 500){
-      dev->link_state = MT_LINK_AUTH_PENDING;
-      dev->link_age = 0;
-      dev->link_retries = 0;
-    }
   }
-  // The deferred worker runs every ~10 ms.  Dwell for 500 ms so several
-  // beacon intervals are observed, then scan the next 2.4 GHz channel.
-  if(!dev->target_found && ++dev->scan_dwell >= 50){
+  // Dwell until the real scan deadline rather than waking every 10 ms merely
+  // to increment a counter.
+  if(service_state && !dev->target_found &&
+     (long)(now - dev->scan_deadline) >= 0){
     int next = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
-    dev->scan_dwell = 0;
     if(mt7601u_set_channel(dev, next) < 0)
       printf("mt7601u: channel switch to %d failed\n", next);
+    dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
   }
   if(dev->handshake_done && !dev->net_registered)
     register_needed = 1;
@@ -1436,6 +1464,60 @@ mt7601u_poll(void)
   }
   if(deliver)
     net_rx_dev(&dev->netdev, dev->net_rx, deliver);
+}
+
+void
+mt7601u_poll(void)
+{
+  mt7601u_service(1, 1);
+}
+
+static void
+mt7601u_rx_worker(struct work_struct *work)
+{
+  (void)work;
+  mt7601u_service(1, 0);
+}
+
+static void
+mt7601u_state_worker(struct work_struct *work)
+{
+  uint64 now, deadline = 0;
+  (void)work;
+  mt7601u_service(0, 1);
+  // IRQ-driven RX remains independent.  Re-arm at the next real scan,
+  // response or WPA2 watchdog deadline instead of polling every 10 ms.
+  acquire(&mt7601u.lock);
+  if(mt7601u.used && !mt7601u.handshake_done){
+    now = workqueue_now();
+    switch(mt7601u.link_state){
+    case MT_LINK_SCAN:
+      deadline = mt7601u.target_found ?
+        now + MT_STATE_SOON_JIFFIES : mt7601u.scan_deadline;
+      break;
+    case MT_LINK_AUTH_PENDING:
+    case MT_LINK_ASSOC_PENDING:
+      deadline = now + MT_STATE_SOON_JIFFIES;
+      break;
+    case MT_LINK_AUTH_SENT:
+    case MT_LINK_ASSOC_SENT:
+    case MT_LINK_ASSOCIATED:
+      deadline = mt7601u.state_deadline;
+      break;
+    }
+    if(deadline){
+      uint64 delay = (long)(deadline - now) > 0 ? deadline - now : 1;
+      queue_delayed_work(&mt7601u_wq, &mt7601u.state_work, delay);
+    }
+  }
+  release(&mt7601u.lock);
+}
+
+void
+mt7601u_rx_irq(void)
+{
+  if(mt7601u.used)
+    queue_work(&mt7601u_wq, &mt7601u.rx_work);
 }
 
 void
@@ -1470,8 +1552,10 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
 static void
 mt7601u_net_poll(struct net_device *netdev)
 {
-  if(netdev && netdev->priv)
-    mt7601u_poll();
+  // RX completion and protocol timers own separate private work items.  Keep
+  // the net_device hook for API compatibility without re-running both paths
+  // from the global network poller.
+  (void)netdev;
 }
 
 static int
@@ -1573,6 +1657,8 @@ mt7601u_probe(struct usb_device *udev)
     printf("mt7601u: MCU firmware load failed\n");
     return -1;
   }
+  init_work(&mt7601u.rx_work, mt7601u_rx_worker);
+  init_delayed_work(&mt7601u.state_work, mt7601u_state_worker);
   mt7601u.used = 1;
   mt7601u.udev = udev;
   mt7601u.firmware_size = firmware.size;
@@ -1590,6 +1676,7 @@ mt7601u_probe(struct usb_device *udev)
     memset(&mt7601u, 0, sizeof(mt7601u));
     return -1;
   }
+  mt7601u.scan_deadline = workqueue_now() + MT_SCAN_DWELL_JIFFIES;
   // PBKDF2 is intentionally done during probe rather than from the 100-ms
   // timer interrupt that receives EAPOL M1.
   wpa_pbkdf2("Minghua123", "TP-Link_B114", mt7601u.pmk);
@@ -1601,8 +1688,15 @@ mt7601u_probe(struct usb_device *udev)
   memmove(mt7601u.netdev.mac, mt7601u.mac, 6);
   udev->dev.driver_data = &mt7601u;
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
-    printf("mt7601u: EP%d receive uses DWC2 host-channel IRQ\n",
-           udev->bulk_in_ep);
+    for(int i = 0; i < MT_RX_REQUESTS; i++)
+      if(udev->ops->bulk_rx_arm(udev, udev->bulk_in_ep,
+                               mt_rx_buf[i], MT_RX_BUF_SIZE) < 0)
+        printf("mt7601u: RX request %d submission failed\n", i);
+  if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
+    printf("mt7601u: EP%d receive uses DWC2 IRQ with %d buffers\n",
+           udev->bulk_in_ep, MT_RX_REQUESTS);
+  queue_delayed_work(&mt7601u_wq, &mt7601u.state_work,
+                     MT_SCAN_DWELL_JIFFIES);
   printf("mt7601u: transport and MCU ready; SoftMAC initialization pending\n");
   return 0;
 }
@@ -1610,6 +1704,13 @@ mt7601u_probe(struct usb_device *udev)
 static void
 mt7601u_remove(struct usb_device *udev)
 {
+  // Stop IRQ/timer producers before draining private works.
+  acquire(&mt7601u.lock);
+  mt7601u.used = 0;
+  release(&mt7601u.lock);
+  __sync_synchronize();
+  cancel_work_sync(&mt7601u.rx_work);
+  cancel_delayed_work_sync(&mt7601u.state_work);
   if(mt7601u.net_registered)
     unregister_netdev(&mt7601u.netdev);
   if(udev)
@@ -1630,6 +1731,7 @@ void
 mt7601u_driver_init(void)
 {
   memset(&mt7601u, 0, sizeof(mt7601u));
+  init_workqueue(&mt7601u_wq, "mt7601u_wq", 1);
   usb_register_driver(&mt7601u_driver);
 }
 

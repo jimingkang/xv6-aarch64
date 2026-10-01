@@ -12,6 +12,21 @@ void _entry(void);
 void delay(uint32 c);
 void boot_uart_mark(int c);
 
+static void
+start_secondary_cpus(void)
+{
+  // The standard Raspberry Pi AArch64 armstub parks CPU1..3 on spin-table
+  // slots 0xe0, 0xe8 and 0xf0.  A custom armstub may already have sent them
+  // to _entry; publishing these slots is harmless in that case.
+  volatile uint64 *spin = (volatile uint64*)P2V(0xe0);
+  uint64 entry = V2P((uint64)_entry);
+  for(int cpu = 1; cpu < NCPU; cpu++){
+    spin[cpu - 1] = entry;
+    asm volatile("dc cvac, %0" :: "r"(&spin[cpu - 1]) : "memory");
+  }
+  asm volatile("dsb sy\n\tsev" ::: "memory");
+}
+
 // start() jumps here in EL1 on all CPUs.
 void
 main()
@@ -59,6 +74,7 @@ main()
     ext2init();       // optional read-only Linux ext2 partition
     vfsinit();        // mount non-native filesystems behind vnode operations
     userinit();      // first user process
+    start_secondary_cpus();
     // kvmdump();    // enable to show the final kernel page table before init/sh
     __sync_synchronize();
     started = 1;

@@ -72,12 +72,14 @@ struct tcp_conn {
   uchar tx[NET_MTU - 40];
   int txq_len;
   uchar txq[TCP_TXQ_SIZE];
-  uint32 tx_deadline;
+  uint64 tx_deadline;
   uint8 tx_retries;
   int tx_failed;
 };
 static struct tcp_conn tcp_connections[NTCP];
-static uint32 tcp_clock;
+static struct workqueue net_wq;
+static struct delayed_work tcp_retransmit_work;
+static void net_tcp_workfn(struct work_struct*);
 static struct tcp_conn *tcp_handle(int);
 static struct spinlock porttable_lock;
 static struct {
@@ -103,9 +105,6 @@ static struct bus_type net_bus = {
   .name = "net",
 };
 static uint16 ip_id;
-static struct spinlock net_deferred_lock;
-static struct work_struct net_deferred_work;
-static int net_deferred_ticks;
 static struct {
   struct net_device *dev;
   uint32 xid;
@@ -118,38 +117,6 @@ static struct {
   uint32 dns;
   uchar server_mac[ETH_ADDR_LEN];
 } dhcp;
-
-static void
-net_deferred_worker(struct work_struct *work)
-{
-  int ticks;
-  (void)work;
-
-  // Device poll callbacks now execute in kworker process context rather than
-  // in the Generic Timer hard IRQ.  IRQ-driven drivers return immediately
-  // unless their controller has recorded a completion/pending indication.
-  netdev_poll_all();
-  if(netdev_find("wlan1") == 0)
-    mt7601u_poll();
-
-  acquire(&net_deferred_lock);
-  ticks = net_deferred_ticks;
-  net_deferred_ticks = 0;
-  release(&net_deferred_lock);
-  while(ticks-- > 0)
-    net_tcp_tick();
-}
-
-void
-net_deferred_schedule(int logical_tick)
-{
-  if(logical_tick){
-    acquire(&net_deferred_lock);
-    net_deferred_ticks++;
-    release(&net_deferred_lock);
-  }
-  schedule_work(&net_deferred_work);
-}
 
 static int
 netdev_xmit_on(struct net_device *dev, void *frame, int length)
@@ -407,7 +374,9 @@ tcp_track_send_locked(struct tcp_conn *c, uint8 flags, void *data, int len)
   c->tx_unacked = sequence_bytes != 0;
   c->tx_retries = 0;
   c->tx_failed = 0;
-  c->tx_deadline = tcp_clock + 5; // 500 ms with the current timer period.
+  c->tx_deadline = workqueue_now() + 50; // 500 ms in 10-ms jiffies.
+  if(c->tx_unacked)
+    queue_delayed_work(&net_wq, &tcp_retransmit_work, 50);
   return len;
 }
 
@@ -600,9 +569,8 @@ void
 netinit(void)
 {
   int i;
-  initlock(&net_deferred_lock, "net deferred");
-  net_deferred_ticks = 0;
-  init_work(&net_deferred_work, net_deferred_worker);
+  init_workqueue(&net_wq, "net_wq", 1);
+  init_delayed_work(&tcp_retransmit_work, net_tcp_workfn);
   initlock(&porttable_lock, "udp ports");
   initlock(&pingq.lock, "icmp reply");
   for(i = 0; i < NUDPPORT; i++)
@@ -1277,11 +1245,12 @@ net_tcp_close(int handle)
 void
 net_tcp_tick(void)
 {
-  tcp_clock++;
+  uint64 now = workqueue_now();
+  uint64 next = 0;
   for(int i = 0; i < NTCP; i++){
     struct tcp_conn *c = &tcp_connections[i];
     acquire(&c->lock);
-    if(c->tx_unacked && (int)(tcp_clock - c->tx_deadline) >= 0){
+    if(c->tx_unacked && (long)(now - c->tx_deadline) >= 0){
       if(c->tx_retries >= 5){
         int parent = c->state == TCP_SYN_RCVD ? c->parent : 0;
         c->tx_unacked = 0;
@@ -1308,11 +1277,24 @@ net_tcp_tick(void)
         c->tx_retries++;
         tcp_send_at_locked(c, c->tx_seq, c->tx_flags,
                            c->tx, c->tx_len);
-        c->tx_deadline = tcp_clock + 5;
+        c->tx_deadline = now + 50;
       }
     }
+    if(c->tx_unacked && (next == 0 ||
+       (long)(c->tx_deadline - next) < 0))
+      next = c->tx_deadline;
     release(&c->lock);
   }
+  if(next)
+    mod_delayed_work(&net_wq, &tcp_retransmit_work,
+                     (long)(next - now) > 0 ? next - now : 1);
+}
+
+static void
+net_tcp_workfn(struct work_struct *work)
+{
+  (void)work;
+  net_tcp_tick();
 }
 
 static int

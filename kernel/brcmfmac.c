@@ -11,6 +11,7 @@
 #include "sdio.h"
 #include "fat32.h"
 #include "net.h"
+#include "workqueue.h"
 
 // Broadcom function-1 backplane aperture.  The three SBADDR registers select
 // one 32 KiB backplane window; bit 15 in the CMD53 address selects 32-bit
@@ -287,17 +288,30 @@ struct brcmf_bus_state {
   int keys_pending;
   int handshake_done;
   int m2_sent;
+  struct workqueue *wq;
+  struct work_struct rx_work;
+  struct delayed_work state_work;
+  int connect_active;
+  int connect_timedout;
+  uint64 connect_deadline;
   struct net_device netdev;
   uint8 scan_results[BRCMF_SCAN_RESULTS_LEN];
 };
 
 #define BRCMF_MAX_DEVICES 2
 static struct brcmf_bus_state brcmf_devices[BRCMF_MAX_DEVICES];
+static struct workqueue brcmf_wq[BRCMF_MAX_DEVICES];
+static char *brcmf_wq_names[BRCMF_MAX_DEVICES] = {
+  "brcmf0_wq", "brcmf1_wq"
+};
 
 // Functions below operate on an explicitly selected per-device instance.
 // Keeping the old field spelling makes the transport code readable while
 // ensuring every access resolves through that function's local bus pointer.
 #define brcmf_bus (*bus)
+
+static void brcmf_rx_worker(struct work_struct*);
+static void brcmf_state_worker(struct work_struct*);
 
 static struct brcmf_bus_state *
 brcmf_alloc_bus(void)
@@ -307,8 +321,11 @@ brcmf_alloc_bus(void)
       continue;
     memset(&brcmf_devices[i], 0, sizeof(brcmf_devices[i]));
     brcmf_devices[i].used = 1;
+    brcmf_devices[i].wq = &brcmf_wq[i];
     initlock(&brcmf_devices[i].lock, "brcmfmac");
     initlock(&brcmf_devices[i].iovar_lock, "brcmf-iovar");
+    init_work(&brcmf_devices[i].rx_work, brcmf_rx_worker);
+    init_delayed_work(&brcmf_devices[i].state_work, brcmf_state_worker);
     return &brcmf_devices[i];
   }
   return 0;
@@ -317,8 +334,13 @@ brcmf_alloc_bus(void)
 static void
 brcmf_free_bus(struct brcmf_bus_state *bus)
 {
-  if(bus)
+  if(bus){
+    bus->used = 0;
+    __sync_synchronize();
+    cancel_work_sync(&bus->rx_work);
+    cancel_delayed_work_sync(&bus->state_work);
     memset(bus, 0, sizeof(*bus));
+  }
 }
 
 static int brcmfmac_xmit(struct net_device*, void*, int);
@@ -1306,7 +1328,98 @@ brcmfmac_poll_device(struct net_device *netdev)
     // Keep draining a burst in bounded worker iterations.  schedule_work()
     // coalesces duplicate requests, so this cannot grow the queue without
     // bound and no 10-ms timer poll is needed between batches.
-    net_deferred_schedule(0);
+    queue_work(brcmf_bus.wq, &brcmf_bus.rx_work);
+}
+
+static struct brcmf_bus_state *
+brcmf_bus_for_work(struct work_struct *work)
+{
+  for(int i = 0; i < BRCMF_MAX_DEVICES; i++)
+    if(work == &brcmf_devices[i].rx_work ||
+       work == &brcmf_devices[i].state_work.work)
+      return &brcmf_devices[i];
+  return 0;
+}
+
+static void
+brcmf_rx_worker(struct work_struct *work)
+{
+  struct brcmf_bus_state *bus = brcmf_bus_for_work(work);
+  if(bus && bus->used && bus->ready)
+    brcmfmac_poll_device(&bus->netdev);
+}
+
+static void
+brcmf_state_worker(struct work_struct *work)
+{
+  struct brcmf_bus_state *bus = brcmf_bus_for_work(work);
+  uint64 now;
+  int active;
+  if(bus == 0 || !bus->used || !bus->ready)
+    return;
+  now = workqueue_now();
+  acquire(&bus->lock);
+  active = bus->connect_active;
+  if(active && (long)(now - bus->connect_deadline) >= 0){
+    bus->connect_timedout = 1;
+    bus->connect_active = 0;
+    active = 0;
+  }
+  release(&bus->lock);
+  if(!active)
+    return;
+  // Association/control events normally arrive via DAT1 IRQ.  Queue RX only
+  // when the controller reports a pending card interrupt; this watchdog does
+  // not restore the old unconditional SDIO polling path.
+  if(arasan_sdio_irq_pending())
+    queue_work(bus->wq, &bus->rx_work);
+  // Serialize the re-arm with brcmf_connect_watch_stop().  Without this
+  // second check a running callback could enqueue itself after the stop path
+  // had already removed the old delayed instance.
+  acquire(&bus->lock);
+  if(bus->connect_active)
+    queue_delayed_work(bus->wq, &bus->state_work, 5);
+  release(&bus->lock);
+}
+
+static void
+brcmf_connect_watch_start(struct brcmf_bus_state *bus)
+{
+  acquire(&bus->lock);
+  bus->connect_timedout = 0;
+  bus->connect_active = 1;
+  bus->connect_deadline = workqueue_now() + 1000; // 10 seconds
+  release(&bus->lock);
+  queue_delayed_work(bus->wq, &bus->state_work, 5);
+}
+
+static int
+brcmf_connect_watch_timedout(struct brcmf_bus_state *bus)
+{
+  int timedout;
+  acquire(&bus->lock);
+  timedout = bus->connect_timedout;
+  release(&bus->lock);
+  return timedout;
+}
+
+static void
+brcmf_connect_watch_stop(struct brcmf_bus_state *bus)
+{
+  acquire(&bus->lock);
+  bus->connect_active = 0;
+  release(&bus->lock);
+  cancel_delayed_work_sync(&bus->state_work);
+}
+
+void
+brcmfmac_sdio_irq(void)
+{
+  for(int i = 0; i < BRCMF_MAX_DEVICES; i++){
+    struct brcmf_bus_state *bus = &brcmf_devices[i];
+    if(bus->used && bus->ready && bus->wq)
+      queue_work(bus->wq, &bus->rx_work);
+  }
 }
 
 static int
@@ -1804,11 +1917,14 @@ brcmfmac_connect(char *ssid, char *passphrase)
     printf("brcmfmac: connect step SET_SSID failed\n");
     goto fail;
   }
+  brcmf_connect_watch_start(bus);
 
   // Association and the WPA2 handshake are asynchronous.  GET_BSSID starts
   // succeeding only after firmware has a live association.
   for(int i = 0; i < 40; i++){
     int finish;
+    if(brcmf_connect_watch_timedout(bus))
+      break;
     memset(bssid, 0, sizeof(bssid));
     if(brcmf_dcmd(bus, BRCMF_C_GET_BSSID, bssid, sizeof(bssid), 0) >= 0 &&
        (bssid[0] | bssid[1] | bssid[2] | bssid[3] | bssid[4] | bssid[5])){
@@ -1818,8 +1934,10 @@ brcmfmac_connect(char *ssid, char *passphrase)
         link_reported = 1;
         brcmf_read_assoc_rsn_ie(bus);
       }
-      if(!host_eapol)
+      if(!host_eapol){
+        brcmf_connect_watch_stop(bus);
         return 0;
+      }
     }
     if(host_eapol && brcmf_bus.keys_pending){
       finish = brcmf_finish_wpa_handshake(bus);
@@ -1834,9 +1952,11 @@ brcmfmac_connect(char *ssid, char *passphrase)
         }
         if(net_dhcp_dev(netdev) < 0){
           printf("brcmfmac: associated, but DHCP failed\n");
+          brcmf_connect_watch_stop(bus);
           return -1;
         }
         printf("brcmfmac: wlan0 IPv4 ready\n");
+        brcmf_connect_watch_stop(bus);
         return 0;
       }
       if(finish < 0)
@@ -1857,9 +1977,11 @@ brcmfmac_connect(char *ssid, char *passphrase)
            brcmf_bus.eapol_rx);
   else
     printf("brcmfmac: association timeout for SSID %s\n", ssid);
+  brcmf_connect_watch_stop(bus);
   return -1;
 
 fail:
+  brcmf_connect_watch_stop(bus);
   printf("brcmfmac: WPA2 configuration failed for SSID %s\n", ssid);
   return -1;
 }
@@ -2002,6 +2124,8 @@ void
 brcmfmac_driver_init(void)
 {
   memset(brcmf_devices, 0, sizeof(brcmf_devices));
+  for(int i = 0; i < BRCMF_MAX_DEVICES; i++)
+    init_workqueue(&brcmf_wq[i], brcmf_wq_names[i], 1);
   sdio_register_driver(&brcmf_driver);
 }
 

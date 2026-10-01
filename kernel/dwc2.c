@@ -123,14 +123,21 @@ static int bulk_in_toggle;
 static int bulk_out_toggle;
 static int rx_armed;
 static volatile uint32 dwc2_irq_pending;
-static struct {
+#define DWC2_RX_REQUESTS 4
+#define RX_FREE   0
+#define RX_QUEUED 1
+#define RX_ACTIVE 2
+#define RX_DONE   3
+static struct dwc2_rx_request {
   struct usb_device *udev;
   void *buffer;
   int length;
   int endpoint;
   int mps;
-  int armed;
-} async_rx;
+  int result;
+  int state;
+} async_rx[DWC2_RX_REQUESTS];
+static int async_rx_active = -1;
 static uchar setup_buf[64] __attribute__((aligned(64)));
 static uchar ctrl_buf[512] __attribute__((aligned(64)));
 static uchar rx_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
@@ -435,7 +442,7 @@ static int
 dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
               void *data, int length)
 {
-  int mps, packets, pid, r, attempt;
+  int mps, packets, pid, r, attempt, channel;
   uint8 *toggle;
   if(endpoint <= 0 || endpoint > 15 || length < 0)
     return -1;
@@ -447,10 +454,13 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
                                              &udev->bulk_in_toggle;
   else
     toggle = &udev->bulk_out_toggle;
+  // Keep endpoint roles on independent host channels: EP0=0, generic/MCU
+  // response IN=3, data RX=4 (asynchronous), data TX=5.
+  channel = in ? 3 : 5;
   r = -1;
   for(attempt = 0; attempt < 2; attempt++){
     pid = *toggle ? PID_DATA1 : PID_DATA0;
-    r = channel_xfer(3, udev->address, endpoint, in, EPTYPE_BULK, mps,
+    r = channel_xfer(channel, udev->address, endpoint, in, EPTYPE_BULK, mps,
                      data, length, pid,
                      in && endpoint == udev->bulk_in_ep ? 2000 : 1000000);
     if(r != -3 || !in)
@@ -483,86 +493,127 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
 static void
 dwc2_async_rx_start(void)
 {
-  struct usb_device *udev = async_rx.udev;
+  struct dwc2_rx_request *req = 0;
+  struct usb_device *udev;
   uint32 hcchar;
   int packets, pid;
 
-  if(udev == 0 || async_rx.buffer == 0 || async_rx.length <= 0)
+  if(async_rx_active >= 0)
     return;
-  packets = (async_rx.length + async_rx.mps - 1) / async_rx.mps;
+  for(int i = 0; i < DWC2_RX_REQUESTS; i++)
+    if(async_rx[i].state == RX_QUEUED){
+      async_rx_active = i;
+      req = &async_rx[i];
+      req->state = RX_ACTIVE;
+      break;
+    }
+  if(req == 0)
+    return;
+  udev = req->udev;
+  packets = (req->length + req->mps - 1) / req->mps;
   pid = udev->bulk_in_toggle ? PID_DATA1 : PID_DATA0;
   wr(HCINT(4), 0x3fff);
   wr(HCINTMSK(4), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
                    HCINT_ERRORS);
   dwc2_irq_pending &= ~(1U << 4);
-  cache_clean_invalidate_range(async_rx.buffer, async_rx.length);
-  wr(HCDMA(4), DWC2_DMA_BUS(async_rx.buffer));
-  wr(HCTSIZ(4), HCTSIZ_XFERSIZE(async_rx.length) |
+  cache_clean_invalidate_range(req->buffer, req->length);
+  wr(HCDMA(4), DWC2_DMA_BUS(req->buffer));
+  wr(HCTSIZ(4), HCTSIZ_XFERSIZE(req->length) |
                   HCTSIZ_PKTCNT(packets) | HCTSIZ_PID(pid));
   hcchar = HCCHAR_DEVADDR(udev->address) |
-           HCCHAR_EPNUM(async_rx.endpoint) | HCCHAR_EPTYPE(EPTYPE_BULK) |
-           HCCHAR_MPS(async_rx.mps) | HCCHAR_EPDIR_IN;
+           HCCHAR_EPNUM(req->endpoint) | HCCHAR_EPTYPE(EPTYPE_BULK) |
+           HCCHAR_MPS(req->mps) | HCCHAR_EPDIR_IN;
   wr(HAINTMSK, rd(HAINTMSK) | (1U << 4));
   wr(HCCHAR(4), hcchar | HCCHAR_CHENA);
-  async_rx.armed = 1;
 }
 
 static int
 dwc2_usb_bulk_rx_arm(struct usb_device *udev, int endpoint,
                      void *data, int length)
 {
+  int slot = -1;
   if(udev == 0 || endpoint <= 0 || endpoint > 15 || data == 0 || length <= 0)
     return -1;
-  if(async_rx.armed)
-    return async_rx.udev == udev && async_rx.endpoint == endpoint ? 0 : -1;
-  async_rx.udev = udev;
-  async_rx.buffer = data;
-  async_rx.length = length;
-  async_rx.endpoint = endpoint;
-  async_rx.mps = udev->bulk_in_max_packet ? udev->bulk_in_max_packet : 64;
+  acquire(&usb_lock);
+  for(int i = 0; i < DWC2_RX_REQUESTS; i++){
+    if(async_rx[i].state != RX_FREE && async_rx[i].buffer == data){
+      release(&usb_lock);
+      return 0;
+    }
+    if(slot < 0 && async_rx[i].state == RX_FREE)
+      slot = i;
+  }
+  if(slot < 0){
+    release(&usb_lock);
+    return -1;
+  }
+  async_rx[slot].udev = udev;
+  async_rx[slot].buffer = data;
+  async_rx[slot].length = length;
+  async_rx[slot].endpoint = endpoint;
+  async_rx[slot].mps = udev->bulk_in_max_packet ? udev->bulk_in_max_packet : 64;
+  async_rx[slot].result = -2;
+  async_rx[slot].state = RX_QUEUED;
   dwc2_async_rx_start();
-  return async_rx.armed ? 0 : -1;
+  release(&usb_lock);
+  return 0;
 }
 
 static int
-dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint)
+dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
 {
+  struct dwc2_rx_request *req;
   uint32 intr, left;
-  int result, packets;
+  int result, packets, slot;
 
-  if(!async_rx.armed || async_rx.udev != udev ||
-     async_rx.endpoint != endpoint)
-    return -1;
-  if((dwc2_irq_pending & (1U << 4)) == 0)
-    return -2;
-  dwc2_irq_pending &= ~(1U << 4);
-  intr = rd(HCINT(4));
-  if(intr & HCINT_NAK){
-    halt_channel(4);
-    wr(HCINT(4), intr);
-    async_rx.armed = 0;
-    dwc2_async_rx_start();
-    return -2;
+  if(data)
+    *data = 0;
+  acquire(&usb_lock);
+  if(async_rx_active >= 0 && (dwc2_irq_pending & (1U << 4))){
+    slot = async_rx_active;
+    req = &async_rx[slot];
+    dwc2_irq_pending &= ~(1U << 4);
+    intr = rd(HCINT(4));
+    if(intr & HCINT_NAK){
+      halt_channel(4);
+      wr(HCINT(4), intr);
+      req->state = RX_QUEUED;
+      async_rx_active = -1;
+      dwc2_async_rx_start();
+    } else {
+      left = rd(HCTSIZ(4)) & 0x7ffff;
+      result = ((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL) ||
+                left > (uint32)req->length) ? -1 : req->length - left;
+      halt_channel(4);
+      wr(HCINT(4), intr);
+      cache_invalidate_range(req->buffer, req->length);
+      req->result = result;
+      req->state = RX_DONE;
+      async_rx_active = -1;
+      if(result >= 0){
+        packets = (result + req->mps - 1) / req->mps;
+        if(result < req->length && (result % req->mps) == 0)
+          packets++;
+        if(packets & 1)
+          udev->bulk_in_toggle ^= 1;
+      }
+      dwc2_async_rx_start();
+    }
   }
-  if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL)){
-    halt_channel(4);
-    wr(HCINT(4), intr);
-    async_rx.armed = 0;
-    return -1;
+  for(slot = 0; slot < DWC2_RX_REQUESTS; slot++){
+    req = &async_rx[slot];
+    if(req->state == RX_DONE && req->udev == udev &&
+       req->endpoint == endpoint){
+      result = req->result;
+      if(data)
+        *data = req->buffer;
+      req->state = RX_FREE;
+      release(&usb_lock);
+      return result;
+    }
   }
-  left = rd(HCTSIZ(4)) & 0x7ffff;
-  result = left <= (uint32)async_rx.length ? async_rx.length - left : -1;
-  wr(HCINT(4), intr);
-  cache_invalidate_range(async_rx.buffer, async_rx.length);
-  async_rx.armed = 0;
-  if(result >= 0){
-    packets = (result + async_rx.mps - 1) / async_rx.mps;
-    if(result < async_rx.length && (result % async_rx.mps) == 0)
-      packets++;
-    if(packets & 1)
-      udev->bulk_in_toggle ^= 1;
-  }
-  return result;
+  release(&usb_lock);
+  return -2;
 }
 
 static const struct usb_host_ops dwc2_usb_ops = {
@@ -696,7 +747,8 @@ dwc2_irq(void)
   // the channel and its HAINT bit after cache maintenance and frame parsing.
   wr(HAINTMSK, rd(HAINTMSK) & ~channels);
   dwc2_irq_pending |= channels;
-  net_deferred_schedule(0);
+  if(channels & (1U << 4))
+    mt7601u_rx_irq();
 }
 
 static void
@@ -1006,6 +1058,8 @@ dwc2_remove(struct device *dev)
   wr(GINTMSK, 0);
   wr(GAHBCFG, rd(GAHBCFG) & ~GAHBCFG_GLBL_INTR_EN);
   dwc2_irq_pending = 0;
+  memset(async_rx, 0, sizeof(async_rx));
+  async_rx_active = -1;
   memset(&async_rx, 0, sizeof(async_rx));
   usb_parent = 0;
 }
