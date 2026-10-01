@@ -112,7 +112,7 @@ BCM43455 的接收现在由 SDIO DAT1 IRQ 立即触发，TCP 小包写入发送�
 代码必须先通过：
 
 ```sh
-make kernel/kernel8.img
+make kernel/kernel8-xv6_wifi.img
 ```
 
 安装到 BOOTFS 并启动后：

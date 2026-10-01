@@ -165,6 +165,16 @@ consoleintr(int c)
   acquire(&cons.lock);
 
   switch(c){
+  case C('C'):
+    cons.r = cons.w;
+    cons.e = cons.w;
+    consputc('^');
+    consputc('C');
+    consputc('\n');
+    wakeup(&cons.r);
+    release(&cons.lock);
+    ttyintr();
+    return;
   case C('P'):  // Print process list.
     procdump();
     break;

@@ -117,10 +117,12 @@ extern uint64 sys_udp_bind(void);
 extern uint64 sys_udp_unbind(void);
 extern uint64 sys_udp_send(void);
 extern uint64 sys_udp_recv(void);
+extern uint64 sys_udp_tryrecv(void);
 extern uint64 sys_icmp_send(void);
 extern uint64 sys_icmp_recv(void);
 extern uint64 sys_mount(void);
 extern uint64 sys_tty_attach(void);
+extern uint64 sys_tty_set_foreground(void);
 extern uint64 sys_vmdump(void);
 extern uint64 sys_wifi_connect(void);
 extern uint64 sys_net_dhcp(void);
@@ -137,6 +139,7 @@ extern uint64 sys_epoll_wait(void);
 extern uint64 sys_fcntl(void);
 extern uint64 sys_pty_open(void);
 extern uint64 sys_getrandom(void);
+extern uint64 sys_rename(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -173,6 +176,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_udp_unbind]   sys_udp_unbind,
 [SYS_udp_send]     sys_udp_send,
 [SYS_udp_recv]     sys_udp_recv,
+[SYS_udp_tryrecv] sys_udp_tryrecv,
+[SYS_tty_set_foreground] sys_tty_set_foreground,
 [SYS_icmp_send]    sys_icmp_send,
 [SYS_icmp_recv]    sys_icmp_recv,
 [SYS_mount]        sys_mount,
@@ -193,6 +198,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_fcntl]        sys_fcntl,
 [SYS_pty_open]     sys_pty_open,
 [SYS_getrandom]    sys_getrandom,
+[SYS_rename]       sys_rename,
 };
 
 void

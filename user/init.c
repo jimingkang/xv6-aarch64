@@ -69,8 +69,11 @@ mount_fstab(void)
       target = field(&p);
       type = field(&p);
       options = field(&p);
-      if(target && type && options)
-        mount(source, target, type, 1); // all current VFS backends are ro
+      if(target && type && options){
+        int flags = strcmp(options, "ro") == 0 ? 1 : 0;
+        if(strcmp(options, "ro") == 0 || strcmp(options, "rw") == 0)
+          mount(source, target, type, flags);
+      }
     }
     while(*p && *p != '\n')
       p++;
@@ -114,7 +117,7 @@ main(void)
   create_config("etc/rc", "export PATH=/bin:/usr/bin:/:.\n");
   create_config("etc/fstab",
                 "proc /proc procfs ro 0 0\n"
-                "bootfs /boot fat32 ro 0 0\n"
+                "bootfs /boot fat32 rw 0 0\n"
                 "ext2 /mnt/ext2 ext2 ro 0 0\n");
   create_config("etc/wifi.conf",
                 "ssid=TP-Link_B114\n"

@@ -291,7 +291,10 @@ main(int argc, char **argv)
   loadrc();
 
   // Read and run input commands.
-  while(getcmd(buf, sizeof(buf)) >= 0){
+  for(;;){
+    tty_set_foreground(0);
+    if(getcmd(buf, sizeof(buf)) < 0)
+      break;
     if(strncmp(buf, "export PATH=", 12) == 0){
       int n = strlen(buf);
       if(n > 0 && buf[n - 1] == '\n')
@@ -314,9 +317,17 @@ main(int argc, char **argv)
         setcwd(cwd, path);
       continue;
     }
-    if(fork1() == 0)
+    int pid = fork1();
+    if(pid == 0){
+      if(tty_set_foreground(getpid()) < 0)
+        fprintf(2, "sh: cannot set foreground process group\n");
       runcmd(parsecmd(buf));
+    }
+    if(tty_set_foreground(pid) < 0)
+      fprintf(2, "sh: cannot set foreground process group\n");
     wait(0);
+    if(tty_set_foreground(getpid()) < 0)
+      fprintf(2, "sh: cannot restore foreground process group\n");
   }
   exit(0);
 }

@@ -3,6 +3,9 @@
 #include "memlayout.h"
 #include "aarch64.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "proc.h"
 #include "defs.h"
 
@@ -115,6 +118,7 @@ found:
   p->sid = p->pid;
   p->pgid = p->pid;
   p->ctty = -1;
+  p->signals_pending = 0;
   p->state = USED;
 
   sp = (char*)p->kstack + PGSIZE;
@@ -186,6 +190,7 @@ freeproc(struct proc *p)
   p->sid = 0;
   p->pgid = 0;
   p->ctty = -1;
+  p->signals_pending = 0;
   p->parent = 0;
   p->name[0] = 0;
   p->chan = 0;
@@ -344,6 +349,8 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  net_udp_closeproc(p->pid);
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -600,6 +607,25 @@ kill(int pid)
     release(&p->lock);
   }
   return -1;
+}
+
+void
+signal_pgrp(int pgid, int sig)
+{
+  struct proc *p;
+
+  if(pgid <= 0 || sig <= 0 || sig > 32)
+    return;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED && p->pgid == pgid && p->ctty == TTYS0){
+      p->signals_pending |= 1U << (sig - 1);
+      p->killed = 1;
+      if(p->state == SLEEPING)
+        p->state = RUNNABLE;
+    }
+    release(&p->lock);
+  }
 }
 
 // Copy to either a user address, or kernel address,

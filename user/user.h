@@ -38,10 +38,12 @@ int udp_bind(int);
 int udp_unbind(int);
 int udp_send(uint32, int, int, const void*, int);
 int udp_recv(int, uint32*, uint16*, void*, int);
+int udp_tryrecv(int, uint32*, uint16*, void*, int);
 int icmp_send(uint32, int, int, const void*, int);
 int icmp_recv(int, uint32*, uint16*, void*, int);
 int mount(const char*, const char*, const char*, int);
 int tty_attach(int);
+int tty_set_foreground(int);
 int vmdump(int);
 int wifi_connect(const char*, const char*);
 int net_dhcp(const char*);
@@ -58,6 +60,7 @@ int epoll_wait(int, struct epoll_event*, int, int);
 int fcntl(int, int, int);
 int pty_open(int*);
 int getrandom(void*, int);
+int rename(const char*, const char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

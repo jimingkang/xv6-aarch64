@@ -863,7 +863,7 @@ net_udp_bind(int port)
   for(i = 0; i < NUDPPORT; i++){
     p = &ports[i];
     acquire(&p->lock);
-    if(!p->used){
+    if(!p->used && p->waiters == 0){
       p->used = 1;
       p->port = port;
       p->owner = myproc()->pid;
@@ -899,6 +899,30 @@ net_udp_unbind(int port)
   p->queued = 0;
   release(&p->lock);
   return 0;
+}
+
+void
+net_udp_closeproc(int pid)
+{
+  struct udp_dgram *d, *next;
+
+  acquire(&porttable_lock);
+  for(int i = 0; i < NUDPPORT; i++){
+    struct udp_port *p = &ports[i];
+    acquire(&p->lock);
+    if(p->used && p->owner == pid){
+      for(d = p->head; d; d = next){
+        next = d->next;
+        kfree(d);
+      }
+      p->used = 0;
+      p->head = p->tail = 0;
+      p->queued = 0;
+      wakeup(p);
+    }
+    release(&p->lock);
+  }
+  release(&porttable_lock);
 }
 
 static void
@@ -1789,7 +1813,7 @@ net_udp_recv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr, int maxle
     return -1;
   }
   p->waiters++;
-  while(p->head == 0){
+  while(p->head == 0 && p->used){
     if(myproc()->killed){
       p->waiters--;
       release(&p->lock);
@@ -1797,12 +1821,53 @@ net_udp_recv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr, int maxle
     }
     sleep(p, &p->lock);
   }
+  if(!p->used){
+    p->waiters--;
+    release(&p->lock);
+    return -1;
+  }
   d = p->head;
   p->head = d->next;
   if(p->head == 0)
     p->tail = 0;
   p->queued--;
   p->waiters--;
+  release(&p->lock);
+
+  n = d->len < maxlen ? d->len : maxlen;
+  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&d->src,
+                         sizeof(d->src)) < 0) ||
+     (sportaddr && copyout(myproc()->pagetable, sportaddr, (char*)&d->sport,
+                           sizeof(d->sport)) < 0) ||
+     copyout(myproc()->pagetable, uaddr, (char*)d->data, n) < 0){
+    kfree(d);
+    return -1;
+  }
+  kfree(d);
+  return n;
+}
+
+int
+net_udp_tryrecv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
+                int maxlen)
+{
+  struct udp_port *p = findport(port);
+  struct udp_dgram *d;
+  int n;
+  if(p == 0 || maxlen < 0){
+    if(p)
+      release(&p->lock);
+    return -1;
+  }
+  if(p->head == 0){
+    release(&p->lock);
+    return 0;
+  }
+  d = p->head;
+  p->head = d->next;
+  if(p->head == 0)
+    p->tail = 0;
+  p->queued--;
   release(&p->lock);
 
   n = d->len < maxlen ? d->len : maxlen;

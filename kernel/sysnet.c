@@ -46,6 +46,18 @@ sys_udp_recv(void)
 }
 
 uint64
+sys_udp_tryrecv(void)
+{
+  int port, maxlen;
+  uint64 src, sport, buf;
+  if(argint(0, &port) < 0 || argaddr(1, &src) < 0 ||
+     argaddr(2, &sport) < 0 || argaddr(3, &buf) < 0 ||
+     argint(4, &maxlen) < 0)
+    return -1;
+  return net_udp_tryrecv(port, src, sport, buf, maxlen);
+}
+
+uint64
 sys_icmp_send(void)
 {
   int dst, id, seq, len;

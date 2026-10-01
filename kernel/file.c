@@ -195,7 +195,8 @@ filewrite(struct file *f, uint64 addr, int n)
     }
     ret = (i == n ? n : -1);
   } else if(f->type == FD_VNODE){
-    return -1;
+    if((ret = vfswrite(f->vn, 1, addr, f->off, n)) > 0)
+      f->off += ret;
   } else if(f->type == FD_SOCKET){
     ret = net_tcp_write(f->socket, addr, n, (f->flags & O_NONBLOCK) != 0);
   } else if(f->type == FD_PTY){

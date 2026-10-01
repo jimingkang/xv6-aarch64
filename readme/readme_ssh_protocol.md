@@ -392,6 +392,37 @@ nc 192.168.0.201 2222
 xv6 应打印 `tcpd: client connected`；客户端收到 `xv6 socket ready`，随后输入内容会
 被原样回显。`tcpd` 只是 TCP 诊断程序，不是 Telnet 或 SSH 服务端。
 
+### A.4 并发压力测试 epollserver
+
+在 xv6 中启动 echo 服务：
+
+```sh
+/bin/epollserver
+```
+
+在另一台机器上运行仓库提供的 Python 压力客户端（需要 Python 3.8 或更新版本）：
+
+```sh
+python3 tools/epoll_stress_client.py 192.168.0.201
+```
+
+默认同时建立 8 个连接，每个连接发送 64 KiB，并连续测试 3 轮。客户端逐字节
+验证回显内容，并在发送完成后半关闭写方向，检查服务端能否在回显完毕后正常关闭连接。
+成功时会报告每轮耗时及验证通过的数据吞吐量；连接失败、超时或数据不一致会以非零状态
+退出。
+
+可按需增加每轮负载和并发数：
+
+```sh
+python3 tools/epoll_stress_client.py 192.168.0.201 \
+  --port 8080 --clients 15 --bytes 1048576 --chunk-size 1024 \
+  --rounds 5 --timeout 120
+```
+
+并发数上限为 15：`epollserver` 每个 epoll 实例最多观察 16 个 watch，其中一个用于
+监听 socket，其余最多容纳 15 个客户端。测试应在可信任的实验网络中运行；增大客户端数、
+单连接字节数和轮数会增加目标设备的 CPU、内存与网络负载。
+
 ## 附录 B：PTY 实现与独立测试
 
 `pty_open(int fd[2])` 返回全双工 master/slave：

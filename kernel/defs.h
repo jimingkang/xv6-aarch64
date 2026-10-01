@@ -37,6 +37,8 @@ int             consolewrite(int, uint64, int);
 // tty.c
 void            ttyinit(void);
 int             ttyattach(int);
+int             ttysetforeground(int);
+void            ttyintr(void);
 
 // exec.c
 int             exec(char*, char**);
@@ -91,6 +93,11 @@ void            fat32init(void);
 void            fat32rw(struct buf*, int);
 struct fat32_file;
 int             fat32openroot(char*, struct fat32_file*);
+int             fat32openwrite(char*, struct fat32_file*);
+int             fat32createfile(char*);
+int             fat32truncatefile(char*, struct fat32_file*);
+int             fat32writefile(char*, struct fat32_file*, uint32, int, uint64, int);
+int             fat32renamefile(char*, char*);
 int             fat32pread(struct fat32_file*, uint32, void*, int);
 int             fat32ready(void);
 struct fat32_dirent;
@@ -107,10 +114,12 @@ int             ext2ready(void);
 // vfs.c
 void            vfsinit(void);
 int             vfsopen(char*, int, struct vnode**);
+int             vfsrename(char*, char*);
 void            vfsclose(struct vnode*);
 int             vfsread(struct vnode*, int, uint64, uint, uint);
+int             vfswrite(struct vnode*, int, uint64, uint, uint);
 int             vfsstat(struct vnode*, struct stat*);
-int             vfsmount(char*, char*);
+int             vfsmount(char*, char*, int);
 
 // kalloc.c
 void*           kalloc(void);
@@ -149,6 +158,7 @@ int             fork(void);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 int             kill(int);
+void            signal_pgrp(int, int);
 int             kthread_create(void (*)(void*), void*, char*);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
@@ -189,6 +199,8 @@ int             net_udp_bind(int);
 int             net_udp_unbind(int);
 int             net_udp_send(uint32, int, int, uint64, int);
 int             net_udp_recv(int, uint64, uint64, uint64, int);
+int             net_udp_tryrecv(int, uint64, uint64, uint64, int);
+void            net_udp_closeproc(int);
 int             net_icmp_send(uint32, int, int, uint64, int);
 int             net_icmp_recv(int, uint64, uint64, uint64, int);
 int             net_tcp_listen(int, int);

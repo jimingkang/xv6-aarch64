@@ -17,6 +17,7 @@
 #include "fcntl.h"
 #include "ext2.h"
 #include "epoll.h"
+#include "vfs.h"
 
 uint64
 sys_mount(void)
@@ -28,8 +29,17 @@ sys_mount(void)
      argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0)
     return -1;
   (void)source;
-  (void)flags;
-  return vfsmount(target, fstype);
+  return vfsmount(target, fstype, flags);
+}
+
+uint64
+sys_rename(void)
+{
+  char oldpath[MAXPATH], newpath[MAXPATH];
+  if(argstr(0, oldpath, sizeof(oldpath)) < 0 ||
+     argstr(1, newpath, sizeof(newpath)) < 0)
+    return -1;
+  return vfsrename(oldpath, newpath);
 }
 
 uint64
@@ -479,8 +489,9 @@ sys_open(void)
     f->type = FD_VNODE;
     f->vn = vn;
     f->off = 0;
-    f->readable = 1;
-    f->writable = 0;
+    f->readable = !(omode & O_WRONLY);
+    f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+    f->flags = omode;
     if((fd = fdalloc(f)) < 0){
       fileclose(f);
       return -1;

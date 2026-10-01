@@ -1,5 +1,5 @@
-// Small vnode layer.  The native xv6 inode filesystem remains the writable
-// root; init mounts read-only backends named in /etc/fstab through mount(2).
+// Small vnode layer. The native xv6 inode filesystem remains the writable
+// root; init mounts backends named in /etc/fstab through mount(2).
 
 #include "types.h"
 #include "param.h"
@@ -22,7 +22,11 @@ extern char end[];
 struct vnode_ops {
   int (*stat)(char*, struct stat*);
   int (*read)(char*, uint64, void*, int);
+  int (*write)(char*, struct fat32_file*, uint64, int, uint64, int);
   int (*readdir)(char*, int, void*);
+  int (*create)(char*);
+  int (*truncate)(char*, struct fat32_file*);
+  int (*rename)(char*, char*);
 };
 
 struct vfs_dirent {
@@ -38,6 +42,8 @@ struct vnode {
   short type;
   char path[MAXPATH];
   struct vnode_ops *ops;
+  int readonly;
+  struct fat32_file fat_file;
 };
 
 static struct {
@@ -50,6 +56,7 @@ struct vfs_mount {
   int used;
   char path[MAXPATH];
   struct vnode_ops *ops;
+  int readonly;
 };
 static struct vfs_mount mounts[NMOUNT];
 
@@ -125,6 +132,31 @@ fat_vread(char *path, uint64 off, void *dst, int n)
 }
 
 static int
+fat_vwrite(char *path, struct fat32_file *file, uint64 off, int user_src,
+           uint64 src, int n)
+{
+  return fat32writefile(path, file, off, user_src, src, n);
+}
+
+static int
+fat_vcreate(char *path)
+{
+  return fat32createfile(path);
+}
+
+static int
+fat_vtruncate(char *path, struct fat32_file *file)
+{
+  return fat32truncatefile(path, file);
+}
+
+static int
+fat_vrename(char *oldpath, char *newpath)
+{
+  return fat32renamefile(oldpath, newpath);
+}
+
+static int
 fat_vreaddir(char *path, int index, void *arg)
 {
   struct fat32_dirent fe;
@@ -145,6 +177,8 @@ fat_vreaddir(char *path, int index, void *arg)
 
 static struct vnode_ops fat32_ops = {
   .stat = fat_vstat, .read = fat_vread, .readdir = fat_vreaddir,
+  .write = fat_vwrite, .create = fat_vcreate, .truncate = fat_vtruncate,
+  .rename = fat_vrename,
 };
 
 static int
@@ -474,7 +508,7 @@ static struct vnode_ops proc_ops = {
 };
 
 static int
-mountops(char *path, struct vnode_ops *ops)
+mountops(char *path, struct vnode_ops *ops, int readonly)
 {
   if(path[0] != '/')
     return -1;
@@ -485,6 +519,7 @@ mountops(char *path, struct vnode_ops *ops)
     if(!mounts[i].used){
       mounts[i].used = 1;
       mounts[i].ops = ops;
+      mounts[i].readonly = readonly;
       safestrcpy(mounts[i].path, path, sizeof(mounts[i].path));
       return 0;
     }
@@ -493,9 +528,12 @@ mountops(char *path, struct vnode_ops *ops)
 }
 
 int
-vfsmount(char *path, char *fstype)
+vfsmount(char *path, char *fstype, int flags)
 {
   struct vnode_ops *ops;
+  int readonly = (flags & VFS_MOUNT_RDONLY) != 0;
+  if(flags & ~VFS_MOUNT_RDONLY)
+    return -1;
   if(streq(fstype, "procfs"))
     ops = &proc_ops;
   else if(streq(fstype, "fat32") && fat32ready())
@@ -504,16 +542,19 @@ vfsmount(char *path, char *fstype)
     ops = &ext2_ops;
   else
     return -1;
+  if(!readonly && ops != &fat32_ops)
+    return -1;
   acquire(&vnodes.lock);
-  int r = mountops(path, ops);
+  int r = mountops(path, ops, readonly);
   release(&vnodes.lock);
   if(r == 0)
-    printf("vfs: mounted %s at %s read-only\n", fstype, path);
+    printf("vfs: mounted %s at %s %s\n", fstype, path,
+           readonly ? "read-only" : "read-write");
   return r;
 }
 
 static struct vnode_ops*
-findmount(char *path, char **relative)
+findmount(char *path, char **relative, int *readonly)
 {
   struct vfs_mount *best = 0;
   int bestlen = -1;
@@ -531,6 +572,8 @@ findmount(char *path, char **relative)
   if(best == 0)
     return 0;
   *relative = path[bestlen] ? path + bestlen : "/";
+  if(readonly)
+    *readonly = best->readonly;
   return best->ops;
 }
 
@@ -548,12 +591,33 @@ vfsopen(char *path, int omode, struct vnode **out)
   struct vnode *vn = 0;
   struct stat st;
   char *sub;
+  int readonly, exists;
   struct vnode_ops *ops;
-  ops = findmount(path, &sub);
+  ops = findmount(path, &sub, &readonly);
   if(ops == 0)
     return 0;
-  if(omode != O_RDONLY || ops->stat(sub, &st) < 0)
-    return -1;
+  exists = ops->stat(sub, &st) == 0;
+  if(omode == O_RDONLY){
+    if(!exists)
+      return -1;
+  } else {
+    if(readonly || (omode & O_RDWR) || !(omode & O_WRONLY) ||
+       (omode & ~(O_WRONLY | O_CREATE | O_TRUNC)) ||
+       ops->write == 0 || (!exists && (!(omode & O_CREATE) ||
+                                       ops->create == 0)))
+      return -1;
+    if(exists && !(omode & O_TRUNC) && st.type == T_FILE && st.size != 0)
+      return -1;
+    if(!exists && ops->create(sub) < 0)
+      return -1;
+    if(omode & O_TRUNC){
+      struct fat32_file ignored;
+      if(ops->truncate == 0 || ops->truncate(sub, &ignored) < 0)
+        return -1;
+    }
+    if(ops->stat(sub, &st) < 0 || st.type != T_FILE)
+      return -1;
+  }
   acquire(&vnodes.lock);
   for(int i = 0; i < NFILE; i++){
     if(!vnodes.nodes[i].used){
@@ -562,15 +626,37 @@ vfsopen(char *path, int omode, struct vnode **out)
       vn->ref = 1;
       vn->type = st.type;
       vn->ops = ops;
+      vn->readonly = readonly;
       safestrcpy(vn->path, sub, sizeof(vn->path));
+      memset(&vn->fat_file, 0, sizeof(vn->fat_file));
       break;
     }
   }
   release(&vnodes.lock);
   if(vn == 0)
     return -1;
+  if(!readonly && omode != O_RDONLY &&
+     fat32openwrite(sub, &vn->fat_file) < 0){
+    vfsclose(vn);
+    return -1;
+  }
   *out = vn;
   return 1;
+}
+
+int
+vfsrename(char *oldpath, char *newpath)
+{
+  char *oldsub, *newsub;
+  int oldreadonly, newreadonly;
+  struct vnode_ops *oldops = findmount(oldpath, &oldsub, &oldreadonly);
+  struct vnode_ops *newops = findmount(newpath, &newsub, &newreadonly);
+  if(oldops == 0 && newops == 0)
+    return -1;
+  if(oldops == 0 || oldops != newops || oldreadonly || newreadonly ||
+     oldops->rename == 0)
+    return -1;
+  return oldops->rename(oldsub, newsub);
 }
 
 void
@@ -635,4 +721,13 @@ vfsread(struct vnode *vn, int user_dst, uint64 dst, uint off, uint n)
   }
   kfree(page);
   return total;
+}
+
+int
+vfswrite(struct vnode *vn, int user_src, uint64 src, uint off, uint n)
+{
+  if(vn == 0 || vn->readonly || vn->type != T_FILE ||
+     vn->ops->write == 0 || n > 0xffffffffU - off)
+    return -1;
+  return vn->ops->write(vn->path, &vn->fat_file, off, user_src, src, n);
 }

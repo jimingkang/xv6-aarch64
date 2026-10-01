@@ -53,3 +53,6 @@
 #define SYS_fcntl        52
 #define SYS_pty_open     53
 #define SYS_getrandom    54
+#define SYS_rename       55
+#define SYS_udp_tryrecv  56
+#define SYS_tty_set_foreground 57

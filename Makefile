@@ -1,7 +1,8 @@
 K=kernel
 U=user
+KERNEL_IMAGE = $K/kernel8-xv6_wifi.img
 
-.DEFAULT_GOAL := install-rpi3
+.DEFAULT_GOAL := build
 
 RPI3_BOOTFS ?= /Volumes/bootfs
 RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
@@ -112,7 +113,7 @@ $K/kernel: $(OBJS) $K/kernel.ld $U/initcode
 	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
 	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
 
-$K/kernel8.img: $K/kernel
+$K/kernel8-xv6_wifi.img: $K/kernel
 	$(OBJCOPY) -O binary $< $@
 
 $K/armstub.o: $K/armstub.S
@@ -124,13 +125,16 @@ $K/armstub.elf: $K/armstub.o
 $K/armstub-xv6.bin: $K/armstub.elf
 	$(OBJCOPY) -O binary $< $@
 
+.PHONY: build
+build: $(KERNEL_IMAGE) fs.img config.txt
+
 .PHONY: install-rpi3
-install-rpi3: $K/kernel8.img fs.img config.txt
+install-rpi3: $(KERNEL_IMAGE) fs.img config.txt
 	@test -d "$(RPI3_BOOTFS)" || { \
 		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
 		exit 1; \
 	}
-	$(SUDO) cp -f $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	$(SUDO) cp -f $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	@if test -n "$(RPI3_XV6_DEV)"; then \
 		case "$(RPI3_XV6_DEV)" in \
 		  /dev/disk*s[0-9]*|/dev/rdisk*s[0-9]*) ;; \
@@ -142,8 +146,8 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		echo "warning: fs.img not installed; set RPI3_XV6_DEV to the raw xv6 partition" 1>&2; \
 	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
-	@cmp -s $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
-		echo "error: installed kernel differs from $K/kernel8.img" 1>&2; \
+	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
+		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; \
 		exit 1; \
 	}
 	@cmp -s config.txt "$(RPI3_BOOTFS)/config.txt" || { \
@@ -176,7 +180,7 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		echo "MT7601U firmware not installed (set WIFI_FIRMWARE_DIR=...)"; \
 	fi
 	sync
-	@echo "installed $K/kernel8.img -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	@echo "installed $(KERNEL_IMAGE) -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	@if test -n "$(RPI3_XV6_DEV)"; then \
 		echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"; \
 	else \
@@ -256,6 +260,7 @@ UPROGS=\
 	$U/_login\
 	$U/_ls\
 	$U/_mkdir\
+	$U/_mv\
 	$U/_touch\
 	$U/_file\
 	$U/_edit\
@@ -264,6 +269,7 @@ UPROGS=\
 	$U/_prodcons\
 	$U/_nettest\
 	$U/_netdns\
+	$U/_tftp\
 	$U/_ping\
 	$U/_wifi\
 	$U/_dhcp\
@@ -292,7 +298,7 @@ fs.img: mkfs/mkfs $(UPROGS)
 clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
-	$U/initcode $U/initcode.out $K/kernel $K/kernel8.img \
+	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img \
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
@@ -308,6 +314,7 @@ clean:
 	\) -delete
 	find $K -maxdepth 1 -type f \( \
 		-name 'kernel [0-9]*' -o -name 'kernel8 [0-9]*.img' -o \
+		-name 'kernel8-xv6_wifi [0-9]*.img' -o \
 		-name 'armstub [0-9]*.o' -o -name 'armstub [0-9]*.elf' -o \
 		-name 'armstub-xv6 [0-9]*.bin' \
 	\) -delete
@@ -330,7 +337,7 @@ endif
 # after all volumes on that physical SD card have been unmounted.
 SDIMAGE ?= fs.img
 
-QEMUOPTS = -machine raspi3b -kernel $K/kernel8.img -display none
+QEMUOPTS = -machine raspi3b -kernel $(KERNEL_IMAGE) -display none
 # raspi3b serial[0] is PL011; serial[1] is the AUX Mini UART used by xv6.
 QEMUOPTS += -serial null -serial mon:stdio
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
@@ -342,16 +349,16 @@ QEMUNETOPTS = -netdev user,id=net0,ipv4=on,ipv6=off,net=10.0.2.0/24
 QEMUNETOPTS += -device usb-net,netdev=net0,mac=52:54:00:12:34:56
 QEMUNETOPTS += -object filter-dump,id=netdump,netdev=net0,file=packets.pcap
 
-qemu: $K/kernel8.img fs.img
+qemu: $(KERNEL_IMAGE) fs.img
 	$(QEMU) $(QEMUOPTS)
 
 .PHONY: qemu-net
-qemu-net: $K/kernel8.img fs.img
+qemu-net: $(KERNEL_IMAGE) fs.img
 	$(QEMU) $(QEMUOPTS) $(QEMUNETOPTS)
 
 .gdbinit: .gdbinit.tmpl-aarch64
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
-qemu-gdb: $K/kernel8.img .gdbinit fs.img
+qemu-gdb: $(KERNEL_IMAGE) .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)

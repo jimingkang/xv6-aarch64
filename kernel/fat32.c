@@ -30,17 +30,30 @@ static struct {
   uint32 fat_lba;
   uint32 data_lba;
   uint32 sectors_per_cluster;
+  uint32 total_clusters;
+  uint32 root_cluster;
+  uint32 fat_sectors;
+  uint32 fat_count;
+  uint32 reserved_sectors;
+  uint32 fsinfo_sector;
+  uint32 backup_sector;
+  uint32 next_alloc_cluster;
   uint32 file_size;
   uint32 cluster_count;
   uint32 clusters[MAX_FILE_CLUSTERS];
 } diskmap;
 
 static uchar scratch[SECTOR_SIZE];
+static struct spinlock fat32_lock;
 
 static uint16 le16(const uchar *p);
 static uint32 le32(const uchar *p);
 static uint32 cluster_lba(uint32 cluster);
 static uint32 fat_next(uint32 cluster);
+static int fat_set_next(uint32 cluster, uint32 next);
+static int fat_alloc_cluster(uint32 *cluster_out);
+static int fat_free_chain(uint32 cluster);
+static int fat_mark_fsinfo_unknown(void);
 
 int
 fat32ready(void)
@@ -68,6 +81,110 @@ path_to_name11(char *path, char name[11])
     if(c >= 'a' && c <= 'z') c -= 'a' - 'A';
     name[ext++] = c;
   }
+  return 0;
+}
+
+struct fat_dir_slot {
+  uint32 sector;
+  uint16 offset;
+  uchar entry[32];
+};
+
+static int
+fat_find_root(char name[11], struct fat_dir_slot *found,
+              struct fat_dir_slot *free_slot, uint32 *last_cluster)
+{
+  uint32 cluster = diskmap.root_cluster;
+  struct fat_dir_slot available;
+  int have_available = 0;
+
+  for(uint32 visited = 0; visited < diskmap.total_clusters; visited++){
+    if(cluster < 2 || cluster >= diskmap.total_clusters + 2)
+      return -1;
+    uint32 first = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      uint32 sector = first + s;
+      if(sdsector(sector, scratch, 0) < 0)
+        return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        uchar *entry = scratch + off;
+        if(entry[0] == 0){
+          if(!have_available){
+            available.sector = sector;
+            available.offset = off;
+            memset(available.entry, 0, sizeof(available.entry));
+            have_available = 1;
+          }
+          if(free_slot)
+            *free_slot = available;
+          if(last_cluster)
+            *last_cluster = cluster;
+          return 0;
+        }
+        if(entry[0] == 0xe5){
+          if(!have_available){
+            available.sector = sector;
+            available.offset = off;
+            memmove(available.entry, entry, sizeof(available.entry));
+            have_available = 1;
+          }
+          continue;
+        }
+        if(entry[11] == 0x0f || (entry[11] & 0x08))
+          continue;
+        if(memcmp(entry, name, 11) == 0){
+          if(found){
+            found->sector = sector;
+            found->offset = off;
+            memmove(found->entry, entry, sizeof(found->entry));
+          }
+          if(last_cluster)
+            *last_cluster = cluster;
+          return 1;
+        }
+      }
+    }
+    uint32 next = fat_next(cluster);
+    if(next >= FAT32_EOC){
+      if(free_slot && have_available)
+        *free_slot = available;
+      if(last_cluster)
+        *last_cluster = cluster;
+      return 0;
+    }
+    if(next < 2)
+      return -1;
+    cluster = next;
+  }
+  return -1;
+}
+
+static int
+fat_write_slot(struct fat_dir_slot *slot, const uchar entry[32])
+{
+  if(sdsector(slot->sector, scratch, 0) < 0)
+    return -1;
+  memmove(scratch + slot->offset, entry, 32);
+  return sdsector(slot->sector, scratch, 1);
+}
+
+static int
+fat_new_root_slot(struct fat_dir_slot *slot)
+{
+  uint32 tail, cluster;
+  char empty[11];
+  memset(empty, 0, sizeof(empty));
+  memset(slot, 0, sizeof(*slot));
+  if(fat_find_root(empty, 0, slot, &tail) < 0)
+    return -1;
+  if(slot->sector != 0)
+    return 0;
+  if(fat_alloc_cluster(&cluster) < 0 ||
+     fat_set_next(tail, cluster) < 0)
+    return -1;
+  slot->sector = cluster_lba(cluster);
+  slot->offset = 0;
+  memset(slot->entry, 0, sizeof(slot->entry));
   return 0;
 }
 
@@ -119,8 +236,8 @@ fat32lookuproot(char name[11], struct fat32_dirent *de)
   return -1;
 }
 
-int
-fat32readdirroot(int index, struct fat32_dirent *de)
+static int
+fat32readdirroot_locked(int index, struct fat32_dirent *de)
 {
   uint32 cluster;
   int seen = 0;
@@ -152,7 +269,16 @@ fat32readdirroot(int index, struct fat32_dirent *de)
 }
 
 int
-fat32statpath(char *path, struct fat32_dirent *de)
+fat32readdirroot(int index, struct fat32_dirent *de)
+{
+  acquire(&fat32_lock);
+  int result = fat32readdirroot_locked(index, de);
+  release(&fat32_lock);
+  return result;
+}
+
+static int
+fat32statpath_locked(char *path, struct fat32_dirent *de)
 {
   char name[11];
   if(path[0] == '/' && path[1] == 0){
@@ -161,6 +287,15 @@ fat32statpath(char *path, struct fat32_dirent *de)
   if(path_to_name11(path, name) < 0)
     return -1;
   return fat32lookuproot(name, de);
+}
+
+int
+fat32statpath(char *path, struct fat32_dirent *de)
+{
+  acquire(&fat32_lock);
+  int result = fat32statpath_locked(path, de);
+  release(&fat32_lock);
+  return result;
 }
 
 static char *
@@ -213,12 +348,122 @@ cluster_lba(uint32 cluster)
 static uint32
 fat_next(uint32 cluster)
 {
-  uint32 offset = cluster * 4;
-  uint32 sector = diskmap.fat_lba + offset / SECTOR_SIZE;
-  uint32 pos = offset % SECTOR_SIZE;
+  uint32 entries_per_sector = SECTOR_SIZE / 4;
+  uint32 sector = diskmap.fat_lba + cluster / entries_per_sector;
+  uint32 pos = (cluster % entries_per_sector) * 4;
   if(sdsector(sector, scratch, 0) < 0)
     panic("fat32: read FAT");
   return le32(scratch + pos) & 0x0fffffffU;
+}
+
+static int
+fat_set_next(uint32 cluster, uint32 next)
+{
+  uint32 entries_per_sector = SECTOR_SIZE / 4;
+  uint32 sector_offset = cluster / entries_per_sector;
+  uint32 pos = (cluster % entries_per_sector) * 4;
+  if(cluster < 2 || cluster >= diskmap.total_clusters + 2 ||
+     sector_offset >= diskmap.fat_sectors)
+    return -1;
+  for(uint32 copy = 0; copy < diskmap.fat_count; copy++){
+    uint32 sector = diskmap.fat_lba + copy * diskmap.fat_sectors +
+                    sector_offset;
+    if(sdsector(sector, scratch, 0) < 0)
+      return -1;
+    uint32 current = le32(scratch + pos);
+    uint32 value = (current & 0xf0000000U) | (next & 0x0fffffffU);
+    scratch[pos] = value;
+    scratch[pos + 1] = value >> 8;
+    scratch[pos + 2] = value >> 16;
+    scratch[pos + 3] = value >> 24;
+    if(sdsector(sector, scratch, 1) < 0)
+      return -1;
+  }
+  return 0;
+}
+
+static int
+fat_mark_fsinfo_unknown(void)
+{
+  uint32 sectors[2], count = 0;
+  if(diskmap.fsinfo_sector == 0 || diskmap.fsinfo_sector == 0xffff)
+    return 0;
+  sectors[count++] = diskmap.fsinfo_sector;
+  if(diskmap.backup_sector != 0 &&
+     diskmap.backup_sector != 0xffff &&
+     diskmap.backup_sector + diskmap.fsinfo_sector <
+       diskmap.reserved_sectors)
+    sectors[count++] = diskmap.backup_sector + diskmap.fsinfo_sector;
+  for(uint32 i = 0; i < count; i++){
+    if(sectors[i] == 0xffff ||
+       sdsector(diskmap.partition_lba + sectors[i], scratch, 0) < 0)
+      return -1;
+    if(le32(scratch) != 0x41615252U ||
+       le32(scratch + 484) != 0x61417272U)
+      continue;
+    memset(scratch + 488, 0xff, 4);
+    scratch[492] = diskmap.next_alloc_cluster;
+    scratch[493] = diskmap.next_alloc_cluster >> 8;
+    scratch[494] = diskmap.next_alloc_cluster >> 16;
+    scratch[495] = diskmap.next_alloc_cluster >> 24;
+    if(sdsector(diskmap.partition_lba + sectors[i], scratch, 1) < 0)
+      return -1;
+  }
+  return 0;
+}
+
+static int
+fat_alloc_cluster(uint32 *cluster_out)
+{
+  uint32 start = diskmap.next_alloc_cluster;
+  if(start < 2 || start >= diskmap.total_clusters + 2)
+    start = 2;
+  for(uint32 checked = 0; checked < diskmap.total_clusters; checked++){
+    uint32 start_index = start - 2;
+    uint32 index = checked < diskmap.total_clusters - start_index
+                     ? start_index + checked
+                     : checked - (diskmap.total_clusters - start_index);
+    uint32 cluster = index + 2;
+    if(fat_next(cluster) != 0)
+      continue;
+    if(fat_set_next(cluster, 0x0fffffffU) < 0)
+      return -1;
+    memset(scratch, 0, sizeof(scratch));
+    uint32 first = cluster_lba(cluster);
+    for(uint32 i = 0; i < diskmap.sectors_per_cluster; i++)
+      if(sdsector(first + i, scratch, 1) < 0)
+        return -1;
+    diskmap.next_alloc_cluster = cluster + 1;
+    if(diskmap.next_alloc_cluster >= diskmap.total_clusters + 2)
+      diskmap.next_alloc_cluster = 2;
+    if(fat_mark_fsinfo_unknown() < 0)
+      return -1;
+    *cluster_out = cluster;
+    return 0;
+  }
+  return -1;
+}
+
+static int
+fat_free_chain(uint32 cluster)
+{
+  int changed = 0;
+  for(uint32 visited = 0; cluster >= 2 &&
+       cluster < diskmap.total_clusters + 2 &&
+       visited < diskmap.total_clusters; visited++){
+    uint32 next = fat_next(cluster);
+    if(fat_set_next(cluster, 0) < 0)
+      return -1;
+    changed = 1;
+    if(next == 0 || next >= FAT32_EOC){
+      cluster = 0;
+      break;
+    }
+    cluster = next;
+  }
+  if(changed && fat_mark_fsinfo_unknown() < 0)
+    return -1;
+  return cluster == 0 ? 0 : -1;
 }
 
 static int
@@ -306,7 +551,7 @@ find_fsimg(uint32 root, uint32 *first_cluster, uint32 *size)
 }
 
 static int
-setup_fat32(uint32 partition_lba)
+setup_fat32(uint32 partition_lba, uint32 partition_sectors)
 {
   if(sdsector(partition_lba, scratch, 0) < 0 ||
      !is_fat32_boot_sector(scratch))
@@ -316,11 +561,42 @@ setup_fat32(uint32 partition_lba)
   uint32 fats = scratch[16];
   uint32 fat_sectors = le32(scratch + 36);
   uint32 root = le32(scratch + 44);
+  uint32 total_sectors = le16(scratch + 19);
+  if(total_sectors == 0)
+    total_sectors = le32(scratch + 32);
+  uint32 fsinfo = le16(scratch + 48);
+  uint32 backup = le16(scratch + 50);
+  if(fats == 0 || fat_sectors == 0 || scratch[13] == 0 ||
+     (scratch[13] & (scratch[13] - 1)) != 0 ||
+     fat_sectors > (0xffffffffU - reserved) / fats ||
+     total_sectors <= reserved + fats * fat_sectors ||
+     (partition_sectors != 0 && total_sectors > partition_sectors) ||
+     total_sectors > 0xffffffffU - partition_lba ||
+     fat_sectors > 0xffffffffU / (SECTOR_SIZE / 4) ||
+     (fsinfo != 0xffff && fsinfo != 0 && fsinfo >= reserved) ||
+     (backup != 0xffff && backup != 0 && backup >= reserved))
+    return -1;
+  uint32 fat_area = fats * fat_sectors;
 
   diskmap.partition_lba = partition_lba;
   diskmap.sectors_per_cluster = scratch[13];
+  diskmap.total_clusters =
+    (total_sectors - reserved - fat_area) / scratch[13];
+  diskmap.root_cluster = root;
+  diskmap.fat_count = fats;
+  diskmap.fat_sectors = fat_sectors;
+  diskmap.reserved_sectors = reserved;
+  diskmap.fsinfo_sector = fsinfo;
+  diskmap.backup_sector = backup;
+  diskmap.next_alloc_cluster = 2;
+  if(diskmap.total_clusters == 0 ||
+     diskmap.total_clusters > fat_sectors * (SECTOR_SIZE / 4) - 2 ||
+     root < 2 || root >= diskmap.total_clusters + 2 ||
+     (backup != 0 && backup != 0xffff && fsinfo != 0xffff &&
+      backup + fsinfo >= reserved))
+    return -1;
   diskmap.fat_lba = partition_lba + reserved;
-  diskmap.data_lba = diskmap.fat_lba + fats * fat_sectors;
+  diskmap.data_lba = diskmap.fat_lba + fat_area;
 
   printf("fat32: BPB lba=%d bytes/sector=%d sectors/cluster=%d\n",
          partition_lba, le16(scratch + 11), diskmap.sectors_per_cluster);
@@ -384,19 +660,285 @@ setup_raw_root(uint32 start, uint32 sectors)
 int
 fat32openroot(char *name11, struct fat32_file *file)
 {
+  int result;
   if(!diskmap.fat || name11 == 0 || file == 0 || strlen(name11) != 11)
     return -1;
-  // FAT32 root starts at cluster 2 on the Pi bootfs images currently used.
-  // Re-read the BPB because diskmap intentionally only retains block mapping
-  // fields needed by the xv6 filesystem container.
+  acquire(&fat32_lock);
   if(sdsector(diskmap.partition_lba, scratch, 0) < 0)
-    return -1;
+    goto bad;
   uint32 root = le32(scratch + 44);
-  return find_root_file(root, name11, &file->first_cluster, &file->size);
+  result = find_root_file(root, name11, &file->first_cluster, &file->size);
+  if(result == 0){
+    file->last_cluster = 0;
+    file->last_cluster_index = 0;
+  }
+  release(&fat32_lock);
+  return result;
+bad:
+  release(&fat32_lock);
+  return -1;
+}
+
+static void
+fat_slot_set_cluster(uchar entry[32], uint32 cluster)
+{
+  entry[20] = cluster >> 16;
+  entry[21] = cluster >> 24;
+  entry[26] = cluster;
+  entry[27] = cluster >> 8;
+}
+
+static uint32
+fat_slot_cluster(const uchar entry[32])
+{
+  return ((uint32)entry[20] << 16) | ((uint32)entry[21] << 24) |
+         entry[26] | ((uint32)entry[27] << 8);
+}
+
+static int
+fat_load_write_state(char *path, struct fat32_file *file,
+                     struct fat_dir_slot *slot)
+{
+  char name[11];
+  if(path_to_name11(path, name) < 0 ||
+     fat_find_root(name, slot, 0, 0) != 1 ||
+     (slot->entry[11] & 0x10))
+    return -1;
+  file->first_cluster = fat_slot_cluster(slot->entry);
+  file->size = le32(slot->entry + 28);
+  file->last_cluster = 0;
+  file->last_cluster_index = 0;
+  if(file->first_cluster){
+    uint32 cluster = file->first_cluster;
+    for(uint32 index = 0; index < diskmap.total_clusters; index++){
+      uint32 next;
+      if(cluster < 2 || cluster >= diskmap.total_clusters + 2)
+        return -1;
+      file->last_cluster = cluster;
+      file->last_cluster_index = index;
+      next = fat_next(cluster);
+      if(next >= FAT32_EOC)
+        return 0;
+      if(next < 2)
+        return -1;
+      cluster = next;
+    }
+    return -1;
+  }
+  return file->size == 0 ? 0 : -1;
 }
 
 int
-fat32pread(struct fat32_file *file, uint32 offset, void *dst, int n)
+fat32openwrite(char *path, struct fat32_file *file)
+{
+  struct fat_dir_slot slot;
+  if(!diskmap.fat || path == 0 || file == 0)
+    return -1;
+  acquire(&fat32_lock);
+  int result = fat_load_write_state(path, file, &slot);
+  release(&fat32_lock);
+  return result;
+}
+
+int
+fat32createfile(char *path)
+{
+  char name[11];
+  struct fat_dir_slot found, free_slot;
+  uchar entry[32];
+  if(!diskmap.fat || path_to_name11(path, name) < 0)
+    return -1;
+  acquire(&fat32_lock);
+  int result = fat_find_root(name, &found, 0, 0);
+  if(result != 0)
+    goto bad;
+  if(fat_new_root_slot(&free_slot) < 0)
+    goto bad;
+  memset(entry, 0, sizeof(entry));
+  memmove(entry, name, sizeof(name));
+  entry[11] = 0x20;
+  if(fat_write_slot(&free_slot, entry) < 0)
+    goto bad;
+  release(&fat32_lock);
+  return 0;
+bad:
+  release(&fat32_lock);
+  return -1;
+}
+
+int
+fat32truncatefile(char *path, struct fat32_file *file)
+{
+  char name[11];
+  struct fat_dir_slot slot;
+  uint32 old_cluster;
+  if(!diskmap.fat || path_to_name11(path, name) < 0 || file == 0)
+    return -1;
+  acquire(&fat32_lock);
+  if(fat_find_root(name, &slot, 0, 0) != 1 ||
+     (slot.entry[11] & 0x10))
+    goto bad;
+  old_cluster = fat_slot_cluster(slot.entry);
+  fat_slot_set_cluster(slot.entry, 0);
+  memset(slot.entry + 28, 0, 4);
+  if(fat_write_slot(&slot, slot.entry) < 0)
+    goto bad;
+  memset(file, 0, sizeof(*file));
+  if(old_cluster && fat_free_chain(old_cluster) < 0)
+    goto bad;
+  release(&fat32_lock);
+  return 0;
+bad:
+  release(&fat32_lock);
+  return -1;
+}
+
+int
+fat32writefile(char *path, struct fat32_file *file, uint32 offset,
+               int user_src, uint64 src, int n)
+{
+  char name[11];
+  struct fat_dir_slot slot;
+  uint32 cluster_bytes;
+  int done = 0, error = 0;
+
+  if(!diskmap.fat || file == 0 || n < 0 ||
+     (uint32)n > 0xffffffffU - offset ||
+     path_to_name11(path, name) < 0)
+    return -1;
+  if(n == 0)
+    return 0;
+  acquire(&fat32_lock);
+  if(offset != file->size ||
+     fat_find_root(name, &slot, 0, 0) != 1 ||
+     (slot.entry[11] & 0x10) ||
+     fat_slot_cluster(slot.entry) != file->first_cluster ||
+     le32(slot.entry + 28) != file->size){
+    error = 1;
+    goto out;
+  }
+
+  cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
+  while(done < n){
+    uint32 position = offset + done;
+    uint32 index = position / cluster_bytes;
+    uint32 cluster;
+    uint32 in_cluster = position % cluster_bytes;
+    uint32 sector;
+    uint32 sector_offset = in_cluster % SECTOR_SIZE;
+    int take = SECTOR_SIZE - sector_offset;
+    while(file->last_cluster == 0 || index > file->last_cluster_index){
+      uint32 new_cluster;
+      if(fat_alloc_cluster(&new_cluster) < 0 ||
+         (file->last_cluster &&
+          fat_set_next(file->last_cluster, new_cluster) < 0)){
+        error = 1;
+        goto write_done;
+      }
+      if(file->last_cluster == 0)
+        file->first_cluster = new_cluster;
+      file->last_cluster = new_cluster;
+      if(file->last_cluster_index != 0 ||
+         file->first_cluster != new_cluster)
+        file->last_cluster_index++;
+    }
+    if(index != file->last_cluster_index){
+      error = 1;
+      goto write_done;
+    }
+    cluster = file->last_cluster;
+    sector = cluster_lba(cluster) + (in_cluster / SECTOR_SIZE);
+    if(take > n - done)
+      take = n - done;
+    if(sector_offset || take != SECTOR_SIZE){
+      if(sdsector(sector, scratch, 0) < 0){
+        error = 1;
+        break;
+      }
+    }
+    if(either_copyin(scratch + sector_offset, user_src, src + done, take) < 0){
+      error = 1;
+      break;
+    }
+    if(sdsector(sector, scratch, 1) < 0){
+      error = 1;
+      break;
+    }
+    done += take;
+  }
+
+write_done:
+  if(done > 0){
+    file->size = offset + done;
+    fat_slot_set_cluster(slot.entry, file->first_cluster);
+    slot.entry[28] = file->size;
+    slot.entry[29] = file->size >> 8;
+    slot.entry[30] = file->size >> 16;
+    slot.entry[31] = file->size >> 24;
+    if(fat_write_slot(&slot, slot.entry) < 0)
+      error = 1;
+  }
+out:
+  release(&fat32_lock);
+  return done > 0 ? done : (error ? -1 : 0);
+}
+
+int
+fat32renamefile(char *oldpath, char *newpath)
+{
+  char oldname[11], newname[11];
+  struct fat_dir_slot source, target;
+  uint32 old_cluster = 0, new_cluster;
+  int found;
+
+  if(!diskmap.fat || path_to_name11(oldpath, oldname) < 0 ||
+     path_to_name11(newpath, newname) < 0 ||
+     memcmp(oldname, newname, sizeof(oldname)) == 0)
+    return -1;
+  acquire(&fat32_lock);
+  if(fat_find_root(oldname, &source, 0, 0) != 1 ||
+     (source.entry[11] & 0x10))
+    goto bad;
+  new_cluster = fat_slot_cluster(source.entry);
+  found = fat_find_root(newname, &target, 0, 0);
+  if(found < 0)
+    goto bad;
+  if(found == 0){
+    memmove(source.entry, newname, sizeof(newname));
+    if(fat_write_slot(&source, source.entry) < 0)
+      goto bad;
+  } else {
+    if(target.entry[11] & 0x10)
+      goto bad;
+    old_cluster = fat_slot_cluster(target.entry);
+    fat_slot_set_cluster(target.entry, new_cluster);
+    memmove(target.entry + 28, source.entry + 28, 4);
+    source.entry[0] = 0xe5;
+    if(target.sector == source.sector){
+      if(sdsector(target.sector, scratch, 0) < 0)
+        goto bad;
+      memmove(scratch + target.offset, target.entry, 32);
+      memmove(scratch + source.offset, source.entry, 32);
+      if(sdsector(target.sector, scratch, 1) < 0)
+        goto bad;
+    } else {
+      if(fat_write_slot(&target, target.entry) < 0 ||
+         fat_write_slot(&source, source.entry) < 0)
+        goto bad;
+    }
+    if(old_cluster && old_cluster != new_cluster &&
+       fat_free_chain(old_cluster) < 0)
+      goto bad;
+  }
+  release(&fat32_lock);
+  return 0;
+bad:
+  release(&fat32_lock);
+  return -1;
+}
+
+static int
+fat32pread_locked(struct fat32_file *file, uint32 offset, void *dst, int n)
 {
   uint32 cluster, cluster_bytes, skip;
   uchar *out = dst;
@@ -438,6 +980,15 @@ fat32pread(struct fat32_file *file, uint32 offset, void *dst, int n)
 }
 
 int
+fat32pread(struct fat32_file *file, uint32 offset, void *dst, int n)
+{
+  acquire(&fat32_lock);
+  int result = fat32pread_locked(file, offset, dst, n);
+  release(&fat32_lock);
+  return result;
+}
+
+int
 fat32readerinit(struct fat32_reader *reader, struct fat32_file *file)
 {
   if(reader == 0 || file == 0 || file->first_cluster < 2)
@@ -451,8 +1002,8 @@ fat32readerinit(struct fat32_reader *reader, struct fat32_file *file)
 // Sequential FAT32 reader.  Unlike fat32pread(), it retains the current
 // cluster and therefore does not walk the chain from its beginning for every
 // 512-byte firmware chunk.
-int
-fat32readnext(struct fat32_reader *reader, void *dst, int n)
+static int
+fat32readnext_locked(struct fat32_reader *reader, void *dst, int n)
 {
   uint32 cluster_bytes;
   uchar *out = dst;
@@ -490,15 +1041,25 @@ fat32readnext(struct fat32_reader *reader, void *dst, int n)
   return done;
 }
 
+int
+fat32readnext(struct fat32_reader *reader, void *dst, int n)
+{
+  acquire(&fat32_lock);
+  int result = fat32readnext_locked(reader, dst, n);
+  release(&fat32_lock);
+  return result;
+}
+
 void
 fat32init(void)
 {
+  initlock(&fat32_lock, "fat32");
   if(sdsector(0, scratch, 0) < 0)
     panic("fat32: sector 0");
 
   // A superfloppy FAT32 volume has its BPB directly in sector zero.
   if(is_fat32_boot_sector(scratch)){
-    if(setup_fat32(0) == 0 && diskmap.container){
+    if(setup_fat32(0, 0) == 0 && diskmap.container){
       printf("fat32: FS.IMG found in superfloppy, size=%d\n",
              diskmap.file_size);
       return;
@@ -551,8 +1112,10 @@ fat32init(void)
       const uchar *part = entries[i];
       uchar type = part[4];
       uint32 start = le32(part + 8);
+      uint32 sectors = le32(part + 12);
       if((type == 0x0b || type == 0x0c) && start != 0 &&
-         setup_fat32(start) == 0){
+         sectors != 0 && start <= 0xffffffffU - sectors &&
+         setup_fat32(start, sectors) == 0){
         printf("fat32: selected p%d lba=%d", i + 1, start);
         if(diskmap.container)
           printf(" FS.IMG=%d bytes clusters=%d",
@@ -605,9 +1168,11 @@ fat32rw(struct buf *b, int write)
     panic("fat32rw: blockno too big");
 
   uint32 first = b->blockno * (BSIZE / SECTOR_SIZE);
+  acquire(&fat32_lock);
   for(int i = 0; i < BSIZE / SECTOR_SIZE; i++){
     uint32 lba = file_sector_lba(first + i);
     if(sdsector(lba, b->data + i * SECTOR_SIZE, write) < 0)
       panic(write ? "fat32: write FS.IMG" : "fat32: read FS.IMG");
   }
+  release(&fat32_lock);
 }

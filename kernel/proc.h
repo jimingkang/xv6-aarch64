@@ -81,6 +81,8 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#define SIGINT 2
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -94,6 +96,7 @@ struct proc {
   int sid;                     // Session ID
   int pgid;                    // Process group ID
   int ctty;                    // Controlling TTY major, or -1
+  uint signals_pending;       // Pending kernel-generated signals
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

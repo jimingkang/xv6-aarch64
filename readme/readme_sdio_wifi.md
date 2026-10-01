@@ -611,11 +611,14 @@ PMK、PTK、GTK 和 Wi-Fi 密码都属于敏感信息，不能打印到串口日
 
 ## 19. 编译、安装与分层排错
 
-确认 SD 卡设备号和 FAT32 bootfs 挂载点后执行：
+普通 `make` 只编译，不会写入 `/Volumes/bootfs`。构建产物为
+`kernel/kernel8-xv6_wifi.img`。确认 SD 卡设备号和 FAT32 bootfs 挂载点后，
+显式执行安装目标才会复制文件；指定 xv6 分区时还会将 `fs.img` 写入该分区：
 
 ```sh
 diskutil list
-make install-rpi3 WIFI_FIRMWARE_DIR=firmware
+make
+make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2 WIFI_FIRMWARE_DIR=firmware
 sync
 ```
 
@@ -623,8 +626,8 @@ sync
 覆盖。安装目标会复制并校验：
 
 ```text
-kernel/kernel8.img -> kernel8-xv6_wifi.img
-fs.img             -> FS.IMG
+kernel/kernel8-xv6_wifi.img -> /Volumes/bootfs/kernel8-xv6_wifi.img
+fs.img                      -> /dev/rdisk4s2 (when RPI3_XV6_DEV is specified)
 config.txt         -> config.txt
 BCM43430/43455 BIN/TXT/CLM
 ```
@@ -825,7 +828,7 @@ work 不会并发执行。
 ### 21.7 构建与真机验证
 
 ```sh
-make -j4 kernel/kernel8.img
+make -j4 kernel/kernel8-xv6_wifi.img
 make qemu
 ```
 

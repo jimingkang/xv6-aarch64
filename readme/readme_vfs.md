@@ -149,26 +149,26 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 /etc/fstab
 ```
 
-默认 `fstab` 内容为：
+新建系统默认的 `fstab` 内容为：
 
 ```text
 proc /proc procfs ro 0 0
-bootfs /boot fat32 ro 0 0
+bootfs /boot fat32 rw 0 0
 ext2 /mnt/ext2 ext2 ro 0 0
 ```
 
 `init` 逐行解析 `fstab` 的 source、target、fstype 和 options 字段并调用新加入的
 `mount(source, target, fstype, flags)` 系统调用。当前实现只支持只读 VFS 后端：`procfs`
-总能挂载；`ext2` 只有在启动阶段发现兼容分区后才会挂载成功。为了保持接口形状接近 Linux，
-系统调用保留了 source 和 flags 参数，但当前后端尚未使用它们，也尚未实现设备名解析与
-`umount(2)`。
+总能挂载；`ext2` 只有在启动阶段发现兼容分区后才会挂载成功；FAT32 bootfs 支持只读或有限
+的读写挂载。`ro`/`rw` 会被转换为挂载标志，ext2 和 procfs 仍拒绝 `rw`。目前尚未实现设备名
+解析与 `umount(2)`。
 
 ## FAT32 bootfs 挂载
 
 Raspberry Pi 固件在启动内核前读取 SD 卡上的 FAT32 启动分区。进入 Linux 后，这个分区并
 不会自动变成根文件系统的一部分；Linux 通常再次把它挂载在 `/boot` 或
-`/boot/firmware`。本项目采用同样的布局：原生 xv6 文件系统仍挂载为 `/`，而启动阶段
-识别到的 FAT32 分区通过 VFS 覆盖挂载到 `/boot`。
+`/boot/firmware`。本项目采用同样的布局：原生 xv6 文件系统仍挂载为 `/`，而启动阶段识别到的 FAT32 分区通过 VFS
+覆盖挂载到 `/boot`。
 
 ```text
 SD 卡
@@ -182,11 +182,42 @@ SD 卡
 根目录中的 `config.txt`、内核镜像和固件等文件。`cat /boot/CONFIG.TXT` 通过普通
 `open/read/close` 路径读取 FAT 文件，不再需要 FAT32 专用系统调用。
 
-当前 FAT32 VFS 后端有意保持只读，以免尚未具备日志和崩溃恢复能力的代码损坏可启动分区。
-它已支持根目录的 `stat`、`readdir` 与普通文件读取，并使用 FAT 8.3 短文件名；长文件名
-条目和 `/boot/overlays` 等子目录遍历仍是后续工作。由于 QEMU 当前直接把 `fs.img` 作为
-SD 介质而没有 FAT 分区，QEMU 中 `/boot` 是空的原生挂载点；真实 Raspberry Pi 的分区表
-被探测后才会打印 `vfs: mounted fat32 at /boot read-only` 并显示 bootfs 内容。
+FAT32 VFS 支持根目录的 `stat`、`readdir`、普通文件读取，以及有限的创建、截断、顺序写入和
+重命名。写支持面向 `/boot` 根目录中的 8.3 文件名，不支持子目录、长文件名、随机位置写入或
+并发写入。实现不提供 FAT 日志和崩溃恢复，写入期间断电可能损坏分区；修改启动分区前应备份
+SD 卡。FSInfo 的空闲簇计数会在分配/释放簇后标记为未知，避免保留过时计数。
+
+`/boot` 的读写性由 `/etc/fstab` 决定。首次创建的配置使用 `rw`；已有系统的配置文件不会被
+自动改写，如果其中仍为 `bootfs /boot fat32 ro 0 0`，请先改成 `rw` 并重启。启动日志应显示
+`vfs: mounted fat32 at /boot read-write`。如果启动时 FAT32 未挂载，`/boot` 仍只是 init
+创建的原生空目录，所以 `cd /boot` 成功而 `ls` 只有 `.` 和 `..` 并不能证明 FAT32 已挂载。
+
+QEMU 当前直接把 `fs.img` 作为 SD 介质，没有 FAT32 分区，因此 QEMU 下 `/boot` 是空的原生挂载点；
+真实 Raspberry Pi 的分区表探测到 FAT32 bootfs 后，启动日志才会显示挂载结果并枚举其中的文件。
+
+### TFTP 下载启动镜像
+
+`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，默认远端文件名为 `kernel8.img`，并将其写入
+`/boot/KERNEL8.IMG`：
+
+```sh
+tftp 192.168.1.20
+tftp 192.168.1.20 kernel8.img
+```
+
+第二个参数可指定服务器上的其他文件名。下载先写入 `/boot/KERNL8.TMP`；只有最后一个短数据块
+收到并写入成功后，才将临时文件重命名为 `/boot/KERNEL8.IMG`，覆盖已有目标文件。失败时目标
+文件保持不变，临时文件可能保留并会在下次运行时截断重用。客户端使用固定本地 UDP 端口
+49152，需确保该端口未被其他进程占用；目标路径是 FAT32 根目录中的 8.3 名称。
+传输中每累计收到 16 KiB 会显示累计字节数和平均速度（KB/s）；完成时显示耗时与平均速度。
+TFTP 不协商文件总长度，因此进度以已接收字节数和速度显示，不显示百分比。串口终端按
+Ctrl+C 可向当前前台命令进程组发送 SIGINT 并终止下载；未完成的 `.TMP` 文件会保留，
+重试时自动截断，已存在的最终镜像不会被替换。
+
+`mv old-path new-path` 调用内核 `rename()`。当前只支持同一个可读写 FAT32 挂载中的根目录
+文件重命名或替换；不支持跨挂载点移动、目录移动或原生 xv6 文件系统中的重命名。
+例如：`mv /boot/OLD.IMG /boot/NEW.IMG`。运行普通 `make` 会把 `mv` 编入 `fs.img` 的
+`/bin/mv`；将更新后的 `fs.img` 安装到 xv6 分区后即可使用。
 
 ### 实现过程和代码调用链
 
@@ -217,7 +248,7 @@ main()
 生成的 `/etc/fstab` 中写入：
 
 ```text
-bootfs /boot fat32 ro 0 0
+bootfs /boot fat32 rw 0 0
 ```
 
 `mount_fstab()` 逐行解析配置并调用 `mount(2)`。内核 `vfsmount()` 看到类型为 `fat32` 时，
@@ -228,7 +259,7 @@ bootfs /boot fat32 ro 0 0
 /init
   -> mkdir("/boot")
   -> mount_fstab()
-       -> mount("bootfs", "/boot", "fat32", read-only)
+       -> mount("bootfs", "/boot", "fat32", read-write)
             -> sys_mount()
                  -> vfsmount()
                       -> fat32ready()
@@ -264,6 +295,10 @@ static struct vnode_ops fat32_ops = {
   .stat = fat_vstat,
   .read = fat_vread,
   .readdir = fat_vreaddir,
+  .write = fat_vwrite,
+  .create = fat_vcreate,
+  .truncate = fat_vtruncate,
+  .rename = fat_vrename,
 };
 ```
 
@@ -312,15 +347,16 @@ cat /boot/CONFIG.TXT
             -> copyout 到用户缓冲区
 ```
 
-当前 `vfsopen()` 对 FAT32 只接受 `O_RDONLY`。写入、创建、删除、重命名和 truncate 都不会
-落到 FAT32 驱动，这既体现了 fstab 的 `ro` 配置，也避免未完成一致性保护前修改启动介质。
+写打开只允许 `O_WRONLY`；可创建新文件、用 `O_TRUNC` 清空文件，然后顺序追加数据。为避免
+假装支持随机写，非空文件未使用 `O_TRUNC` 打开会失败。`rename()` 仅支持同一 FAT32 挂载内的
+根目录文件重命名/替换；删除、子目录写入和随机偏移写仍不支持。
 
 #### 7. 验证结果
 
 构建使用：
 
 ```sh
-make -j4 kernel/kernel8.img user/_init fs.img
+make -j4 kernel/kernel8-xv6_wifi.img user/_init fs.img
 ```
 
 QEMU 使用的是不含 MBR/FAT32 的裸 `fs.img`，因此验证结果是根目录出现原生挂载点，而
@@ -335,13 +371,16 @@ $ ls /boot
 ..             1 1 1024
 ```
 
-在真实 SD 卡上，`fat32init()` 能识别第一分区，因此还应出现：
+只有在 FAT32 分区成功探测且 `/etc/fstab` 配置为 `rw` 时，启动日志才应出现：
 
 ```text
-vfs: mounted fat32 at /boot read-only
+vfs: mounted fat32 at /boot read-write
 ```
 
 随后 `ls /boot` 显示的是 FAT32 根目录的 8.3 短文件名，而不再是下面被覆盖的空 xv6 目录。
+如果启动日志没有这条 FAT32 挂载消息，`/boot` 仍是普通 xv6 空目录；进入该目录成功并不代表
+挂载成功。旧系统上已存在的 `/etc/fstab` 不会被自动改写，需将 `bootfs /boot fat32 ro 0 0`
+手动改为 `rw` 后重启。
 
 例如，可以删除或注释 `proc /proc procfs ...` 这一行来阻止下一次启动挂载 `/proc`；也可以
 修改 target，把 procfs 挂载到另一个已经创建的绝对路径。当前 mount table 没有卸载和重复
@@ -394,8 +433,10 @@ TTY。fork 出来的 shell 和命令继承这些字段。访问 `/dev/tty` 时�
 `ctty`，再动态转发到 `/dev/ttyS0`，因此它不是 console 的静态别名：没有 controlling TTY
 的进程访问 `/dev/tty` 会失败。
 
-当前是单串口、单会话的基础实现，尚未实现 termios、前台进程组检查、`tcsetpgrp()`、信号和
-多个终端。具体关系为：
+当前是单串口、单会话的基础实现，尚未实现 termios 和多个终端。shell 在执行前台命令时
+设置其进程组；Ctrl+C 会向该前台组发送默认动作即终止的 SIGINT。shell 提示符期间没有前台
+进程组，Ctrl+C 只清除当前输入行，不会退出 shell。尚未实现用户态信号处理器或完整的
+POSIX job control。具体关系为：
 
 ```text
 Mini UART/console input queue
