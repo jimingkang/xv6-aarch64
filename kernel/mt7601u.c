@@ -242,7 +242,7 @@ struct mt7601u_device {
   uint8 net_rx[MT_NET_FRAME_MAX];
   int net_rx_len;
   int paused;
-  struct work_struct rx_work;
+  struct napi_struct napi;
   struct delayed_work state_work;
   struct mt7601u_scan_entry scan[MT_SCAN_MAX];
 };
@@ -261,7 +261,7 @@ static uint8 mt_eapol_buf[256] __attribute__((aligned(64)));
 
 static int mt7601u_net_xmit(struct net_device*, void*, int);
 static void mt7601u_net_poll(struct net_device*);
-static void mt7601u_rx_worker(struct work_struct*);
+static int mt7601u_napi_poll(struct napi_struct*, int);
 static void mt7601u_state_worker(struct work_struct*);
 
 #define MT_STATE_SOON_JIFFIES       1
@@ -1344,16 +1344,16 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
   }
 }
 
-static void
+static int
 mt7601u_service(int service_rx, int service_state)
 {
-  int got, deliver = 0, register_needed = 0;
+  int got, deliver = 0, register_needed = 0, rx_done = 0;
   uint64 now = workqueue_now();
   void *rx_data = 0;
   struct mt7601u_device *dev = &mt7601u;
   if(!dev->used || !dev->mcu_running || !dev->endpoints_ready || dev->paused ||
      dev->udev == 0)
-    return;
+    return 0;
   acquire(&dev->lock);
   if(service_rx && dev->udev->ops->bulk_rx_arm &&
      dev->udev->ops->bulk_rx_complete){
@@ -1361,11 +1361,13 @@ mt7601u_service(int service_rx, int service_state)
                                             dev->udev->bulk_in_ep,
                                             &rx_data);
     if(got >= 0){
+      rx_done = 1;
       if(got > 0)
         mt7601u_rx_parse(dev, rx_data, got);
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
                                   rx_data, MT_RX_BUF_SIZE);
     } else if(got == -1 && rx_data) {
+      rx_done = 1;
       // Return a failed request's buffer to the ring; the remaining queued
       // buffers kept the endpoint live while this completion was handled.
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
@@ -1374,8 +1376,10 @@ mt7601u_service(int service_rx, int service_state)
   } else if(service_rx) {
     got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep, 1,
                                mt_rx_buf[0], MT_RX_BUF_SIZE);
-    if(got > 0)
+    if(got > 0){
+      rx_done = 1;
       mt7601u_rx_parse(dev, mt_rx_buf[0], got);
+    }
   }
 
   if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
@@ -1464,6 +1468,7 @@ mt7601u_service(int service_rx, int service_state)
   }
   if(deliver)
     net_rx_dev(&dev->netdev, dev->net_rx, deliver);
+  return rx_done;
 }
 
 void
@@ -1472,11 +1477,19 @@ mt7601u_poll(void)
   mt7601u_service(1, 1);
 }
 
-static void
-mt7601u_rx_worker(struct work_struct *work)
+static int
+mt7601u_napi_poll(struct napi_struct *napi, int budget)
 {
-  (void)work;
-  mt7601u_service(1, 0);
+  int done = 0;
+  while(done < budget){
+    int one = mt7601u_service(1, 0);
+    if(one == 0)
+      break;
+    done += one;
+  }
+  if(done < budget)
+    napi_complete_done(napi, done);
+  return done;
 }
 
 static void
@@ -1517,7 +1530,7 @@ void
 mt7601u_rx_irq(void)
 {
   if(mt7601u.used)
-    queue_work(&mt7601u_wq, &mt7601u.rx_work);
+    napi_schedule(&mt7601u.napi);
 }
 
 void
@@ -1657,7 +1670,8 @@ mt7601u_probe(struct usb_device *udev)
     printf("mt7601u: MCU firmware load failed\n");
     return -1;
   }
-  init_work(&mt7601u.rx_work, mt7601u_rx_worker);
+  netif_napi_add(&mt7601u.netdev, &mt7601u.napi, &mt7601u_wq,
+                 mt7601u_napi_poll, MT_RX_REQUESTS);
   init_delayed_work(&mt7601u.state_work, mt7601u_state_worker);
   mt7601u.used = 1;
   mt7601u.udev = udev;
@@ -1686,6 +1700,7 @@ mt7601u_probe(struct usb_device *udev)
   mt7601u.netdev.priv = &mt7601u;
   mt7601u.netdev.mtu = NET_MTU;
   memmove(mt7601u.netdev.mac, mt7601u.mac, 6);
+  napi_enable(&mt7601u.napi);
   udev->dev.driver_data = &mt7601u;
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
     for(int i = 0; i < MT_RX_REQUESTS; i++)
@@ -1709,7 +1724,7 @@ mt7601u_remove(struct usb_device *udev)
   mt7601u.used = 0;
   release(&mt7601u.lock);
   __sync_synchronize();
-  cancel_work_sync(&mt7601u.rx_work);
+  napi_disable(&mt7601u.napi);
   cancel_delayed_work_sync(&mt7601u.state_work);
   if(mt7601u.net_registered)
     unregister_netdev(&mt7601u.netdev);

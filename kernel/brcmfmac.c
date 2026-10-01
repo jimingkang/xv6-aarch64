@@ -289,7 +289,7 @@ struct brcmf_bus_state {
   int handshake_done;
   int m2_sent;
   struct workqueue *wq;
-  struct work_struct rx_work;
+  struct napi_struct napi;
   struct delayed_work state_work;
   int connect_active;
   int connect_timedout;
@@ -310,7 +310,7 @@ static char *brcmf_wq_names[BRCMF_MAX_DEVICES] = {
 // ensuring every access resolves through that function's local bus pointer.
 #define brcmf_bus (*bus)
 
-static void brcmf_rx_worker(struct work_struct*);
+static int brcmf_napi_poll(struct napi_struct*, int);
 static void brcmf_state_worker(struct work_struct*);
 
 static struct brcmf_bus_state *
@@ -324,7 +324,8 @@ brcmf_alloc_bus(void)
     brcmf_devices[i].wq = &brcmf_wq[i];
     initlock(&brcmf_devices[i].lock, "brcmfmac");
     initlock(&brcmf_devices[i].iovar_lock, "brcmf-iovar");
-    init_work(&brcmf_devices[i].rx_work, brcmf_rx_worker);
+    netif_napi_add(&brcmf_devices[i].netdev, &brcmf_devices[i].napi,
+                   brcmf_devices[i].wq, brcmf_napi_poll, 16);
     init_delayed_work(&brcmf_devices[i].state_work, brcmf_state_worker);
     return &brcmf_devices[i];
   }
@@ -337,7 +338,7 @@ brcmf_free_bus(struct brcmf_bus_state *bus)
   if(bus){
     bus->used = 0;
     __sync_synchronize();
-    cancel_work_sync(&bus->rx_work);
+    napi_disable(&bus->napi);
     cancel_delayed_work_sync(&bus->state_work);
     memset(bus, 0, sizeof(*bus));
   }
@@ -1286,67 +1287,56 @@ static void
 brcmfmac_poll_device(struct net_device *netdev)
 {
   struct brcmf_bus_state *bus = netdev ? netdev->priv : 0;
-  int length = 0, drained = 0;
+  if(bus && bus->ready)
+    napi_schedule(&bus->napi);
+}
 
-  if(bus == 0)
-    return;
-  if(!brcmf_bus.ready)
-    return;
-  if(!arasan_sdio_irq_pending())
-    return;
-  acquire(&brcmf_bus.lock);
-  if(brcmf_bus.polling){
-    release(&brcmf_bus.lock);
-    return;
+static int
+brcmf_napi_poll(struct napi_struct *napi, int budget)
+{
+  struct brcmf_bus_state *bus = napi && napi->dev ? napi->dev->priv : 0;
+  int work_done = 0, drained = 0;
+
+  if(bus == 0 || !bus->used || !bus->ready){
+    napi_complete_done(napi, 0);
+    return 0;
   }
+  acquire(&brcmf_bus.lock);
   brcmf_bus.polling = 1;
-  if(brcmf_bus.net_rx_len == 0){
-    for(int budget = 0; budget < 16; budget++){
-      int r = brcmf_rx_dispatch_locked(bus);
-      if(r <= 0){
-        drained = 1;
-        break;
-      }
-      if(brcmf_bus.net_rx_len)
-        break;
+  while(work_done < budget){
+    int length = 0;
+    int r = brcmf_rx_dispatch_locked(bus);
+    if(r <= 0){
+      drained = 1;
+      break;
+    }
+    work_done++;
+    if(brcmf_bus.net_rx_len){
+      length = brcmf_bus.net_rx_len;
+      memmove(brcmf_bus.net_deliver, brcmf_bus.net_rx, length);
+      brcmf_bus.net_rx_len = 0;
+    }
+    if(length){
+      release(&brcmf_bus.lock);
+      net_rx_dev(napi->dev, brcmf_bus.net_deliver, length);
+      acquire(&brcmf_bus.lock);
     }
   }
-  if(brcmf_bus.net_rx_len){
-    length = brcmf_bus.net_rx_len;
-    memmove(brcmf_bus.net_deliver, brcmf_bus.net_rx, length);
-    brcmf_bus.net_rx_len = 0;
-  }
-  release(&brcmf_bus.lock);
-  if(length)
-    net_rx_dev(netdev, brcmf_bus.net_deliver, length);
-  acquire(&brcmf_bus.lock);
   brcmf_bus.polling = 0;
   release(&brcmf_bus.lock);
-  if(drained)
+
+  if(drained && napi_complete_done(napi, work_done))
     arasan_sdio_irq_complete();
-  else
-    // Keep draining a burst in bounded worker iterations.  schedule_work()
-    // coalesces duplicate requests, so this cannot grow the queue without
-    // bound and no 10-ms timer poll is needed between batches.
-    queue_work(brcmf_bus.wq, &brcmf_bus.rx_work);
+  return work_done;
 }
 
 static struct brcmf_bus_state *
 brcmf_bus_for_work(struct work_struct *work)
 {
   for(int i = 0; i < BRCMF_MAX_DEVICES; i++)
-    if(work == &brcmf_devices[i].rx_work ||
-       work == &brcmf_devices[i].state_work.work)
+    if(work == &brcmf_devices[i].state_work.work)
       return &brcmf_devices[i];
   return 0;
-}
-
-static void
-brcmf_rx_worker(struct work_struct *work)
-{
-  struct brcmf_bus_state *bus = brcmf_bus_for_work(work);
-  if(bus && bus->used && bus->ready)
-    brcmfmac_poll_device(&bus->netdev);
 }
 
 static void
@@ -1372,7 +1362,7 @@ brcmf_state_worker(struct work_struct *work)
   // when the controller reports a pending card interrupt; this watchdog does
   // not restore the old unconditional SDIO polling path.
   if(arasan_sdio_irq_pending())
-    queue_work(bus->wq, &bus->rx_work);
+    napi_schedule(&bus->napi);
   // Serialize the re-arm with brcmf_connect_watch_stop().  Without this
   // second check a running callback could enqueue itself after the stop path
   // had already removed the old delayed instance.
@@ -1418,7 +1408,7 @@ brcmfmac_sdio_irq(void)
   for(int i = 0; i < BRCMF_MAX_DEVICES; i++){
     struct brcmf_bus_state *bus = &brcmf_devices[i];
     if(bus->used && bus->ready && bus->wq)
-      queue_work(bus->wq, &bus->rx_work);
+      napi_schedule(&bus->napi);
   }
 }
 
@@ -1668,6 +1658,7 @@ brcmf_control_plane_start(struct brcmf_bus_state *bus, struct sdio_func *func,
     unregister_netdev(&brcmf_bus.netdev);
     return -1;
   }
+  napi_enable(&brcmf_bus.napi);
   arasan_sdio_irq_enable();
   printf("brcmfmac: SDIO DAT1 IRQ receive enabled\n");
   printf("brcmfmac: control plane ready\n");

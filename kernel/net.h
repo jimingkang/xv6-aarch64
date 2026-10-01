@@ -2,6 +2,8 @@
 #define XV6_NET_H
 
 #include "device.h"
+#include "spinlock.h"
+#include "workqueue.h"
 
 #define ETH_ADDR_LEN 6
 #define ETH_TYPE_IP  0x0800
@@ -22,6 +24,24 @@
 #define NET_IP_GATEWAY  0x0a000202U
 
 struct net_device;
+struct napi_struct;
+
+typedef int (*napi_poll_fn)(struct napi_struct *napi, int budget);
+
+struct napi_struct {
+  struct spinlock lock;
+  struct work_struct work;
+  struct workqueue *wq;
+  struct net_device *dev;
+  napi_poll_fn poll;
+  int weight;
+  int enabled;
+  int scheduled;
+  int missed;
+  uint64 polls;
+  uint64 complete;
+  uint64 budget_exhausted;
+};
 
 struct net_device_ops {
   int (*start_xmit)(struct net_device *dev, void *frame, int length);
@@ -69,6 +89,12 @@ void netdev_poll_all(void);
 void netdev_poll_one(struct net_device *dev);
 void net_rx_dev(struct net_device *dev, void *packet, int len);
 int net_dhcp_dev(struct net_device *dev);
+void netif_napi_add(struct net_device *dev, struct napi_struct *napi,
+                    struct workqueue *wq, napi_poll_fn poll, int weight);
+void napi_enable(struct napi_struct *napi);
+void napi_disable(struct napi_struct *napi);
+int napi_schedule(struct napi_struct *napi);
+int napi_complete_done(struct napi_struct *napi, int work_done);
 
 struct ethhdr {
   uint8 dst[ETH_ADDR_LEN];

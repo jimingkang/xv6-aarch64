@@ -251,7 +251,7 @@ XFERCOMPL/NAK/error并计算 DMA 实际长度。临时关闭对应 `HAINTMSK` �
 interrupt 在完成项尚未消费时重复进入。
 
 当前构建不考虑 CDC USB 有线网卡，因此 DWC2 IRQ 不再投递公共
-`net_deferred_work`。channel 4完成只唤醒MT7601U私有`rx_work`。
+`net_deferred_work`。channel 4完成只调度MT7601U私有的`napi`对象。
 
 当前 channel 分工：
 
@@ -261,10 +261,10 @@ interrupt 在完成项尚未消费时重复进入。
 | channel 4 | MT7601U EP4 异步 Bulk IN |
 | 其他同步 channel | control、枚举、MCU response、Bulk OUT |
 
-## 10. workqueue 下半部
+## 10. NAPI 与 workqueue 下半部
 
 旧实现每2 ms同步轮询 `HCINT`，后来改为 IRQ pending + 10 ms Timer poll。当前实现
-为MT7601U建立专用`mt7601u_wq`：
+为MT7601U建立专用`mt7601u_wq`，并在设备对象中嵌入真正的`napi_struct`：
 
 ```mermaid
 sequenceDiagram
@@ -277,18 +277,22 @@ sequenceDiagram
 
     HW->>IRQ: HCHINT channel 4
     IRQ->>IRQ: mask HAINT channel + set pending
-    IRQ->>WQ: queue_work(rx_work)
+    IRQ->>WQ: napi_schedule(mt7601u.napi)
     IRQ-->>HW: EOI / return
     WQ->>KW: wakeup
-    KW->>MT: rx_work
+    KW->>MT: napi poll(budget=4)
     MT->>HW: bulk_rx_complete()
     MT->>MT: RXWI + 802.11 + EAPOL/data
     MT->>NET: net_rx_dev(wlan1)
     MT->>HW: re-arm EP4 channel 4
+    MT->>WQ: drained: napi_complete_done()
 ```
 
 因此耗时的 cache maintenance、RXWI解析、802.11状态机和网络栈不在 hard IRQ
-中执行。扫描dwell、认证/关联/EAPOL watchdog使用`state_work`的`delayed_work`。
+中执行。NAPI每次最多消费4个USB completion；预算耗尽时保持scheduled并再次
+投递自身，排空后才调用`napi_complete_done()`。IRQ与完成操作并发时，`missed`
+状态保证补跑一次而不丢事件。扫描dwell、认证/关联/EAPOL watchdog使用
+`state_work`的`delayed_work`。
 状态worker不再每10 ms自重排，而是预约下一个真实期限：扫描信道500 ms、认证
 或关联响应1 s、WPA2 M1/EAPOL watchdog 5 s；RX事件改变状态时通过
 `mod_delayed_work()`提前或延后期限。握手完成后不再提交状态work。
@@ -309,7 +313,7 @@ sequenceDiagram
 | 队列/工作项 | 类型 | 触发源 | 功能 |
 |---|---|---|---|
 | `mt7601u_wq` | 专用 workqueue，1个worker | 驱动初始化 | 串行执行同一USB Wi-Fi设备的RX和状态机 |
-| `mt7601u.rx_work` | 普通 work | DWC2 channel 4 IRQ | 消费DMA completion、解析RXWI/802.11并重新arm EP4 |
+| `mt7601u.napi` | 每设备NAPI，weight=4 | DWC2 channel 4 IRQ | 合并IRQ、按预算消费DMA completion、解析RXWI/802.11并重新arm EP4 |
 | `mt7601u.state_work` | delayed work | 扫描/认证/关联/EAPOL状态变化 | 仅在下一个真实Wi-Fi期限运行 |
 | `net_wq` | 网络层专用 workqueue，1个worker | `netinit()` | 执行与具体网卡无关的TCP定时任务 |
 | `tcp_retransmit_work` | delayed work | TCP存在未确认段 | 在所有连接中最早的`tx_deadline`到期时重传 |
@@ -319,9 +323,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    IRQ["DWC2 channel 4 IRQ"] --> RX["mt7601u.rx_work"]
+    IRQ["DWC2 channel 4 IRQ"] --> RX["napi_schedule(mt7601u.napi)"]
     RX --> MWQ["mt7601u_wq kworker"]
     MWQ --> PARSE["DMA completion / RXWI / 802.11 / net_rx_dev"]
+    PARSE -->|budget exhausted| RX
+    PARSE -->|drained| DONE["napi_complete_done"]
 
     EVENT["scan/auth/assoc/EAPOL状态变化"] --> MOD["mod_delayed_work(next Wi-Fi deadline)"]
     MOD --> SORT["全局expires有序delayed链表"]
@@ -334,9 +340,15 @@ flowchart TD
 ```
 
 `mt7601u.state_work` 的期限为：扫描信道500 ms、认证/关联响应1 s、WPA2
-watchdog 5 s；需要立即发送下一阶段请求时使用下一个10 ms jiffy。`rx_work` 与
-`state_work` 是不同 work，同一专用队列保证它们不会同时修改该设备状态；DWC2
-IRQ只负责投递，不运行状态机。
+watchdog 5 s；需要立即发送下一阶段请求时使用下一个10 ms jiffy。NAPI内嵌的
+`work`与`state_work`是不同工作项，同一专用队列保证它们不会同时修改该设备
+状态；DWC2 IRQ只负责记录完成并调度NAPI，不运行状态机。
+
+生命周期是`netif_napi_add()`绑定net_device、poll回调和专用队列，硬件准备完成
+后`napi_enable()`，IRQ中调用`napi_schedule()`，remove时先`napi_disable()`同步
+取消工作，再回收USB资源。Linux NAPI通常由每CPU`NET_RX_SOFTIRQ`轮询链表执行；
+本内核用专用kworker承载poll，但调度合并、weight预算、complete/missed和
+enable/disable语义与NAPI核心模型一致。
 
 所有 delayed work 共用 `kernel/workqueue.c` 的 `delayed_head`，该单链表按
 `expires`从早到晚排列。CPU0每10 ms调用`workqueue_timer_tick()`，只取出已经
@@ -470,8 +482,8 @@ QEMU `raspi3b` 没有真实 LAN9514/MT7601U，只能验证无设备启动和 IRQ
 
 前四项已经实现：
 
-1. MT7601U 使用私有 `rx_work` 和 `state_work`。DWC2 channel 4 IRQ只调度
-   `rx_work`，状态机由专用队列中的`delayed_work`调度；不再由全局网络poll重复执行；
+1. MT7601U 使用私有`napi`和`state_work`。DWC2 channel 4 IRQ只调用
+   `napi_schedule()`，状态机由专用队列中的`delayed_work`调度；不再由全局网络poll重复执行；
 2. DWC2异步Bulk IN建立4槽`QUEUED/ACTIVE/DONE/FREE` request/completion环；
 3. EP0 control固定channel 0，MCU/普通Bulk IN使用channel 3，数据RX使用channel 4，
    Bulk OUT/TX使用channel 5；

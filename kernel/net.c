@@ -118,6 +118,104 @@ static struct {
   uchar server_mac[ETH_ADDR_LEN];
 } dhcp;
 
+static void
+napi_workfn(struct work_struct *work)
+{
+  struct napi_struct *napi = (struct napi_struct*)
+    ((char*)work - __builtin_offsetof(struct napi_struct, work));
+  int done;
+
+  acquire(&napi->lock);
+  if(!napi->enabled || !napi->scheduled){
+    release(&napi->lock);
+    return;
+  }
+  napi->polls++;
+  release(&napi->lock);
+
+  done = napi->poll(napi, napi->weight);
+  if(done >= napi->weight){
+    acquire(&napi->lock);
+    napi->budget_exhausted++;
+    if(napi->enabled && napi->scheduled)
+      queue_work(napi->wq, &napi->work);
+    release(&napi->lock);
+  }
+}
+
+void
+netif_napi_add(struct net_device *dev, struct napi_struct *napi,
+               struct workqueue *wq, napi_poll_fn poll, int weight)
+{
+  memset(napi, 0, sizeof(*napi));
+  initlock(&napi->lock, "napi");
+  init_work(&napi->work, napi_workfn);
+  napi->dev = dev;
+  napi->wq = wq;
+  napi->poll = poll;
+  napi->weight = weight > 0 ? weight : 1;
+}
+
+void
+napi_enable(struct napi_struct *napi)
+{
+  acquire(&napi->lock);
+  napi->enabled = 1;
+  napi->scheduled = 0;
+  napi->missed = 0;
+  release(&napi->lock);
+}
+
+void
+napi_disable(struct napi_struct *napi)
+{
+  acquire(&napi->lock);
+  napi->enabled = 0;
+  napi->scheduled = 0;
+  napi->missed = 0;
+  release(&napi->lock);
+  cancel_work_sync(&napi->work);
+}
+
+int
+napi_schedule(struct napi_struct *napi)
+{
+  int schedule = 0;
+  acquire(&napi->lock);
+  if(napi->enabled && !napi->scheduled){
+    napi->scheduled = 1;
+    schedule = 1;
+  } else if(napi->enabled) {
+    // Preserve an IRQ that races with an already scheduled/running poll.
+    napi->missed = 1;
+  }
+  release(&napi->lock);
+  if(schedule)
+    queue_work(napi->wq, &napi->work);
+  return schedule;
+}
+
+int
+napi_complete_done(struct napi_struct *napi, int work_done)
+{
+  int complete = 0, reschedule = 0;
+  acquire(&napi->lock);
+  if(napi->scheduled && work_done < napi->weight){
+    if(napi->missed){
+      napi->missed = 0;
+      reschedule = 1;
+    } else {
+      napi->scheduled = 0;
+      napi->complete++;
+      complete = 1;
+    }
+  }
+  if(reschedule)
+    queue_work(napi->wq, &napi->work);
+  release(&napi->lock);
+  return complete;
+}
+
 static int
 netdev_xmit_on(struct net_device *dev, void *frame, int length)
 {

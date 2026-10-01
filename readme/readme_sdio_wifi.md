@@ -365,35 +365,35 @@ flowchart LR
     RX --> PROTO["ARP / IPv4 / UDP / ICMP / DHCP"]
 ```
 
-当前 xv6 使用 **SDIO DAT1 IRQ + 每设备私有 workqueue**：BCM43455 拉起 DAT1
+当前 xv6 使用 **SDIO DAT1 IRQ + 每设备私有NAPI/workqueue**：BCM43455 拉起 DAT1
 后，Arasan 产生 legacy IRQ 62。顶半部屏蔽 card interrupt、设置 pending bit，
-调用 `brcmfmac_sdio_irq()`，把该设备的 `rx_work` 投递到 `brcmf0_wq`。顶半部
+调用 `brcmfmac_sdio_irq()`，调度该设备的`napi`对象。顶半部
 不执行 CMD53，也不进入网络协议栈。
 
 ```mermaid
 flowchart LR
     DAT1["BCM43455 DAT1"] --> IRQ["Arasan IRQ 62 top half"]
     IRQ --> MASK["mask card IRQ + pending=1"]
-    MASK --> Q["queue bus->rx_work"]
+    MASK --> Q["napi_schedule(bus->napi)"]
     Q --> W["brcmf0_wq kworker"]
     W --> C["CMD53 / SDPCM / BCDC"]
     C --> N["net_rx_dev"]
-    C -->|drained| RE["ack + re-enable DAT1 IRQ"]
-    C -->|仍有 burst| Q
+    C -->|drained| RE["napi_complete_done + re-enable DAT1 IRQ"]
+    C -->|budget exhausted| Q
 ```
 
 `brcmf0_wq` 属于具体 `brcmf_bus_state`，不再借用全局 `system_wq` 或网络公共
 work。这避免 SDIO 慢速 CMD53 阻塞 DWC2、TCP timer 等其它下半部。每轮最多
-处理 16 个 frame；未排空时重新投递同一个 work，形成类似 NAPI budget 的
-有界处理。`queue_work()` 会合并重复请求，因此 IRQ burst 不会无限堆积节点。
+处理16个SDPCM项；未排空时NAPI核心保持scheduled并重新投递，排空后才complete
+并解除DAT1屏蔽。重复IRQ由scheduled/missed状态合并，不会无限堆积节点。
 
 这里经历过两个中间实现：最早由 CPU0 的 10 ms Generic Timer 直接轮询；之后
 IRQ 只设置 pending，Timer 再把全局 `net_deferred_work` 排队。现在数据接收完全
 由 DAT1 IRQ 驱动，Timer 只推进 workqueue 的有序 delayed-work 时钟。
 
 连接阶段另有每设备私有 `state_work`：`SET_SSID` 后每 50 ms 检查一次连接截止
-时间，10 秒到期便设置 timeout；只有发现 Arasan card IRQ pending 时才补投递
-RX work，所以它是连接 watchdog，不是恢复周期性 SDIO 轮询。连接成功、失败或
+时间，10 秒到期便设置 timeout；只有发现 Arasan card IRQ pending 时才补调度
+NAPI，所以它是连接 watchdog，不是恢复周期性 SDIO 轮询。连接成功、失败或
 设备移除时都会同步取消 delayed work。连接状态由设备 `bus->lock` 保护。
 
 这与芯片内部固件自己的调度不是一回事：所有 `brcmf_*` C 函数都由 ARM CPU
@@ -710,7 +710,7 @@ BCM43455 F2 frame
 第一版仍等下一次10 ms Timer 调用 `netdev_poll_all()`。它消除了无条件 CMD53
 读取，但耗时处理仍处在 Timer hard IRQ 上下文，因此只是过渡方案。
 
-### 21.3 当前每设备 workqueue 方案
+### 21.3 当前每设备 NAPI/workqueue 方案
 
 当前完整路径如下：
 
@@ -720,23 +720,28 @@ SDIO IRQ 62                         hard IRQ top half
        mask/ack CARD_INT
        pending = 1
        brcmfmac_sdio_irq()
-          -> queue_work(bus->wq, &bus->rx_work)
+          -> napi_schedule(&bus->napi)
           -> wakeup(brcmf0_wq)
   -> return from IRQ
 
 scheduler
   -> brcmf0_wq kworker              process-context bottom half
-       -> brcmfmac_poll_device()
-            -> bounded CMD53 drain (最多16项)
+       -> brcmf_napi_poll(budget=16)
+            -> bounded CMD53 drain
             -> SDPCM/BCDC/EAPOL/Ethernet
             -> net_rx_dev()
-            -> drained: ack/unmask CARD_INT
-            -> not drained: queue rx_work once more
+            -> drained: napi_complete_done + ack/unmask CARD_INT
+            -> budget exhausted: NAPI core requeues poll，IRQ保持屏蔽
        -> sleep(brcmf0_wq)
 ```
 
-相同 work 在 pending 时不会重复入队；若 IRQ 在回调运行期间到达，`rerun` 只记录
-一次补跑。因此既不会漏掉 burst，也不会为每个中断无限追加队列节点。
+相同NAPI对象在scheduled时不会重复入队；若IRQ在poll运行期间到达，`missed`只
+记录一次补跑。因此既不会漏掉burst，也不会为每个中断无限追加队列节点。
+
+`netif_napi_add()`把`bus->napi`绑定到对应`net_device`、`brcmfN_wq`和poll回调，
+weight为16；SDIO IRQ准备完成后调用`napi_enable()`，设备释放前调用
+`napi_disable()`同步停止poll。Linux用每CPU softirq poll list承载NAPI，本实现用
+每设备kworker承载，但保留schedule/complete、budget、missed及生命周期语义。
 
 ### 21.4 IRQ 62 和三层中断开关
 
@@ -779,7 +784,7 @@ SDIO Wi-Fi 路径涉及的队列和工作项如下：
 |---|---|---|---|
 | `brcmf0_wq` | 设备0专用 workqueue，1个worker | `brcmfmac_driver_init()` | 执行板载BCM43455的RX和连接watchdog |
 | `brcmf1_wq` | 设备1预留专用 workqueue，1个worker | `brcmfmac_driver_init()` | 支持第二个brcmfmac设备实例，不与设备0共用状态 |
-| `bus->rx_work` | 每设备普通 work | SDIO DAT1/Arasan IRQ 62 | CMD53读取F2、解析SDPCM/BCDC/EAPOL/数据帧 |
+| `bus->napi` | 每设备NAPI，weight=16 | SDIO DAT1/Arasan IRQ 62 | 合并IRQ，按预算CMD53读取F2并解析SDPCM/BCDC/EAPOL/数据帧 |
 | `bus->state_work` | 每设备 delayed work | `SET_SSID`连接阶段 | 每50 ms检查pending IRQ和10秒连接deadline |
 | `net_wq` | 网络层专用 workqueue，1个worker | `netinit()` | 执行独立于网卡的TCP重传定时任务 |
 | `tcp_retransmit_work` | delayed work | TCP存在未确认段 | 按所有连接中最早的`tx_deadline`运行 |
@@ -787,7 +792,7 @@ SDIO Wi-Fi 路径涉及的队列和工作项如下：
 
 ```mermaid
 flowchart TD
-    DAT1["BCM43455 DAT1 IRQ"] --> RX["bus->rx_work"]
+    DAT1["BCM43455 DAT1 IRQ"] --> RX["napi_schedule(bus->napi)"]
     RX --> BWQ["brcmf0_wq"]
     BWQ --> SDPCM["CMD53 / SDPCM / BCDC / net_rx_dev"]
 
@@ -800,14 +805,14 @@ flowchart TD
     TW --> NWQ["net_wq"]
 ```
 
-普通 `rx_work` 由硬件IRQ立即入设备队列；`state_work` 和 TCP work 先进入
+NAPI内嵌的普通work由硬件IRQ立即入设备队列；`state_work`和TCP work先进入
 `kernel/workqueue.c` 的全局 `delayed_head`。该链表按 `expires` 递增排序，CPU0
 每10 ms只移出已经到期的表头项目，并按项目的 `target` 投递到 `brcmf0_wq`、
 `brcmf1_wq` 或 `net_wq`。因此时间排序与任务执行相互分离。
 
 | 对象 | 上下文 | 作用 |
 |---|---|---|
-| Arasan IRQ top half | hard IRQ | mask/ack、记录 pending、投递 RX work |
+| Arasan IRQ top half | hard IRQ | mask/ack、记录 pending、调度NAPI |
 | `brcmf0_wq.lock` | hard IRQ/进程 | 保护 work FIFO 和 pending/running/rerun |
 | `brcmf0_wq` kworker | 内核进程 | CMD53、帧解析、WPA2 和网络栈投递 |
 | `bus->lock` | worker/系统调用 | 串行化 SDPCM、BCDC 和连接状态 |
