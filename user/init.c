@@ -84,25 +84,17 @@ main(void)
 {
   int pid, wpid;
 
-  // Bootstrap from the historical root device node, then install the usual
-  // Unix device namespace and use the concrete ttyS0 for local login.
-  if(open("console", O_RDWR) < 0){
-    mknod("console", CONSOLE, 0);
-    open("console", O_RDWR);
-  }
-  dup(0);  // stdout
-  dup(0);  // stderr
-
+  // Install the Unix device namespace before opening the first user-space
+  // standard descriptors.  Early kernel diagnostics do not need a device
+  // node: kernel printf uses the console subsystem directly.
+  unlink("/console");  // Remove the obsolete root-level compatibility node.
   mkdir("dev");
   mknod("dev/console", CONSOLE, 0);
   mknod("dev/tty", TTY, 0);
   mknod("dev/ttyS0", TTYS0, 0);
-  close(0);
-  close(1);
-  close(2);
   if(open("/dev/ttyS0", O_RDWR) < 0 &&
      open("/dev/console", O_RDWR) < 0)
-    open("/console", O_RDWR);
+    exit(1);
   dup(0);
   dup(0);
 

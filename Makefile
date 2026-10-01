@@ -286,7 +286,7 @@ UPROGS=\
 
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)
-	truncate -s 1M fs.img
+	truncate -s 32M fs.img
 
 -include kernel/*.d user/*.d
 

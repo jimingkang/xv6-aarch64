@@ -25,7 +25,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int ps(void);
+int ps(void*, int);
 int ext2read(const char*, void*, int, uint64);
 int ext2readdir(const char*, int, struct ext2_user_dirent*);
 int sync_create(int, int);

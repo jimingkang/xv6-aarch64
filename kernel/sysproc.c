@@ -126,8 +126,18 @@ sys_getrandom(void)
 uint64
 sys_ps(void)
 {
-  procdump();
-  return 0;
+  uint64 dst;
+  int size, n;
+  char *buf;
+
+  if(argaddr(0, &dst) < 0 || argint(1, &size) < 0 ||
+     size <= 0 || size > PGSIZE || (buf = kalloc()) == 0)
+    return -1;
+  n = proclist(buf, size);
+  if(copyout(myproc()->pagetable, dst, buf, n) < 0)
+    n = -1;
+  kfree(buf);
+  return n;
 }
 
 uint64

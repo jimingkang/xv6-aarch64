@@ -277,9 +277,10 @@ main(int argc, char **argv)
       break;
     }
   }
-  // Compatibility with images created before /dev was introduced.
+  // A process without an attached controlling TTY can still use the system
+  // console to fill a missing standard descriptor.
   if(fd < 0){
-    while((fd = open("/console", O_RDWR)) >= 0){
+    while((fd = open("/dev/console", O_RDWR)) >= 0){
       if(fd >= 3){
         close(fd);
         break;

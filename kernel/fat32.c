@@ -17,7 +17,7 @@
 
 #define SECTOR_SIZE       512
 #define FAT32_EOC         0x0ffffff8U
-#define MAX_FILE_CLUSTERS 4096
+#define MAX_FILE_CLUSTERS 65536
 #define XV6_PARTITION_TYPE 0x7f
 
 static struct {

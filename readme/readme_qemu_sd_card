@@ -125,10 +125,12 @@ sudo make qemu SDIMAGE=/dev/disk4
 QEMU的SD卡模型要求镜像容量是2的幂，因此生成文件系统后执行：
 
 ```make
-truncate -s 1M fs.img
+truncate -s 32M fs.img
 ```
 
-xv6文件系统自身仍然只有 `FSSIZE=1000` 个1024字节块。补齐到1 MiB的尾部空间不属于 xv6 文件系统，只是为了满足QEMU虚拟SD卡的容量要求。
+xv6文件系统现在使用`FSSIZE=32768`个1024字节块，即32 MiB。镜像本身已经是
+2的幂大小，可直接满足QEMU虚拟SD卡的容量要求。修改`FSSIZE`后必须重新生成并
+烧录整个`fs.img`；只复制新内核不会更新磁盘中的superblock。
 
 ## 4. BCM2837 SD/eMMC控制器
 

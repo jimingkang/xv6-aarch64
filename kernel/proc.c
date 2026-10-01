@@ -661,6 +661,55 @@ procdump(void)
   }
 }
 
+static char*
+procputstr(char *p, char *end, char *s)
+{
+  while(*s && p < end)
+    *p++ = *s++;
+  return p;
+}
+
+static char*
+procputnum(char *p, char *end, int value)
+{
+  char digits[16];
+  int n = 0;
+  do {
+    digits[n++] = '0' + value % 10;
+    value /= 10;
+  } while(value && n < sizeof(digits));
+  while(n && p < end)
+    *p++ = digits[--n];
+  return p;
+}
+
+// Format a process snapshot for a user program.  Unlike procdump(), this does
+// not write the kernel console; the caller can send it through stdout/PTY.
+int
+proclist(char *buf, int size)
+{
+  static char *states[] = {
+    [UNUSED] "unused", [USED] "used", [SLEEPING] "sleeping",
+    [RUNNABLE] "runnable", [RUNNING] "running", [ZOMBIE] "zombie"
+  };
+  char *q = buf, *end = buf + size;
+
+  q = procputstr(q, end, "PID STATE NAME\n");
+  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      q = procputnum(q, end, p->pid);
+      q = procputstr(q, end, " ");
+      q = procputstr(q, end, states[p->state]);
+      q = procputstr(q, end, " ");
+      q = procputstr(q, end, p->name);
+      q = procputstr(q, end, "\n");
+    }
+    release(&p->lock);
+  }
+  return q - buf;
+}
+
 // Print stable-enough snapshots of process page tables for diagnostics.
 // pid == 0 selects every active process.
 int

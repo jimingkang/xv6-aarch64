@@ -4,6 +4,11 @@
 int
 main(void)
 {
-  ps();
+  char buf[1024];
+  int n = ps(buf, sizeof(buf));
+  if(n < 0 || write(1, buf, n) != n){
+    fprintf(2, "ps: cannot read process table\n");
+    exit(1);
+  }
   exit(0);
 }

@@ -178,7 +178,8 @@ shell 在所有 PATH 项失败后也会尝试根目录中的原始程序，作�
 
 ## `/dev` 设备目录
 
-`init` 先使用历史兼容节点 `/console` 完成最早的标准输入输出初始化，随后创建：
+内核早期日志由console子系统直接写Mini UART，不依赖任何文件系统设备节点。
+根文件系统可用并进入用户态后，`init`首先创建：
 
 ```text
 /dev                 原生 xv6 目录
@@ -187,9 +188,9 @@ shell 在所有 PATH 项失败后也会尝试根目录中的原始程序，作�
 /dev/ttyS0           Mini UART 具体终端，major=3，minor=0
 ```
 
-创建完成后，init 关闭文件描述符 0、1、2，用 `/dev/ttyS0` 重新打开 stdin，并复制为 stdout
-和 stderr。`/dev/console` 仍是系统控制台，当前也使用同一个 Mini UART 后端；`/console`
-暂时保留为旧文件系统镜像和早期启动的回退入口。
+创建完成后，init用`/dev/ttyS0`打开stdin并复制为stdout和stderr；若具体TTY打开
+失败，则回退到`/dev/console`。根目录历史节点`/console`及相关启动回退已经删除。
+`/dev/console`仍是系统控制台的标准用户态入口，当前使用同一个Mini UART后端。
 
 ## 本地登录
 

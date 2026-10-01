@@ -129,3 +129,135 @@ ssh root@192.168.0.201
 4. 上下箭头历史、退格和回车的 PTY 行规程仍正常；
 5. 空闲超过 TCP 重传周期后连接仍可继续交互；
 6. 退出 shell 后 SSH channel、TCP FIN 和进程回收正常。
+
+---
+
+## SSH 中执行 `ps`，结果却输出到串口
+
+### 现象
+
+通过 SSH 登录后执行：
+
+```sh
+ps
+```
+
+SSH 客户端看不到进程列表，而连接在 Mini UART 上的 minicom 能看到输出。普通
+`ls`、`cat` 等命令仍能在 SSH 客户端显示。
+
+### fd、PTY 与 console 的关系
+
+进程的输出位置由文件描述符指向的文件对象决定，而不是由“这个进程是否由
+sshd 创建”决定。
+
+SSH shell 创建时，`sshd`把子进程的三个标准fd复制到PTY slave：
+
+```text
+shell fd 0/1/2
+  -> PTY slave
+  -> PTY master
+  -> sshd
+  -> SSH_MSG_CHANNEL_DATA
+  -> SSH客户端
+```
+
+因此普通用户态`printf()`最终调用`write(1, ...)`，输出会经过PTY送到SSH客户端。
+
+串口登录进程的标准fd则绑定到`/dev/ttyS0`或`/dev/console`：
+
+```text
+login/sh fd 0/1/2
+  -> /dev/ttyS0 或 /dev/console
+  -> console字符设备
+  -> Mini UART
+  -> minicom
+```
+
+`/dev/tty`表示调用进程的控制终端：串口会话通常指向`ttyS0`，SSH会话指向该
+会话的PTY slave。`/dev/console`则是系统console；当前平台最终连接Mini UART。
+
+### 根因
+
+旧`/bin/ps`没有通过标准输出打印，而是调用专用系统调用：
+
+```text
+/bin/ps
+  -> ps() syscall
+  -> sys_ps()
+  -> procdump()
+  -> kernel printf()
+  -> console/Mini UART
+```
+
+内核`printf()`直接写系统console，不查看调用进程的fd 1。因此它绕过PTY和SSH
+channel。即使`ps`是从SSH shell启动，输出也必然出现在串口。
+
+### 修复
+
+`sys_ps()`不再调用`procdump()`；它把进程快照格式化到内核临时缓冲区，再复制到
+用户缓冲区。`/bin/ps`随后使用`write(1, ...)`输出：
+
+```text
+/bin/ps
+  -> ps(buffer, size) syscall
+  -> proclist()格式化快照
+  -> copyout到用户缓冲区
+  -> write(fd 1)
+  -> fd 1
+  -> PTY slave/master
+  -> sshd channel
+  -> SSH客户端
+```
+
+`procdump()`仍独立保留为内核诊断接口；串口输入`Ctrl-P`仍可直接打印进程表，
+即使文件系统、PTY或用户进程已经异常也能使用。
+
+### 验证
+
+重新生成并安装包含新版`/bin/ps`的xv6文件系统后：
+
+```sh
+ssh root@192.168.0.201
+ps
+```
+
+SSH客户端应看到类似：
+
+```text
+PID STATE NAME
+1 sleeping init
+2 sleeping kworker
+```
+
+同时串口不应出现这次`ps`的列表。串口按`Ctrl-P`时，内核诊断列表仍应只在
+console上显示。
+
+---
+
+## 启动时 `panic: balloc: out of blocks`
+
+### 现象与根因
+
+系统完成设备和VFS初始化后，在`init`创建`/dev`、`/etc`配置或SSH主机密钥时
+panic。旧配置的`FSSIZE=1000`，即原生xv6文件系统只有约1 MiB；新增用户程序
+打包后已经占用约986个块，剩余空间不足以完成首次启动写入。
+
+SD卡分区即使有400 MiB也不能解决该问题，因为可分配块数来自xv6 superblock的
+`size`字段，而不是MBR分区长度。只更新内核也不会修改旧superblock。
+
+### 修复
+
+- `FSSIZE`从1000扩大到32768个1024字节块，即32 MiB；
+- `fs.img`构建目标改为32 MiB；
+- FAT32兼容容器的cluster映射上限同步提高；
+- 重新运行`mkfs`生成包含新superblock和位图的完整镜像。
+
+必须把新`fs.img`整体烧录到xv6原始分区：
+
+```sh
+make fs.img
+make install-rpi3-rawfs RPI3_XV6_DEV=/dev/rdisk4s2
+```
+
+这会覆盖原xv6分区内容。若仍需旧系统中的用户文件，应先备份；不能只复制
+`kernel8-xv6_wifi.img`，否则磁盘仍使用旧的1000块superblock。
