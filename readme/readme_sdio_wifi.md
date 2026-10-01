@@ -365,9 +365,10 @@ flowchart LR
     RX --> PROTO["ARP / IPv4 / UDP / ICMP / DHCP"]
 ```
 
-当前 xv6 采用**CPU 定时轮询**而不是 SDIO DAT1 IRQ：ARM Generic Timer 每约
-100 ms 调用 `netdev_poll_all()`。为了防止四个 CPU 同时操作共享的 Arasan/USB
-host，硬件网络轮询只在 CPU0 执行。
+当前 xv6 使用 **SDIO DAT1 IRQ**：BCM43455 拉起 DAT1 后，Arasan 产生 legacy
+IRQ 62。顶半部屏蔽 card interrupt 并设置 pending bit；CPU0 的 10 ms deferred
+调度点执行 CMD53、SDPCM 解析和网络栈投递，排空后重新打开 card interrupt。
+无 pending bit 时 `.poll()` 立即返回，不再周期性读取芯片完成状态。
 
 这与芯片内部固件自己的调度不是一回事：所有 `brcmf_*` C 函数都由 ARM CPU
 执行；BCM43455 内部运行的是下载进去的 `.BIN` 固件。
@@ -430,18 +431,18 @@ flowchart TD
 - `wlan0` 的 `register_netdev()` 与 remove/unregister；
 - WPA2-PSK 主机四次握手补充路径；
 - DHCP、ARP、DNS、路由和 Internet ping；
-- CPU0 单核有界轮询；
+- SDIO DAT1 → Arasan IRQ 62 顶半部与 deferred SDPCM RX；
 - 与 USB MT7601U 扫描阶段共存。
 
 ### 后续改进
 
-1. SDIO DAT1 interrupt，替代 100 ms CPU polling；
+1. 用可调度内核 worker 替换当前 10 ms deferred 调度点；
 2. CMD53 block-mode/multi-block，完整支持大型控制响应；
 3. 更完整的固件 flow-control/credit 管理；
 4. 断线重连、漫游、扫描结果用户接口；
 5. WPA3、开放网络和更多加密组合；
 6. 网络配置工具与多网卡策略路由；
-7. MT7601U SoftMAC 认证、关联、WPA2 与 `wlan1` 注册。
+7. SDIO IRQ 风暴、丢中断和 remove 生命周期压力测试。
 
 ---
 

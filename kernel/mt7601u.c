@@ -215,7 +215,7 @@ struct mt7601u_device {
   uint32 mgmt_frames;
   uint32 scan_seen;
   uint8 scan_channel;
-  uint8 scan_dwell;
+  uint16 scan_dwell;
   int target_found;
   uint8 target_bssid[6];
   uint16 target_capability;
@@ -223,7 +223,7 @@ struct mt7601u_device {
   uint8 target_rsn_ie_len;
   uint16 tx_sequence;
   uint8 link_state;
-  uint8 link_age;
+  uint16 link_age;
   uint8 link_retries;
   uint8 pmk[32];
   uint8 anonce[32];
@@ -1326,10 +1326,30 @@ mt7601u_poll(void)
      dev->udev == 0)
     return;
   acquire(&dev->lock);
-  got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep, 1,
-                             mt_rx_buf, sizeof(mt_rx_buf));
-  if(got > 0)
-    mt7601u_rx_parse(dev, mt_rx_buf, got);
+  if(dev->udev->ops->bulk_rx_arm && dev->udev->ops->bulk_rx_complete){
+    if(dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
+                                   mt_rx_buf, sizeof(mt_rx_buf)) < 0)
+      got = -1;
+    else
+      got = dev->udev->ops->bulk_rx_complete(dev->udev,
+                                              dev->udev->bulk_in_ep);
+    if(got >= 0){
+      if(got > 0)
+        mt7601u_rx_parse(dev, mt_rx_buf, got);
+      dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
+                                  mt_rx_buf, sizeof(mt_rx_buf));
+    } else if(got == -1) {
+      // A hard channel error leaves the slot disarmed; recover without
+      // reverting to synchronous 2-ms endpoint polling.
+      dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
+                                  mt_rx_buf, sizeof(mt_rx_buf));
+    }
+  } else {
+    got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep, 1,
+                               mt_rx_buf, sizeof(mt_rx_buf));
+    if(got > 0)
+      mt7601u_rx_parse(dev, mt_rx_buf, got);
+  }
 
   if(dev->link_state == MT_LINK_AUTH_PENDING){
     if(dev->link_retries >= 3){
@@ -1344,7 +1364,7 @@ mt7601u_poll(void)
       }
     }
   } else if(dev->link_state == MT_LINK_AUTH_SENT){
-    if(++dev->link_age >= 10){
+    if(++dev->link_age >= 100){
       dev->link_state = MT_LINK_AUTH_PENDING;
       dev->link_age = 0;
     }
@@ -1362,19 +1382,15 @@ mt7601u_poll(void)
       }
     }
   } else if(dev->link_state == MT_LINK_ASSOC_SENT){
-    if(++dev->link_age >= 10){
+    if(++dev->link_age >= 100){
       dev->link_state = MT_LINK_ASSOC_PENDING;
       dev->link_age = 0;
     }
   } else if(dev->link_state == MT_LINK_ASSOCIATED &&
             !dev->handshake_done){
-    // The AP normally sends EAPOL M1 immediately after association.  EP4 is
-    // still a polled USB endpoint, so a lost short packet or DATA-toggle
-    // resynchronization can discard every M1 retransmission.  Previously this
-    // state had no timeout and remained "handshake pending" forever.  Reissue
-    // association after five seconds so the AP starts a fresh four-way
-    // handshake, while retaining the already authenticated BSSID/channel.
-    if(++dev->link_age >= 50){
+    // EP4 completion is IRQ-driven, but retain a five-second protocol
+    // watchdog in case the AP never sends M1 or a USB channel hard-fails.
+    if(++dev->link_age >= 500){
       printf("mt7601u: WPA2 M1 timeout; reassociating\n");
       dev->link_state = MT_LINK_ASSOC_PENDING;
       dev->link_age = 0;
@@ -1386,16 +1402,15 @@ mt7601u_poll(void)
     }
   } else if(dev->link_state == MT_LINK_SCAN && dev->target_found){
     // A transient lost response should not permanently strand the adapter.
-    if(++dev->link_age >= 50){
+    if(++dev->link_age >= 500){
       dev->link_state = MT_LINK_AUTH_PENDING;
       dev->link_age = 0;
       dev->link_retries = 0;
     }
   }
-  // The architectural timer calls us every ~100 ms.  Dwell for five calls
-  // so several beacon intervals are observed, then scan the next 2.4 GHz
-  // channel.  Once the configured target is seen, remain on its channel.
-  if(!dev->target_found && ++dev->scan_dwell >= 5){
+  // The deferred worker runs every ~10 ms.  Dwell for 500 ms so several
+  // beacon intervals are observed, then scan the next 2.4 GHz channel.
+  if(!dev->target_found && ++dev->scan_dwell >= 50){
     int next = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
     dev->scan_dwell = 0;
     if(mt7601u_set_channel(dev, next) < 0)
@@ -1585,6 +1600,9 @@ mt7601u_probe(struct usb_device *udev)
   mt7601u.netdev.mtu = NET_MTU;
   memmove(mt7601u.netdev.mac, mt7601u.mac, 6);
   udev->dev.driver_data = &mt7601u;
+  if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
+    printf("mt7601u: EP%d receive uses DWC2 host-channel IRQ\n",
+           udev->bulk_in_ep);
   printf("mt7601u: transport and MCU ready; SoftMAC initialization pending\n");
   return 0;
 }

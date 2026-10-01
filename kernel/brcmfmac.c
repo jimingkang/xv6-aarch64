@@ -1264,11 +1264,13 @@ static void
 brcmfmac_poll_device(struct net_device *netdev)
 {
   struct brcmf_bus_state *bus = netdev ? netdev->priv : 0;
-  int length = 0;
+  int length = 0, drained = 0;
 
   if(bus == 0)
     return;
-  if(!brcmf_bus.ready || !brcmf_bus.handshake_done)
+  if(!brcmf_bus.ready)
+    return;
+  if(!arasan_sdio_irq_pending())
     return;
   acquire(&brcmf_bus.lock);
   if(brcmf_bus.polling){
@@ -1276,8 +1278,17 @@ brcmfmac_poll_device(struct net_device *netdev)
     return;
   }
   brcmf_bus.polling = 1;
-  if(brcmf_bus.net_rx_len == 0)
-    brcmf_rx_dispatch_locked(bus);
+  if(brcmf_bus.net_rx_len == 0){
+    for(int budget = 0; budget < 16; budget++){
+      int r = brcmf_rx_dispatch_locked(bus);
+      if(r <= 0){
+        drained = 1;
+        break;
+      }
+      if(brcmf_bus.net_rx_len)
+        break;
+    }
+  }
   if(brcmf_bus.net_rx_len){
     length = brcmf_bus.net_rx_len;
     memmove(brcmf_bus.net_deliver, brcmf_bus.net_rx, length);
@@ -1289,6 +1300,8 @@ brcmfmac_poll_device(struct net_device *netdev)
   acquire(&brcmf_bus.lock);
   brcmf_bus.polling = 0;
   release(&brcmf_bus.lock);
+  if(drained)
+    arasan_sdio_irq_complete();
 }
 
 static int
@@ -1532,6 +1545,13 @@ brcmf_control_plane_start(struct brcmf_bus_state *bus, struct sdio_func *func,
     printf("brcmfmac: cannot register wlan0\n");
     return -1;
   }
+  if(sdio_claim_irq(func) < 0){
+    printf("brcmfmac: cannot enable SDIO function interrupt\n");
+    unregister_netdev(&brcmf_bus.netdev);
+    return -1;
+  }
+  arasan_sdio_irq_enable();
+  printf("brcmfmac: SDIO DAT1 IRQ receive enabled\n");
   printf("brcmfmac: control plane ready\n");
   return 0;
 }
@@ -1957,6 +1977,7 @@ brcmf_remove(struct sdio_func *func)
   if(bus == 0)
     return;
   brcmf_bus.ready = 0;
+  sdio_release_irq(func);
   if(brcmf_bus.netdev.running)
     unregister_netdev(&brcmf_bus.netdev);
   func->dev.driver_data = 0;

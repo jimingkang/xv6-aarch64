@@ -306,5 +306,14 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
+// arasan_sdio.c
+void            arasan_sdio_irq_enable(void);
+void            arasan_sdio_irq(void);
+int             arasan_sdio_irq_pending(void);
+void            arasan_sdio_irq_complete(void);
+
+// dwc2.c
+void            dwc2_irq(void);
+
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

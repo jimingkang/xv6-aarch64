@@ -623,30 +623,30 @@ flowchart LR
 
 ### 14.2 当前 xv6 实际行为
 
-当前代码并没有启用这条 IRQ 路径：
+当前代码已经启用 DWC2 host-channel IRQ：
 
 ```text
-GINTMSK = 0
-HCINT 由 channel_xfer()/mt7601u_poll() 主动读取
-Generic Timer 每约 100 ms 在 CPU0 调用 mt7601u_poll()
-Bulk IN 最多等待约 2 ms，没有数据则 NAK 返回
+EP4 RX 长期 arm 在 host channel 4
+HCINTMSK/HAINTMSK/GINTMSK.HCHINT 已打开
+BCM2837 legacy USB IRQ 9 调用 dwc2_irq()
+顶半部屏蔽完成 channel 并设置 pending bit
+10 ms deferred poll 执行 cache invalidate、RXWI 解析并重新 arm
 ```
 
-所以当前真实路径是：
+当前真实路径是：
 
 ```mermaid
 flowchart LR
-    TIMER["CPU0 Generic Timer IRQ"]
-    POLL["mt7601u_poll"]
-    IN["同步 Bulk IN EP4"]
-    READ["CPU polling HCINT"]
+    IN["预提交 EP4 channel 4 DMA"]
+    IRQ["DWC2 HCHINT / BCM IRQ 9"]
+    POLL["deferred mt7601u_poll"]
+    READ["读取完成状态并 invalidate cache"]
     PARSE["解析 Beacon"]
 
-    TIMER --> POLL --> IN --> READ --> PARSE
+    IN --> IRQ --> POLL --> READ --> PARSE --> IN
 ```
 
-这里触发 CPU 的是 ARM Generic Timer，不是 MT7601U/DWC2 USB completion IRQ。
-网络硬件轮询被限制在 CPU0，避免多个 CPU 同时操作共享 DWC2 host channels。
+硬件完成由 DWC2 IRQ 触发；Generic Timer 只调度简化的 bottom half。
 
 ### 14.3 改成真正 USB IRQ 所需步骤
 
@@ -804,7 +804,7 @@ DHCP syscall 根据接口名执行 `netdev_find("wlan1")` 和 `net_dhcp_dev()`�
 | `register_netdev(wlan1)` / remove | 注册已实机验证；拔出注销待验证 |
 | `/bin/dhcp wlan1` | 已实现，待实机验证 |
 | DNS/ping over MT7601U | 依赖前述数据面实机验证 |
-| DWC2 completion IRQ + deferred RX | 未完成，当前为 CPU0 timer polling |
+| DWC2 completion IRQ + deferred RX | 已完成基础版，EP4 使用 channel 4；待真机压力验证 |
 
 ---
 
@@ -816,7 +816,6 @@ DHCP syscall 根据接口名执行 `netdev_find("wlan1")` 和 `net_dhcp_dev()`�
   -> DNS/ping
   -> TX status/ACK/retry + rate control
   -> RX/TX 多帧队列
-  -> DWC2 host-channel IRQ
   -> asynchronous RX/TX queues
   -> hotplug/remove lifecycle
 ```

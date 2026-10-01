@@ -44,6 +44,7 @@
 #define INT_DATA_DONE   (1U << 1)
 #define INT_WRITE_RDY   (1U << 4)
 #define INT_READ_RDY    (1U << 5)
+#define INT_CARD_INT    (1U << 8)
 #define INT_ERROR       (1U << 15)
 #define INT_ERROR_MASK  0xffff0000U
 
@@ -77,6 +78,7 @@ static struct arasan_host arasan;
 static uint32 clock_message[16] __attribute__((aligned(64)));
 static struct device *arasan_device;
 static struct device_driver *arasan_driver;
+static volatile int arasan_card_irq_pending;
 
 static inline volatile uint32 *
 reg(uint64 base, uint32 offset)
@@ -367,6 +369,41 @@ arasan_remove(struct device *dev)
 }
 
 void
+arasan_sdio_irq_enable(void)
+{
+  arasan_card_irq_pending = 0;
+  wr(EMMC_INTERRUPT, INT_CARD_INT);
+  wr(EMMC_IRPT_EN, INT_CARD_INT);
+}
+
+void
+arasan_sdio_irq(void)
+{
+  uint32 status = rd(EMMC_INTERRUPT);
+  if(status & INT_CARD_INT){
+    // Mask the level-triggered source until the deferred SDPCM drain has
+    // acknowledged the interrupt inside the BCM43455.
+    wr(EMMC_IRPT_EN, 0);
+    wr(EMMC_INTERRUPT, INT_CARD_INT);
+    arasan_card_irq_pending = 1;
+  }
+}
+
+int
+arasan_sdio_irq_pending(void)
+{
+  return arasan_card_irq_pending;
+}
+
+void
+arasan_sdio_irq_complete(void)
+{
+  arasan_card_irq_pending = 0;
+  wr(EMMC_INTERRUPT, INT_CARD_INT);
+  wr(EMMC_IRPT_EN, INT_CARD_INT);
+}
+
+void
 arasan_sdio_driver_init(void)
 {
   static struct device dev = {
@@ -379,8 +416,9 @@ arasan_sdio_driver_init(void)
         IORESOURCE_MEM, "GPIO34-39" },
       { V2P_WO(MBOX_BASE), V2P_WO(MBOX_BASE) + 0x3f,
         IORESOURCE_MEM, "property mailbox" },
+      { SDIO_IRQ, SDIO_IRQ, IORESOURCE_IRQ, "Arasan SDIO IRQ" },
     },
-    .nresource = 3,
+    .nresource = 4,
   };
   static struct device_driver drv = {
     .name = "bcm2837-arasan-sdio",

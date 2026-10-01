@@ -162,6 +162,12 @@ devintr()
   if(irq == UART0_IRQ){
     uartintr();
     dev = 1;
+  } else if(irq == DWC2_IRQ){
+    dwc2_irq();
+    dev = 1;
+  } else if(irq == SDIO_IRQ){
+    arasan_sdio_irq();
+    dev = 1;
   } else if(irq == TIMER0_IRQ){
     int logical_tick = timerintr();
     if(cpuid() == 0 && logical_tick){

@@ -16,6 +16,7 @@
 
 #define CCCR_IO_ENABLE       0x02
 #define CCCR_IO_READY        0x03
+#define CCCR_INT_ENABLE      0x04
 #define CCCR_BUS_INTERFACE   0x07
 #define FBR_BASE(fn)         ((fn) * 0x100)
 #define FBR_CLASS(fn)        (FBR_BASE(fn) + 0x00)
@@ -206,6 +207,30 @@ sdio_enable_func(struct sdio_func *func)
     asm volatile("yield" ::: "memory");
   } while(r_cntvct_el0() - start < timeout);
   return -1;
+}
+
+int
+sdio_claim_irq(struct sdio_func *func)
+{
+  uint8 enable;
+  if(func == 0 || cmd52_host(func->host, 0, 0,
+                             CCCR_INT_ENABLE, &enable) < 0)
+    return -1;
+  enable |= 1U | (1U << func->function); // master + this function
+  return cmd52_host(func->host, 0, 1, CCCR_INT_ENABLE, &enable);
+}
+
+void
+sdio_release_irq(struct sdio_func *func)
+{
+  uint8 enable;
+  if(func == 0 || cmd52_host(func->host, 0, 0,
+                             CCCR_INT_ENABLE, &enable) < 0)
+    return;
+  enable &= ~(1U << func->function);
+  if((enable & 0xfe) == 0)
+    enable &= ~1U;
+  cmd52_host(func->host, 0, 1, CCCR_INT_ENABLE, &enable);
 }
 
 static int

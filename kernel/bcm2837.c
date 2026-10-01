@@ -50,7 +50,8 @@ gicv3init(void)
   irqwrite(DISABLE_IRQS_1, ~0U);
   irqwrite(DISABLE_IRQS_2, ~0U);
   irqwrite(DISABLE_BASIC_IRQS, ~0U);
-  irqwrite(ENABLE_IRQS_1, 1U << UART0_IRQ);
+  irqwrite(ENABLE_IRQS_1, (1U << UART0_IRQ) | (1U << DWC2_IRQ));
+  irqwrite(ENABLE_IRQS_2, 1U << (SDIO_IRQ - 32));
 }
 
 void
@@ -69,6 +70,10 @@ gic_iar(void)
     return TIMER0_IRQ;
   if(irqread(IRQ_PENDING_1) & (1U << UART0_IRQ))
     return UART0_IRQ;
+  if(irqread(IRQ_PENDING_1) & (1U << DWC2_IRQ))
+    return DWC2_IRQ;
+  if(irqread(IRQ_PENDING_2) & (1U << (SDIO_IRQ - 32)))
+    return SDIO_IRQ;
   if(irqread(IRQ_PENDING_1))
     return 1023;
   return 1023;
@@ -90,7 +95,7 @@ gic_eoi(uint32 iar)
 int
 gic_int_enabled(uint32 intid)
 {
-  if(intid == UART0_IRQ)
+  if(intid == UART0_IRQ || intid == DWC2_IRQ || intid == SDIO_IRQ)
     return 1;
   if(intid == TIMER0_IRQ)
     return 1;

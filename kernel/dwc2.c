@@ -22,13 +22,18 @@
 #define GSNPSID   0x040
 #define HCFG      0x400
 #define HFNUM     0x408
+#define HAINT     0x414
+#define HAINTMSK  0x418
 #define HPRT0     0x440
 #define HCCHAR(c) (0x500 + 0x20*(c))
 #define HCINT(c)  (0x508 + 0x20*(c))
+#define HCINTMSK(c) (0x50c + 0x20*(c))
 #define HCTSIZ(c) (0x510 + 0x20*(c))
 #define HCDMA(c)  (0x514 + 0x20*(c))
 
 #define GAHBCFG_DMA_EN       (1U << 5)
+#define GAHBCFG_GLBL_INTR_EN (1U << 0)
+#define GINTSTS_HCHINT       (1U << 25)
 #define GUSBCFG_FORCEHOST    (1U << 29)
 #define GUSBCFG_FORCEDEV     (1U << 30)
 #define GRSTCTL_AHBIDLE      (1U << 31)
@@ -117,6 +122,15 @@ static int ep0_mps = 8;
 static int bulk_in_toggle;
 static int bulk_out_toggle;
 static int rx_armed;
+static volatile uint32 dwc2_irq_pending;
+static struct {
+  struct usb_device *udev;
+  void *buffer;
+  int length;
+  int endpoint;
+  int mps;
+  int armed;
+} async_rx;
 static uchar setup_buf[64] __attribute__((aligned(64)));
 static uchar ctrl_buf[512] __attribute__((aligned(64)));
 static uchar rx_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
@@ -466,9 +480,96 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
   return r;
 }
 
+static void
+dwc2_async_rx_start(void)
+{
+  struct usb_device *udev = async_rx.udev;
+  uint32 hcchar;
+  int packets, pid;
+
+  if(udev == 0 || async_rx.buffer == 0 || async_rx.length <= 0)
+    return;
+  packets = (async_rx.length + async_rx.mps - 1) / async_rx.mps;
+  pid = udev->bulk_in_toggle ? PID_DATA1 : PID_DATA0;
+  wr(HCINT(4), 0x3fff);
+  wr(HCINTMSK(4), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
+                   HCINT_ERRORS);
+  dwc2_irq_pending &= ~(1U << 4);
+  cache_clean_invalidate_range(async_rx.buffer, async_rx.length);
+  wr(HCDMA(4), DWC2_DMA_BUS(async_rx.buffer));
+  wr(HCTSIZ(4), HCTSIZ_XFERSIZE(async_rx.length) |
+                  HCTSIZ_PKTCNT(packets) | HCTSIZ_PID(pid));
+  hcchar = HCCHAR_DEVADDR(udev->address) |
+           HCCHAR_EPNUM(async_rx.endpoint) | HCCHAR_EPTYPE(EPTYPE_BULK) |
+           HCCHAR_MPS(async_rx.mps) | HCCHAR_EPDIR_IN;
+  wr(HAINTMSK, rd(HAINTMSK) | (1U << 4));
+  wr(HCCHAR(4), hcchar | HCCHAR_CHENA);
+  async_rx.armed = 1;
+}
+
+static int
+dwc2_usb_bulk_rx_arm(struct usb_device *udev, int endpoint,
+                     void *data, int length)
+{
+  if(udev == 0 || endpoint <= 0 || endpoint > 15 || data == 0 || length <= 0)
+    return -1;
+  if(async_rx.armed)
+    return async_rx.udev == udev && async_rx.endpoint == endpoint ? 0 : -1;
+  async_rx.udev = udev;
+  async_rx.buffer = data;
+  async_rx.length = length;
+  async_rx.endpoint = endpoint;
+  async_rx.mps = udev->bulk_in_max_packet ? udev->bulk_in_max_packet : 64;
+  dwc2_async_rx_start();
+  return async_rx.armed ? 0 : -1;
+}
+
+static int
+dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint)
+{
+  uint32 intr, left;
+  int result, packets;
+
+  if(!async_rx.armed || async_rx.udev != udev ||
+     async_rx.endpoint != endpoint)
+    return -1;
+  if((dwc2_irq_pending & (1U << 4)) == 0)
+    return -2;
+  dwc2_irq_pending &= ~(1U << 4);
+  intr = rd(HCINT(4));
+  if(intr & HCINT_NAK){
+    halt_channel(4);
+    wr(HCINT(4), intr);
+    async_rx.armed = 0;
+    dwc2_async_rx_start();
+    return -2;
+  }
+  if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL)){
+    halt_channel(4);
+    wr(HCINT(4), intr);
+    async_rx.armed = 0;
+    return -1;
+  }
+  left = rd(HCTSIZ(4)) & 0x7ffff;
+  result = left <= (uint32)async_rx.length ? async_rx.length - left : -1;
+  wr(HCINT(4), intr);
+  cache_invalidate_range(async_rx.buffer, async_rx.length);
+  async_rx.armed = 0;
+  if(result >= 0){
+    packets = (result + async_rx.mps - 1) / async_rx.mps;
+    if(result < async_rx.length && (result % async_rx.mps) == 0)
+      packets++;
+    if(packets & 1)
+      udev->bulk_in_toggle ^= 1;
+  }
+  return result;
+}
+
 static const struct usb_host_ops dwc2_usb_ops = {
   .control = dwc2_usb_control,
   .bulk = dwc2_usb_bulk,
+  .bulk_rx_arm = dwc2_usb_bulk_rx_arm,
+  .bulk_rx_complete = dwc2_usb_bulk_rx_complete,
 };
 
 int
@@ -499,6 +600,9 @@ arm_rx(void)
   int packets = (len + 63) / 64;
 
   wr(HCINT(2), 0x3fff);
+  wr(HCINTMSK(2), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
+                   HCINT_ERRORS);
+  wr(HAINTMSK, rd(HAINTMSK) | (1U << 2));
   cache_clean_invalidate_range(rx_buf, len);
   wr(HCDMA(2), DWC2_DMA_BUS(rx_buf));
   wr(HCTSIZ(2), HCTSIZ_XFERSIZE(len) | HCTSIZ_PKTCNT(packets) |
@@ -527,9 +631,21 @@ dwc2_cdc_poll(void)
       return;
     }
 
+    if((dwc2_irq_pending & (1U << 2)) == 0){
+      release(&usb_lock);
+      return;
+    }
+    dwc2_irq_pending &= ~(1U << 2);
+
     intr = rd(HCINT(2));
-    if(intr & HCINT_NAK)
-      wr(HCINT(2), HCINT_NAK);
+    if(intr & HCINT_NAK){
+      halt_channel(2);
+      wr(HCINT(2), intr);
+      rx_armed = 0;
+      arm_rx();
+      release(&usb_lock);
+      return;
+    }
     if(intr & HCINT_ERRORS){
       halt_channel(2);
       wr(HCINT(2), intr);
@@ -563,6 +679,23 @@ dwc2_cdc_poll(void)
       arm_rx();
     release(&usb_lock);
   }
+}
+
+void
+dwc2_irq(void)
+{
+  uint32 channels;
+
+  if((rd(GINTSTS) & rd(GINTMSK) & GINTSTS_HCHINT) == 0)
+    return;
+  channels = rd(HAINT) & rd(HAINTMSK);
+  if(channels == 0)
+    return;
+  // Mask completed asynchronous channels.  Their HCINT status and DMA
+  // residual count are consumed by the deferred driver poll, which rearms
+  // the channel and its HAINT bit after cache maintenance and frame parsing.
+  wr(HAINTMSK, rd(HAINTMSK) & ~channels);
+  dwc2_irq_pending |= channels;
 }
 
 static void
@@ -613,10 +746,14 @@ dwc2_init(void)
            rd(GUSBCFG), rd(GINTSTS));
     return;
   }
-  wr(GINTMSK, 0);
+  wr(HAINTMSK, 0);
+  for(int channel = 0; channel < 8; channel++)
+    wr(HCINTMSK(channel), 0);
+  wr(GINTMSK, GINTSTS_HCHINT);
   wr(GINTSTS, 0xffffffff);
   wr(HCFG, 0);
-  wr(GAHBCFG, GAHBCFG_DMA_EN);
+  wr(GAHBCFG, GAHBCFG_DMA_EN | GAHBCFG_GLBL_INTR_EN);
+  printf("dwc2: host-channel IRQ enabled\n");
 
   // Power the root port before testing connect status.  On real Raspberry
   // Pi 3 hardware the LAN951x hub is behind this port and needs time after
@@ -864,6 +1001,11 @@ dwc2_remove(struct device *dev)
     usb_child_registered = 0;
   }
   usb_ready = 0;
+  wr(HAINTMSK, 0);
+  wr(GINTMSK, 0);
+  wr(GAHBCFG, rd(GAHBCFG) & ~GAHBCFG_GLBL_INTR_EN);
+  dwc2_irq_pending = 0;
+  memset(&async_rx, 0, sizeof(async_rx));
   usb_parent = 0;
 }
 
@@ -876,8 +1018,9 @@ dwc2_driver_init(void)
     .resource = {
       { V2P_WO(DWC2_BASE), V2P_WO(DWC2_BASE) + 0x17ffff,
         IORESOURCE_MEM, "DWC2 USB host" },
+      { DWC2_IRQ, DWC2_IRQ, IORESOURCE_IRQ, "DWC2 host-channel IRQ" },
     },
-    .nresource = 1,
+    .nresource = 2,
   };
   static struct device_driver drv = {
     .name = "bcm2837-dwc2",
