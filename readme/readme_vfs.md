@@ -136,6 +136,7 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 
 ```text
 /proc
+/boot
 /mnt
 /mnt/ext2
 /etc
@@ -152,6 +153,7 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 
 ```text
 proc /proc procfs ro 0 0
+bootfs /boot fat32 ro 0 0
 ext2 /mnt/ext2 ext2 ro 0 0
 ```
 
@@ -160,6 +162,186 @@ ext2 /mnt/ext2 ext2 ro 0 0
 总能挂载；`ext2` 只有在启动阶段发现兼容分区后才会挂载成功。为了保持接口形状接近 Linux，
 系统调用保留了 source 和 flags 参数，但当前后端尚未使用它们，也尚未实现设备名解析与
 `umount(2)`。
+
+## FAT32 bootfs 挂载
+
+Raspberry Pi 固件在启动内核前读取 SD 卡上的 FAT32 启动分区。进入 Linux 后，这个分区并
+不会自动变成根文件系统的一部分；Linux 通常再次把它挂载在 `/boot` 或
+`/boot/firmware`。本项目采用同样的布局：原生 xv6 文件系统仍挂载为 `/`，而启动阶段
+识别到的 FAT32 分区通过 VFS 覆盖挂载到 `/boot`。
+
+```text
+SD 卡
+├── p1 FAT32 bootfs ── fat32 驱动 ── VFS mount table ── /boot
+├── p2 xv6 raw fs ─── xv6 inode fs ──────────────────── /
+├── p3 ext2 ───────── ext2 驱动 ──── VFS mount table ── /mnt/ext2
+└── p4 reserved
+```
+
+因此 `ls /` 显示的是原生根目录以及作为入口的 `boot` 目录；`ls /boot` 才枚举 FAT32
+根目录中的 `config.txt`、内核镜像和固件等文件。`cat /boot/CONFIG.TXT` 通过普通
+`open/read/close` 路径读取 FAT 文件，不再需要 FAT32 专用系统调用。
+
+当前 FAT32 VFS 后端有意保持只读，以免尚未具备日志和崩溃恢复能力的代码损坏可启动分区。
+它已支持根目录的 `stat`、`readdir` 与普通文件读取，并使用 FAT 8.3 短文件名；长文件名
+条目和 `/boot/overlays` 等子目录遍历仍是后续工作。由于 QEMU 当前直接把 `fs.img` 作为
+SD 介质而没有 FAT 分区，QEMU 中 `/boot` 是空的原生挂载点；真实 Raspberry Pi 的分区表
+被探测后才会打印 `vfs: mounted fat32 at /boot read-only` 并显示 bootfs 内容。
+
+### 实现过程和代码调用链
+
+这次改造没有把 FAT32 合并进 xv6 inode 文件系统，而是让 FAT32 成为一个独立 VFS 后端。
+这样同一个绝对路径接口可以根据挂载点选择不同文件系统，同时保持根文件系统格式不变。
+
+#### 1. 内核启动阶段探测 FAT32
+
+主核在 `kernel/main.c` 中调用 `fat32init()`。该函数通过 SD 块设备读取 MBR，识别 FAT32
+分区并解析 BPB，保存分区起始 LBA、FAT 起始 LBA、数据区起始 LBA、每簇扇区数和根目录簇。
+探测成功后 `diskmap.fat` 被置位；新增的 `fat32ready()` 将这个状态提供给 VFS。这里仅仅是
+识别并准备文件系统，还没有把它放入用户可见的目录树。
+
+```text
+main()
+  -> fat32init()
+       -> sdsector(0)                 读取 MBR
+       -> 选择 FAT32 分区
+       -> sdsector(partition_lba)     读取 BPB
+       -> 保存 FAT/data/root 布局
+       -> diskmap.fat = 1
+  -> vfsinit()                        初始化空 mount table
+```
+
+#### 2. init 创建挂载点并读取 fstab
+
+进入用户态后，`user/init.c` 先调用 `mkdir("boot")` 创建原生 xv6 目录 `/boot`，然后在首次
+生成的 `/etc/fstab` 中写入：
+
+```text
+bootfs /boot fat32 ro 0 0
+```
+
+`mount_fstab()` 逐行解析配置并调用 `mount(2)`。内核 `vfsmount()` 看到类型为 `fat32` 时，
+先检查 `fat32ready()`，再把 `/boot -> fat32_ops` 放入 mount table。挂载点的原生 inode
+仍然存在，但访问该路径时会被挂载的 FAT32 后端覆盖。
+
+```text
+/init
+  -> mkdir("/boot")
+  -> mount_fstab()
+       -> mount("bootfs", "/boot", "fat32", read-only)
+            -> sys_mount()
+                 -> vfsmount()
+                      -> fat32ready()
+                      -> mountops("/boot", &fat32_ops)
+```
+
+#### 3. VFS 按最长挂载点匹配路由路径
+
+普通 `open()` 最终先进入 `vfsopen()`。`findmount()` 遍历 mount table，并采用最长挂载点
+匹配：`/boot` 和 `/boot/CONFIG.TXT` 都匹配 `/boot`，但传给 FAT32 后端的相对路径分别是
+`/` 和 `/CONFIG.TXT`。没有匹配到挂载点时，`vfsopen()` 返回 0，调用者继续走原生 xv6
+inode 路径。
+
+```text
+open("/boot/CONFIG.TXT", O_RDONLY)
+  -> vfsopen()
+       -> findmount()
+            absolute = /boot/CONFIG.TXT
+            mount    = /boot
+            relative = /CONFIG.TXT
+       -> fat32_ops.stat("/CONFIG.TXT")
+```
+
+这个返回值约定很重要：`1` 表示 VFS 已成功打开，`-1` 表示路径属于某个挂载文件系统但打开
+失败，`0` 表示不属于任何 VFS 挂载点，应继续尝试原生根文件系统。
+
+#### 4. FAT32 vnode 操作
+
+`kernel/vfs.c` 新增 `fat32_ops`，与 ext2、procfs 使用相同的 `vnode_ops` 接口：
+
+```c
+static struct vnode_ops fat32_ops = {
+  .stat = fat_vstat,
+  .read = fat_vread,
+  .readdir = fat_vreaddir,
+};
+```
+
+- `fat_vstat()` 调用 `fat32statpath()`，把 FAT 属性转换成 xv6 的 `struct stat`。
+- `fat_vreaddir()` 调用 `fat32readdirroot()`，把一个 FAT 32-byte directory entry 转换为
+  xv6 `struct dirent`，供普通 `ls` 使用。
+- `fat_vread()` 把路径转换为 11-byte FAT 8.3 名称，通过 `fat32openroot()` 找到首簇和大小，
+  再由 `fat32pread()` 沿 FAT cluster chain 读取数据，供普通 `cat` 使用。
+
+FAT 空文件的 first cluster 合法值为 0，而 xv6 `ls` 把 inode 0 当作未使用目录项。为避免
+空文件被隐藏，VFS 在这种情况下为目录输出合成一个非零 inode 编号。
+
+#### 5. 根目录枚举过程
+
+`fat32readdirroot(index, de)` 从 BPB 获得根目录首簇，遍历该簇的所有扇区和 32-byte 目录项，
+必要时通过 `fat_next()` 沿 FAT 链进入下一簇。它跳过删除项、卷标和 LFN 项，仅把普通文件
+及目录的 8.3 项返回给 VFS。
+
+```text
+ls /boot
+  -> read(directory fd)
+       -> vfsread()
+            -> fat_vreaddir(path="/", index=N)
+                 -> fat32readdirroot(N)
+                      -> cluster_lba(root_cluster)
+                      -> sdsector()
+                      -> 过滤 deleted/LFN/volume label
+                      -> 填充 name, cluster, size, directory
+            -> 转换为 xv6 struct dirent
+            -> copyout 到 ls
+```
+
+#### 6. 普通文件读取过程
+
+```text
+cat /boot/CONFIG.TXT
+  -> open()
+       -> vfsopen() -> fat_vstat()
+  -> read()
+       -> vfsread() -> fat_vread()
+            -> fat32openroot("CONFIG  TXT")
+            -> fat32pread(offset, length)
+                 -> 定位文件簇
+                 -> sdsector(cluster_lba + sector)
+                 -> 沿 FAT 链继续读取
+            -> copyout 到用户缓冲区
+```
+
+当前 `vfsopen()` 对 FAT32 只接受 `O_RDONLY`。写入、创建、删除、重命名和 truncate 都不会
+落到 FAT32 驱动，这既体现了 fstab 的 `ro` 配置，也避免未完成一致性保护前修改启动介质。
+
+#### 7. 验证结果
+
+构建使用：
+
+```sh
+make -j4 kernel/kernel8.img user/_init fs.img
+```
+
+QEMU 使用的是不含 MBR/FAT32 的裸 `fs.img`，因此验证结果是根目录出现原生挂载点，而
+`/boot` 暂时为空：
+
+```text
+$ ls /
+boot           1 44 32
+
+$ ls /boot
+.              1 44 32
+..             1 1 1024
+```
+
+在真实 SD 卡上，`fat32init()` 能识别第一分区，因此还应出现：
+
+```text
+vfs: mounted fat32 at /boot read-only
+```
+
+随后 `ls /boot` 显示的是 FAT32 根目录的 8.3 短文件名，而不再是下面被覆盖的空 xv6 目录。
 
 例如，可以删除或注释 `proc /proc procfs ...` 这一行来阻止下一次启动挂载 `/proc`；也可以
 修改 target，把 procfs 挂载到另一个已经创建的绝对路径。当前 mount table 没有卸载和重复

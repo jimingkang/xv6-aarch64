@@ -91,6 +91,10 @@ void            fat32rw(struct buf*, int);
 struct fat32_file;
 int             fat32openroot(char*, struct fat32_file*);
 int             fat32pread(struct fat32_file*, uint32, void*, int);
+int             fat32ready(void);
+struct fat32_dirent;
+int             fat32statpath(char*, struct fat32_dirent*);
+int             fat32readdirroot(int, struct fat32_dirent*);
 
 // ext2.c
 void            ext2init(void);

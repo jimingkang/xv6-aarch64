@@ -37,6 +37,132 @@ static struct {
 
 static uchar scratch[SECTOR_SIZE];
 
+static uint16 le16(const uchar *p);
+static uint32 le32(const uchar *p);
+static uint32 cluster_lba(uint32 cluster);
+static uint32 fat_next(uint32 cluster);
+
+int
+fat32ready(void)
+{
+  return diskmap.fat;
+}
+
+static int
+path_to_name11(char *path, char name[11])
+{
+  int base = 0, ext = 8;
+  if(path == 0 || *path++ != '/' || *path == 0)
+    return -1;
+  memset(name, ' ', 11);
+  while(*path && *path != '.'){
+    char c = *path++;
+    if(base == 8 || c == '/') return -1;
+    if(c >= 'a' && c <= 'z') c -= 'a' - 'A';
+    name[base++] = c;
+  }
+  if(*path == '.') path++;
+  while(*path){
+    char c = *path++;
+    if(ext == 11 || c == '/') return -1;
+    if(c >= 'a' && c <= 'z') c -= 'a' - 'A';
+    name[ext++] = c;
+  }
+  return 0;
+}
+
+static void
+entry_name(uchar *entry, char *out)
+{
+  int n = 0;
+  for(int i = 0; i < 8 && entry[i] != ' '; i++) out[n++] = entry[i];
+  if(entry[8] != ' '){
+    out[n++] = '.';
+    for(int i = 8; i < 11 && entry[i] != ' '; i++) out[n++] = entry[i];
+  }
+  out[n] = 0;
+}
+
+static int
+fat32lookuproot(char name[11], struct fat32_dirent *de)
+{
+  uint32 cluster;
+  if(!diskmap.fat || de == 0 ||
+     sdsector(diskmap.partition_lba, scratch, 0) < 0)
+    return -1;
+  cluster = le32(scratch + 44);
+  for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
+    if(cluster < 2 || cluster >= FAT32_EOC)
+      return -1;
+    uint32 first = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      if(sdsector(first + s, scratch, 0) < 0)
+        return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        uchar *e = scratch + off;
+        if(e[0] == 0)
+          return -1;
+        if(e[0] == 0xe5 || e[11] == 0x0f || (e[11] & 0x08))
+          continue;
+        if(memcmp(e, name, 11) != 0)
+          continue;
+        memset(de, 0, sizeof(*de));
+        de->cluster = ((uint32)le16(e + 20) << 16) | le16(e + 26);
+        de->size = le32(e + 28);
+        de->directory = (e[11] & 0x10) != 0;
+        entry_name(e, de->name);
+        return 0;
+      }
+    }
+    cluster = fat_next(cluster);
+  }
+  return -1;
+}
+
+int
+fat32readdirroot(int index, struct fat32_dirent *de)
+{
+  uint32 cluster;
+  int seen = 0;
+  if(!diskmap.fat || index < 0 || de == 0 ||
+     sdsector(diskmap.partition_lba, scratch, 0) < 0)
+    return -1;
+  cluster = le32(scratch + 44);
+  for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
+    if(cluster < 2 || cluster >= FAT32_EOC) return 0;
+    uint32 first = cluster_lba(cluster);
+    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
+      if(sdsector(first + s, scratch, 0) < 0) return -1;
+      for(int off = 0; off < SECTOR_SIZE; off += 32){
+        uchar *e = scratch + off;
+        if(e[0] == 0) return 0;
+        if(e[0] == 0xe5 || e[11] == 0x0f || (e[11] & 0x08)) continue;
+        if(seen++ != index) continue;
+        memset(de, 0, sizeof(*de));
+        de->cluster = ((uint32)le16(e + 20) << 16) | le16(e + 26);
+        de->size = le32(e + 28);
+        de->directory = (e[11] & 0x10) != 0;
+        entry_name(e, de->name);
+        return 1;
+      }
+    }
+    cluster = fat_next(cluster);
+  }
+  return 0;
+}
+
+int
+fat32statpath(char *path, struct fat32_dirent *de)
+{
+  char name[11];
+  if(path[0] == '/' && path[1] == 0){
+    memset(de, 0, sizeof(*de)); de->directory = 1; return 0;
+  }
+  if(path_to_name11(path, name) < 0)
+    return -1;
+  return fat32lookuproot(name, de);
+}
+
 static char *
 partition_type_name(uchar type)
 {

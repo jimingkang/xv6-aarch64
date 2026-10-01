@@ -11,6 +11,7 @@
 #include "fcntl.h"
 #include "stat.h"
 #include "ext2.h"
+#include "fat32.h"
 #include "defs.h"
 #include "vfs.h"
 #include "device.h"
@@ -88,6 +89,62 @@ static struct vnode_ops ext2_ops = {
   .stat = ext2_vstat,
   .read = ext2readfile,
   .readdir = ext2_vreaddir,
+};
+
+static int
+fat_vstat(char *path, struct stat *st)
+{
+  struct fat32_dirent fe;
+  if(fat32statpath(path, &fe) < 0) return -1;
+  memset(st, 0, sizeof(*st));
+  st->dev = 4; st->ino = fe.cluster ? fe.cluster : 1;
+  st->type = fe.directory ? T_DIR : T_FILE;
+  st->nlink = 1; st->size = fe.size;
+  return 0;
+}
+
+static int
+fat_vread(char *path, uint64 off, void *dst, int n)
+{
+  char name[11];
+  struct fat32_file file;
+  struct fat32_dirent fe;
+  int dot = 0;
+  if(fat32statpath(path, &fe) < 0 || fe.directory) return -1;
+  memset(name, ' ', sizeof(name));
+  int b = 0, e = 8;
+  for(char *p = path + 1; *p; p++){
+    char c = *p;
+    if(c == '.'){ dot = 1; continue; }
+    if(c >= 'a' && c <= 'z') c -= 'a' - 'A';
+    if(!dot && b < 8) name[b++] = c;
+    else if(e < 11) name[e++] = c;
+  }
+  if(fat32openroot(name, &file) < 0) return -1;
+  return fat32pread(&file, off, dst, n);
+}
+
+static int
+fat_vreaddir(char *path, int index, void *arg)
+{
+  struct fat32_dirent fe;
+  struct vfs_dirent *de = arg;
+  int r;
+  if(path[0] != '/' || path[1] != 0) return 0;
+  r = fat32readdirroot(index, &fe);
+  if(r <= 0) return r;
+  memset(de, 0, sizeof(*de));
+  // Empty FAT files legitimately have first-cluster zero.  xv6 ls treats
+  // inode zero as an unused directory slot, so synthesize a stable non-zero
+  // number for those entries.
+  de->ino = fe.cluster ? fe.cluster : index + 2;
+  de->type = fe.directory ? T_DIR : T_FILE;
+  safestrcpy(de->name, fe.name, sizeof(de->name));
+  return 1;
+}
+
+static struct vnode_ops fat32_ops = {
+  .stat = fat_vstat, .read = fat_vread, .readdir = fat_vreaddir,
 };
 
 static int
@@ -441,6 +498,8 @@ vfsmount(char *path, char *fstype)
   struct vnode_ops *ops;
   if(streq(fstype, "procfs"))
     ops = &proc_ops;
+  else if(streq(fstype, "fat32") && fat32ready())
+    ops = &fat32_ops;
   else if(streq(fstype, "ext2") && ext2ready())
     ops = &ext2_ops;
   else
