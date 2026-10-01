@@ -6,7 +6,6 @@ U=user
 RPI3_BOOTFS ?= /Volumes/bootfs
 RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
 RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
-RPI3_FS_NAME ?= FS.IMG
 # Raw xv6 partition device.  Intentionally empty: callers must name the exact
 # partition (for example /dev/rdisk4s3) to prevent accidental whole-disk writes.
 RPI3_XV6_DEV ?=
@@ -140,7 +139,7 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 		test -e "$(RPI3_XV6_DEV)" || { echo "error: $(RPI3_XV6_DEV) does not exist" 1>&2; exit 1; }; \
 		$(SUDO) dd if=fs.img of="$(RPI3_XV6_DEV)" bs=1048576 conv=sync; \
 	else \
-		$(SUDO) cp -f fs.img "$(RPI3_BOOTFS)/$(RPI3_FS_NAME)"; \
+		echo "warning: fs.img not installed; set RPI3_XV6_DEV to the raw xv6 partition" 1>&2; \
 	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
 	@cmp -s $K/kernel8.img "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
@@ -181,7 +180,7 @@ install-rpi3: $K/kernel8.img fs.img config.txt
 	@if test -n "$(RPI3_XV6_DEV)"; then \
 		echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"; \
 	else \
-		echo "installed fs.img -> $(RPI3_BOOTFS)/$(RPI3_FS_NAME) (compatibility mode)"; \
+		echo "skipped fs.img installation (RPI3_XV6_DEV is empty)"; \
 	fi
 	@echo "installed config.txt -> $(RPI3_BOOTFS)/config.txt (firmware armstub8)"
 

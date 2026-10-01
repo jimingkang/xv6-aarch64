@@ -98,6 +98,12 @@ static struct {
 #define ARP_REACHABLE 1
 static struct net_device *netdevices[NETDEV_MAX];
 static int nnetdev;
+
+static void
+tcp_epollnotify(struct tcp_conn *c)
+{
+  epollnotify_socket((int)(c - tcp_connections) + 1);
+}
 static struct net_device *active_netdev;
 static struct route routes[ROUTE_MAX];
 static struct arp_entry arp_cache[ARP_MAX];
@@ -495,13 +501,13 @@ tcp_start_queued_locked(struct tcp_conn *c)
   if(tcp_track_send_locked(c, TCP_ACK | TCP_PSH, c->txq, n) < 0){
     c->tx_failed = 1;
     wakeup(c);
-    epollnotify();
+    tcp_epollnotify(c);
     return;
   }
   memmove(c->txq, c->txq + n, c->txq_len - n);
   c->txq_len -= n;
   wakeup(c);
-  epollnotify();
+  tcp_epollnotify(c);
 }
 
 static void
@@ -610,7 +616,7 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
         listener->aq_tail = (listener->aq_tail + 1) % TCP_BACKLOG_MAX;
         listener->aq_count++;
         wakeup(listener);
-        epollnotify();
+        tcp_epollnotify(listener);
       }
       release(&listener->lock);
     }
@@ -621,7 +627,7 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
     c->tx_retries = 0;
     tcp_start_queued_locked(c);
     wakeup(c);
-    epollnotify();
+    tcp_epollnotify(c);
   }
   if((c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
      datalen > 0){
@@ -642,7 +648,7 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
           c->ooo_len = 0;
         }
         wakeup(c);
-        epollnotify();
+        tcp_epollnotify(c);
       }
     } else if(seq > c->rcv_nxt && datalen <= (int)sizeof(c->ooo) &&
               (c->ooo_len == 0 || seq < c->ooo_seq)){
@@ -658,7 +664,7 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
     c->state = TCP_CLOSE_WAIT;
     tcp_send_locked(c, TCP_ACK, 0, 0);
     wakeup(c);
-    epollnotify();
+    tcp_epollnotify(c);
   }
   release(&c->lock);
 }
@@ -1170,6 +1176,7 @@ net_tcp_accept(int handle, int nonblock)
   if(listener->pending > 0)
     listener->pending--;
   release(&listener->lock);
+  tcp_epollnotify(listener);
   child = tcp_handle(child_handle);
   if(child == 0)
     return -1;
@@ -1197,7 +1204,8 @@ net_tcp_poll(int handle, int events)
   } else if(c->accepted){
     if((events & 1) && (c->rxlen || c->state == TCP_CLOSE_WAIT))
       ready |= 1;
-    if((events & 4) && c->state == TCP_ESTABLISHED &&
+    if((events & 4) &&
+       (c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
        c->txq_len < TCP_TXQ_SIZE)
       ready |= 4;
   }
@@ -1242,6 +1250,7 @@ net_tcp_read(int handle, uint64 uaddr, int maxlen, int nonblock)
   memmove(c->rx, c->rx + n, c->rxlen - n);
   c->rxlen -= n;
   release(&c->lock);
+  tcp_epollnotify(c);
   return n;
 }
 
@@ -1255,7 +1264,7 @@ net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
   while(done < len){
     acquire(&c->lock);
     if(c->owner != myproc()->pid || !c->accepted ||
-       c->state != TCP_ESTABLISHED){
+       (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT)){
       release(&c->lock);
       return done ? done : -1;
     }
@@ -1287,6 +1296,7 @@ net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
     done += n;
     tcp_start_queued_locked(c);
     release(&c->lock);
+    tcp_epollnotify(c);
     if(nonblock)
       break;
   }
@@ -1318,7 +1328,7 @@ net_tcp_close(int handle)
   c->accepted = 0;
   c->rxlen = 0;
   wakeup(c);
-  epollnotify();
+  tcp_epollnotify(c);
   release(&c->lock);
   // Closing a listener drops only queued/half-open children.  Connections
   // already returned by accept() remain independent, as they do on Linux.
@@ -1356,7 +1366,7 @@ net_tcp_tick(void)
         c->tx_failed = 1;
         printf("tcp: retransmission timeout port=%d\n", c->local_port);
         wakeup(c);
-        epollnotify();
+        tcp_epollnotify(c);
         if(parent){
           c->state = TCP_CLOSED;
           c->owner = 0;

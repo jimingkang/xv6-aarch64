@@ -38,6 +38,13 @@ struct pty {
   int saw_output_cr;
 };
 
+static void
+pty_epollnotify(struct pty *pt)
+{
+  epollnotify_pty(pt, 0);
+  epollnotify_pty(pt, 1);
+}
+
 // Caller holds pt->lock. Queue one byte, sleeping only while the peer exists.
 static int
 ptyqput(struct pty *pt, struct pty_queue *q, int *readeropen, char ch)
@@ -215,7 +222,7 @@ ptyclose(struct pty *pt, int master)
   wakeup(&pt->input.nwrite);
   wakeup(&pt->output.nread);
   wakeup(&pt->output.nwrite);
-  epollnotify();
+  pty_epollnotify(pt);
   if(!pt->masteropen && !pt->slaveopen){
     release(&pt->lock);
     kfree(pt);
@@ -247,7 +254,7 @@ ptyread(struct pty *pt, int master, uint64 addr, int n)
   }
   wakeup(&q->nwrite);
   release(&pt->lock);
-  epollnotify();
+  pty_epollnotify(pt);
   return i;
 }
 
@@ -285,7 +292,7 @@ ptywrite(struct pty *pt, int master, uint64 addr, int n)
   wakeup(&pt->input.nread);
   wakeup(&pt->output.nread);
   release(&pt->lock);
-  epollnotify();
+  pty_epollnotify(pt);
   return i;
 }
 

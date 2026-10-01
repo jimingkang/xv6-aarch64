@@ -354,9 +354,16 @@ close(connection);
 当前 TCP control block 仍记录创建者 pid。因此 sshd 父进程保留 accepted socket，
 shell 子进程只继承 PTY slave，不应把网络 fd 直接交给 fork 后的 shell。
 
-`fcntl(O_NONBLOCK)` 已可用于 socket；`epoll` 当前使用固定的 16 项 watch 数组，足以让
-sshd 同时观察 TCP socket 和 PTY master，但还不是 Linux 那种红黑树加 ready-list 的
-可扩展实现。
+`fcntl(O_NONBLOCK)` 可用于 socket，且 accepted socket 需要单独设置该标志。`epoll`
+保留固定的 16 项 watch 上限，但等待时使用 ready 队列，只处理收到状态变化通知的
+watch；TCP 和 PTY 通知会按对象匹配 watch，并只唤醒包含匹配 watch 的 epoll 实例。
+这避免了每次唤醒都全量扫描及所有 epoll waiter 的无关唤醒，但注册匹配仍遍历当前
+epoll 实例和 watch 表，容量也仍受 16 项限制。
+
+`user/epollserver.c` 展示了非阻塞事件循环：listener 与 accepted socket 均设为
+`O_NONBLOCK`，在可读时 drain 到暂时无数据；待发送内容由用户态缓冲，部分写后在
+`EPOLLOUT` 到来时续写，并仅在有待发送数据时关注可写事件。`sshd` 的协议读写路径
+仍使用阻塞 I/O，因此不能直接将其 socket/PTY 改为非阻塞而不改造协议解析状态机。
 
 ### A.2 重传与最小流重组
 

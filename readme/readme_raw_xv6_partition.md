@@ -229,6 +229,10 @@ firmware：
 make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2
 ```
 
-`install-rpi3` 可以安装项目生成的内核、`config.txt`、Wi-Fi firmware 和 xv6 根镜像，
+`install-rpi3` 可以安装项目生成的内核、`config.txt`、Wi-Fi firmware 和 xv6 根镜像。
+它不再把 `fs.img` 复制成 bootfs 中的 `FS.IMG`；根文件系统只允许写入明确
+指定的原始 xv6 分区；没有设置 `RPI3_XV6_DEV` 时仍会更新内核、配置和 firmware，但会跳过
+根文件系统并打印警告。这避免 100 MiB bootfs 被 32 MiB 镜像占满，也避免重新引入 FAT32
+容器模式。
 但它不会自动下载 Raspberry Pi 官方 boot firmware；这些基础启动文件必须事先放入
 `/Volumes/BOOTFS`。
