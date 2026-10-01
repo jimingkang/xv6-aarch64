@@ -7,6 +7,7 @@
 
 #include "types.h"
 #include "aarch64.h"
+#include "spinlock.h"
 #include "defs.h"
 #include "device.h"
 #include "usb.h"
@@ -18,8 +19,9 @@
 #define HID_REPORT_SIZE      8
 
 struct usbkbd_state {
+  struct spinlock lock;
   struct usb_device *udev;
-  struct delayed_work poll_work;
+  struct work_struct rx_work;
   uchar report[64] __attribute__((aligned(64)));
   uchar previous[HID_REPORT_SIZE];
   int active;
@@ -96,19 +98,26 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
 }
 
 static void
-usbkbd_poll(struct work_struct *work)
+usbkbd_rx_work(struct work_struct *work)
 {
   struct usbkbd_state *kbd =
     (struct usbkbd_state *)((char *)work -
-      __builtin_offsetof(struct usbkbd_state, poll_work.work));
+      __builtin_offsetof(struct usbkbd_state, rx_work));
   int n;
 
-  if(!kbd->active || kbd->udev == 0 || kbd->udev->ops->interrupt == 0)
+  acquire(&kbd->lock);
+  if(!kbd->active || kbd->udev == 0 ||
+     kbd->udev->ops->interrupt_rx_complete == 0){
+    release(&kbd->lock);
     return;
-  memset(kbd->report, 0, HID_REPORT_SIZE);
-  n = kbd->udev->ops->interrupt(kbd->udev,
-                                kbd->udev->interrupt_in_ep,
-                                kbd->report, HID_REPORT_SIZE);
+  }
+  release(&kbd->lock);
+  n = kbd->udev->ops->interrupt_rx_complete(
+        kbd->udev, kbd->udev->interrupt_in_ep);
+  // The HCD has already rearmed an intermediate start/complete split or a
+  // NAK transaction.  Wait for the next real channel-6 IRQ.
+  if(n == -2)
+    return;
   if(n >= HID_REPORT_SIZE){
     // Usage IDs 1..3 are rollover/error reports, not keys.
     for(int i = 2; i < HID_REPORT_SIZE; i++){
@@ -118,21 +127,39 @@ usbkbd_poll(struct work_struct *work)
     }
     memmove(kbd->previous, kbd->report, HID_REPORT_SIZE);
   }
-  // One scheduler tick is the finest delayed-work resolution in this port.
+  acquire(&kbd->lock);
   if(kbd->active)
-    queue_delayed_work(&usbkbd_wq, &kbd->poll_work, 1);
+    kbd->udev->ops->interrupt_rx_arm(kbd->udev,
+                                     kbd->udev->interrupt_in_ep,
+                                     kbd->report, HID_REPORT_SIZE);
+  release(&kbd->lock);
+}
+
+// Called from the DWC2 IRQ top half after channel 6 has been masked.  The
+// workqueue coalesces duplicate notifications and performs all cache/HID work
+// in schedulable process context.
+void
+usbkbd_rx_irq(void)
+{
+  acquire(&keyboard.lock);
+  if(keyboard.active)
+    queue_work(&usbkbd_wq, &keyboard.rx_work);
+  release(&keyboard.lock);
 }
 
 static int
 usbkbd_probe(struct usb_device *udev)
 {
-  if(udev == 0 || udev->ops == 0 || udev->ops->interrupt == 0 ||
+  if(udev == 0 || udev->ops == 0 ||
+     udev->ops->interrupt_rx_arm == 0 ||
+     udev->ops->interrupt_rx_complete == 0 ||
      udev->class != 3 || udev->subclass != 1 || udev->protocol != 1 ||
      udev->interrupt_in_ep == 0)
     return -1;
   memset(&keyboard, 0, sizeof(keyboard));
+  initlock(&keyboard.lock, "usbkbd");
   keyboard.udev = udev;
-  init_delayed_work(&keyboard.poll_work, usbkbd_poll);
+  init_work(&keyboard.rx_work, usbkbd_rx_work);
   // Force the compact, universally specified 8-byte keyboard report format.
   if(udev->ops->control(udev, 0x21, HID_REQ_SET_PROTOCOL,
                         HID_BOOT_PROTOCOL, udev->interface_number, 0, 0) < 0)
@@ -142,8 +169,13 @@ usbkbd_probe(struct usb_device *udev)
                      udev->interface_number, 0, 0);
   keyboard.active = 1;
   udev->dev.driver_data = &keyboard;
-  queue_delayed_work(&usbkbd_wq, &keyboard.poll_work, 1);
-  printf("usbkbd: boot keyboard ready ep=%d mps=%d interval=%d\n",
+  if(udev->ops->interrupt_rx_arm(udev, udev->interrupt_in_ep,
+                                 keyboard.report, HID_REPORT_SIZE) < 0){
+    keyboard.active = 0;
+    udev->dev.driver_data = 0;
+    return -1;
+  }
+  printf("usbkbd: IRQ-driven boot keyboard ready ep=%d mps=%d interval=%d\n",
          udev->interrupt_in_ep, udev->interrupt_in_max_packet,
          udev->interrupt_in_interval);
   return 0;
@@ -152,8 +184,10 @@ usbkbd_probe(struct usb_device *udev)
 static void
 usbkbd_remove(struct usb_device *udev)
 {
+  acquire(&keyboard.lock);
   keyboard.active = 0;
-  cancel_delayed_work_sync(&keyboard.poll_work);
+  release(&keyboard.lock);
+  cancel_work_sync(&keyboard.rx_work);
   if(udev)
     udev->dev.driver_data = 0;
   memset(&keyboard, 0, sizeof(keyboard));

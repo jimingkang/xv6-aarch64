@@ -136,6 +136,15 @@ static struct {
   uint8 hub;
   uint8 port;
 } usb_route[128];
+static struct dwc2_interrupt_request {
+  struct usb_device *udev;
+  void *buffer;
+  int length;
+  int endpoint;
+  int mps;
+  int active;
+  int complete_split;
+} interrupt_rx;
 #define DWC2_RX_REQUESTS 4
 #define RX_FREE   0
 #define RX_QUEUED 1
@@ -533,29 +542,121 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
   return r;
 }
 
-static int
-dwc2_usb_interrupt(struct usb_device *udev, int endpoint, void *data,
-                   int length)
+static void
+dwc2_interrupt_rx_start(struct dwc2_interrupt_request *req)
 {
-  int mps, packets, r;
-  uint8 *toggle;
+  struct usb_device *udev = req->udev;
+  uint32 split = 0;
+  int packets = (req->length + req->mps - 1) / req->mps;
+  int pid = udev->interrupt_in_toggle ? PID_DATA1 : PID_DATA0;
 
-  if(udev == 0 || endpoint <= 0 || endpoint > 15 || data == 0 || length <= 0)
-    return -1;
-  mps = udev->interrupt_in_max_packet;
-  if(mps <= 0)
-    return -1;
-  toggle = &udev->interrupt_in_toggle;
-  r = channel_xfer(6, udev->address, endpoint, 1, EPTYPE_INTERRUPT, mps,
-                   data, length, *toggle ? PID_DATA1 : PID_DATA0, 2000);
-  if(r >= 0){
-    packets = (r + mps - 1) / mps;
-    if(r < length && (r % mps) == 0)
-      packets++;
-    if(packets & 1)
-      *toggle ^= 1;
+  halt_channel(6);
+  wr(HCINT(6), 0x3fff);
+  wr(HCINTMSK(6), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
+                   HCINT_ACK | HCINT_NYET | HCINT_ERRORS);
+  dwc2_irq_pending &= ~(1U << 6);
+  if(usb_route[udev->address].hub){
+    split = HCSPLT_SPLTENA | HCSPLT_XACTPOS_ALL |
+            HCSPLT_HUBADDR(usb_route[udev->address].hub) |
+            HCSPLT_PRTADDR(usb_route[udev->address].port);
+    if(req->complete_split)
+      split |= HCSPLT_COMPSPLT;
   }
-  return r;
+  wr(HCSPLT(6), split);
+  wr(HCDMA(6), DWC2_DMA_BUS(req->buffer));
+  wr(HCTSIZ(6), HCTSIZ_XFERSIZE(req->length) |
+                  HCTSIZ_PKTCNT(packets) | HCTSIZ_PID(pid));
+  wr(HAINTMSK, rd(HAINTMSK) | (1U << 6));
+  wr(HCCHAR(6), HCCHAR_DEVADDR(udev->address) |
+                  HCCHAR_EPNUM(req->endpoint) |
+                  HCCHAR_EPTYPE(EPTYPE_INTERRUPT) |
+                  HCCHAR_MPS(req->mps) | HCCHAR_EPDIR_IN | HCCHAR_CHENA);
+}
+
+static int
+dwc2_usb_interrupt_rx_arm(struct usb_device *udev, int endpoint,
+                          void *data, int length)
+{
+  if(udev == 0 || endpoint <= 0 || endpoint > 15 || data == 0 ||
+     length <= 0 || udev->interrupt_in_max_packet == 0)
+    return -1;
+  acquire(&usb_lock);
+  if(interrupt_rx.active){
+    release(&usb_lock);
+    return -1;
+  }
+  memset(data, 0, length);
+  cache_clean_invalidate_range(data, length);
+  interrupt_rx.udev = udev;
+  interrupt_rx.buffer = data;
+  interrupt_rx.length = length;
+  interrupt_rx.endpoint = endpoint;
+  interrupt_rx.mps = udev->interrupt_in_max_packet;
+  interrupt_rx.complete_split = 0;
+  interrupt_rx.active = 1;
+  dwc2_interrupt_rx_start(&interrupt_rx);
+  release(&usb_lock);
+  return 0;
+}
+
+static int
+dwc2_usb_interrupt_rx_complete(struct usb_device *udev, int endpoint)
+{
+  uint32 intr, left;
+  int result, packets;
+
+  acquire(&usb_lock);
+  if(!interrupt_rx.active || interrupt_rx.udev != udev ||
+     interrupt_rx.endpoint != endpoint ||
+     !(dwc2_irq_pending & (1U << 6))){
+    release(&usb_lock);
+    return -2;
+  }
+  dwc2_irq_pending &= ~(1U << 6);
+  intr = rd(HCINT(6));
+  wr(HCINT(6), intr);
+
+  if(usb_route[udev->address].hub && !interrupt_rx.complete_split &&
+     (intr & HCINT_ACK)){
+    // Start-split was accepted by the LAN951x transaction translator.
+    interrupt_rx.complete_split = 1;
+    dwc2_interrupt_rx_start(&interrupt_rx);
+    release(&usb_lock);
+    return -2;
+  }
+  if(usb_route[udev->address].hub && interrupt_rx.complete_split &&
+     (intr & HCINT_NYET)){
+    // Transaction translator is still working; retry only complete-split.
+    dwc2_interrupt_rx_start(&interrupt_rx);
+    release(&usb_lock);
+    return -2;
+  }
+  if(intr & HCINT_NAK){
+    // No key-state change.  A new USB transaction begins with start-split.
+    interrupt_rx.complete_split = 0;
+    dwc2_interrupt_rx_start(&interrupt_rx);
+    release(&usb_lock);
+    return -2;
+  }
+  left = rd(HCTSIZ(6)) & 0x7ffff;
+  if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL) ||
+     left > (uint32)interrupt_rx.length){
+    interrupt_rx.active = 0;
+    wr(HCSPLT(6), 0);
+    release(&usb_lock);
+    return -1;
+  }
+  result = interrupt_rx.length - left;
+  cache_invalidate_range(interrupt_rx.buffer, interrupt_rx.length);
+  packets = (result + interrupt_rx.mps - 1) / interrupt_rx.mps;
+  if(result < interrupt_rx.length && (result % interrupt_rx.mps) == 0)
+    packets++;
+  if(packets & 1)
+    udev->interrupt_in_toggle ^= 1;
+  interrupt_rx.active = 0;
+  wr(HCSPLT(6), 0);
+  release(&usb_lock);
+  return result;
 }
 
 static void
@@ -689,7 +790,8 @@ static const struct usb_host_ops dwc2_usb_ops = {
   .bulk = dwc2_usb_bulk,
   .bulk_rx_arm = dwc2_usb_bulk_rx_arm,
   .bulk_rx_complete = dwc2_usb_bulk_rx_complete,
-  .interrupt = dwc2_usb_interrupt,
+  .interrupt_rx_arm = dwc2_usb_interrupt_rx_arm,
+  .interrupt_rx_complete = dwc2_usb_interrupt_rx_complete,
 };
 
 int
@@ -818,6 +920,8 @@ dwc2_irq(void)
   dwc2_irq_pending |= channels;
   if(channels & (1U << 4))
     mt7601u_rx_irq();
+  if(channels & (1U << 6))
+    usbkbd_rx_irq();
 }
 
 static void

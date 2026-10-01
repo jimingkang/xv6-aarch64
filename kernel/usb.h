@@ -16,8 +16,11 @@ struct usb_host_ops {
                      void *data, int length);
   // -2: still pending/rearmed after NAK, -1: hard error, >=0: bytes complete.
   int (*bulk_rx_complete)(struct usb_device *udev, int endpoint, void **data);
-  int (*interrupt)(struct usb_device *udev, int endpoint, void *data,
-                   int length);
+  int (*interrupt_rx_arm)(struct usb_device *udev, int endpoint,
+                          void *data, int length);
+  // -2: no completed report yet (the HCD has rearmed an intermediate
+  // split/NAK transaction), -1: hard error, >=0: completed byte count.
+  int (*interrupt_rx_complete)(struct usb_device *udev, int endpoint);
 };
 
 struct usb_device {
