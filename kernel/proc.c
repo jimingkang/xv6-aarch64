@@ -140,6 +140,37 @@ found:
   return p;
 }
 
+static void
+kthread_entry(void)
+{
+  struct proc *p = myproc();
+  void (*fn)(void*) = p->kthread_fn;
+  void *arg = p->kthread_arg;
+
+  // scheduler() enters a fresh context while holding p->lock, just like
+  // forkret().  A kernel thread drops it before calling its body.
+  release(&p->lock);
+  fn(arg);
+  panic("kthread returned");
+}
+
+int
+kthread_create(void (*fn)(void*), void *arg, char *name)
+{
+  struct proc *p;
+
+  if(fn == 0 || (p = allocproc()) == 0)
+    return -1;
+  p->kthread_fn = fn;
+  p->kthread_arg = arg;
+  p->context.x30 = (uint64)kthread_entry;
+  safestrcpy(p->name, name ? name : "kthread", sizeof(p->name));
+  p->state = RUNNABLE;
+  int pid = p->pid;
+  release(&p->lock);
+  return pid;
+}
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -160,6 +191,8 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->kthread_fn = 0;
+  p->kthread_arg = 0;
   p->state = UNUSED;
 }
 

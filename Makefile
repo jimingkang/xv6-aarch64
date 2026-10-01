@@ -34,6 +34,7 @@ OBJS = \
   $K/main.o \
   $K/vm.o \
   $K/proc.o \
+  $K/workqueue.o \
   $K/swtch.o \
   $K/trap.o \
   $K/syscall.o \

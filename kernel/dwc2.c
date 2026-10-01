@@ -696,6 +696,7 @@ dwc2_irq(void)
   // the channel and its HAINT bit after cache maintenance and frame parsing.
   wr(HAINTMSK, rd(HAINTMSK) & ~channels);
   dwc2_irq_pending |= channels;
+  net_deferred_schedule(0);
 }
 
 static void

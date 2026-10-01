@@ -6,6 +6,7 @@
 #include "defs.h"
 #include "device.h"
 #include "net.h"
+#include "workqueue.h"
 
 struct udp_dgram {
   struct udp_dgram *next;
@@ -102,6 +103,9 @@ static struct bus_type net_bus = {
   .name = "net",
 };
 static uint16 ip_id;
+static struct spinlock net_deferred_lock;
+static struct work_struct net_deferred_work;
+static int net_deferred_ticks;
 static struct {
   struct net_device *dev;
   uint32 xid;
@@ -114,6 +118,38 @@ static struct {
   uint32 dns;
   uchar server_mac[ETH_ADDR_LEN];
 } dhcp;
+
+static void
+net_deferred_worker(struct work_struct *work)
+{
+  int ticks;
+  (void)work;
+
+  // Device poll callbacks now execute in kworker process context rather than
+  // in the Generic Timer hard IRQ.  IRQ-driven drivers return immediately
+  // unless their controller has recorded a completion/pending indication.
+  netdev_poll_all();
+  if(netdev_find("wlan1") == 0)
+    mt7601u_poll();
+
+  acquire(&net_deferred_lock);
+  ticks = net_deferred_ticks;
+  net_deferred_ticks = 0;
+  release(&net_deferred_lock);
+  while(ticks-- > 0)
+    net_tcp_tick();
+}
+
+void
+net_deferred_schedule(int logical_tick)
+{
+  if(logical_tick){
+    acquire(&net_deferred_lock);
+    net_deferred_ticks++;
+    release(&net_deferred_lock);
+  }
+  schedule_work(&net_deferred_work);
+}
 
 static int
 netdev_xmit_on(struct net_device *dev, void *frame, int length)
@@ -564,6 +600,9 @@ void
 netinit(void)
 {
   int i;
+  initlock(&net_deferred_lock, "net deferred");
+  net_deferred_ticks = 0;
+  init_work(&net_deferred_work, net_deferred_worker);
   initlock(&porttable_lock, "udp ports");
   initlock(&pingq.lock, "icmp reply");
   for(i = 0; i < NUDPPORT; i++)

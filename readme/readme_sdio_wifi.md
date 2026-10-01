@@ -366,9 +366,15 @@ flowchart LR
 ```
 
 当前 xv6 使用 **SDIO DAT1 IRQ**：BCM43455 拉起 DAT1 后，Arasan 产生 legacy
-IRQ 62。顶半部屏蔽 card interrupt 并设置 pending bit；CPU0 的 10 ms deferred
-调度点执行 CMD53、SDPCM 解析和网络栈投递，排空后重新打开 card interrupt。
-无 pending bit 时 `.poll()` 立即返回，不再周期性读取芯片完成状态。
+IRQ 62。顶半部屏蔽 card interrupt、设置 pending bit，并把
+`net_deferred_work` 加入 `system_wq`。可调度的 `kworker` 执行 CMD53、SDPCM
+解析和网络栈投递，排空后重新打开 card interrupt。无 pending bit 时 `.poll()`
+立即返回，不再周期性读取芯片完成状态。
+
+这里经历过一个中间实现：IRQ 只设置 pending，真正收包由 CPU0 下一次10 ms
+Generic Timer hard IRQ 执行。现在 Timer 也只调用 `net_deferred_schedule()` 排队，
+不再直接进入驱动。BCM43455 burst 每轮最多处理16项；未排空时由 worker 重新
+排同一个 work，形成类似 NAPI budget 的连续下半部处理。
 
 这与芯片内部固件自己的调度不是一回事：所有 `brcmf_*` C 函数都由 ARM CPU
 执行；BCM43455 内部运行的是下载进去的 `.BIN` 固件。
@@ -377,19 +383,10 @@ IRQ 62。顶半部屏蔽 card interrupt 并设置 pending bit；CPU0 的 10 ms d
 
 ## 12. 与 MT7601U USB Wi-Fi 的关系
 
-```mermaid
-flowchart TB
-    NET["xv6 网络层"]
-    BCM["wlan0: BCM43455<br/>SDIO FullMAC<br/>当前可 WPA2 + DHCP + ping"]
-    MT["MT7601U<br/>USB SoftMAC<br/>当前到固件/RF/扫描阶段"]
-
-    NET --> BCM
-    NET -. "完成关联和 802.11 数据面后注册" .-> MT
-```
-
-两块网卡可以同时存在，但当前 MT7601U 尚未注册为可用 `net_device`，避免它
-抢占默认路由。BCM 执行 BCDC 连接控制期间会暂停 MT7601U USB 扫描，防止两个
-轮询型驱动同时占用较长的硬中断时间；连接完成后恢复 MT7601U 扫描。
+MT7601U 属于 DWC2 USB SoftMAC 路径，不是 SDIO 总线设备。它的枚举、firmware、
+DMA、host-channel IRQ、SoftMAC、WPA2 和 `wlan1` 数据面已迁移到专门文档：
+[readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。本文件后续只描述板载
+BCM43430/43455 SDIO FullMAC。
 
 ---
 
@@ -398,7 +395,8 @@ flowchart TB
 ```mermaid
 flowchart TD
     A["device_init"] --> B["sdio_bus_init"]
-    B --> C["netinit"]
+    B --> P["procinit + workqueue_init"]
+    P --> C["netinit"]
     C --> D["arasan_sdio_driver_init"]
     D --> E["fat32init"]
     E --> F["brcmfmac_driver_init"]
@@ -431,18 +429,17 @@ flowchart TD
 - `wlan0` 的 `register_netdev()` 与 remove/unregister；
 - WPA2-PSK 主机四次握手补充路径；
 - DHCP、ARP、DNS、路由和 Internet ping；
-- SDIO DAT1 → Arasan IRQ 62 顶半部与 deferred SDPCM RX；
-- 与 USB MT7601U 扫描阶段共存。
+- SDIO DAT1 → Arasan IRQ 62 顶半部 → system_wq/kworker 下半部；
 
 ### 后续改进
 
-1. 用可调度内核 worker 替换当前 10 ms deferred 调度点；
-2. CMD53 block-mode/multi-block，完整支持大型控制响应；
-3. 更完整的固件 flow-control/credit 管理；
-4. 断线重连、漫游、扫描结果用户接口；
-5. WPA3、开放网络和更多加密组合；
-6. 网络配置工具与多网卡策略路由；
-7. SDIO IRQ 风暴、丢中断和 remove 生命周期压力测试。
+1. CMD53 block-mode/multi-block，完整支持大型控制响应；
+2. 更完整的固件 flow-control/credit 管理；
+3. 断线重连、漫游、扫描结果用户接口；
+4. WPA3、开放网络和更多加密组合；
+5. 网络配置工具与多网卡策略路由；
+6. SDIO IRQ 风暴、丢中断和 remove 生命周期压力测试；
+7. 需要更高吞吐时，为不同设备增加独立 workqueue/NAPI 调度。
 
 ---
 
@@ -640,6 +637,8 @@ QEMU `raspi3b` 不模拟 BCM43455，只能回归内核启动、总线核心以�
 | `kernel/wpa_crypto.c` | PBKDF2、PTK、MIC、AES unwrap |
 | `kernel/fat32.c` | bootfs firmware 和 FS.IMG 文件访问 |
 | `kernel/net.c`, `kernel/net.h` | net_device、Ethernet、ARP、IPv4、DHCP、ICMP |
+| `kernel/workqueue.c`, `kernel/workqueue.h` | system_wq、kworker 与通用下半部队列 |
+| `kernel/proc.c`, `kernel/proc.h` | `kthread_create()` 和内核线程调度上下文 |
 | `kernel/sysnet.c` | `wifi_connect` 系统调用 |
 | `user/wifi.c` | `/bin/wifi` 配置与连接命令 |
 | `user/ping.c` | Internet 连通性测试 |

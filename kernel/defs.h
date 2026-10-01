@@ -17,6 +17,7 @@ struct vnode;
 struct net_device;
 struct device;
 struct usb_device;
+struct work_struct;
 
 // bio.c
 void            binit(void);
@@ -143,6 +144,7 @@ int             fork(void);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 int             kill(int);
+int             kthread_create(void (*)(void*), void*, char*);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
@@ -158,6 +160,13 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             procvmdump(int);
+
+// workqueue.c
+void            workqueue_init(void);
+void            init_work(struct work_struct*, void (*)(struct work_struct*));
+int             schedule_work(struct work_struct*);
+void            flush_work(struct work_struct*);
+void            cancel_work_sync(struct work_struct*);
 
 // sync.c
 void            syncinit(void);
@@ -188,6 +197,7 @@ void            net_rx_dev(struct net_device*, void*, int);
 int             net_dhcp(void);
 int             net_dhcp_dev(struct net_device*);
 void            netdev_poll_all(void);
+void            net_deferred_schedule(int);
 
 // sdio.c / brcmfmac.c
 void            sdio_bus_init(void);

@@ -10,7 +10,7 @@ SSH 已经能够完成密钥交换、密码认证并建立 PTY shell，但是远
 
 ```text
 客户端按键
-  -> 无线帧到达 BCM43455/MT7601U
+  -> 无线帧到达网络设备
   -> xv6 CPU 轮询网卡
   -> TCP 接收并唤醒 sshd
   -> SSH 解密 CHANNEL_DATA
@@ -28,11 +28,11 @@ SSH 已经能够完成密钥交换、密码认证并建立 PTY shell，但是远
 
 ```c
 netdev_poll_all();
-mt7601u_poll();
 net_tcp_tick();
 ```
 
-BCM43455 和当前尚未完全 IRQ 化的 USB Wi-Fi 接收路径依赖该轮询。一个刚到达的按键平均需要等待约 50 ms，最坏等待接近 100 ms，返回的回显还可能再等待一个轮询周期。
+当时的 Wi-Fi 接收路径依赖该轮询。一个刚到达的按键平均需要等待约50 ms，最坏
+等待接近100 ms，返回的回显还可能再等待一个轮询周期。
 
 ### 根因二：TCP `write()` 同步等待 ACK
 
@@ -62,7 +62,6 @@ while(c->tx_unacked && !c->tx_failed)
 ```text
 10 ms hardware timer IRQ
   +-> netdev_poll_all()          每次调用
-  +-> mt7601u_poll()             每次调用（注册 wlan1 前）
   +-> divider == 10 ?
         +-> ticks++              每 100 ms
         +-> net_tcp_tick()       每 100 ms
@@ -136,9 +135,10 @@ ssh root@192.168.0.201
 
 ## Wi-Fi 接收改为硬件 IRQ 驱动
 
-10 ms 轮询解决了 SSH 的百毫秒级延迟，但 CPU 仍会周期性读取 SDIO/DWC2
-状态寄存器。现在接收完成检测已改为硬件中断；10 ms timer 仅充当简化的
-deferred worker 调度点，不再主动探测设备是否完成。
+10 ms 轮询解决了 SSH 的百毫秒级延迟，但最初的 IRQ 版本仍在 Generic Timer
+hard IRQ 中执行 deferred poll。现在已经加入真正的 `system_wq` 和 `kworker`：
+SDIO IRQ 只记录完成状态并排队，CMD53、协议解析与网络栈投递由可调度的
+内核线程完成。10 ms timer 只排周期维护 work，不再直接调用设备驱动。
 
 ### BCM43455：SDIO DAT1 → Arasan IRQ 62
 
@@ -153,8 +153,9 @@ BCM43455/F2 有 SDPCM 帧
        屏蔽 CARD_INT signal
        清 host CARD_INT 状态
        设置 arasan_card_irq_pending
-  -> 10 ms deferred poll
-  -> brcmfmac_poll_device()
+  -> schedule_work(net_deferred_work)
+  -> kworker 被 wakeup
+  -> brcmfmac_poll_device() bottom half
        CMD53 读取 F2 FIFO
        解析 SDPCM/BCDC/EAPOL/Ethernet
        net_rx_dev()
@@ -173,70 +174,35 @@ BCM43455/F2 有 SDPCM 帧
 
 ### DWC2：host-channel IRQ 9
 
-DWC2 初始化现在配置：
+DWC2 host-channel IRQ 9、MT7601U EP4 DMA、SoftMAC、WPA2 与收发路径已迁移到
+[readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。本文件只保留 BCM43455 SDIO
+和通用 workqueue 修复过程。
 
-```text
-HCINTMSK(channel) = XFERCOMPL | CHHLTD | NAK | error bits
-HAINTMSK          = 对应异步 RX channel
-GINTMSK           = HCHINT
-GAHBCFG           = DMA_EN | GLBL_INTR_EN
-```
+### 从 Timer hard IRQ 过渡到真正的下半部
 
-BCM2837 legacy controller 的 USB IRQ 9 被加入分发，`dwc2_irq()` 顶半部只做：
+第一版 IRQ 接收是过渡实现：设备 IRQ 只设置 pending，但 CPU0 的 Generic Timer
+每 10 ms 直接调用 `netdev_poll_all()`。这样虽然把耗时操作移出了 SDIO IRQ 62，
+CMD53、cache maintenance、SDPCM 解析和 `net_rx_dev()` 实际仍运行在另一个 hard
+IRQ 上下文，不能睡眠，也可能拉长 Timer IRQ。
 
-1. 读取 `GINTSTS.HCHINT` 和 `HAINT & HAINTMSK`；
-2. 暂时屏蔽已完成 channel 的 `HAINTMSK` 位；
-3. 把 channel 位记录到 `dwc2_irq_pending`；
-4. 保留 `HCINT` 和 `HCTSIZ`，交给 deferred handler 计算实际长度。
-
-CDC 网络 RX 使用 channel 2。MT7601U 的数据端点 EP4 使用独立 channel 4，
-长期预提交 DMA buffer：
-
-```text
-arm EP4 channel 4 DMA
-  -> USB packet / short packet / NAK
-  -> DWC2 HCHINT -> IRQ 9
-  -> dwc2_irq() 标记 channel 4 completion
-  -> mt7601u_poll() deferred handler
-       读取 HCINT/HCTSIZ
-       cache invalidate
-       更新 DATA0/DATA1 toggle
-       解析 RXWI 和 802.11 frame
-       投递 Ethernet frame
-       重新 arm channel 4
-```
-
-NAK 不再在 hard IRQ 中循环重试。deferred handler 清除/停止 channel 后，在
-后续 USB frame 上重新提交相同 buffer。控制传输、MCU response endpoint 和
-TX 仍使用原来的同步 channel，数据 RX 不再执行 2 ms `HCINT` 忙轮询。
-
-### 保留 10 ms deferred worker 的原因
-
-当前 xv6 没有 Linux 风格 softirq、tasklet、NAPI 或通用 workqueue。顶半部直接
-调用 CMD53、cache maintenance、RXWI/SDPCM 解析和 `net_rx_dev()` 会让 hard
-IRQ 时间过长。因此 timer 仍每 10 ms 调用设备 `.poll()`，但这些函数首先检查
-IRQ pending bit，没有硬件完成事件就立即返回。
-
-后续可以增加真正的内核 worker：IRQ 顶半部 `wakeup(worker)`，由可调度内核
-线程立即执行 bottom half，即可去掉最多 10 ms 的 deferred 调度延迟。
+现在 Timer 和设备 IRQ 都只调用 `net_deferred_schedule()`。该函数把静态 work
+加入 `system_wq` 并唤醒 `kworker`。设备 `.poll()`、CMD53 和网络栈由正常内核
+进程上下文执行。BCM43455 首次处理由 SDIO IRQ 立即触发；Timer 只用于 TCP
+重传、设备状态机超时等周期状态推进，以及作为异常丢中断时的低成本
+安全检查。
 
 ### 真机应出现的确认日志
 
 ```text
-dwc2: host-channel IRQ enabled
 brcmfmac: SDIO DAT1 IRQ receive enabled
-mt7601u: EP4 receive uses DWC2 host-channel IRQ
 ```
 
-BCM43455 测试：自动关联后运行 SSH 和 `ping`，确认长时间收包没有停止。MT7601U
-测试：完成关联与 DHCP 后执行 `/bin/ping`，同时确认不再出现 channel 3 的
-2 ms NAK timeout 日志。拔除 USB 设备前必须走 remove/unregister；当前硬件没有
-可靠热拔检测时，不应在活跃 DMA 期间直接拔出。
+BCM43455 测试：自动关联后运行 SSH 和 `ping`，确认长时间收包没有停止。
 
 ### 当前真机验证范围
 
-当前 Raspberry Pi 3 只使用板载 BCM43455，MT7601U USB 网卡没有插入。因此本轮
-真机测试只验证下面的 SDIO 中断链：
+本轮真机测试只验证板载 BCM43455 的 SDIO 中断链；USB Wi-Fi 的独立测试范围
+记录在 [readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。SDIO 链路为：
 
 ```text
 BCM43455 收到无线帧
@@ -268,24 +234,14 @@ ping google.com
 ssh root@192.168.0.201
 ```
 
-`dwc2: host-channel IRQ enabled` 只表示 DWC2 的 IRQ 寄存器和 BCM2837 legacy
-IRQ 9 已配置，不表示 USB RX 已经在真实 MT7601U 上通过测试。没有插入 MT7601U
-时，下面这条日志不会出现，这是正常情况：
-
-```text
-mt7601u: EP4 receive uses DWC2 host-channel IRQ
-```
-
 因此当前验证状态应明确记录为：
 
 | 路径 | 代码状态 | 真机状态 |
 |---|---|---|
 | BCM43455 SDIO DAT1 / IRQ 62 | 已接入 | 本轮验证目标 |
-| DWC2 host-channel / IRQ 9 | 已接入，编译及 QEMU 启动通过 | 未验证 |
-| MT7601U EP4 / channel 4 DMA RX | 已接入 | 未插设备，待以后验证 |
 
-在 MT7601U 真机验证完成前，不能把 USB IRQ 9 标记为“实机通过”；出现 USB 初始化
-日志也不能替代实际的 Bulk IN completion、DHCP、ping 和持续收包测试。
+USB IRQ 9 和 MT7601U 的验证矩阵见
+[readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。
 
 ### IRQ 优化对应的代码改动
 
@@ -296,15 +252,12 @@ mt7601u: EP4 receive uses DWC2 host-channel IRQ
 新增中断号：
 
 ```c
-#define DWC2_IRQ    9
 #define SDIO_IRQ    62
 ```
 
-IRQ 9 位于 legacy pending bank 1；IRQ 62 位于 pending bank 2，因此实际位号为
-`62 - 32 = 30`：
+IRQ 62 位于 legacy pending bank 2，因此实际位号为 `62 - 32 = 30`：
 
 ```c
-irqwrite(ENABLE_IRQS_1, (1U << UART0_IRQ) | (1U << DWC2_IRQ));
 irqwrite(ENABLE_IRQS_2, 1U << (SDIO_IRQ - 32));
 ```
 
@@ -312,8 +265,6 @@ irqwrite(ENABLE_IRQS_2, 1U << (SDIO_IRQ - 32));
 寄存器，不是真正的 GIC：
 
 ```c
-if(irqread(IRQ_PENDING_1) & (1U << DWC2_IRQ))
-  return DWC2_IRQ;
 if(irqread(IRQ_PENDING_2) & (1U << (SDIO_IRQ - 32)))
   return SDIO_IRQ;
 ```
@@ -321,9 +272,6 @@ if(irqread(IRQ_PENDING_2) & (1U << (SDIO_IRQ - 32)))
 `kernel/trap.c::devintr()` 增加分发：
 
 ```c
-} else if(irq == DWC2_IRQ){
-  dwc2_irq();
-  dev = 1;
 } else if(irq == SDIO_IRQ){
   arasan_sdio_irq();
   dev = 1;
@@ -414,69 +362,10 @@ remove 路径新增 `sdio_release_irq(func)`，防止设备状态释放后仍进
 
 #### 5. DWC2 host-channel interrupt
 
-文件：`kernel/dwc2.c`
+详细实现、寄存器、DMA、endpoint/channel 对应关系与异步 Bulk IN 生命周期已迁移到
+[readme_usb_dwc2_wifi.md](readme_usb_dwc2_wifi.md)。
 
-新增寄存器定义：
-
-```c
-#define HAINT       0x414
-#define HAINTMSK    0x418
-#define HCINTMSK(c) (0x50c + 0x20*(c))
-```
-
-控制器初始化打开：
-
-```c
-wr(GINTMSK, GINTSTS_HCHINT);
-wr(GAHBCFG, GAHBCFG_DMA_EN | GAHBCFG_GLBL_INTR_EN);
-```
-
-顶半部不会清除 `HCINT`，因为 bottom half 还需要 `HCTSIZ` 计算实际长度：
-
-```c
-channels = rd(HAINT) & rd(HAINTMSK);
-wr(HAINTMSK, rd(HAINTMSK) & ~channels);
-dwc2_irq_pending |= channels;
-```
-
-CDC RX 使用 channel 2；MT7601U 异步 EP4 RX 使用 channel 4。两个 channel 都只在
-完成/NAK/error 后产生 pending，不再由 CPU 循环读取 `HCINT` 判断是否完成。
-
-#### 6. MT7601U 异步 Bulk IN 接口
-
-文件：`kernel/usb.h`、`kernel/dwc2.c`、`kernel/mt7601u.c`
-
-`usb_host_ops` 新增：
-
-```c
-int (*bulk_rx_arm)(struct usb_device *, int endpoint, void *, int length);
-int (*bulk_rx_complete)(struct usb_device *, int endpoint);
-```
-
-`dwc2_usb_bulk_rx_arm()` 为 channel 4 设置 DMA bus address、长度、DATA PID、
-`HCINTMSK` 和 `HAINTMSK`。`dwc2_usb_bulk_rx_complete()` 仅在 IRQ pending 后：
-
-- 读取 `HCINT/HCTSIZ`；
-- 处理 NAK/error；
-- invalidate DMA buffer cache；
-- 更新 DATA0/DATA1 toggle；
-- 返回实际接收长度。
-
-`mt7601u_poll()` 不再调用同步 2 ms Bulk IN；它检查 completion，解析完成数据，
-然后重新 arm：
-
-```c
-got = dev->udev->ops->bulk_rx_complete(dev->udev,
-                                        dev->udev->bulk_in_ep);
-if(got > 0)
-  mt7601u_rx_parse(dev, mt_rx_buf, got);
-dev->udev->ops->bulk_rx_arm(...);
-```
-
-因为 deferred 调度周期从原来的约 100 ms 变成 10 ms，MT7601U 的认证、关联、
-EAPOL watchdog 和信道 dwell 计数同步扩大十倍，保持原来的实际超时时间不变。
-
-#### 7. 编译和回归验证
+#### 6. 编译和回归验证
 
 已执行：
 
@@ -487,6 +376,195 @@ make qemu
 ```
 
 QEMU 能启动到 `xv6-rpi3 login:`，没有发生未确认 legacy IRQ 导致的中断死循环。
-QEMU 没有真实 BCM43455/MT7601U，所以只能验证代码构建、IRQ 分发和无设备启动；
-SDIO IRQ 62 的最终结论必须来自当前 RPi3 真机测试，USB IRQ 9 则等 MT7601U 插入后
-再验证。
+QEMU 没有真实 BCM43455，所以只能验证代码构建、IRQ 分发和无设备启动；SDIO
+IRQ 62 的最终结论必须来自当前 RPi3 真机测试。USB Wi-Fi 验证见专门文档。
+
+## SDIO IRQ、Timer 轮询与 kworker 下半部的演进
+
+### 1. 原始 Timer 轮询
+
+最早没有使用 SDIO DAT1 中断。CPU0 每次 Generic Timer IRQ 都直接执行：
+
+```text
+timerintr()                         hard IRQ
+  -> netdev_poll_all()
+     -> brcmfmac_poll_device()
+        -> CMD53 读取 BCM43455 F2
+        -> SDPCM/BCDC/Ethernet 解析
+        -> net_rx_dev()
+```
+
+为了改善 SSH 回显，硬件 timer 周期从 100 ms 改为 10 ms，但每十次才增加一次
+逻辑 `ticks`，所以 `sleep(n)`、进程抢占和 `uptime` 仍保持原来的 100 ms 语义。
+这种方式响应时间稳定，但没有数据时也会检查设备，而且完整网络接收路径运行在
+Timer hard IRQ 中。
+
+### 2. SDIO IRQ + Timer deferred poll 过渡方案
+
+加入 BCM2837 legacy IRQ 62、Arasan `CARD_INT` 和 SDIO CCCR function interrupt
+后，BCM43455 可以通过 DAT1 通知 CPU：
+
+```text
+BCM43455 F2 frame
+  -> SDIO DAT1
+  -> Arasan CARD_INT
+  -> BCM2837 IRQ 62
+  -> arasan_sdio_irq()
+       mask CARD_INT
+       clear host interrupt
+       arasan_card_irq_pending = 1
+  -> return from IRQ
+```
+
+第一版 deferred 实现仍由下一次10 ms Timer IRQ 调用 `netdev_poll_all()`。
+`brcmfmac_poll_device()` 先检查 `arasan_sdio_irq_pending()`，无 pending 就立即返回；
+有 pending 才执行 CMD53。这消除了无条件 SDIO 读取，却仍不是进程上下文下半部。
+
+### 3. 当前 workqueue/kworker 下半部
+
+现在完整调用链为：
+
+```text
+SDIO IRQ 62                         hard IRQ top half
+  -> arasan_sdio_irq()
+       mask/ack CARD_INT
+       pending = 1
+       net_deferred_schedule(0)
+          -> schedule_work(&net_deferred_work)
+          -> wakeup(&system_wq)
+  -> return from IRQ
+
+scheduler
+  -> kworker kernel thread          process context bottom half
+       -> dequeue net_deferred_work
+       -> netdev_poll_all()
+       -> brcmfmac_poll_device()
+            -> bounded CMD53 drain
+            -> SDPCM/BCDC/Ethernet
+            -> net_rx_dev()
+            -> drained: unmask CARD_INT
+            -> not drained: schedule_work() again
+       -> sleep(&system_wq)
+```
+
+Timer 路径现在只有排队操作：
+
+```c
+if(cpu == 0)
+  net_deferred_schedule(logical_tick);
+```
+
+因此 Timer hard IRQ 不再调用 `netdev_poll_all()` 或 `net_tcp_tick()`。
+`logical_tick` 被累积到 `net_deferred_ticks`，随后由 kworker
+调用 `net_tcp_tick()`。10 ms 周期仍用于设备状态机超时，但实际工作在进程上下文。
+
+### 4. 新增的通用 workqueue 对象
+
+新增文件：`kernel/workqueue.h`、`kernel/workqueue.c`。
+
+work 对象保存回调和队列状态：
+
+```c
+struct work_struct {
+  void (*func)(struct work_struct *work);
+  struct work_struct *next;
+  int pending;
+  int running;
+};
+```
+
+`system_wq` 是带自旋锁的 FIFO：
+
+```c
+struct workqueue {
+  struct spinlock lock;
+  struct work_struct *head;
+  struct work_struct *tail;
+};
+```
+
+公开操作包括：
+
+| 接口 | 作用 |
+|---|---|
+| `init_work()` | 初始化静态 work 和回调 |
+| `schedule_work()` | IRQ-safe 入队；相同 pending work 自动合并 |
+| `flush_work()` | 等待 queued/running work 完成 |
+| `cancel_work_sync()` | 从队列删除并等待正在执行的回调退出 |
+
+`schedule_work()` 可以在 hard IRQ 中调用，因为它只获取短时间自旋锁、链接静态
+对象并执行 `wakeup()`；不分配内存、不执行设备传输。
+
+### 5. 内核线程支持
+
+`kernel/proc.h` 给 `struct proc` 增加：
+
+```c
+void (*kthread_fn)(void *);
+void *kthread_arg;
+```
+
+`kernel/proc.c` 新增 `kthread_create()` 和 `kthread_entry()`。内核线程仍使用 xv6
+进程槽、独立内核栈和调度上下文，但不返回 EL0；第一次被 scheduler 选中时释放
+`p->lock`，直接运行内核函数。`workqueue_init()` 创建：
+
+```text
+workqueue: system_wq kworker pid=1
+```
+
+`kworker()` 无任务时调用：
+
+```c
+while(wq->head == 0)
+  sleep(wq, &wq->lock);
+```
+
+IRQ 入队后的 `wakeup(&system_wq)` 将它置为 `RUNNABLE`。回调运行时不持有队列锁，
+因此能够等待其他锁，也允许将同一个 work 重新排队。
+
+### 6. 网络层代码变化
+
+`kernel/net.c` 新增一个静态 `net_deferred_work`、`net_deferred_lock` 和
+`net_deferred_ticks`。`netinit()` 初始化它们；`net_deferred_worker()` 负责：
+
+1. 调用所有已注册 `net_device` 的 `.poll()`；
+2. 推进需要周期维护的网络设备状态机；
+3. 在进程上下文处理累积的 TCP timer tick。
+
+`kernel/arasan_sdio.c` 顶半部在设置 controller pending 后直接调用
+`net_deferred_schedule(0)`。`kernel/brcmfmac.c` 每轮最多处理16个 SDPCM
+项目；如果尚未排空，就再次 `schedule_work()`，形成类似 NAPI budget 的有界连续
+处理，而不等待下一次 Timer。
+
+### 7. 上下文与锁的变化
+
+| 阶段 | 执行上下文 | 可以做的工作 |
+|---|---|---|
+| SDIO top half | hard IRQ | ack/mask、记录 pending、排 work |
+| `system_wq` 队列操作 | hard IRQ 或进程 | 短自旋锁、合并重复 work、唤醒 worker |
+| `kworker` bottom half | 内核进程 | CMD53/DMA completion、解析帧、进入网络栈 |
+| Generic Timer | hard IRQ | 重装 timer、累计逻辑 tick、排周期 work |
+
+当前只有一个 `system_wq` worker，因此网络下半部不会彼此并发；这简化了现有
+共享网络栈的锁模型。USB Wi-Fi 如何复用该 worker，见专门的 DWC2 文档。
+
+### 8. 构建与启动验证
+
+已验证：
+
+```sh
+make -j4 kernel/kernel8.img
+make qemu
+```
+
+QEMU 成功启动到 `xv6-rpi3 login:`，说明 kworker 能够进入睡眠，Timer IRQ 能够
+唤醒它，且没有破坏 `fsinit()`、init 和本地登录。真实 BCM43455 还需要验证：
+
+```text
+workqueue: system_wq kworker pid=1
+brcmfmac: SDIO DAT1 IRQ receive enabled
+wifi: associated
+```
+
+随后连续执行 `ping` 和 SSH 交互，确认 IRQ 触发后能立即收包、持续流量不会因为
+CARD_INT 被屏蔽后未重新打开而停止。

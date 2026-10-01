@@ -1302,6 +1302,11 @@ brcmfmac_poll_device(struct net_device *netdev)
   release(&brcmf_bus.lock);
   if(drained)
     arasan_sdio_irq_complete();
+  else
+    // Keep draining a burst in bounded worker iterations.  schedule_work()
+    // coalesces duplicate requests, so this cannot grow the queue without
+    // bound and no 10-ms timer poll is needed between batches.
+    net_deferred_schedule(0);
 }
 
 static int

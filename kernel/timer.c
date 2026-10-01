@@ -74,18 +74,11 @@ timerintr()
   logical_tick = timer_divider[cpu] == 10;
   if(logical_tick)
     timer_divider[cpu] = 0;
-  // Poll host controllers only from CPU0.  Every CPU owns a Generic Timer,
-  // but USB/SDIO host state is shared and must not be driven concurrently
-  // from four hard-IRQ contexts.
+  // Every CPU owns a Generic Timer, but shared network state is maintained by
+  // one schedulable kworker.  The hard IRQ only queues work; it never performs
+  // SDIO/USB transfers or enters the network stack.
   if(cpu == 0){
-    // Network devices currently use bounded polling.  The timer knows only
-    // the net_device layer; individual drivers own their poll callbacks.
-    netdev_poll_all();
-    // MT7601U is not a net_device until its SoftMAC has associated.
-    if(netdev_find("wlan1") == 0)
-      mt7601u_poll();
-    if(logical_tick)
-      net_tcp_tick();
+    net_deferred_schedule(logical_tick);
   }
   enable_timer();
   return logical_tick;
