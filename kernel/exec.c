@@ -67,16 +67,19 @@ exec(char *path, char **argv)
   p = myproc();
   uint64 oldsz = p->sz;
 
-  // Allocate two pages at the next page boundary.
-  // Use the second as the user stack.
+  // Allocate one inaccessible guard page followed by a multi-page user
+  // stack.  One 4 KiB page was enough for the original tiny xv6 commands,
+  // but is too small for networking/crypto applications such as tftp and
+  // sshd, whose local packet buffers and printf/write call chains overlap.
   sz = PGROUNDUP(sz);
   uint64 sz1;
-  if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
+  if((sz1 = uvmalloc(pagetable, sz,
+                     sz + (USTACKPAGES + 1)*PGSIZE)) == 0)
     goto bad;
   sz = sz1;
-  uvmclear(pagetable, sz-2*PGSIZE);
+  uvmclear(pagetable, sz-(USTACKPAGES + 1)*PGSIZE);
   sp = sz;
-  stackbase = sp - PGSIZE;
+  stackbase = sp - USTACKPAGES*PGSIZE;
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {

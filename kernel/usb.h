@@ -2,10 +2,41 @@
 #define XV6_USB_H
 
 #include "device.h"
+#include "spinlock.h"
 
 #define USB_ANY_ID 0xffff
 
 struct usb_device;
+struct urb;
+
+typedef void (*usb_complete_t)(struct urb *urb);
+
+enum urb_state {
+  URB_IDLE = 0,
+  URB_SUBMITTED,
+  URB_COMPLETING,
+  URB_KILLED,
+};
+
+// A deliberately small Linux-like USB Request Block.  USB class drivers own
+// the request and its buffer; the host-controller driver owns them only from
+// usb_submit_urb() until usb_hcd_giveback_urb() or usb_kill_urb().
+struct urb {
+  struct spinlock lock;
+  struct usb_device *dev;
+  int endpoint;
+  int direction_in;
+  int interval;
+  void *transfer_buffer;
+  int transfer_buffer_length;
+  int actual_length;
+  int status;
+  void *context;
+  usb_complete_t complete;
+  int state;
+  int killed;
+  int completing;
+};
 
 struct usb_host_ops {
   int (*control)(struct usb_device *udev, uint8 type, uint8 request,
@@ -16,11 +47,8 @@ struct usb_host_ops {
                      void *data, int length);
   // -2: still pending/rearmed after NAK, -1: hard error, >=0: bytes complete.
   int (*bulk_rx_complete)(struct usb_device *udev, int endpoint, void **data);
-  int (*interrupt_rx_arm)(struct usb_device *udev, int endpoint,
-                          void *data, int length);
-  // -2: no completed report yet (the HCD has rearmed an intermediate
-  // split/NAK transaction), -1: hard error, >=0: completed byte count.
-  int (*interrupt_rx_complete)(struct usb_device *udev, int endpoint);
+  int (*submit_urb)(struct urb *urb);
+  void (*kill_urb)(struct urb *urb);
 };
 
 struct usb_device {
@@ -77,6 +105,14 @@ int usb_device_register(struct usb_device *udev);
 int usb_device_unregister(struct usb_device *udev);
 int usb_register_driver(struct usb_driver *driver);
 int usb_unregister_driver(struct usb_driver *driver);
+struct urb *usb_alloc_urb(void);
+void usb_free_urb(struct urb *urb);
+void usb_fill_int_urb(struct urb *urb, struct usb_device *udev, int endpoint,
+                      void *buffer, int length, usb_complete_t complete,
+                      void *context, int interval);
+int usb_submit_urb(struct urb *urb);
+void usb_kill_urb(struct urb *urb);
+void usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length);
 void usbkbd_driver_init(void);
 void usbkbd_driver_exit(void);
 

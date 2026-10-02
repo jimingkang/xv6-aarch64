@@ -43,3 +43,4 @@ struct inode {
 #define CONSOLE 1
 #define TTY     2   // current process controlling terminal (/dev/tty)
 #define TTYS0   3   // Mini UART terminal (/dev/ttyS0)
+#define USBKBD  4   // USB HID keyboard events (/dev/input/event0)

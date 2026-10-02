@@ -199,13 +199,16 @@ QEMU 当前直接把 `fs.img` 作为 SD 介质，没有 FAT32 分区，因此 QE
 
 ### TFTP 下载启动镜像
 
-`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，并在 `/boot` 下沿用远端文件名：
+`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，并在 `/boot` 下沿用远端文件名。
+不带参数时默认从 `192.168.0.195` 下载 `kernel8-xv6_wifi.img`：
 
 ```sh
+tftp
 tftp 192.168.1.20
 tftp 192.168.1.20 kernel8.img
 ```
 
+完整命令格式为 `tftp [server-ip [remote-filename]]`。只给服务器地址时仍使用默认文件名；
 第二个参数可指定服务器上的其他 basename，例如
 `tftp 192.168.1.20 kernel8-xv6_wifi.img` 会保存为 `/boot/kernel8-xv6_wifi.img`。
 客户端直接创建或截断目标文件，因此传输失败或按 Ctrl+C 中止时，目标路径会留下部分文件；

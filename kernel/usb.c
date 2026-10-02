@@ -108,3 +108,144 @@ usb_unregister_driver(struct usb_driver *driver)
 {
   return driver ? driver_unregister(&driver->driver) : -1;
 }
+
+struct urb *
+usb_alloc_urb(void)
+{
+  struct urb *urb = kalloc();
+  if(urb == 0)
+    return 0;
+  memset(urb, 0, sizeof(*urb));
+  initlock(&urb->lock, "usb-urb");
+  urb->state = URB_IDLE;
+  return urb;
+}
+
+void
+usb_free_urb(struct urb *urb)
+{
+  if(urb == 0)
+    return;
+  usb_kill_urb(urb);
+  kfree(urb);
+}
+
+void
+usb_fill_int_urb(struct urb *urb, struct usb_device *udev, int endpoint,
+                 void *buffer, int length, usb_complete_t complete,
+                 void *context, int interval)
+{
+  if(urb == 0)
+    return;
+  acquire(&urb->lock);
+  if(urb->state == URB_IDLE){
+    urb->dev = udev;
+    urb->endpoint = endpoint;
+    urb->direction_in = 1;
+    urb->interval = interval;
+    urb->transfer_buffer = buffer;
+    urb->transfer_buffer_length = length;
+    urb->actual_length = 0;
+    urb->status = 0;
+    urb->context = context;
+    urb->complete = complete;
+  }
+  release(&urb->lock);
+}
+
+int
+usb_submit_urb(struct urb *urb)
+{
+  int r;
+
+  if(urb == 0 || urb->dev == 0 || urb->dev->ops == 0 ||
+     urb->dev->ops->submit_urb == 0 || urb->complete == 0 ||
+     urb->transfer_buffer == 0 || urb->transfer_buffer_length <= 0)
+    return -1;
+  acquire(&urb->lock);
+  if(urb->state != URB_IDLE || urb->killed){
+    release(&urb->lock);
+    return -1;
+  }
+  urb->actual_length = 0;
+  urb->status = 0;
+  urb->state = URB_SUBMITTED;
+  release(&urb->lock);
+
+  r = urb->dev->ops->submit_urb(urb);
+  if(r < 0){
+    acquire(&urb->lock);
+    if(urb->state == URB_SUBMITTED)
+      urb->state = URB_IDLE;
+    wakeup(urb);
+    release(&urb->lock);
+  }
+  return r;
+}
+
+// HCDs call this exactly once for each successfully submitted URB.  Ownership
+// returns to the class driver before its completion callback, so the callback
+// may queue deferred processing or immediately resubmit the request.
+void
+usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length)
+{
+  usb_complete_t complete;
+
+  if(urb == 0)
+    return;
+  acquire(&urb->lock);
+  if(urb->state != URB_SUBMITTED){
+    release(&urb->lock);
+    return;
+  }
+  if(urb->killed){
+    urb->status = -1;
+    urb->actual_length = 0;
+    urb->state = URB_KILLED;
+    wakeup(urb);
+    release(&urb->lock);
+    return;
+  }
+  urb->status = status;
+  urb->actual_length = actual_length;
+  urb->state = URB_IDLE;
+  urb->completing = 1;
+  complete = urb->complete;
+  release(&urb->lock);
+
+  if(complete)
+    complete(urb);
+
+  acquire(&urb->lock);
+  urb->completing = 0;
+  if(urb->killed && urb->state == URB_IDLE)
+    urb->state = URB_KILLED;
+  wakeup(urb);
+  release(&urb->lock);
+}
+
+void
+usb_kill_urb(struct urb *urb)
+{
+  struct usb_device *udev;
+  int submitted;
+
+  if(urb == 0)
+    return;
+  acquire(&urb->lock);
+  udev = urb->dev;
+  submitted = urb->state == URB_SUBMITTED;
+  urb->killed = 1;
+  if(urb->state == URB_IDLE)
+    urb->state = URB_KILLED;
+  release(&urb->lock);
+
+  if(submitted && udev && udev->ops && udev->ops->kill_urb)
+    udev->ops->kill_urb(urb);
+
+  acquire(&urb->lock);
+  while(urb->completing)
+    sleep(urb, &urb->lock);
+  urb->state = URB_KILLED;
+  release(&urb->lock);
+}

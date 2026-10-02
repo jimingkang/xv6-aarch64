@@ -10,6 +10,15 @@
 #define TFTP_TIMEOUT_TICKS 10
 #define TFTP_PROGRESS_BYTES (16 * 1024)
 #define TFTP_PATH_SIZE 128
+#define TFTP_DEFAULT_SERVER "192.168.0.195"
+#define TFTP_DEFAULT_FILE "kernel8-xv6_wifi.img"
+
+// Keep transfer buffers out of the small user call stack.  The client binds a
+// fixed UDP port, so only one active instance is supported anyway and
+// process-private BSS storage is sufficient.
+static char tftp_final_path[TFTP_PATH_SIZE];
+static uchar tftp_rrq[256];
+static uchar tftp_packet[TFTP_PACKET_SIZE];
 
 static int
 parse_ipv4(const char *text, uint32 *address)
@@ -139,16 +148,19 @@ receive_first_data(uint32 server, int port, const uchar *rrq, int rrq_len,
 static int
 download(uint32 server, const char *remote_name)
 {
-  char final_path[TFTP_PATH_SIZE] = "/boot/";
-  uchar rrq[256], packet[TFTP_PACKET_SIZE];
+  char *final_path = tftp_final_path;
+  uchar *rrq = tftp_rrq;
+  uchar *packet = tftp_packet;
   uint16 server_port = 0, expected_block = 1, last_ack = 0;
   int rrq_len, packet_len, fd, total = 0, retries = 0, name_len;
   int start_ticks, last_progress = 0;
 
-  rrq_len = make_rrq(rrq, sizeof(rrq), remote_name);
+  memset(final_path, 0, TFTP_PATH_SIZE);
+  memmove(final_path, "/boot/", sizeof("/boot/"));
+  rrq_len = make_rrq(rrq, 256, remote_name);
   name_len = strlen(remote_name);
   if(rrq_len < 0 || name_len == 0 ||
-     name_len + sizeof("/boot/") > sizeof(final_path) ||
+     name_len + sizeof("/boot/") > TFTP_PATH_SIZE ||
      strchr(remote_name, '/') != 0){
     printf("tftp: invalid remote basename or filename is too long\n");
     return -1;
@@ -281,12 +293,21 @@ int
 main(int argc, char **argv)
 {
   uint32 server;
-  const char *remote_name = "kernel8.img";
-  if(argc < 2 || argc > 3 || parse_ipv4(argv[1], &server) < 0){
-    printf("usage: tftp server-ip [remote-filename]\n");
+  const char *server_name = TFTP_DEFAULT_SERVER;
+  const char *remote_name = TFTP_DEFAULT_FILE;
+
+  if(argc > 3){
+    printf("usage: tftp [server-ip [remote-filename]]\n");
     exit(1);
   }
+  if(argc >= 2)
+    server_name = argv[1];
   if(argc == 3)
     remote_name = argv[2];
+  if(parse_ipv4(server_name, &server) < 0){
+    printf("tftp: invalid server IPv4 address: %s\n", server_name);
+    printf("usage: tftp [server-ip [remote-filename]]\n");
+    exit(1);
+  }
   exit(download(server, remote_name) < 0 ? 1 : 0);
 }
