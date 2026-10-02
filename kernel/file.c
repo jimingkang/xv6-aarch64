@@ -80,6 +80,8 @@ fileclose(struct file *f)
   if(ff.type == FD_PIPE){
     pipeclose(ff.pipe, ff.writable);
   } else if(ff.type == FD_INODE || ff.type == FD_DEVICE){
+    if(ff.type == FD_DEVICE)
+      chrdev_release(&ff);
     begin_op();
     iput(ff.ip);
     end_op();
@@ -132,7 +134,7 @@ fileread(struct file *f, uint64 addr, int n)
   if(f->type == FD_PIPE){
     r = piperead(f->pipe, addr, n);
   } else if(f->type == FD_DEVICE){
-    r = chrdev_read(f->major, 1, addr, n);
+    r = chrdev_read(f, 1, addr, n);
   } else if(f->type == FD_INODE){
     ilock(f->ip);
     if((r = readi(f->ip, 1, addr, f->off, n)) > 0)

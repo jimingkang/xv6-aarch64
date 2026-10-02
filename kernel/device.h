@@ -17,9 +17,20 @@ struct resource {
   char *name;
 };
 
+struct file;
+
+// Character-device operations.  read/write are the original stateless hooks
+// (console, tty).  Drivers that need per-open state set the optional
+// Linux-style hooks: open() may set f->private_data, release() runs when the
+// last reference to that open file description is dropped, and fread() is
+// used in preference to read() so the driver can see its private state and
+// f->flags (O_NONBLOCK).
 struct file_operations {
   int (*read)(int user_dst, uint64 dst, int n);
   int (*write)(int user_src, uint64 src, int n);
+  int (*open)(struct file *f);
+  void (*release)(struct file *f);
+  int (*fread)(struct file *f, int user_dst, uint64 dst, int n);
 };
 
 struct device;
@@ -61,7 +72,9 @@ int platform_device_register(struct device *dev);
 int platform_driver_register(struct device_driver *drv);
 extern struct bus_type platform_bus;
 int register_chrdev(int major, char *name, struct file_operations *fops);
-int chrdev_read(int major, int user_dst, uint64 dst, int n);
+int chrdev_open(struct file *f);
+void chrdev_release(struct file *f);
+int chrdev_read(struct file *f, int user_dst, uint64 dst, int n);
 int chrdev_write(int major, int user_src, uint64 src, int n);
 int device_format(char *buf, int max);
 

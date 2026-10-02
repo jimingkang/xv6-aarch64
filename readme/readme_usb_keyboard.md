@@ -8,9 +8,11 @@ USB keyboard
   -> DWC2 host controller
   -> USB bus: struct usb_device
   -> HID boot keyboard class driver
-  -> consoleintr()
-  -> xv6 console/TTY line discipline
-  -> /dev/ttyS0 or foreground shell read()
+  -> input core: struct input_dev
+      +-> evdev -> /dev/input/event0
+      +-> console handler -> consoleintr()
+          -> xv6 console/TTY line discipline
+          -> /dev/ttyS0 or foreground shell read()
 ```
 
 键盘输入并不直接写用户进程缓冲区。`usbkbd.c` 把 HID usage code
@@ -21,14 +23,57 @@ USB keyboard
 因此它同时具有两种用途：
 
 ```text
-HID report -> consoleintr()          -> shell/登录输入，回显到 Mini UART
-           -> /dev/input/event0 队列 -> 用户程序读取原始按下/释放事件
+HID report -> HID usage转Linux KEY_* code
+           -> input_report_key() + input_sync()
+           -> input core
+                +-> evdev队列 -> /dev/input/event0
+                +-> console字符转换 -> consoleintr() -> shell/登录输入
 ```
 
 xv6 没有 Linux 的 devtmpfs/udev，字符设备驱动注册本身不会自动创建文件
 系统节点。`init` 因而显式创建 `/dev/input` 和 major 4 的 `event0`。事件
-记录为 8 字节：`uint16 type`、`uint16 HID usage code`、`int value`；当前
-`type=1` 表示按键，`value=1/0` 分别表示按下/释放。
+记录为8字节：`uint16 type`、`uint16 Linux KEY_* code`、`int value`。
+`EV_KEY(type=1)`的`value=1/0`分别表示按下/释放；每份HID报告末尾还会产生
+`EV_SYN/SYN_REPORT`。队列溢出时input core插入`SYN_DROPPED`，提示读取者
+丢弃缓存状态。
+
+## Input Subsystem
+
+输入子系统位于`kernel/input.c`和`kernel/input.h`，把“硬件如何产生按键”与
+“用户如何读取输入事件”分开。核心接口为：
+
+```c
+struct input_dev *input_allocate_device(void);
+void input_set_capability(struct input_dev *, int type, int code);
+int  input_register_device(struct input_dev *);
+void input_report_key(struct input_dev *, int code, int value);
+void input_sync(struct input_dev *);
+void input_unregister_device(struct input_dev *);
+void input_free_device(struct input_dev *);
+```
+
+USB键盘`probe()`分配`input_dev`，登记设备名称、USB VID/PID和支持的按键
+能力位图，再注册为`event0`。`usbkbd.c`只保留USB/HID职责：比较新旧HID
+report，把usage转换为Linux`KEY_*`编号并上报。事件去重、按键状态、环形
+队列、阻塞读、`SYN_REPORT`与`SYN_DROPPED`均由input core负责。
+
+```mermaid
+flowchart LR
+    A[DWC2 URB completion] --> B[usbkbd HID parser]
+    B --> C[HID usage -> Linux KEY code]
+    C --> D[input_report_key]
+    D --> E[input_dev key state]
+    E --> F[input_sync / SYN_REPORT]
+    F --> G[evdev ring buffer]
+    G --> H[/dev/input/event0]
+    C --> I[console character handler]
+    I --> J[consoleintr / TTY / shell]
+```
+
+当前字符设备层仍只按major分发，没有把minor和每次open的`private_data`传给
+驱动，所以evdev暂时选择第一个注册的输入设备作为`event0`，所有读取者共享
+一个队列。以后扩展`file_operations.open/release/read`参数后，可进一步实现
+`event0..eventN`及每个open独立的client queue。
 
 ## 枚举与绑定
 
@@ -203,10 +248,12 @@ Backspace、Esc、Ctrl、Shift、Caps Lock 和方向键。
 `usbkbd_rx_work()`收到8字节报告后执行两次比较：
 
 1. 本次`keys[2..7]`中存在、上次不存在的usage，产生按下事件并查`keymap`；
-2. 上次存在、本次不存在的usage，向`/dev/input/event0`产生释放事件；
-3. Shift/Caps Lock选择普通或大写映射，Ctrl+字母转换为控制字符；
-4. 普通字符、Backspace、Enter及方向键转义序列统一送入`consoleintr()`；
-5. console/TTY行规程负责回显、行缓冲、Ctrl+C及唤醒前台读进程。
+2. 上次存在、本次不存在的usage，通过`input_report_key(..., 0)`上报释放；
+3. modifier bitmap中的Ctrl/Shift/Alt/GUI也作为独立`EV_KEY`上报；
+4. 每份报告调用`input_sync()`生成`SYN_REPORT`；
+5. Shift/Caps Lock选择普通或大写映射，Ctrl+字母转换为控制字符；
+6. 普通字符、Backspace、Enter及方向键转义序列统一送入`consoleintr()`；
+7. console/TTY行规程负责回显、行缓冲、Ctrl+C及唤醒前台读进程。
 
 真机已经收到：
 

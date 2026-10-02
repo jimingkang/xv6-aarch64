@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "device.h"
 #include "ext2.h"
 #include "epoll.h"
 #include "vfs.h"
@@ -545,6 +546,17 @@ sys_open(void)
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
   f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
+
+  // Give the driver a chance to attach per-open state.  On failure the
+  // driver's release() must not run, so detach f as a plain FD_NONE file.
+  if(f->type == FD_DEVICE && chrdev_open(f) < 0){
+    myproc()->ofile[fd] = 0;
+    f->type = FD_NONE;
+    fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);

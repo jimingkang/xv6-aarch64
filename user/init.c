@@ -96,7 +96,7 @@ main(void)
   mknod("dev/console", CONSOLE, 0);
   mknod("dev/tty", TTY, 0);
   mknod("dev/ttyS0", TTYS0, 0);
-  mknod("dev/input/event0", USBKBD, 0);
+  mknod("dev/input/event0", INPUT, 0);
   if(open("/dev/ttyS0", O_RDWR) < 0 &&
      open("/dev/console", O_RDWR) < 0)
     exit(1);

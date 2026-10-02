@@ -15,6 +15,7 @@
 #include "file.h"
 #include "defs.h"
 #include "device.h"
+#include "input.h"
 #include "usb.h"
 #include "workqueue.h"
 
@@ -22,30 +23,20 @@
 #define HID_REQ_SET_PROTOCOL 0x0b
 #define HID_BOOT_PROTOCOL    0
 #define HID_REPORT_SIZE      8
-#define USBKBD_EVENTS        64
-
-// Minimal Linux input_event-like payload without timestamps.  type=1 means
-// EV_KEY; value=1 is press and value=0 is release.
-struct usbkbd_event {
-  uint16 type;
-  uint16 code;
-  int value;
-};
+#define HID_ERR_ROLLOVER     1   // usages 1..3: ErrorRollOver/POSTFail/Undefined
+#define HID_ERR_LAST         3
 
 struct usbkbd_state {
   struct spinlock lock;
   struct usb_device *udev;
+  struct input_dev *input;
   struct urb *irq_urb;
   struct work_struct rx_work;
   uchar report[64] __attribute__((aligned(64)));
   uchar previous[HID_REPORT_SIZE];
   int active;
   int disconnected;
-  int readers;
   int capslock;
-  struct usbkbd_event events[USBKBD_EVENTS];
-  uint event_r;
-  uint event_w;
   uint irq_count;
   uint report_count;
   uint error_count;
@@ -53,73 +44,6 @@ struct usbkbd_state {
 };
 
 static struct workqueue usbkbd_wq;
-static struct spinlock usbkbd_devices_lock;
-static struct usbkbd_state *primary_keyboard;
-
-static void
-usbkbd_event(struct usbkbd_state *kbd, uchar code, int value)
-{
-  struct usbkbd_event *ev;
-  acquire(&kbd->lock);
-  if(kbd->event_w - kbd->event_r == USBKBD_EVENTS)
-    kbd->event_r++; // keep the newest events if userspace is too slow
-  ev = &kbd->events[kbd->event_w++ % USBKBD_EVENTS];
-  ev->type = 1;
-  ev->code = code;
-  ev->value = value;
-  wakeup(&kbd->event_r);
-  release(&kbd->lock);
-}
-
-static int
-usbkbd_event_read(int user_dst, uint64 dst, int n)
-{
-  int copied = 0;
-  int result = 0;
-  struct usbkbd_event ev;
-  struct usbkbd_state *kbd;
-
-  if(n < (int)sizeof(ev))
-    return -1;
-  acquire(&usbkbd_devices_lock);
-  kbd = primary_keyboard;
-  if(kbd == 0){
-    release(&usbkbd_devices_lock);
-    return -1;
-  }
-  acquire(&kbd->lock);
-  kbd->readers++;
-  release(&usbkbd_devices_lock);
-  while(kbd->event_r == kbd->event_w && !kbd->disconnected){
-    if(myproc()->killed){
-      result = -1;
-      goto out;
-    }
-    sleep(&kbd->event_r, &kbd->lock);
-  }
-  if(kbd->disconnected){
-    result = -1;
-    goto out;
-  }
-  while(n - copied >= (int)sizeof(ev) &&
-        kbd->event_r != kbd->event_w){
-    ev = kbd->events[kbd->event_r++ % USBKBD_EVENTS];
-    release(&kbd->lock);
-    if(either_copyout(user_dst, dst + copied, &ev, sizeof(ev)) < 0)
-      result = copied ? copied : -1;
-    else
-      copied += sizeof(ev);
-    acquire(&kbd->lock);
-    if(result)
-      goto out;
-  }
-  result = copied;
-out:
-  kbd->readers--;
-  wakeup(&kbd->readers);
-  release(&kbd->lock);
-  return result;
-}
 
 static const uchar keymap[58] = {
   [4]='a',[5]='b',[6]='c',[7]='d',[8]='e',[9]='f',[10]='g',[11]='h',
@@ -141,6 +65,25 @@ static const uchar shiftmap[58] = {
   [37]='*',[38]='(',[39]=')',[40]='\n',[41]=0x1b,[42]='\b',[43]='\t',
   [44]=' ',[45]='_',[46]='+',[47]='{',[48]='}',[49]='|',[51]=':',
   [52]='"',[53]='~',[54]='<',[55]='>',[56]='?',
+};
+
+static const ushort hid_to_key[256] = {
+  [4]=KEY_A,[5]=KEY_B,[6]=KEY_C,[7]=KEY_D,[8]=KEY_E,[9]=KEY_F,
+  [10]=KEY_G,[11]=KEY_H,[12]=KEY_I,[13]=KEY_J,[14]=KEY_K,
+  [15]=KEY_L,[16]=KEY_M,[17]=KEY_N,[18]=KEY_O,[19]=KEY_P,
+  [20]=KEY_Q,[21]=KEY_R,[22]=KEY_S,[23]=KEY_T,[24]=KEY_U,
+  [25]=KEY_V,[26]=KEY_W,[27]=KEY_X,[28]=KEY_Y,[29]=KEY_Z,
+  [30]=KEY_1,[31]=KEY_2,[32]=KEY_3,[33]=KEY_4,[34]=KEY_5,
+  [35]=KEY_6,[36]=KEY_7,[37]=KEY_8,[38]=KEY_9,[39]=KEY_0,
+  [40]=KEY_ENTER,[41]=KEY_ESC,[42]=KEY_BACKSPACE,[43]=KEY_TAB,
+  [44]=KEY_SPACE,[45]=KEY_MINUS,[46]=KEY_EQUAL,[47]=KEY_LEFTBRACE,
+  [48]=KEY_RIGHTBRACE,[49]=KEY_BACKSLASH,[51]=KEY_SEMICOLON,
+  [52]=KEY_APOSTROPHE,[53]=KEY_GRAVE,[54]=KEY_COMMA,[55]=KEY_DOT,
+  [56]=KEY_SLASH,[57]=KEY_CAPSLOCK,[79]=KEY_RIGHT,[80]=KEY_LEFT,
+  [81]=KEY_DOWN,[82]=KEY_UP,
+  [224]=KEY_LEFTCTRL,[225]=KEY_LEFTSHIFT,[226]=KEY_LEFTALT,
+  [227]=KEY_LEFTMETA,[228]=KEY_RIGHTCTRL,[229]=KEY_RIGHTSHIFT,
+  [230]=KEY_RIGHTALT,[231]=KEY_RIGHTMETA,
 };
 
 static int
@@ -167,7 +110,8 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
   int control = (modifiers & ((1U << 0) | (1U << 4))) != 0;
   int c;
 
-  usbkbd_event(kbd, code, 1);
+  if(hid_to_key[code])
+    input_report_key(kbd->input, hid_to_key[code], 1);
   if(code == 57){
     kbd->capslock ^= 1;
     return;
@@ -221,6 +165,20 @@ usbkbd_rx_work(struct work_struct *work)
              kbd->report[0], kbd->report[2], kbd->report[3],
              kbd->report[4], kbd->report[5], kbd->report[6],
              kbd->report[7]);
+    // On phantom/rollover the keyboard fills every key slot with an error
+    // usage.  The report says nothing about which keys are down, so keep the
+    // previous state; treating it as "all released" would emit spurious
+    // key-ups and then repeat the presses (and console chars) next report.
+    if(kbd->report[2] >= HID_ERR_ROLLOVER && kbd->report[2] <= HID_ERR_LAST)
+      goto rearm;
+    // Modifier bits are HID usages 0xe0..0xe7 and are independent of the six
+    // ordinary-key slots.
+    for(int i = 0; i < 8; i++){
+      int old_down = (kbd->previous[0] & (1U << i)) != 0;
+      int new_down = (kbd->report[0] & (1U << i)) != 0;
+      if(old_down != new_down)
+        input_report_key(kbd->input, hid_to_key[224 + i], new_down);
+    }
     // Usage IDs 1..3 are rollover/error reports, not keys.
     for(int i = 2; i < HID_REPORT_SIZE; i++){
       uchar code = kbd->report[i];
@@ -236,10 +194,13 @@ usbkbd_rx_work(struct work_struct *work)
         if(kbd->report[j] == code)
           still_down = 1;
       if(!still_down)
-        usbkbd_event(kbd, code, 0);
+        if(hid_to_key[code])
+          input_report_key(kbd->input, hid_to_key[code], 0);
     }
+    input_sync(kbd->input);
     memmove(kbd->previous, kbd->report, HID_REPORT_SIZE);
   }
+rearm:
   acquire(&kbd->lock);
   rearm = kbd->active && !kbd->disconnected;
   release(&kbd->lock);
@@ -283,8 +244,14 @@ usbkbd_probe(struct usb_device *udev)
   memset(kbd, 0, sizeof(*kbd));
   initlock(&kbd->lock, "usbkbd");
   kbd->udev = udev;
+  kbd->input = input_allocate_device();
+  if(kbd->input == 0){
+    kfree(kbd);
+    return -1;
+  }
   kbd->irq_urb = usb_alloc_urb();
   if(kbd->irq_urb == 0){
+    input_free_device(kbd->input);
     kfree(kbd);
     return -1;
   }
@@ -296,15 +263,22 @@ usbkbd_probe(struct usb_device *udev)
   // Idle duration zero: send reports only when state changes.
   udev->ops->control(udev, 0x21, HID_REQ_SET_IDLE, 0,
                      udev->interface_number, 0, 0);
+  kbd->input->name = "USB HID Boot Keyboard";
+  kbd->input->phys = "usb/dwc2/input0";
+  kbd->input->bustype = 3; // BUS_USB
+  kbd->input->vendor = udev->vendor;
+  kbd->input->product = udev->product;
+  kbd->input->private = kbd;
+  for(int i = 0; i < 256; i++)
+    if(hid_to_key[i])
+      input_set_capability(kbd->input, EV_KEY, hid_to_key[i]);
+  if(input_register_device(kbd->input) < 0)
+    goto fail;
   usb_fill_int_urb(kbd->irq_urb, udev, udev->interrupt_in_ep,
                    kbd->report, HID_REPORT_SIZE, usbkbd_irq_complete, kbd,
                    udev->interrupt_in_interval);
   kbd->active = 1;
   udev->dev.driver_data = kbd;
-  acquire(&usbkbd_devices_lock);
-  if(primary_keyboard == 0)
-    primary_keyboard = kbd;
-  release(&usbkbd_devices_lock);
   if(usb_submit_urb(kbd->irq_urb) < 0)
     goto fail_registered;
   printf("usbkbd: IRQ-driven boot keyboard ready ep=%d mps=%d interval=%d\n",
@@ -313,14 +287,12 @@ usbkbd_probe(struct usb_device *udev)
   return 0;
 
 fail_registered:
-  acquire(&usbkbd_devices_lock);
-  if(primary_keyboard == kbd)
-    primary_keyboard = 0;
-  release(&usbkbd_devices_lock);
   udev->dev.driver_data = 0;
   kbd->active = 0;
+  input_unregister_device(kbd->input);
 fail:
   usb_free_urb(kbd->irq_urb);
+  input_free_device(kbd->input);
   kfree(kbd);
   return -1;
 }
@@ -331,27 +303,20 @@ usbkbd_remove(struct usb_device *udev)
   struct usbkbd_state *kbd = udev ? udev->dev.driver_data : 0;
   if(kbd == 0)
     return;
-  acquire(&usbkbd_devices_lock);
-  if(primary_keyboard == kbd)
-    primary_keyboard = 0;
   acquire(&kbd->lock);
   kbd->active = 0;
   kbd->disconnected = 1;
-  wakeup(&kbd->event_r);
   release(&kbd->lock);
-  release(&usbkbd_devices_lock);
 
   // Stop DMA/channel completion first.  When this returns no HCD completion
   // can queue new class-driver work for this device.
   usb_kill_urb(kbd->irq_urb);
   cancel_work_sync(&kbd->rx_work);
 
-  acquire(&kbd->lock);
-  while(kbd->readers != 0)
-    sleep(&kbd->readers, &kbd->lock);
-  release(&kbd->lock);
+  input_unregister_device(kbd->input);
   udev->dev.driver_data = 0;
   usb_free_urb(kbd->irq_urb);
+  input_free_device(kbd->input);
   kfree(kbd);
 }
 
@@ -377,12 +342,6 @@ static struct usb_driver usbkbd_driver = {
 void
 usbkbd_driver_init(void)
 {
-  static struct file_operations event_fops = {
-    .read = usbkbd_event_read,
-  };
-  initlock(&usbkbd_devices_lock, "usbkbd-devices");
-  primary_keyboard = 0;
-  register_chrdev(USBKBD, "input/event0", &event_fops);
   init_workqueue(&usbkbd_wq, "usbkbd_wq", 1);
   usb_register_driver(&usbkbd_driver);
 }

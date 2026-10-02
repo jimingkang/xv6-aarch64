@@ -22,6 +22,7 @@ OBJS = \
 	$K/device.o \
 	$K/sdio.o \
 	$K/usb.o \
+	$K/input.o \
 	$K/usbkbd.o \
 	$K/arasan_sdio.o \
 	$K/mt7601u.o \

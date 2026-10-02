@@ -233,6 +233,7 @@ int             wpa_aes_unwrap(uint8*, uint8*, int, uint8*);
 void            arasan_sdio_driver_init(void);
 void            arasan_sdio_driver_exit(void);
 void            usb_bus_init(void);
+void            input_init(void);
 void            usbkbd_driver_init(void);
 void            mt7601u_driver_init(void);
 void            mt7601u_driver_exit(void);

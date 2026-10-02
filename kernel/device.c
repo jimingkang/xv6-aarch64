@@ -2,6 +2,9 @@
 #include "aarch64.h"
 #include "param.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "device.h"
 #include "defs.h"
 
@@ -249,14 +252,42 @@ register_chrdev(int major, char *name, struct file_operations *fops)
   return 0;
 }
 
-int
-chrdev_read(int major, int user_dst, uint64 dst, int n)
+static struct file_operations *
+chrdev_fops(int major)
 {
-  struct file_operations *fops;
-  if(major < 0 || major >= NDEV)
+  if(major < 0 || major >= NDEV || !device_core.chrdevs[major].used)
+    return 0;
+  return device_core.chrdevs[major].fops;
+}
+
+// Called once per open file description, after sys_open filled in f.
+int
+chrdev_open(struct file *f)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0)
     return -1;
-  fops = device_core.chrdevs[major].fops;
-  if(!device_core.chrdevs[major].used || fops == 0 || fops->read == 0)
+  return fops->open ? fops->open(f) : 0;
+}
+
+// Called by fileclose() when the last fd/dup/fork reference goes away.
+void
+chrdev_release(struct file *f)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops && fops->release)
+    fops->release(f);
+}
+
+int
+chrdev_read(struct file *f, int user_dst, uint64 dst, int n)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0)
+    return -1;
+  if(fops->fread)
+    return fops->fread(f, user_dst, dst, n);
+  if(fops->read == 0)
     return -1;
   return fops->read(user_dst, dst, n);
 }
