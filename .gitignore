@@ -20,3 +20,4 @@ __pycache__/
 *.pyc
 media/
 trace/
+kernel/buildinfo.c

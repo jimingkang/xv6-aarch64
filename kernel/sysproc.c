@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sched.h"
 
 uint64
 sys_exit(void)
@@ -220,4 +221,71 @@ sys_sync_destroy(void)
   if(argint(0, &handle) < 0)
     return -1;
   return ksync_destroy(handle);
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling system calls.  pid 0 selects the calling process.
+// ---------------------------------------------------------------------------
+
+uint64
+sys_sched_setscheduler(void)
+{
+  int pid, policy, priority;
+  if(argint(0, &pid) < 0 || argint(1, &policy) < 0 || argint(2, &priority) < 0)
+    return -1;
+  return sched_setscheduler(pid, policy, priority);
+}
+
+uint64
+sys_sched_getinfo(void)
+{
+  int pid;
+  uint64 dst;
+  struct sched_info info;
+  if(argint(0, &pid) < 0 || argaddr(1, &dst) < 0)
+    return -1;
+  if(sched_getinfo(pid, &info) < 0)
+    return -1;
+  if(copyout(myproc()->pagetable, dst, (char *)&info, sizeof(info)) < 0)
+    return -1;
+  return 0;
+}
+
+uint64
+sys_setnice(void)
+{
+  int pid, nice;
+  if(argint(0, &pid) < 0 || argint(1, &nice) < 0)
+    return -1;
+  return sched_setnice(pid, nice);
+}
+
+uint64
+sys_sched_setaffinity(void)
+{
+  int pid, mask;
+  if(argint(0, &pid) < 0 || argint(1, &mask) < 0)
+    return -1;
+  return sched_setaffinity(pid, (uint)mask);
+}
+
+uint64
+sys_sched_yield(void)
+{
+  sched_yield_now();
+  return 0;
+}
+
+// Microseconds since boot from the ARM Generic Timer.  The counter is shared
+// by all cores, so values from different CPUs can be compared.
+uint64
+sys_clock_us(void)
+{
+  return r_cntvct_el0() / (r_cntfrq_el0() / 1000000);
+}
+
+uint64
+sys_getcpu(void)
+{
+  return cpuid();
 }

@@ -57,3 +57,10 @@
 #define SYS_udp_tryrecv  56
 #define SYS_tty_set_foreground 57
 #define SYS_udp_recv_timeout 58
+#define SYS_sched_setscheduler 59
+#define SYS_sched_getinfo 60
+#define SYS_setnice      61
+#define SYS_sched_setaffinity 62
+#define SYS_sched_yield  63
+#define SYS_clock_us     64
+#define SYS_getcpu       65

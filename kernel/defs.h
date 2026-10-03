@@ -172,6 +172,14 @@ void            userinit(void);
 int             wait(uint64);
 void            wakeup(void*);
 void            yield(void);
+void            sched_yield_now(void);
+void            sched_tick(void);
+int             resched_pending(void);
+int             sched_setscheduler(int, int, int);
+int             sched_setnice(int, int);
+int             sched_setaffinity(int, uint);
+struct sched_info;
+int             sched_getinfo(int, struct sched_info*);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
@@ -326,6 +334,8 @@ void            gicv3inithart(void);
 uint32          gic_iar(void);
 int             gic_iar_irq(uint32);
 void            gic_eoi(uint32);
+void            send_resched_ipi(int);
+void            resched_ipi_ack(void);
 
 // timer.c
 void            timerinit(void);

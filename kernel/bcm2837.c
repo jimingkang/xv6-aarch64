@@ -15,8 +15,12 @@
 #define DISABLE_BASIC_IRQS  0x224
 
 #define CORE_TIMER_CONTROL(c) (0x40 + 4 * (c))
+#define CORE_MBOX_CONTROL(c)  (0x50 + 4 * (c))
 #define CORE_IRQ_SOURCE(c)    (0x60 + 4 * (c))
+#define CORE_MBOX0_SET(c)     (0x80 + 0x10 * (c))   // write 1s to raise
+#define CORE_MBOX0_CLR(c)     (0xc0 + 0x10 * (c))   // write 1s to clear
 #define CORE_VIRTUAL_TIMER    (1 << 3)
+#define CORE_MBOX0            (1 << 4)
 
 static inline uint32
 irqread(uint64 off)
@@ -59,6 +63,25 @@ gicv3inithart(void)
 {
   int cpu = cpuid();
   localwrite(CORE_TIMER_CONTROL(cpu), CORE_VIRTUAL_TIMER);
+  // Mailbox 0 of each core is the reschedule IPI (Linux uses it the same way
+  // on BCM2836/7).  Clear anything stale before enabling its IRQ.
+  localwrite(CORE_MBOX0_CLR(cpu), ~0U);
+  localwrite(CORE_MBOX_CONTROL(cpu), 1);
+}
+
+// Ask `cpu` to run its scheduler soon.  The caller has already set
+// cpus[cpu].need_resched; the write below is ordered after it.
+void
+send_resched_ipi(int cpu)
+{
+  asm volatile("dsb sy" ::: "memory");
+  localwrite(CORE_MBOX0_SET(cpu), 1);
+}
+
+void
+resched_ipi_ack(void)
+{
+  localwrite(CORE_MBOX0_CLR(cpuid()), ~0U);
 }
 
 uint32
@@ -66,8 +89,11 @@ gic_iar(void)
 {
   int cpu = cpuid();
 
-  if(localread(CORE_IRQ_SOURCE(cpu)) & CORE_VIRTUAL_TIMER)
+  uint32 local = localread(CORE_IRQ_SOURCE(cpu));
+  if(local & CORE_VIRTUAL_TIMER)
     return TIMER0_IRQ;
+  if(local & CORE_MBOX0)
+    return IPI_RESCHED_IRQ;
   if(irqread(IRQ_PENDING_1) & (1U << UART0_IRQ))
     return UART0_IRQ;
   if(irqread(IRQ_PENDING_1) & (1U << DWC2_IRQ))
@@ -97,7 +123,7 @@ gic_int_enabled(uint32 intid)
 {
   if(intid == UART0_IRQ || intid == DWC2_IRQ || intid == SDIO_IRQ)
     return 1;
-  if(intid == TIMER0_IRQ)
+  if(intid == TIMER0_IRQ || intid == IPI_RESCHED_IRQ)
     return 1;
   return 0;
 }

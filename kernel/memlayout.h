@@ -42,6 +42,7 @@
 #define UART0_IRQ   29   // BCM2837 AUX interrupt (Mini UART)
 #define SDIO_IRQ    62   // BCM2837 Arasan EMMC/SDIO interrupt
 #define TIMER0_IRQ  27
+#define IPI_RESCHED_IRQ 1000  // pseudo IRQ number: ARM-local mailbox 0
 
 #define IRQCTRL     (PERIPHERAL_BASE + 0x00b000L)
 #define RAMDISK     (KERNBASE + RAMDISK_PA)

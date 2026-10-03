@@ -64,9 +64,10 @@ userirq(void)
 {
   struct proc *p = myproc();
 
-  int which_dev = devintr();
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  devintr();
+  // Give up the CPU if the scheduler asked for it: slice used up, or a
+  // higher-priority process became runnable (timer tick or IPI).
+  if(resched_pending())
     yield();
 
   if(p->killed)
@@ -92,6 +93,9 @@ usertrap(void)
     intr_on();
 
     syscall();
+    // The syscall may have woken a higher-priority process for this CPU.
+    if(resched_pending())
+      yield();
   } else {
     printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
@@ -130,10 +134,11 @@ kerneltrap()
 void
 kernelirq()
 {
-  int which_dev = devintr();
+  devintr();
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+  // Preempt kernel code too (interrupts are only enabled when no spinlock is
+  // held), so a woken real-time task does not wait for a long syscall.
+  if(myproc() != 0 && myproc()->state == RUNNING && resched_pending())
     yield();
 }
 
@@ -176,9 +181,13 @@ devintr()
     if(cpuid() == 0 && logical_tick){
       clockintr();
     }
-    // The intermediate 10 ms interrupts service polled devices without
-    // changing xv6's original 100 ms scheduling/ticks semantics.
-    dev = logical_tick ? 2 : 1;
+    // Every 10 ms interrupt is a scheduler tick (time slices, RT throttling).
+    // xv6 `ticks` used by sleep()/uptime() still advance every 100 ms.
+    sched_tick();
+    dev = 2;
+  } else if(irq == IPI_RESCHED_IRQ){
+    resched_ipi_ack();          // need_resched was set by the sender
+    dev = 1;
   } else if(irq == 1023){
     // do nothing
   } else if(irq){

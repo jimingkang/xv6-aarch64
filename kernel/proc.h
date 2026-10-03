@@ -24,6 +24,16 @@ struct cpu {
   struct context context;     // swtch() here to enter scheduler().
   int noff;                   // Depth of push_off() nesting.
   int intena;                 // Were interrupts enabled before push_off()?
+
+  // Scheduler state.  Written by this CPU, read locklessly by others as a
+  // hint when they decide whether to preempt it.
+  volatile int online;        // has entered scheduler()
+  volatile int need_resched;  // yield at the next interrupt/syscall return
+  volatile int cur_prio;      // effective priority of c->proc, PRIO_IDLE if none
+  int rt_window;              // ticks in the current RT throttling period
+  int rt_used;                // ticks spent running RT tasks in that period
+  volatile int rt_throttled;  // RT budget exhausted: run SCHED_OTHER first
+  uint rt_throttle_events;
 };
 
 extern struct cpu cpus[NCPU];
@@ -97,6 +107,16 @@ struct proc {
   int pgid;                    // Process group ID
   int ctty;                    // Controlling TTY major, or -1
   uint signals_pending;       // Pending kernel-generated signals
+
+  // Scheduling attributes (see sched.h), protected by p->lock.
+  int policy;                  // SCHED_OTHER, SCHED_FIFO or SCHED_RR
+  int rt_priority;             // 1..99 for real-time policies, else 0
+  int nice;                    // -20..19, SCHED_OTHER time-slice weight
+  uint cpumask;                // CPUs this process may run on
+  int slice;                   // scheduler ticks left in the current slice
+  uint64 rq_seq;               // FIFO order among equal priorities
+  int last_cpu;                // CPU that ran it last, -1 if never
+  uint64 run_ticks;            // scheduler ticks consumed
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

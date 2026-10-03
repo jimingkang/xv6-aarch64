@@ -62,6 +62,14 @@ int fcntl(int, int, int);
 int pty_open(int*);
 int getrandom(void*, int);
 int rename(const char*, const char*);
+struct sched_info;
+int sched_setscheduler(int pid, int policy, int priority);
+int sched_getinfo(int pid, struct sched_info*);
+int setnice(int pid, int nice);
+int sched_setaffinity(int pid, uint mask);
+int sched_yield(void);
+uint64 clock_us(void);
+int getcpu(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

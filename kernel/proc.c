@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "file.h"
 #include "proc.h"
+#include "sched.h"
 #include "defs.h"
 
 struct cpu cpus[NCPU];
@@ -28,6 +29,191 @@ static void freeproc(struct proc *p);
 struct spinlock wait_lock;
 
 extern pagetable_t kernel_pagetable;
+
+// ---------------------------------------------------------------------------
+// Priority scheduler with CPU affinity.
+//
+// Every runnable process has an effective priority:
+//
+//     PRIO_RT_BASE + rt_priority   SCHED_FIFO / SCHED_RR   (101..199)
+//     PRIO_OTHER                   SCHED_OTHER             (0)
+//     PRIO_THROTTLED               real-time task on a CPU whose RT budget
+//                                  for this period is used up            (-1)
+//
+// Each CPU runs the highest-priority RUNNABLE process whose cpumask allows
+// that CPU; ties go to the smallest rq_seq, i.e. the one queued first.  The
+// run "queue" is still proc[] plus a sequence number, in xv6 style.
+//
+// Preemption: a process that becomes runnable compares its priority with the
+// CPUs it may use.  If one of them runs something lower, that CPU gets
+// need_resched and, when it is another core, a mailbox IPI, so it switches
+// within microseconds instead of at its next 10 ms timer tick.
+//
+// RT throttling (as Linux sched_rt_runtime_us/sched_rt_period_us): per CPU, real-time
+// tasks may use at most RT_RUNTIME of every RT_PERIOD ticks.  After that the
+// CPU prefers SCHED_OTHER tasks until the period ends, so a runaway SCHED_FIFO
+// loop cannot lock out the shell.
+// ---------------------------------------------------------------------------
+#define PRIO_IDLE      (-1000)
+#define PRIO_THROTTLED (-1)
+#define PRIO_OTHER     0
+#define PRIO_RT_BASE   100
+
+#define RR_TIMESLICE   10     // 100 ms
+#define RT_PERIOD      100    // 1 s
+#define RT_RUNTIME     95     // 950 ms
+#define FIFO_SLICE     (1 << 30)
+#define ALL_CPUS       ((1U << NCPU) - 1)
+
+static uint64 rq_counter;
+static struct spinlock rq_counter_lock;   // GCC atomics may need libatomic
+
+static int
+is_rt_policy(int policy)
+{
+  return policy == SCHED_FIFO || policy == SCHED_RR;
+}
+
+static uint64
+next_rq_seq(void)
+{
+  uint64 seq;
+  acquire(&rq_counter_lock);
+  seq = ++rq_counter;
+  release(&rq_counter_lock);
+  return seq;
+}
+
+static int
+timeslice(struct proc *p)
+{
+  if(p->policy == SCHED_FIFO)
+    return FIFO_SLICE;
+  if(p->policy == SCHED_RR)
+    return RR_TIMESLICE;
+  // SCHED_OTHER: nice 0 keeps xv6's 100 ms; -20 -> 200 ms, 19 -> 10 ms.
+  int s = (20 - p->nice) / 2;
+  return s < 1 ? 1 : s;
+}
+
+// Priority ignoring throttling: used when deciding whom to preempt.
+static int
+base_prio(struct proc *p)
+{
+  if(is_rt_policy(p->policy))
+    return PRIO_RT_BASE + p->rt_priority;
+  return PRIO_OTHER;
+}
+
+static int
+effective_prio(struct proc *p, struct cpu *c)
+{
+  if(is_rt_policy(p->policy) && c->rt_throttled)
+    return PRIO_THROTTLED;
+  return base_prio(p);
+}
+
+static void
+kick_cpu(int cpu)
+{
+  cpus[cpu].need_resched = 1;
+  __sync_synchronize();
+  if(cpu != cpuid())
+    send_resched_ipi(cpu);
+}
+
+// p just became RUNNABLE (caller holds p->lock).  Preempt the allowed CPU
+// running the lowest priority if p beats it.
+static void
+resched_hint(struct proc *p)
+{
+  int prio = base_prio(p);
+  int target = -1, lowest = 0;
+
+  for(int i = 0; i < NCPU; i++){
+    if(!(p->cpumask & (1U << i)) || !cpus[i].online)
+      continue;
+    int cp = cpus[i].cur_prio;
+    if(cp == PRIO_IDLE)
+      return;               // an allowed CPU is idle and will pick p up
+    if(target < 0 || cp < lowest){
+      target = i;
+      lowest = cp;
+    }
+  }
+  if(target >= 0 && prio > lowest)
+    kick_cpu(target);
+}
+
+// Put p on the run queue (caller holds p->lock).  at_head keeps its old
+// position among equal priorities: used when it was preempted rather than
+// having used up its slice, as Linux does for SCHED_FIFO/SCHED_RR.
+static void
+make_runnable(struct proc *p, int at_head)
+{
+  p->state = RUNNABLE;
+  if(!at_head || p->rq_seq == 0)
+    p->rq_seq = next_rq_seq();
+  resched_hint(p);
+}
+
+static void
+sched_defaults(struct proc *p)
+{
+  p->policy = SCHED_OTHER;
+  p->rt_priority = 0;
+  p->nice = 0;
+  p->cpumask = ALL_CPUS;
+  p->slice = timeslice(p);
+  p->rq_seq = 0;
+  p->last_cpu = -1;
+  p->run_ticks = 0;
+}
+
+// Called from the timer interrupt on every CPU, every SCHED_TICK_MS.
+void
+sched_tick(void)
+{
+  struct cpu *c = mycpu();
+  struct proc *p = c->proc;
+  int rt = 0;
+
+  if(p){
+    acquire(&p->lock);
+    rt = is_rt_policy(p->policy);
+    p->run_ticks++;
+    if(p->policy != SCHED_FIFO && --p->slice <= 0)
+      c->need_resched = 1;
+    release(&p->lock);
+  }
+
+  c->rt_window++;
+  if(rt)
+    c->rt_used++;
+  if(c->rt_window >= RT_PERIOD){
+    c->rt_window = 0;
+    c->rt_used = 0;
+    if(c->rt_throttled){
+      c->rt_throttled = 0;      // RT tasks may run again: re-evaluate
+      c->need_resched = 1;
+    }
+  } else if(!c->rt_throttled && c->rt_used >= RT_RUNTIME){
+    c->rt_throttled = 1;
+    c->rt_throttle_events++;
+    if(rt)
+      c->need_resched = 1;
+  }
+}
+
+// Should the current CPU reschedule?  Safe with interrupts on.
+int
+resched_pending(void)
+{
+  push_off();
+  int r = mycpu()->need_resched;
+  pop_off();
+  return r;
+}
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -56,6 +242,7 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&rq_counter_lock, "rq_counter");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->kstack = KSTACK((int) (p - proc));
@@ -119,6 +306,7 @@ found:
   p->pgid = p->pid;
   p->ctty = -1;
   p->signals_pending = 0;
+  sched_defaults(p);
   p->state = USED;
 
   sp = (char*)p->kstack + PGSIZE;
@@ -169,7 +357,7 @@ kthread_create(void (*fn)(void*), void *arg, char *name)
   p->kthread_arg = arg;
   p->context.x30 = (uint64)kthread_entry;
   safestrcpy(p->name, name ? name : "kthread", sizeof(p->name));
-  p->state = RUNNABLE;
+  make_runnable(p, 0);
   int pid = p->pid;
   release(&p->lock);
   return pid;
@@ -236,7 +424,7 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  p->state = RUNNABLE;
+  make_runnable(p, 0);
 
   release(&p->lock);
 }
@@ -306,6 +494,15 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  // Like Linux, a child inherits policy, priority, nice and affinity.
+  acquire(&p->lock);
+  np->policy = p->policy;
+  np->rt_priority = p->rt_priority;
+  np->nice = p->nice;
+  np->cpumask = p->cpumask;
+  release(&p->lock);
+  np->slice = timeslice(np);
+
   // uvmcopy allocated a separate set of pages and PTEs for the child.
   // uvmdump(np->pagetable, np->pid, np->name, "fork-copy");
 
@@ -318,7 +515,7 @@ fork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
-  np->state = RUNNABLE;
+  make_runnable(np, 0);
   release(&np->lock);
 
   return pid;
@@ -442,36 +639,71 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// Highest effective priority RUNNABLE process allowed on this CPU; ties go
+// to the earliest rq_seq.  Returns it unlocked: the caller must re-check.
+static struct proc*
+pick_next(struct cpu *c, int id)
+{
+  struct proc *best = 0;
+  int best_prio = 0;
+  uint64 best_seq = 0;
+
+  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state == RUNNABLE && (p->cpumask & (1U << id))){
+      int prio = effective_prio(p, c);
+      if(best == 0 || prio > best_prio ||
+         (prio == best_prio && p->rq_seq < best_seq)){
+        best = p;
+        best_prio = prio;
+        best_seq = p->rq_seq;
+      }
+    }
+    release(&p->lock);
+  }
+  return best;
+}
+
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  int id = cpuid();
 
   c->proc = 0;
+  c->cur_prio = PRIO_IDLE;
+  c->online = 1;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        switchuvm(p);
-        swtch(&c->context, &p->context);
+    if((p = pick_next(c, id)) == 0)
+      continue;
+    acquire(&p->lock);
+    // Another CPU may have taken it, or its affinity may have changed.
+    if(p->state == RUNNABLE && (p->cpumask & (1U << id))){
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      if(p->slice <= 0)
+        p->slice = timeslice(p);
+      p->state = RUNNING;
+      p->last_cpu = id;
+      c->proc = p;
+      c->cur_prio = effective_prio(p, c);
+      c->need_resched = 0;
+      switchuvm(p);
+      swtch(&c->context, &p->context);
 
-        switchkvm();
+      switchkvm();
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+      c->cur_prio = PRIO_IDLE;
     }
+    release(&p->lock);
   }
 }
 
@@ -503,12 +735,35 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
+//
+// A process preempted with time left in its slice keeps its place among
+// equal priorities; one whose slice ran out goes behind them (round robin).
 void
 yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
-  p->state = RUNNABLE;
+  if(p->slice <= 0)
+    p->slice = timeslice(p);
+  else if(p->policy == SCHED_FIFO || p->policy == SCHED_RR){
+    make_runnable(p, 1);
+    sched();
+    release(&p->lock);
+    return;
+  }
+  make_runnable(p, 0);
+  sched();
+  release(&p->lock);
+}
+
+// sched_yield(): go behind every runnable process of the same priority.
+void
+sched_yield_now(void)
+{
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  p->slice = timeslice(p);
+  make_runnable(p, 0);
   sched();
   release(&p->lock);
 }
@@ -578,7 +833,7 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
+        make_runnable(p, 0);
       }
       release(&p->lock);
     }
@@ -599,7 +854,7 @@ kill(int pid)
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
-        p->state = RUNNABLE;
+        make_runnable(p, 0);
       }
       release(&p->lock);
       return 0;
@@ -622,10 +877,124 @@ signal_pgrp(int pgid, int sig)
       p->signals_pending |= 1U << (sig - 1);
       p->killed = 1;
       if(p->state == SLEEPING)
-        p->state = RUNNABLE;
+        make_runnable(p, 0);
     }
     release(&p->lock);
   }
+}
+
+// ---------------------------------------------------------------------------
+// sched_* system call back ends.  pid 0 means the calling process.
+// ---------------------------------------------------------------------------
+
+// Returns with p->lock held, or 0.
+static struct proc*
+lock_proc_by_pid(int pid)
+{
+  struct proc *p;
+
+  if(pid == 0){
+    p = myproc();
+    acquire(&p->lock);
+    return p;
+  }
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED && p->pid == pid)
+      return p;
+    release(&p->lock);
+  }
+  return 0;
+}
+
+// p's attributes changed (caller holds p->lock): let the affected CPU decide
+// again.  A running process yields at its next interrupt or syscall return.
+static void
+sched_attr_changed(struct proc *p)
+{
+  if(p->state == RUNNABLE)
+    resched_hint(p);
+  else if(p->state == RUNNING && p->last_cpu >= 0)
+    kick_cpu(p->last_cpu);
+}
+
+int
+sched_setscheduler(int pid, int policy, int priority)
+{
+  struct proc *p;
+
+  if(policy == SCHED_OTHER){
+    if(priority != 0)
+      return -1;
+  } else if(policy == SCHED_FIFO || policy == SCHED_RR){
+    if(priority < SCHED_PRIO_MIN || priority > SCHED_PRIO_MAX)
+      return -1;
+  } else {
+    return -1;
+  }
+  if((p = lock_proc_by_pid(pid)) == 0)
+    return -1;
+  p->policy = policy;
+  p->rt_priority = priority;
+  p->slice = timeslice(p);
+  sched_attr_changed(p);
+  release(&p->lock);
+  return 0;
+}
+
+int
+sched_setnice(int pid, int nice)
+{
+  struct proc *p;
+
+  if(nice < NICE_MIN || nice > NICE_MAX)
+    return -1;
+  if((p = lock_proc_by_pid(pid)) == 0)
+    return -1;
+  p->nice = nice;
+  if(p->policy == SCHED_OTHER && p->slice > timeslice(p))
+    p->slice = timeslice(p);
+  release(&p->lock);
+  return 0;
+}
+
+int
+sched_setaffinity(int pid, uint mask)
+{
+  struct proc *p;
+
+  mask &= ALL_CPUS;
+  if(mask == 0)
+    return -1;
+  if((p = lock_proc_by_pid(pid)) == 0)
+    return -1;
+  p->cpumask = mask;
+  if(p->state == RUNNABLE)
+    resched_hint(p);
+  else if(p->state == RUNNING && p->last_cpu >= 0 &&
+          !(mask & (1U << p->last_cpu)))
+    kick_cpu(p->last_cpu);      // move it off a CPU it may no longer use
+  release(&p->lock);
+  return 0;
+}
+
+int
+sched_getinfo(int pid, struct sched_info *info)
+{
+  struct proc *p;
+
+  if((p = lock_proc_by_pid(pid)) == 0)
+    return -1;
+  info->pid = p->pid;
+  info->policy = p->policy;
+  info->priority = p->rt_priority;
+  info->nice = p->nice;
+  info->cpumask = p->cpumask;
+  info->cpu = p->last_cpu;
+  info->state = p->state;
+  info->run_ticks = p->run_ticks;
+  release(&p->lock);
+  return 0;
 }
 
 // Copy to either a user address, or kernel address,
@@ -696,17 +1065,30 @@ procputstr(char *p, char *end, char *s)
 }
 
 static char*
-procputnum(char *p, char *end, int value)
+procputpad(char *p, char *end, char *s, int width)
 {
-  char digits[16];
-  int n = 0;
+  int n = strlen(s);
+  while(n++ < width && p < end)
+    *p++ = ' ';
+  return procputstr(p, end, s);
+}
+
+static char*
+procputint(char *p, char *end, int value, int width)
+{
+  char digits[16], s[18];
+  int n = 0, i = 0;
+  uint v = value < 0 ? -value : value;
   do {
-    digits[n++] = '0' + value % 10;
-    value /= 10;
-  } while(value && n < sizeof(digits));
-  while(n && p < end)
-    *p++ = digits[--n];
-  return p;
+    digits[n++] = '0' + v % 10;
+    v /= 10;
+  } while(v && n < sizeof(digits));
+  if(value < 0)
+    s[i++] = '-';
+  while(n)
+    s[i++] = digits[--n];
+  s[i] = 0;
+  return procputpad(p, end, s, width);
 }
 
 // Format a process snapshot for a user program.  Unlike procdump(), this does
@@ -718,16 +1100,35 @@ proclist(char *buf, int size)
     [UNUSED] "unused", [USED] "used", [SLEEPING] "sleeping",
     [RUNNABLE] "runnable", [RUNNING] "running", [ZOMBIE] "zombie"
   };
+  static char *policies[] = {
+    [SCHED_OTHER] "OTHER", [SCHED_FIFO] "FIFO", [SCHED_RR] "RR"
+  };
+  static char hex[] = "0123456789abcdef";
   char *q = buf, *end = buf + size;
 
-  q = procputstr(q, end, "PID STATE NAME\n");
+  q = procputstr(q, end,
+                 "  PID CPU POLICY PRI  NI MASK     TIME STATE    NAME\n");
   for(struct proc *p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
     if(p->state != UNUSED){
-      q = procputnum(q, end, p->pid);
+      char mask[3] = { hex[(p->cpumask >> 4) & 0xf], hex[p->cpumask & 0xf], 0 };
+      uint ms = p->run_ticks * SCHED_TICK_MS;
+      q = procputint(q, end, p->pid, 5);
+      if(p->last_cpu < 0)
+        q = procputpad(q, end, "-", 4);
+      else
+        q = procputint(q, end, p->last_cpu, 4);
+      q = procputpad(q, end, policies[p->policy], 7);
+      q = procputint(q, end, p->rt_priority, 4);
+      q = procputint(q, end, p->nice, 4);
+      q = procputpad(q, end, mask[0] == '0' ? mask + 1 : mask, 5);
+      q = procputint(q, end, ms / 1000, 6);
+      q = procputstr(q, end, ".");
+      q = procputstr(q, end, (char[]){ '0' + (ms / 100) % 10, '0' + (ms / 10) % 10, 0 });
       q = procputstr(q, end, " ");
       q = procputstr(q, end, states[p->state]);
-      q = procputstr(q, end, " ");
+      for(int n = strlen(states[p->state]); n < 9; n++)
+        q = procputstr(q, end, " ");
       q = procputstr(q, end, p->name);
       q = procputstr(q, end, "\n");
     }

@@ -105,6 +105,13 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_ps(void);
+extern uint64 sys_sched_setscheduler(void);
+extern uint64 sys_sched_getinfo(void);
+extern uint64 sys_setnice(void);
+extern uint64 sys_sched_setaffinity(void);
+extern uint64 sys_sched_yield(void);
+extern uint64 sys_clock_us(void);
+extern uint64 sys_getcpu(void);
 extern uint64 sys_ext2read(void);
 extern uint64 sys_ext2readdir(void);
 extern uint64 sys_sync_create(void);
@@ -201,6 +208,13 @@ static uint64 (*syscalls[])(void) = {
 [SYS_pty_open]     sys_pty_open,
 [SYS_getrandom]    sys_getrandom,
 [SYS_rename]       sys_rename,
+[SYS_sched_setscheduler] sys_sched_setscheduler,
+[SYS_sched_getinfo] sys_sched_getinfo,
+[SYS_setnice]      sys_setnice,
+[SYS_sched_setaffinity] sys_sched_setaffinity,
+[SYS_sched_yield]  sys_sched_yield,
+[SYS_clock_us]     sys_clock_us,
+[SYS_getcpu]       sys_getcpu,
 };
 
 void

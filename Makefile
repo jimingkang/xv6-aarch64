@@ -112,8 +112,14 @@ endif
 LDFLAGS = -z max-page-size=4096
 ASFLAGS = -Og -ggdb -mcpu=cortex-a53 -MD -I.
 
+# kernel/buildinfo.c is regenerated on every link, so the boot banner shows
+# when this kernel image was produced (not when main.c last compiled) and
+# which git branch/commit it came from ("+dirty": uncommitted changes).
 $K/kernel: $(OBJS) $K/kernel.ld $U/initcode
-	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
+	@echo 'const char kernel_build_time[] = "'"$$(date '+%Y-%m-%d %H:%M:%S %Z')"'";' > $K/buildinfo.c
+	@echo 'const char kernel_build_rev[] = "'"$$(GIT_OPTIONAL_LOCKS=0 git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown) $$(GIT_OPTIONAL_LOCKS=0 git describe --always --dirty=+dirty 2>/dev/null || echo -)"'";' >> $K/buildinfo.c
+	$(CC) $(CFLAGS) -c -o $K/buildinfo.o $K/buildinfo.c
+	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) $K/buildinfo.o
 	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
 	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
 
@@ -308,6 +314,12 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$U/_chrt\
+	$U/_taskset\
+	$U/_nice\
+	$U/_renice\
+	$U/_rtlat\
+	$U/_spin\
 
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)
@@ -319,6 +331,7 @@ clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
+	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img \
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
