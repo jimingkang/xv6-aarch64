@@ -11,8 +11,10 @@
 #include "defs.h"
 
 struct cpu cpus[NCPU];
-
-struct proc proc[NPROC];
+struct proc *proc_head;
+static struct spinlock proc_table_lock;
+static struct spinlock kernel_stack_lock;
+static uint64 next_kstack_slot;
 
 struct proc *initproc;
 
@@ -87,7 +89,8 @@ vmspace_put(struct vmspace *vm)
 //
 // Each CPU runs the highest-priority RUNNABLE process whose cpumask allows
 // that CPU; ties go to the smallest rq_seq, i.e. the one queued first.  The
-// run "queue" is still proc[] plus a sequence number, in xv6 style.
+// The run "queue" is still the growable process list plus a sequence number,
+// rather than a separate container.
 //
 // Preemption: a process that becomes runnable compares its priority with the
 // CPUs it may use.  If one of them runs something lower, that CPU gets
@@ -260,38 +263,17 @@ resched_pending(void)
   return r;
 }
 
-// Allocate a page for each process's kernel stack.
-// Map it high in memory, followed by an invalid
-// guard page.
-void
-proc_mapstacks(pagetable_t kpgtbl) {
-  struct proc *p;
-  
-  for(p = proc; p < &proc[NPROC]; p++) {
-    char *ka = kalloc();
-    if(ka == 0)
-      panic("kalloc");
-    uint64 va = KSTACK((int) (p - proc));
-    kvmmap(kpgtbl, va, (uint64)V2P(ka), PGSIZE, PTE_NORMAL);
-  }
-}
-
 // initialize the proc table at boot time.
 void
 procinit(void)
 {
-  struct proc *p;
-
-  // map kernel stacks
-  proc_mapstacks(kernel_pagetable);
-  
+  initlock(&proc_table_lock, "proc_table");
+  initlock(&kernel_stack_lock, "kernel_stack");
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   initlock(&rq_counter_lock, "rq_counter");
-  for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      p->kstack = KSTACK((int) (p - proc));
-  }
+  proc_head = 0;
+  next_kstack_slot = 0;
 }
 
 // Return this CPU's cpu struct.
@@ -325,27 +307,117 @@ allocpid() {
   return pid;
 }
 
-// Look in the process table for an UNUSED proc.
-// If found, initialize state required to run in the kernel,
-// and return with p->lock held.
-// If there are no free procs, or a memory allocation fails, return 0.
+// Allocate and publish one permanent process-table node.  The descriptor is
+// retained when UNUSED so lockless readers of the grow-only list can never
+// hold a dangling pointer; its physical kernel-stack page is reclaimed.
+// Caller holds proc_table_lock.
+static int
+alloc_kstack(struct proc *p)
+{
+  void *stack = kalloc();
+  if(stack == 0)
+    return -1;
+
+  acquire(&kernel_stack_lock);
+  if(mappages(kernel_pagetable, p->kstack, PGSIZE, V2P(stack),
+              PTE_NORMAL | PTE_XN) < 0){
+    release(&kernel_stack_lock);
+    kfree(stack);
+    return -1;
+  }
+  flush_tlb();
+  release(&kernel_stack_lock);
+  p->kstack_pa = V2P(stack);
+  return 0;
+}
+
+static void
+free_kstack(struct proc *p)
+{
+  pte_t *pte;
+  uint64 pa;
+
+  if(p->kstack_pa == 0)
+    return;
+  acquire(&kernel_stack_lock);
+  pte = walk(kernel_pagetable, p->kstack, 0);
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    panic("free_kstack");
+  pa = PTE2PA(*pte);
+  *pte = 0;
+  // The exiting task has already switched to its reaper's kernel stack.
+  // Invalidate every CPU before the physical page can be reused.
+  flush_tlb();
+  release(&kernel_stack_lock);
+  p->kstack_pa = 0;
+  kfree(P2V(pa));
+}
+
+static struct proc*
+newprocslot(void)
+{
+  struct proc *p = kalloc();
+  uint64 slot, va;
+
+  if(p == 0)
+    return 0;
+  if(sizeof(*p) > PGSIZE)
+    panic("struct proc too large");
+  memset(p, 0, PGSIZE);
+  initlock(&p->lock, "proc");
+
+  slot = next_kstack_slot++;
+  va = KSTACK(slot);
+  // Keep dynamically growing stacks in the high sparse KSTACK region and
+  // never let an arithmetic wrap collide with the kernel direct map.
+  if(va < KERNBASE + (1ULL << 37)){
+    kfree(p);
+    return 0;
+  }
+  p->kstack = va;
+  p->kstack_slot = slot;
+  if(alloc_kstack(p) < 0){
+    kfree(p);
+    return 0;
+  }
+
+  p->next = proc_head;
+  __sync_synchronize();
+  proc_head = p;
+  return p;
+}
+
+// Find an UNUSED dynamic slot or grow the process table.  Returns with
+// p->lock held.  The only fixed limit is the memory/virtual mapping capacity.
 static struct proc*
 allocproc(void)
 {
   struct proc *p;
   char *sp;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
+  acquire(&proc_table_lock);
+  for(p = proc_head; p; p = p->next) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
+      if(p->kstack_pa == 0 && alloc_kstack(p) < 0){
+        release(&p->lock);
+        release(&proc_table_lock);
+        return 0;
+      }
       goto found;
     } else {
       release(&p->lock);
     }
   }
-  return 0;
+  p = newprocslot();
+  if(p == 0){
+    release(&proc_table_lock);
+    return 0;
+  }
+  acquire(&p->lock);
 
 found:
+  release(&proc_table_lock);
   p->pid = allocpid();
   p->tgid = p->pid;
   p->is_thread = 0;
@@ -434,6 +506,7 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->kthread_fn = 0;
   p->kthread_arg = 0;
+  free_kstack(p);
   p->state = UNUSED;
 }
 
@@ -716,7 +789,7 @@ threadjoin(int tid, uint64 status_addr)
   acquire(&wait_lock);
   for(;;){
     found = 0;
-    for(t = proc; t < &proc[NPROC]; t++){
+    for(t = proc_head; t; t = t->next){
       if(t == p)
         continue;
       acquire(&t->lock);
@@ -755,7 +828,7 @@ reparent(struct proc *p)
 {
   struct proc *pp;
 
-  for(pp = proc; pp < &proc[NPROC]; pp++){
+  for(pp = proc_head; pp; pp = pp->next){
     if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
@@ -781,7 +854,7 @@ exit(int status)
   // proc slots before publishing the leader as a zombie. Killed sleepers are
   // made runnable so they can observe p->killed at the kernel/user boundary.
   acquire(&wait_lock);
-  for(struct proc *t = proc; t < &proc[NPROC]; t++){
+  for(struct proc *t = proc_head; t; t = t->next){
     if(t == p)
       continue;
     acquire(&t->lock);
@@ -795,7 +868,7 @@ exit(int status)
   }
   for(;;){
     int live = 0;
-    for(struct proc *t = proc; t < &proc[NPROC]; t++){
+    for(struct proc *t = proc_head; t; t = t->next){
       if(t == p)
         continue;
       acquire(&t->lock);
@@ -863,7 +936,7 @@ wait(uint64 addr)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(np = proc; np < &proc[NPROC]; np++){
+    for(np = proc_head; np; np = np->next){
       if(np->parent == p && !np->is_thread){
         // make sure the child isn't still in exit() or swtch().
         acquire(&np->lock);
@@ -914,7 +987,7 @@ pick_next(struct cpu *c, int id)
   int best_prio = 0;
   uint64 best_seq = 0;
 
-  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+  for(struct proc *p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state == RUNNABLE && (p->cpumask & (1U << id))){
       int prio = effective_prio(p, c);
@@ -1095,7 +1168,7 @@ wakeup(void *chan)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
+  for(p = proc_head; p; p = p->next) {
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
@@ -1115,7 +1188,7 @@ kill(int pid)
   struct proc *p;
   int found = 0;
 
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc_head; p; p = p->next){
     acquire(&p->lock);
     // kill() addresses the process ID/TGID.  All execution contexts sharing
     // that process are marked, matching the process-wide signal semantics.
@@ -1139,7 +1212,7 @@ signal_pgrp(int pgid, int sig)
 
   if(pgid <= 0 || sig <= 0 || sig > 32)
     return;
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state != UNUSED && p->pgid == pgid && p->ctty == TTYS0){
       p->signals_pending |= 1U << (sig - 1);
@@ -1166,7 +1239,7 @@ lock_proc_by_pid(int pid)
     acquire(&p->lock);
     return p;
   }
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state != UNUSED && p->pid == pid)
       return p;
@@ -1312,7 +1385,7 @@ procdump(void)
   char *state;
 
   printf("\n");
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc_head; p; p = p->next){
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -1376,7 +1449,7 @@ proclist(char *buf, int size)
 
   q = procputstr(q, end,
                  "  TID  TGID CPU POLICY PRI  NI MASK     TIME STATE    NAME\n");
-  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+  for(struct proc *p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state != UNUSED){
       char mask[3] = { hex[(p->cpumask >> 4) & 0xf], hex[p->cpumask & 0xf], 0 };
@@ -1417,7 +1490,7 @@ procvmdump(int pid)
   kvmdump();
   printf("\n=== occupied TTBR0 page-table entries ===\n");
   printf("VA[38:30]=L1 VA[29:21]=L2 VA[20:12]=L3 VA[11:0]=offset\n");
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state != UNUSED && p->vm != 0 && p->vm->pagetable != 0 &&
        (pid == 0 || p->pid == pid)){

@@ -68,3 +68,7 @@
 #define SYS_texit        67
 #define SYS_tjoin        68
 #define SYS_gettid       69
+#define SYS_socket       70
+#define SYS_bind         71
+#define SYS_listen       72
+#define SYS_lseek        73

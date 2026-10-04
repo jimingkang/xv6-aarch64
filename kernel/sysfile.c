@@ -19,6 +19,13 @@
 #include "ext2.h"
 #include "epoll.h"
 #include "vfs.h"
+#include "socket.h"
+
+static uint16
+net16(uint16 value)
+{
+  return (value << 8) | (value >> 8);
+}
 
 uint64
 sys_mount(void)
@@ -112,6 +119,107 @@ fdalloc(struct file *f)
   return -1;
 }
 
+// Create a POSIX-shaped TCP socket.  bind() records the port and listen()
+// creates the network-stack listener, so socket descriptors participate in
+// the same struct file/read/write/close/epoll machinery as other descriptors.
+uint64
+sys_socket(void)
+{
+  int domain, type, protocol, fd;
+  struct file *f;
+
+  if(argint(0, &domain) < 0 || argint(1, &type) < 0 ||
+     argint(2, &protocol) < 0 || domain != AF_INET || type != SOCK_STREAM ||
+     (protocol != 0 && protocol != IPPROTO_TCP))
+    return -1;
+  if((f = filealloc()) == 0)
+    return -1;
+  f->type = FD_SOCKET;
+  f->readable = 1;
+  f->writable = 1;
+  f->socket = -1;
+  if((fd = fdalloc(f)) < 0){
+    fileclose(f);
+    return -1;
+  }
+  return fd;
+}
+
+uint64
+sys_bind(void)
+{
+  struct file *f;
+  struct sockaddr_in address;
+  uint64 user_address;
+  int length;
+
+  if(argfd(0, 0, &f) < 0 || f->type != FD_SOCKET || f->socket >= 0 ||
+     argaddr(1, &user_address) < 0 || argint(2, &length) < 0 ||
+     length < sizeof(address) ||
+     copyin(myproc()->vm->pagetable, (char *)&address, user_address,
+            sizeof(address)) < 0 || address.sin_family != AF_INET)
+    return -1;
+  f->socket_port = net16(address.sin_port);
+  if(f->socket_port <= 0 || f->socket_port > 65535)
+    return -1;
+  return 0;
+}
+
+uint64
+sys_listen(void)
+{
+  struct file *f;
+  int backlog, handle;
+
+  if(argfd(0, 0, &f) < 0 || f->type != FD_SOCKET || f->socket >= 0 ||
+     f->socket_port == 0 || argint(1, &backlog) < 0 || backlog <= 0)
+    return -1;
+  if((handle = net_tcp_listen(f->socket_port, backlog)) < 0)
+    return -1;
+  f->socket = handle;
+  f->socket_backlog = backlog;
+  return 0;
+}
+
+uint64
+sys_lseek(void)
+{
+  struct file *f;
+  uint64 raw_offset;
+  int whence;
+  long offset, base, result;
+  struct stat st;
+
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &raw_offset) < 0 ||
+     argint(2, &whence) < 0)
+    return -1;
+  offset = (long)raw_offset;
+  if(f->type != FD_INODE && f->type != FD_VNODE)
+    return -1;
+  if(whence == 0){
+    base = 0;
+  } else if(whence == 1){
+    base = f->off;
+  } else if(whence == 2){
+    if(f->type == FD_INODE){
+      ilock(f->ip);
+      base = f->ip->size;
+      iunlock(f->ip);
+    } else {
+      if(vfsstat(f->vn, &st) < 0)
+        return -1;
+      base = st.size;
+    }
+  } else {
+    return -1;
+  }
+  result = base + offset;
+  if(result < 0 || (uint64)result > 0xffffffffULL)
+    return -1;
+  f->off = result;
+  return result;
+}
+
 uint64
 sys_socket_listen(void)
 {
@@ -140,7 +248,8 @@ sys_socket_accept(void)
 {
   struct file *listener, *child;
   int child_handle, child_fd;
-  if(argfd(0, 0, &listener) < 0 || listener->type != FD_SOCKET)
+  if(argfd(0, 0, &listener) < 0 || listener->type != FD_SOCKET ||
+     listener->socket < 0)
     return -1;
   if((child_handle = net_tcp_accept(listener->socket,
           (listener->flags & O_NONBLOCK) != 0)) < 0)

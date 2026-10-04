@@ -136,6 +136,9 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
+  uint64 kstack_pa;            // Physical backing page, allocated on demand
+  uint64 kstack_slot;          // Stable dynamic KSTACK() virtual slot
+  struct proc *next;           // Immutable growable process-table link
   struct vmspace *vm;          // Shared user address space
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
@@ -146,4 +149,4 @@ struct proc {
   char name[16];               // Process name (debugging)
 };
 
-extern struct proc proc[NPROC];
+extern struct proc *proc_head;

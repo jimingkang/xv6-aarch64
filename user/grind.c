@@ -345,6 +345,6 @@ main()
     if(pid > 0){
       wait(0);
     }
-    sleep(20);
+    sleep_ticks(20);
   }
 }

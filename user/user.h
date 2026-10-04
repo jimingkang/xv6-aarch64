@@ -35,7 +35,9 @@ typedef struct thread {
 int thread_create(thread_t*, void (*)(void*), void*);
 int thread_join(thread_t*, int*);
 char* sbrk(int);
-int sleep(int);
+int sleep_ticks(int);
+unsigned int sleep(unsigned int);
+int usleep(unsigned int);
 int uptime(void);
 int ps(void*, int);
 int ext2read(const char*, void*, int, uint64);
@@ -82,6 +84,10 @@ int sched_setaffinity(int pid, uint mask);
 int sched_yield(void);
 uint64 clock_us(void);
 int getcpu(void);
+int socket(int, int, int);
+int bind(int, const void*, int);
+int listen(int, int);
+long lseek(int, long, int);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -93,8 +99,8 @@ uint strnlen(const char*, uint);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
-void fprintf(int, const char*, ...);
-void printf(const char*, ...);
+int fprintf(int, const char*, ...);
+int printf(const char*, ...);
 char* gets(char*, int max);
 uint strlen(const char*);
 void* memset(void*, int, uint);

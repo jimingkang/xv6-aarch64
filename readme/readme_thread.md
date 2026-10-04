@@ -1,6 +1,8 @@
 # xv6-aarch64 用户线程实现
 
-当前版本在原有“一个 `struct proc` 对应一个独立地址空间”的基础上加入了真正可调度的用户线程。线程仍各占一个 `struct proc` 槽位，因此每个线程都有独立内核栈、异常现场、调度状态、TID 和 CPU 亲和性；同一线程组通过引用计数 `struct vmspace` 共用 TTBR0 页表和进程地址空间大小。
+当前版本在原有“一个 `struct proc` 对应一个独立地址空间”的基础上加入了真正可调度的用户线程。线程仍各有一个独立的 `struct proc`，因此每个线程都有独立内核栈、异常现场、调度状态、TID 和 CPU 亲和性；同一线程组通过引用计数 `struct vmspace` 共用 TTBR0 页表和进程地址空间大小。
+
+进程表已经不再是静态的 `proc[64]`，内核也不再在启动时为 64 个槽位预分配内核栈。用户进程、用户线程和内核线程均按需扩展动态进程表，并在创建、回收时分配和释放内核栈物理页。因此这里的“无数量限制”是指没有 `NPROC` 这种编译期固定上限；实际可创建数量仍受可用物理内存和内核虚拟地址空间限制。
 
 ## 对象关系
 
@@ -15,6 +17,45 @@ flowchart LR
 ```
 
 `switchuvm()` 从当前线程的 `p->vm->pagetable` 写入 `TTBR0_EL1`。因为同组线程指向同一个 `vmspace`，它们能直接看到相同的代码、全局变量、堆和各线程栈；但各自的内核栈和 `trapframe` 不共享，所以能在多个 Cortex-A53 核上并行运行。
+
+## 动态进程表与内核栈
+
+旧实现的资源关系为：
+
+```text
+proc[64]
+  ├─ 固定 64 个 struct proc
+  └─ procinit() 启动时一次分配并映射 64 个内核栈页
+```
+
+新实现改为：
+
+```mermaid
+flowchart TD
+    A[allocproc / kthread_create / clone / fork] --> B{proc_head 中有 UNUSED 节点?}
+    B -- 有 --> C[为该节点按需 kalloc 内核栈页]
+    B -- 无 --> D[kalloc 新 struct proc 节点]
+    D --> E[分配稳定的 KSTACK slot]
+    E --> C
+    C --> F[映射到全局 TTBR1 内核页表\nPTE_NORMAL + PTE_XN]
+    F --> G[留下一个未映射 guard page]
+    G --> H[作为用户进程、用户线程或内核线程运行]
+    H --> I[wait / tjoin 回收]
+    I --> J[清除内核栈 PTE]
+    J --> K[广播 TLB 失效]
+    K --> L[kfree 内核栈物理页]
+```
+
+关键实现细节：
+
+- `proc_head` 是只增长的动态链表，替代 `proc[NPROC]`；调度器、`wait()`、`wakeup()`、`kill()`、`/proc` 和 TTY 查找都遍历该链表。
+- 新节点按高水位创建，并分配一个永不变化的 `kstack_slot`。节点成为 `UNUSED` 后可以再次复用。
+- 每个内核栈仍是一页，虚拟地址由 `KSTACK(slot)` 得到；相邻栈之间保留一页未映射 guard page，用来捕获栈越界。
+- 栈映射位于所有任务共享的 TTBR1 内核页表，标记为不可执行 `PTE_XN`。
+- `freeproc()` 清除栈 PTE 后先执行跨核 TLB 广播失效，再归还物理页，防止其他 CPU 使用陈旧 TLB 访问已经复用的页面。
+- `struct proc` 描述节点本身在达到新的并发高水位时分配，并故意保留在链表中。这样无需在所有无锁遍历者之间引入 RCU，就不会产生悬空 `next` 指针；占内存最多的是历史并发高水位，而不是无限持续增长。
+
+动态内核线程和用户线程使用同一套 `allocproc()`/`freeproc()` 生命周期。两者的区别只在地址空间和入口：用户线程共享 `vmspace` 并从 EL0 入口运行，内核线程只设置内核入口函数；它们都拥有独立、按需分配的内核栈。
 
 ## 系统调用
 
@@ -81,12 +122,14 @@ make -j4 fs.img kernel/kernel8-xv6_wifi.img
 启动后执行：
 
 ```sh
+/bin/forktest
 /bin/threadtest
 ```
 
-测试创建两个线程，用内核同步对象保护共享计数器，并允许调度到不同 CPU。成功结果为：
+`forktest` 同时建立并回收 128 个子进程，明确越过旧的 64 槽位上限；`threadtest` 创建两个线程，用内核同步对象保护共享计数器，并允许调度到不同 CPU。成功结果为：
 
 ```text
+dynamic fork test OK
 threadtest: PASS counter=2000 tgid=...
 ```
 

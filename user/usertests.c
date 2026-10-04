@@ -499,7 +499,7 @@ openiputtest(char *s)
     }
     exit(0);
   }
-  sleep(1);
+  sleep_ticks(1);
   if(unlink("oidir") != 0){
     printf("%s: unlink failed\n", s);
     exit(1);
@@ -801,7 +801,7 @@ killstatus(char *s)
       }
       exit(0);
     }
-    sleep(1);
+    sleep_ticks(1);
     kill(pid1);
     wait(&xst);
     if(xst != -1) {
@@ -1015,10 +1015,10 @@ forkforkfork(char *s)
     exit(0);
   }
 
-  sleep(20); // two seconds
+  sleep_ticks(20); // two seconds
   close(open("stopforking", O_CREATE|O_RDWR));
   wait(0);
-  sleep(10); // one second
+  sleep_ticks(10); // one second
 }
 
 // regression test. does reparent() violate the parent-then-child
@@ -2278,7 +2278,7 @@ sbrkfail(char *s)
       sbrk(BIG - (uint64)sbrk(0));
       write(fds[1], "x", 1);
       // sit around until killed
-      for(;;) sleep(1000);
+      for(;;) sleep_ticks(1000);
     }
     if(pids[i] != -1)
       read(fds[0], &scratch, 1);

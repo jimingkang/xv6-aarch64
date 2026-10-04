@@ -207,7 +207,7 @@ state_name(enum procstate state)
 static struct proc*
 findpid(int pid)
 {
-  for(struct proc *p = proc; p < proc + NPROC; p++){
+  for(struct proc *p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->state != UNUSED && p->pid == pid)
       return p;
@@ -459,7 +459,7 @@ proc_vreaddir(char *path, int index, void *arg)
       return 1;
     }
     int seen = 0;
-    for(p = proc; p < proc + NPROC; p++){
+    for(p = proc_head; p; p = p->next){
       acquire(&p->lock);
       if(p->state != UNUSED && seen++ == index - 3){
         pid = p->pid;

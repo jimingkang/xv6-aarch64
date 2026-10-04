@@ -110,9 +110,9 @@ main(int argc, char *argv[])
   // Waker: never on the measured CPU.
   close(fds[0]);
   sched_setaffinity(0, ((1U << NCPU) - 1) & ~(1U << cpu));
-  sleep(2);                         // let the hogs and reader settle
+  sleep_ticks(2);                   // let the hogs and reader settle
   for(int s = 0; s < samples; s++){
-    sleep(1);                       // one xv6 tick, 100 ms
+    sleep_ticks(1);                 // one xv6 tick, 100 ms
     uint64 now = clock_us();
     write(fds[1], &now, sizeof(now));
   }

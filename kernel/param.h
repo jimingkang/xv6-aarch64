@@ -1,4 +1,5 @@
-#define NPROC        64  // maximum number of processes
+// Process descriptors and kernel stacks are allocated on demand; there is no
+// fixed NPROC table.  Available physical memory is the practical limit.
 #define NCPU          4  // maximum number of CPUs
 #define NOFILE       16  // open files per process
 #define NFILE       100  // open files per system

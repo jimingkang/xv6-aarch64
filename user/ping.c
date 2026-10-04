@@ -93,7 +93,7 @@ resolve(const char *name, uint32 *ip)
     udp_unbind(DNS_PORT);
     return -1;
   }
-  sleep(5);
+  sleep_ticks(5);
   if(udp_send(QEMU_DNS, DNS_PORT, 53, query, q) < 0){
     udp_unbind(DNS_PORT);
     return -1;
@@ -168,7 +168,7 @@ main(int argc, char **argv)
     print_ip(src);
     printf(": icmp_seq=%d time=%d ms\n", rseq, (after - before) * 100);
     if(seq != 4)
-      sleep(10);
+      sleep_ticks(10);
   }
   exit(0);
 }

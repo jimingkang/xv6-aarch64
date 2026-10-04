@@ -159,7 +159,6 @@ int             fork(void);
 int             threadclone(uint64, uint64, uint64);
 int             threadjoin(int, uint64);
 int             growproc(int);
-void            proc_mapstacks(pagetable_t);
 int             kill(int);
 void            signal_pgrp(int, int);
 int             kthread_create(void (*)(void*), void*, char*);

@@ -89,7 +89,7 @@ main(void)
       exit(1);
     }
     printf("Login incorrect\n");
-    sleep(20);
+    sleep_ticks(20);
   }
   exit(1);
 }

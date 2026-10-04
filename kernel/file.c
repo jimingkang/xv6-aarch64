@@ -88,7 +88,8 @@ fileclose(struct file *f)
   } else if(ff.type == FD_VNODE){
     vfsclose(ff.vn);
   } else if(ff.type == FD_SOCKET){
-    net_tcp_close(ff.socket);
+    if(ff.socket >= 0)
+      net_tcp_close(ff.socket);
   } else if(ff.type == FD_EPOLL){
     epollclose(ff.epoll);
   } else if(ff.type == FD_PTY){

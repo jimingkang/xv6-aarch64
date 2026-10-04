@@ -8,9 +8,10 @@ print "#include \"kernel/syscall.h\"\n";
 
 sub entry {
     my $name = shift;
+    my $sysname = shift // $name;
     print ".global $name\n";
     print "${name}:\n";
-    print " mov x7, #SYS_${name}\n";
+    print " mov x7, #SYS_${sysname}\n";
     print " svc #0\n";
     print " ret\n";
 }
@@ -34,7 +35,7 @@ entry("chdir");
 entry("dup");
 entry("getpid");
 entry("sbrk");
-entry("sleep");
+entry("sleep_ticks", "sleep");
 entry("uptime");
 entry("ps");
 entry("ext2read");
@@ -84,3 +85,7 @@ entry("clone");
 entry("texit");
 entry("tjoin");
 entry("gettid");
+entry("socket");
+entry("bind");
+entry("listen");
+entry("lseek");

@@ -152,6 +152,10 @@ extern uint64 sys_clone(void);
 extern uint64 sys_texit(void);
 extern uint64 sys_tjoin(void);
 extern uint64 sys_gettid(void);
+extern uint64 sys_socket(void);
+extern uint64 sys_bind(void);
+extern uint64 sys_listen(void);
+extern uint64 sys_lseek(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -223,6 +227,10 @@ static uint64 (*syscalls[])(void) = {
 [SYS_sched_yield]  sys_sched_yield,
 [SYS_clock_us]     sys_clock_us,
 [SYS_getcpu]       sys_getcpu,
+[SYS_socket]       sys_socket,
+[SYS_bind]         sys_bind,
+[SYS_listen]       sys_listen,
+[SYS_lseek]        sys_lseek,
 };
 
 void

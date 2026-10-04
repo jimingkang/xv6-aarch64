@@ -63,7 +63,7 @@ ttysetforeground(int pid)
     release(&ttyfg_lock);
     return 0;
   }
-  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+  for(struct proc *p = proc_head; p; p = p->next){
     acquire(&p->lock);
     if(p->pid == pid && p->state != UNUSED &&
        p->sid == caller->sid && p->ctty == TTYS0){

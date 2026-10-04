@@ -99,6 +99,7 @@ CFLAGS += -Wno-error=incompatible-pointer-types
 CFLAGS += -MD
 CFLAGS += -ffreestanding -fno-common -nostdlib
 CFLAGS += -I.
+CFLAGS += -Iinclude
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
@@ -243,7 +244,7 @@ tags: $(OBJS) _init
 	etags *.S *.c
 
 LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
-	$U/tweetnacl.o $U/ssh_crypto.o
+	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o
 ULIB = $U/libc.a
 
 $U/libc.a: $(LIBC_OBJS)
@@ -261,8 +262,7 @@ $U/usys.o : $U/usys.S
 	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
 
 $U/_forktest: $U/forktest.o $(ULIB)
-	# forktest has less library code linked in - needs to be small
-	# in order to be able to max out the proc table.
+	# Keep forktest small while it exercises dynamic process-table growth.
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $(ULIB)
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
@@ -321,6 +321,7 @@ UPROGS=\
 	$U/_rtlat\
 	$U/_spin\
 	$U/_threadtest\
+	$U/_posixtest\
 
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)

@@ -16,6 +16,8 @@ struct file {
   short major;       // FD_DEVICE
   void *private_data; // FD_DEVICE: driver state from file_operations.open
   int socket;        // FD_SOCKET: TCP connection handle
+  int socket_port;   // bound local TCP port before listen()
+  int socket_backlog;
   struct epoll *epoll; // FD_EPOLL
   struct pty *pty;     // FD_PTY
   char pty_master;     // FD_PTY: master endpoint when non-zero
