@@ -80,3 +80,7 @@ entry("sched_setaffinity");
 entry("sched_yield");
 entry("clock_us");
 entry("getcpu");
+entry("clone");
+entry("texit");
+entry("tjoin");
+entry("gettid");

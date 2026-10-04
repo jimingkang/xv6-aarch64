@@ -93,6 +93,17 @@ enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 #define SIGINT 2
 
+// Reference-counted user address space shared by all user threads in a
+// thread group.  The lock serializes page-table changes and protects sz and
+// refcount.
+struct vmspace {
+  struct spinlock lock;
+  int refcount;
+  int execing;
+  pagetable_t pagetable;
+  uint64 sz;
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -102,7 +113,9 @@ struct proc {
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
-  int pid;                     // Process ID
+  int pid;                     // Thread ID (also PID for a process leader)
+  int tgid;                    // Thread-group/process ID
+  int is_thread;               // Shares vmspace with another proc slot
   int sid;                     // Session ID
   int pgid;                    // Process group ID
   int ctty;                    // Controlling TTY major, or -1
@@ -123,8 +136,7 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // User page table
+  struct vmspace *vm;          // Shared user address space
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
   void (*kthread_fn)(void*);   // kernel-thread entry, or zero for user process

@@ -1267,7 +1267,7 @@ net_tcp_read(int handle, uint64 uaddr, int maxlen, int nonblock)
     return 0;
   }
   n = c->rxlen < maxlen ? c->rxlen : maxlen;
-  if(copyout(myproc()->pagetable, uaddr, (char*)c->rx, n) < 0){
+  if(copyout(myproc()->vm->pagetable, uaddr, (char*)c->rx, n) < 0){
     release(&c->lock);
     return -1;
   }
@@ -1311,7 +1311,7 @@ net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
     int room = TCP_TXQ_SIZE - c->txq_len;
     if(n > room)
       n = room;
-    if(copyin(myproc()->pagetable, (char*)c->txq + c->txq_len,
+    if(copyin(myproc()->vm->pagetable, (char*)c->txq + c->txq_len,
               uaddr + done, n) < 0){
       release(&c->lock);
       return done ? done : -1;
@@ -1660,7 +1660,7 @@ net_icmp_send(uint32 dst, int id, int seq, uint64 uaddr, int len)
   icmp->type = ICMP_ECHO_REQUEST;
   icmp->id = swap16(id);
   icmp->seq = swap16(seq);
-  if(copyin(myproc()->pagetable, (char*)(icmp + 1), uaddr, len) < 0){
+  if(copyin(myproc()->vm->pagetable, (char*)(icmp + 1), uaddr, len) < 0){
     kfree(packet);
     return -1;
   }
@@ -1715,11 +1715,11 @@ net_icmp_recv(int id, uint64 srcaddr, uint64 seqaddr, uint64 uaddr, int maxlen)
   n = pingq.len < maxlen ? pingq.len : maxlen;
   pingq.ready = 0;
   pingq.owner = 0;
-  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&src,
+  if((srcaddr && copyout(myproc()->vm->pagetable, srcaddr, (char*)&src,
                          sizeof(src)) < 0) ||
-     (seqaddr && copyout(myproc()->pagetable, seqaddr, (char*)&seq,
+     (seqaddr && copyout(myproc()->vm->pagetable, seqaddr, (char*)&seq,
                          sizeof(seq)) < 0) ||
-     copyout(myproc()->pagetable, uaddr, (char*)pingq.data, n) < 0){
+     copyout(myproc()->vm->pagetable, uaddr, (char*)pingq.data, n) < 0){
     release(&pingq.lock);
     return -1;
   }
@@ -1782,7 +1782,7 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   udp->dport = swap16(dport);
   udp->len = swap16(sizeof(*udp) + len);
   udp->sum = 0; // IPv4 permits a zero UDP checksum.
-  if(copyin(myproc()->pagetable, (char*)(udp + 1), uaddr, len) < 0){
+  if(copyin(myproc()->vm->pagetable, (char*)(udp + 1), uaddr, len) < 0){
     kfree(packet);
     return -1;
   }
@@ -1835,11 +1835,11 @@ net_udp_recv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr, int maxle
   release(&p->lock);
 
   n = d->len < maxlen ? d->len : maxlen;
-  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&d->src,
+  if((srcaddr && copyout(myproc()->vm->pagetable, srcaddr, (char*)&d->src,
                          sizeof(d->src)) < 0) ||
-     (sportaddr && copyout(myproc()->pagetable, sportaddr, (char*)&d->sport,
+     (sportaddr && copyout(myproc()->vm->pagetable, sportaddr, (char*)&d->sport,
                            sizeof(d->sport)) < 0) ||
-     copyout(myproc()->pagetable, uaddr, (char*)d->data, n) < 0){
+     copyout(myproc()->vm->pagetable, uaddr, (char*)d->data, n) < 0){
     kfree(d);
     return -1;
   }
@@ -1871,11 +1871,11 @@ net_udp_tryrecv(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
   release(&p->lock);
 
   n = d->len < maxlen ? d->len : maxlen;
-  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&d->src,
+  if((srcaddr && copyout(myproc()->vm->pagetable, srcaddr, (char*)&d->src,
                          sizeof(d->src)) < 0) ||
-     (sportaddr && copyout(myproc()->pagetable, sportaddr, (char*)&d->sport,
+     (sportaddr && copyout(myproc()->vm->pagetable, sportaddr, (char*)&d->sport,
                            sizeof(d->sport)) < 0) ||
-     copyout(myproc()->pagetable, uaddr, (char*)d->data, n) < 0){
+     copyout(myproc()->vm->pagetable, uaddr, (char*)d->data, n) < 0){
     kfree(d);
     return -1;
   }
@@ -1931,11 +1931,11 @@ net_udp_recv_timeout(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
   release(&p->lock);
 
   n = d->len < maxlen ? d->len : maxlen;
-  if((srcaddr && copyout(myproc()->pagetable, srcaddr, (char*)&d->src,
+  if((srcaddr && copyout(myproc()->vm->pagetable, srcaddr, (char*)&d->src,
                          sizeof(d->src)) < 0) ||
-     (sportaddr && copyout(myproc()->pagetable, sportaddr, (char*)&d->sport,
+     (sportaddr && copyout(myproc()->vm->pagetable, sportaddr, (char*)&d->sport,
                            sizeof(d->sport)) < 0) ||
-     copyout(myproc()->pagetable, uaddr, (char*)d->data, n) < 0){
+     copyout(myproc()->vm->pagetable, uaddr, (char*)d->data, n) < 0){
     kfree(d);
     return -1;
   }

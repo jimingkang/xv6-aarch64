@@ -20,11 +20,26 @@ exec(char *path, char **argv)
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
+  struct vmspace *vm = p->vm;
+
+  // Replacing a shared address space underneath another thread is unsafe.
+  // This first implementation requires callers to join all other threads
+  // before exec. execing closes the race with a concurrent clone().
+  acquire(&vm->lock);
+  if(vm->refcount != 1 || vm->execing){
+    release(&vm->lock);
+    return -1;
+  }
+  vm->execing = 1;
+  release(&vm->lock);
 
   begin_op();
 
   if((ip = namei(path)) == 0){
     end_op();
+    acquire(&vm->lock);
+    vm->execing = 0;
+    release(&vm->lock);
     return -1;
   }
   ilock(ip);
@@ -65,7 +80,7 @@ exec(char *path, char **argv)
   ip = 0;
 
   p = myproc();
-  uint64 oldsz = p->sz;
+  uint64 oldsz;
 
   // Allocate one inaccessible guard page followed by a multi-page user
   // stack.  One 4 KiB page was enough for the original tiny xv6 commands,
@@ -115,9 +130,13 @@ exec(char *path, char **argv)
   safestrcpy(p->name, last, sizeof(p->name));
     
   // Commit to the user image.
-  oldpagetable = p->pagetable;
-  p->pagetable = pagetable;
-  p->sz = sz;
+  acquire(&vm->lock);
+  oldpagetable = vm->pagetable;
+  oldsz = vm->sz;
+  vm->pagetable = pagetable;
+  vm->sz = sz;
+  vm->execing = 0;
+  release(&vm->lock);
   p->trapframe->elr = elf.entry;  // initial program counter = main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
@@ -126,12 +145,15 @@ exec(char *path, char **argv)
   //        path, elf.entry, sz, sp);
   uvmsync_icache(pagetable, sz);
   switchuvm(p);
-  // uvmdump(p->pagetable, p->pid, p->name, "exec-image");
+  // uvmdump(p->vm->pagetable, p->pid, p->name, "exec-image");
   uvmfree(oldpagetable, oldsz);
 
   return argc; // this ends up in x0, the first argument to main(argc, argv)
 
  bad:
+  acquire(&vm->lock);
+  vm->execing = 0;
+  release(&vm->lock);
   if(pagetable)
     uvmfree(pagetable, sz);
   if(ip){

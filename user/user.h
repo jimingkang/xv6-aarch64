@@ -22,6 +22,18 @@ int mkdir(const char*);
 int chdir(const char*);
 int dup(int);
 int getpid(void);
+int gettid(void);
+int clone(void (*)(void*), void*, void*);
+int texit(int) __attribute__((noreturn));
+int tjoin(int, int*);
+
+#define THREAD_STACK_SIZE (4 * 4096)
+typedef struct thread {
+  int tid;
+  void *stack;
+} thread_t;
+int thread_create(thread_t*, void (*)(void*), void*);
+int thread_join(thread_t*, int*);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);

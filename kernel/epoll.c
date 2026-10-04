@@ -307,7 +307,7 @@ epollwait(struct epoll *ep, uint64 address, int maxevents, int timeout_ms)
       release(&ep->lock);
     }
     if(n){
-      if(copyout(myproc()->pagetable, address, (char*)ready,
+      if(copyout(myproc()->vm->pagetable, address, (char*)ready,
                  n * sizeof(ready[0])) < 0)
         return -1;
       return n;

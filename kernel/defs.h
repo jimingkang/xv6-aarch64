@@ -156,6 +156,8 @@ void            printfinit(void);
 // proc.c
 void            exit(int);
 int             fork(void);
+int             threadclone(uint64, uint64, uint64);
+int             threadjoin(int, uint64);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 int             kill(int);
@@ -306,6 +308,8 @@ void            uartputc_sync(int);
 int             uartgetc(void);
 
 // vm.c
+uint64          walkaddr(pagetable_t, uint64);
+pte_t*          walk(pagetable_t, uint64, int);
 void            kvminit(void);
 void            kvminithart(void);
 void            kvmdump(void);

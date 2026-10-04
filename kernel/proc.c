@@ -21,6 +21,8 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
+static void threadexit(int status) __attribute__((noreturn));
+static void reparent(struct proc *p);
 
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
@@ -29,6 +31,49 @@ static void freeproc(struct proc *p);
 struct spinlock wait_lock;
 
 extern pagetable_t kernel_pagetable;
+
+static struct vmspace*
+vmspace_alloc(void)
+{
+  struct vmspace *vm = kalloc();
+  if(vm == 0)
+    return 0;
+  memset(vm, 0, sizeof(*vm));
+  initlock(&vm->lock, "vmspace");
+  vm->pagetable = uvmcreate();
+  if(vm->pagetable == 0){
+    kfree(vm);
+    return 0;
+  }
+  vm->refcount = 1;
+  return vm;
+}
+
+static void
+vmspace_put(struct vmspace *vm)
+{
+  int last;
+  pagetable_t pagetable = 0;
+  uint64 sz = 0;
+
+  if(vm == 0)
+    return;
+  acquire(&vm->lock);
+  if(vm->refcount < 1)
+    panic("vmspace_put");
+  last = --vm->refcount == 0;
+  if(last){
+    pagetable = vm->pagetable;
+    sz = vm->sz;
+    vm->pagetable = 0;
+    vm->sz = 0;
+  }
+  release(&vm->lock);
+  if(last){
+    uvmfree(pagetable, sz);
+    kfree(vm);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Priority scheduler with CPU affinity.
@@ -302,6 +347,8 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  p->tgid = p->pid;
+  p->is_thread = 0;
   p->sid = p->pid;
   p->pgid = p->pid;
   p->ctty = -1;
@@ -315,9 +362,10 @@ found:
   sp -= sizeof(*p->trapframe);
   p->trapframe = (struct trapframe*)sp;
 
-  // An empty user page table.
-  p->pagetable = uvmcreate();
-  if(p->pagetable == 0){
+  // An empty user address space. clone() replaces this reference with its
+  // caller's vmspace; fork() keeps it and copies pages into it.
+  p->vm = vmspace_alloc();
+  if(p->vm == 0){
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -370,11 +418,11 @@ static void
 freeproc(struct proc *p)
 {
   p->trapframe = 0;
-  if(p->pagetable)
-    uvmfree(p->pagetable, p->sz);
-  p->pagetable = 0;
-  p->sz = 0;
+  vmspace_put(p->vm);
+  p->vm = 0;
   p->pid = 0;
+  p->tgid = 0;
+  p->is_thread = 0;
   p->sid = 0;
   p->pgid = 0;
   p->ctty = -1;
@@ -413,8 +461,8 @@ userinit(void)
   
   // allocate one user page and copy init's instructions
   // and data into it.
-  uvminit(p->pagetable, initcode, sizeof(initcode));
-  p->sz = PGSIZE;
+  uvminit(p->vm->pagetable, initcode, sizeof(initcode));
+  p->vm->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->elr = 0;      // user program counter
@@ -434,24 +482,51 @@ userinit(void)
 int
 growproc(int n)
 {
-  uint sz;
+  uint64 sz;
   struct proc *p = myproc();
+  struct vmspace *vm = p->vm;
 
-  sz = p->sz;
+  acquire(&vm->lock);
+  sz = vm->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    if((sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
+      release(&vm->lock);
       return -1;
     }
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
-  }
-  p->sz = sz;
+    if((uint64)(-(long)n) > sz){
+      release(&vm->lock);
+      return -1;
+    }
+    uint64 newsz = sz + n;
+    uint64 first = PGROUNDUP(newsz);
+    uint64 end = PGROUNDUP(sz);
 
-  // This is the currently active TTBR0 page table.  AArch64 may cache a
-  // previous translation fault for a newly allocated heap page, and may keep
-  // translations for pages just removed.  Publishing the PTEs is therefore
-  // not sufficient: invalidate the TLB before returning to EL0.
+    // A shared page table can be active on another Cortex-A53.  Clear PTEs,
+    // broadcast the invalidation, and only then recycle their physical pages.
+    while(first < end){
+      uint64 pa[64];
+      int count = 0;
+      while(first < end && count < (int)NELEM(pa)){
+        pte_t *pte = walk(vm->pagetable, first, 0);
+        if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_AF) == 0)
+          panic("growproc dealloc");
+        pa[count++] = PTE2PA(*pte);
+        *pte = 0;
+        first += PGSIZE;
+      }
+      // VMALLE1IS reaches every PE in the inner-shareable domain.
+      flush_tlb();
+      for(int i = 0; i < count; i++)
+        kfree((void *)P2V(pa[i]));
+    }
+    sz = newsz;
+  }
+  vm->sz = sz;
+
+  // Also remove negative translations cached before a heap growth.
   flush_tlb();
+  release(&vm->lock);
   return 0;
 }
 
@@ -470,12 +545,15 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  acquire(&p->vm->lock);
+  if(uvmcopy(p->vm->pagetable, np->vm->pagetable, p->vm->sz) < 0){
+    release(&p->vm->lock);
     freeproc(np);
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
+  np->vm->sz = p->vm->sz;
+  release(&p->vm->lock);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -491,6 +569,7 @@ fork(void)
   np->sid = p->sid;
   np->pgid = p->pgid;
   np->ctty = p->ctty;
+  np->tgid = np->pid;
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -521,6 +600,154 @@ fork(void)
   return pid;
 }
 
+// Create a new schedulable user thread in the caller's address space.
+// entry receives arg in x0 and must terminate with texit(); the user library
+// supplies a wrapper that guarantees this when the thread function returns.
+int
+threadclone(uint64 entry, uint64 arg, uint64 stack_top)
+{
+  int i, tid;
+  struct proc *np;
+  struct proc *p = myproc();
+  struct vmspace *vm = p->vm;
+
+  if(entry == 0 || stack_top < 16 || (stack_top & 15) != 0)
+    return -1;
+  if((np = allocproc()) == 0)
+    return -1;
+
+  acquire(&vm->lock);
+  if(vm->execing || entry >= vm->sz || stack_top > vm->sz ||
+     walkaddr(vm->pagetable, entry) == 0 ||
+     walkaddr(vm->pagetable, stack_top - 1) == 0){
+    release(&vm->lock);
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+  vm->refcount++;
+  release(&vm->lock);
+
+  // Drop allocproc's private empty vmspace and install the shared one.
+  vmspace_put(np->vm);
+  np->vm = vm;
+  np->is_thread = 1;
+  np->tgid = p->tgid;
+
+  *(np->trapframe) = *(p->trapframe);
+  np->trapframe->elr = entry;
+  np->trapframe->sp = stack_top;
+  np->trapframe->x0 = arg;
+  np->trapframe->x30 = 0;
+
+  // This first stage duplicates descriptor references, like fork().  The
+  // underlying open file descriptions remain shared, but descriptor-table
+  // edits themselves are per thread until struct files is introduced.
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
+  np->sid = p->sid;
+  np->pgid = p->pgid;
+  np->ctty = p->ctty;
+  safestrcpy(np->name, p->name, sizeof(np->name));
+
+  acquire(&p->lock);
+  np->policy = p->policy;
+  np->rt_priority = p->rt_priority;
+  np->nice = p->nice;
+  np->cpumask = p->cpumask;
+  release(&p->lock);
+  np->slice = timeslice(np);
+
+  tid = np->pid;
+  acquire(&wait_lock);
+  np->parent = p;
+  release(&wait_lock);
+  make_runnable(np, 0);
+  release(&np->lock);
+  return tid;
+}
+
+static void
+threadexit(int status)
+{
+  struct proc *p = myproc();
+
+  net_udp_closeproc(p->pid);
+  for(int fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd]){
+      fileclose(p->ofile[fd]);
+      p->ofile[fd] = 0;
+    }
+  }
+  if(p->cwd){
+    begin_op();
+    iput(p->cwd);
+    end_op();
+    p->cwd = 0;
+  }
+
+  acquire(&wait_lock);
+  // Children forked by this thread must not retain a parent pointer to a proc
+  // slot that thread_join() will recycle.
+  reparent(p);
+  wakeup(initproc);
+  // Wake before publishing ZOMBIE, as process exit does.  The joiner cannot
+  // rescan until wait_lock is released, and wakeup() cannot deadlock trying
+  // to reacquire this thread's p->lock.
+  wakeup(p->vm);
+  acquire(&p->lock);
+  p->xstate = status;
+  p->state = ZOMBIE;
+  release(&wait_lock);
+  sched();
+  panic("thread zombie exit");
+}
+
+// Join a user thread in this thread group. tid == 0 selects any zombie.
+int
+threadjoin(int tid, uint64 status_addr)
+{
+  struct proc *p = myproc();
+  struct proc *t;
+  int found, joined;
+
+  acquire(&wait_lock);
+  for(;;){
+    found = 0;
+    for(t = proc; t < &proc[NPROC]; t++){
+      if(t == p)
+        continue;
+      acquire(&t->lock);
+      if(t->is_thread && t->tgid == p->tgid &&
+         (tid == 0 || t->pid == tid)){
+        found = 1;
+        if(t->state == ZOMBIE){
+          joined = t->pid;
+          if(status_addr != 0 &&
+             copyout(p->vm->pagetable, status_addr,
+                     (char *)&t->xstate, sizeof(t->xstate)) < 0){
+            release(&t->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(t);
+          release(&t->lock);
+          release(&wait_lock);
+          return joined;
+        }
+      }
+      release(&t->lock);
+    }
+    if(!found || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+    sleep(p->vm, &wait_lock);
+  }
+}
+
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
 void
@@ -544,8 +771,47 @@ exit(int status)
 {
   struct proc *p = myproc();
 
+  if(p->is_thread)
+    threadexit(status);
+
   if(p == initproc)
     panic("init exiting");
+
+  // exit() is process-wide. Ask sibling threads to leave, then reap their
+  // proc slots before publishing the leader as a zombie. Killed sleepers are
+  // made runnable so they can observe p->killed at the kernel/user boundary.
+  acquire(&wait_lock);
+  for(struct proc *t = proc; t < &proc[NPROC]; t++){
+    if(t == p)
+      continue;
+    acquire(&t->lock);
+    if(t->is_thread && t->tgid == p->tgid && t->state != UNUSED &&
+       t->state != ZOMBIE){
+      t->killed = 1;
+      if(t->state == SLEEPING)
+        make_runnable(t, 0);
+    }
+    release(&t->lock);
+  }
+  for(;;){
+    int live = 0;
+    for(struct proc *t = proc; t < &proc[NPROC]; t++){
+      if(t == p)
+        continue;
+      acquire(&t->lock);
+      if(t->is_thread && t->tgid == p->tgid && t->state != UNUSED){
+        if(t->state == ZOMBIE)
+          freeproc(t);
+        else
+          live = 1;
+      }
+      release(&t->lock);
+    }
+    if(!live)
+      break;
+    sleep(p->vm, &wait_lock);
+  }
+  release(&wait_lock);
 
   net_udp_closeproc(p->pid);
 
@@ -598,7 +864,7 @@ wait(uint64 addr)
     // Scan through table looking for exited children.
     havekids = 0;
     for(np = proc; np < &proc[NPROC]; np++){
-      if(np->parent == p){
+      if(np->parent == p && !np->is_thread){
         // make sure the child isn't still in exit() or swtch().
         acquire(&np->lock);
 
@@ -606,7 +872,7 @@ wait(uint64 addr)
         if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+          if(addr != 0 && copyout(p->vm->pagetable, addr, (char *)&np->xstate,
                                   sizeof(np->xstate)) < 0) {
             release(&np->lock);
             release(&wait_lock);
@@ -847,21 +1113,23 @@ int
 kill(int pid)
 {
   struct proc *p;
+  int found = 0;
 
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
-    if(p->pid == pid){
+    // kill() addresses the process ID/TGID.  All execution contexts sharing
+    // that process are marked, matching the process-wide signal semantics.
+    if(p->state != UNUSED && p->tgid == pid){
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
         make_runnable(p, 0);
       }
-      release(&p->lock);
-      return 0;
+      found = 1;
     }
     release(&p->lock);
   }
-  return -1;
+  return found ? 0 : -1;
 }
 
 void
@@ -1005,7 +1273,7 @@ either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_dst){
-    return copyout(p->pagetable, dst, src, len);
+    return copyout(p->vm->pagetable, dst, src, len);
   } else {
     memmove((char *)dst, src, len);
     return 0;
@@ -1020,7 +1288,7 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_src){
-    return copyin(p->pagetable, dst, src, len);
+    return copyin(p->vm->pagetable, dst, src, len);
   } else {
     memmove(dst, (char*)src, len);
     return 0;
@@ -1107,13 +1375,14 @@ proclist(char *buf, int size)
   char *q = buf, *end = buf + size;
 
   q = procputstr(q, end,
-                 "  PID CPU POLICY PRI  NI MASK     TIME STATE    NAME\n");
+                 "  TID  TGID CPU POLICY PRI  NI MASK     TIME STATE    NAME\n");
   for(struct proc *p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
     if(p->state != UNUSED){
       char mask[3] = { hex[(p->cpumask >> 4) & 0xf], hex[p->cpumask & 0xf], 0 };
       uint ms = p->run_ticks * SCHED_TICK_MS;
       q = procputint(q, end, p->pid, 5);
+      q = procputint(q, end, p->tgid, 6);
       if(p->last_cpu < 0)
         q = procputpad(q, end, "-", 4);
       else
@@ -1150,9 +1419,9 @@ procvmdump(int pid)
   printf("VA[38:30]=L1 VA[29:21]=L2 VA[20:12]=L3 VA[11:0]=offset\n");
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
-    if(p->state != UNUSED && p->pagetable != 0 &&
+    if(p->state != UNUSED && p->vm != 0 && p->vm->pagetable != 0 &&
        (pid == 0 || p->pid == pid)){
-      uvmdump(p->pagetable, p->pid, p->name, "vmmap");
+      uvmdump(p->vm->pagetable, p->pid, p->name, "vmmap");
       found++;
     }
     release(&p->lock);

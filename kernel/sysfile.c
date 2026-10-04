@@ -55,7 +55,7 @@ sys_ext2read(void)
     return -1;
   if((page = kalloc()) == 0) return -1;
   got = ext2readfile(path, off, page, n);
-  if(got > 0 && copyout(myproc()->pagetable, dst, page, got) < 0) got = -1;
+  if(got > 0 && copyout(myproc()->vm->pagetable, dst, page, got) < 0) got = -1;
   kfree(page);
   return got;
 }
@@ -71,7 +71,7 @@ sys_ext2readdir(void)
      argaddr(2, &dst) < 0)
     return -1;
   r = ext2readdir(path, index, &de);
-  if(r > 0 && copyout(myproc()->pagetable, dst, (char*)&de, sizeof(de)) < 0)
+  if(r > 0 && copyout(myproc()->vm->pagetable, dst, (char*)&de, sizeof(de)) < 0)
     return -1;
   return r;
 }
@@ -210,7 +210,7 @@ sys_epoll_ctl(void)
      argaddr(3, &address) < 0)
     return -1;
   if(op != EPOLL_CTL_DEL){
-    if(copyin(myproc()->pagetable, (char*)&event, address,
+    if(copyin(myproc()->vm->pagetable, (char*)&event, address,
               sizeof(event)) < 0)
       return -1;
     eventp = &event;
@@ -691,8 +691,8 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
-  if(copyout(p->pagetable, fdarray, (char*)&fd0, sizeof(fd0)) < 0 ||
-     copyout(p->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1)) < 0){
+  if(copyout(p->vm->pagetable, fdarray, (char*)&fd0, sizeof(fd0)) < 0 ||
+     copyout(p->vm->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1)) < 0){
     p->ofile[fd0] = 0;
     p->ofile[fd1] = 0;
     fileclose(rf);
@@ -716,8 +716,8 @@ sys_pty_open(void)
     return -1;
   if((fdm = fdalloc(master)) < 0 || (fds = fdalloc(slave)) < 0)
     goto bad;
-  if(copyout(p->pagetable, fdarray, (char *)&fdm, sizeof(fdm)) < 0 ||
-     copyout(p->pagetable, fdarray + sizeof(fdm), (char *)&fds,
+  if(copyout(p->vm->pagetable, fdarray, (char *)&fdm, sizeof(fdm)) < 0 ||
+     copyout(p->vm->pagetable, fdarray + sizeof(fdm), (char *)&fds,
              sizeof(fds)) < 0)
     goto bad;
   return 0;

@@ -20,9 +20,40 @@ typedef union header Header;
 
 static Header base;
 static Header *freep;
+static volatile int heap_lock;
 
-void
-free(void *ap)
+static void
+heap_acquire(void)
+{
+  for(;;){
+    uint old, failed;
+    uint one = 1;
+    asm volatile("ldaxr %w0, [%1]"
+                 : "=&r"(old) : "r"(&heap_lock) : "memory");
+    if(old == 0){
+      asm volatile("stxr %w0, %w1, [%2]"
+                   : "=&r"(failed) : "r"(one), "r"(&heap_lock)
+                   : "memory");
+      if(failed == 0)
+        return;
+    } else {
+      asm volatile("clrex" ::: "memory");
+    }
+    sched_yield();
+  }
+}
+
+static void
+heap_release(void)
+{
+  uint zero = 0;
+  asm volatile("stlr %w0, [%1]" :: "r"(zero), "r"(&heap_lock) : "memory");
+}
+
+// The allocator lock is already held.  morecore() must use this helper rather
+// than the public free(), otherwise extending the heap would lock recursively.
+static void
+free_locked(void *ap)
 {
   Header *bp, *p;
 
@@ -43,6 +74,16 @@ free(void *ap)
   freep = p;
 }
 
+void
+free(void *ap)
+{
+  if(ap == 0)
+    return;
+  heap_acquire();
+  free_locked(ap);
+  heap_release();
+}
+
 static Header*
 morecore(uint nu)
 {
@@ -56,7 +97,7 @@ morecore(uint nu)
     return 0;
   hp = (Header*)p;
   hp->s.size = nu;
-  free((void*)(hp + 1));
+  free_locked((void*)(hp + 1));
   return freep;
 }
 
@@ -66,6 +107,7 @@ malloc(uint nbytes)
   Header *p, *prevp;
   uint nunits;
 
+  heap_acquire();
   nunits = (nbytes + sizeof(Header) - 1)/sizeof(Header) + 1;
   if((prevp = freep) == 0){
     base.s.ptr = freep = prevp = &base;
@@ -81,10 +123,13 @@ malloc(uint nbytes)
         p->s.size = nunits;
       }
       freep = prevp;
+      heap_release();
       return (void*)(p + 1);
     }
     if(p == freep)
-      if((p = morecore(nunits)) == 0)
+      if((p = morecore(nunits)) == 0){
+        heap_release();
         return 0;
+      }
   }
 }

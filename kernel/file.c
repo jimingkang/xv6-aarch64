@@ -108,13 +108,13 @@ filestat(struct file *f, uint64 addr)
     ilock(f->ip);
     stati(f->ip, &st);
     iunlock(f->ip);
-    if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
+    if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;
   } else if(f->type == FD_VNODE){
     if(vfsstat(f->vn, &st) < 0)
       return -1;
-    if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
+    if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;
   }

@@ -64,3 +64,7 @@
 #define SYS_sched_yield  63
 #define SYS_clock_us     64
 #define SYS_getcpu       65
+#define SYS_clone        66
+#define SYS_texit        67
+#define SYS_tjoin        68
+#define SYS_gettid       69

@@ -249,7 +249,7 @@ ptyread(struct pty *pt, int master, uint64 addr, int n)
   }
   for(i = 0; i < n && q->nread != q->nwrite; i++){
     char ch = q->data[q->nread++ % PTYSIZE];
-    if(copyout(p->pagetable, addr + i, &ch, 1) < 0)
+    if(copyout(p->vm->pagetable, addr + i, &ch, 1) < 0)
       break;
   }
   wakeup(&q->nwrite);
@@ -272,7 +272,7 @@ ptywrite(struct pty *pt, int master, uint64 addr, int n)
       release(&pt->lock);
       return i ? i : -1;
     }
-    if(copyin(p->pagetable, &ch, addr + i, 1) < 0)
+    if(copyin(p->vm->pagetable, &ch, addr + i, 1) < 0)
       break;
     if(master){
       if(ptyinput(pt, ch) < 0)

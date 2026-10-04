@@ -12,9 +12,9 @@ int
 fetchaddr(uint64 addr, uint64 *ip)
 {
   struct proc *p = myproc();
-  if(addr >= p->sz || addr+sizeof(uint64) > p->sz)
+  if(addr >= p->vm->sz || addr+sizeof(uint64) > p->vm->sz)
     return -1;
-  if(copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
+  if(copyin(p->vm->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
   return 0;
 }
@@ -25,7 +25,7 @@ int
 fetchstr(uint64 addr, char *buf, int max)
 {
   struct proc *p = myproc();
-  int err = copyinstr(p->pagetable, buf, addr, max);
+  int err = copyinstr(p->vm->pagetable, buf, addr, max);
   if(err < 0)
     return err;
   return strlen(buf);
@@ -148,6 +148,10 @@ extern uint64 sys_fcntl(void);
 extern uint64 sys_pty_open(void);
 extern uint64 sys_getrandom(void);
 extern uint64 sys_rename(void);
+extern uint64 sys_clone(void);
+extern uint64 sys_texit(void);
+extern uint64 sys_tjoin(void);
+extern uint64 sys_gettid(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -208,6 +212,10 @@ static uint64 (*syscalls[])(void) = {
 [SYS_pty_open]     sys_pty_open,
 [SYS_getrandom]    sys_getrandom,
 [SYS_rename]       sys_rename,
+[SYS_clone]        sys_clone,
+[SYS_texit]        sys_texit,
+[SYS_tjoin]        sys_tjoin,
+[SYS_gettid]       sys_gettid,
 [SYS_sched_setscheduler] sys_sched_setscheduler,
 [SYS_sched_getinfo] sys_sched_getinfo,
 [SYS_setnice]      sys_setnice,

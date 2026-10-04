@@ -414,7 +414,7 @@ proc_vread(char *path, uint64 off, void *dst, int n)
   q = putstr(q, end, "\nState:\t");
   q = putstr(q, end, state_name(p->state));
   q = putstr(q, end, "\nVmSize:\t");
-  q = putnum(q, end, p->sz);
+  q = putnum(q, end, p->vm->sz);
   q = putstr(q, end, " bytes\nKilled:\t");
   q = putnum(q, end, p->killed);
   q = putstr(q, end, "\n");

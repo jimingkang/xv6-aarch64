@@ -242,7 +242,7 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o \
+LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
 	$U/tweetnacl.o $U/ssh_crypto.o
 ULIB = $U/libc.a
 
@@ -320,6 +320,7 @@ UPROGS=\
 	$U/_renice\
 	$U/_rtlat\
 	$U/_spin\
+	$U/_threadtest\
 
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)

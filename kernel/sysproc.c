@@ -21,7 +21,43 @@ sys_exit(void)
 uint64
 sys_getpid(void)
 {
+  return myproc()->tgid;
+}
+
+uint64
+sys_gettid(void)
+{
   return myproc()->pid;
+}
+
+uint64
+sys_clone(void)
+{
+  uint64 entry, arg, stack_top;
+  if(argaddr(0, &entry) < 0 || argaddr(1, &arg) < 0 ||
+     argaddr(2, &stack_top) < 0)
+    return -1;
+  return threadclone(entry, arg, stack_top);
+}
+
+uint64
+sys_texit(void)
+{
+  int status;
+  if(argint(0, &status) < 0)
+    status = -1;
+  exit(status); // exit() selects thread-only teardown for is_thread callers.
+  return 0;
+}
+
+uint64
+sys_tjoin(void)
+{
+  int tid;
+  uint64 status;
+  if(argint(0, &tid) < 0 || argaddr(1, &status) < 0)
+    return -1;
+  return threadjoin(tid, status);
 }
 
 uint64
@@ -47,7 +83,9 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
+  acquire(&myproc()->vm->lock);
+  addr = myproc()->vm->sz;
+  release(&myproc()->vm->lock);
   if(growproc(n) < 0)
     return -1;
   return addr;
@@ -113,7 +151,7 @@ sys_getrandom(void)
     if(chunk > sizeof(bytes))
       chunk = sizeof(bytes);
     if(rngbytes(bytes, chunk) != chunk ||
-       copyout(myproc()->pagetable, destination + done,
+       copyout(myproc()->vm->pagetable, destination + done,
                (char *)bytes, chunk) < 0){
       memset(bytes, 0, sizeof(bytes));
       return -1;
@@ -135,7 +173,7 @@ sys_ps(void)
      size <= 0 || size > PGSIZE || (buf = kalloc()) == 0)
     return -1;
   n = proclist(buf, size);
-  if(copyout(myproc()->pagetable, dst, buf, n) < 0)
+  if(copyout(myproc()->vm->pagetable, dst, buf, n) < 0)
     n = -1;
   kfree(buf);
   return n;
@@ -246,7 +284,7 @@ sys_sched_getinfo(void)
     return -1;
   if(sched_getinfo(pid, &info) < 0)
     return -1;
-  if(copyout(myproc()->pagetable, dst, (char *)&info, sizeof(info)) < 0)
+  if(copyout(myproc()->vm->pagetable, dst, (char *)&info, sizeof(info)) < 0)
     return -1;
   return 0;
 }

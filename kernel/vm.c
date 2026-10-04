@@ -238,7 +238,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
-static uint64
+uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
@@ -419,10 +419,10 @@ switchuvm(struct proc *p)
 {
   if(p == 0)
     panic("switchuvm: no process");
-  if(p->pagetable == 0)
+  if(p->vm == 0 || p->vm->pagetable == 0)
     panic("switchuvm: no pagetable");
 
-  w_ttbr0_el1(V2P(p->pagetable));
+  w_ttbr0_el1(V2P(p->vm->pagetable));
   flush_tlb();
 }
 
