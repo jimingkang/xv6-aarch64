@@ -25,6 +25,10 @@ static volatile int heap_lock;
 static void
 heap_acquire(void)
 {
+#ifdef XV6_ARM32
+  while(__sync_lock_test_and_set(&heap_lock, 1))
+    sched_yield();
+#else
   for(;;){
     uint old, failed;
     uint one = 1;
@@ -41,13 +45,18 @@ heap_acquire(void)
     }
     sched_yield();
   }
+#endif
 }
 
 static void
 heap_release(void)
 {
+#ifdef XV6_ARM32
+  __sync_lock_release(&heap_lock);
+#else
   uint zero = 0;
   asm volatile("stlr %w0, [%1]" :: "r"(zero), "r"(&heap_lock) : "memory");
+#endif
 }
 
 // The allocator lock is already held.  morecore() must use this helper rather

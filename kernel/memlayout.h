@@ -1,3 +1,6 @@
+#ifdef XV6_ARM32
+#include "../ports/t113/memlayout.h"
+#else
 // Physical memory layout
 
 // QEMU Raspberry Pi 3B / BCM2837 physical layout used by this port.
@@ -50,3 +53,5 @@
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
 #define KSTACK(p) (MAXVA - ((p)+1) * 2*PGSIZE)
+
+#endif

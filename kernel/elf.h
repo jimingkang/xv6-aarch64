@@ -2,6 +2,16 @@
 
 #define ELF_MAGIC 0x464C457FU  // "\x7FELF" in little endian
 
+#ifdef XV6_ARM32
+struct elfhdr {
+  uint magic; uchar elf[12]; ushort type, machine; uint version;
+  uint entry, phoff, shoff, flags;
+  ushort ehsize, phentsize, phnum, shentsize, shnum, shstrndx;
+};
+struct proghdr {
+  uint type, off, vaddr, paddr, filesz, memsz, flags, align;
+};
+#else
 // File header
 struct elfhdr {
   uint magic;  // must equal ELF_MAGIC
@@ -32,6 +42,8 @@ struct proghdr {
   uint64 memsz;
   uint64 align;
 };
+
+#endif
 
 // Values for Proghdr type
 #define ELF_PROG_LOAD           1

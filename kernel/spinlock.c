@@ -21,12 +21,18 @@ initlock(struct spinlock *lk, char *name)
 void
 acquire(struct spinlock *lk)
 {
+#ifndef XV6_ARM32
   unsigned char tmp, l = 1;
+#endif
 
   push_off(); // disable interrupts to avoid deadlock.
   if(holding(lk))
     panic("acquire");
 
+#ifdef XV6_ARM32
+  while(__sync_lock_test_and_set(&lk->locked, 1))
+    ;
+#else
   asm volatile(
     "sevl\n"
     "1: wfe\n"
@@ -36,6 +42,8 @@ acquire(struct spinlock *lk)
     "cbnz   %w0, 2b\n"
     : "=&r"(tmp) : "r"(&lk->locked), "r"(l) : "memory"
   );
+
+#endif
 
   // Tell the C compiler and the processor to not move loads or stores
   // past this point, to ensure that the critical section's memory

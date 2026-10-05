@@ -153,6 +153,9 @@ main(int argc, char *argv[])
     else
       shortname = argv[i];
     
+    /* Accept isolated architecture build paths as well as user/_name. */
+    char *slash = strrchr(shortname, '/');
+    if(slash) shortname = slash + 1;
     assert(index(shortname, '/') == 0);
 
     if((fd = open(argv[i], 0)) < 0)

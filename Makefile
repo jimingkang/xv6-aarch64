@@ -1,3 +1,20 @@
+ifneq ($(filter t113 t113-qemu t113-check t113-clean,$(MAKECMDGOALS)),)
+.PHONY: t113 t113-qemu t113-check t113-clean clean
+# Order cleanup before building even for `make -j t113 clean`.
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+t113 t113-qemu t113-check: clean
+endif
+clean:
+	$(MAKE) -f ports/t113/Makefile BUILD=build/t113 clean
+	$(MAKE) -f ports/t113/Makefile BUILD=build/t113-qemu clean
+t113-clean: clean
+t113:
+	$(MAKE) -f ports/t113/Makefile
+t113-qemu:
+	$(MAKE) -f ports/t113/Makefile BUILD=build/t113-qemu QEMU_TEST=1 qemu
+t113-check:
+	$(MAKE) -f ports/t113/Makefile check
+else
 K=kernel
 U=user
 KERNEL_IMAGE = $K/kernel8-xv6_wifi.img
@@ -397,3 +414,5 @@ qemu-net: $(KERNEL_IMAGE) fs.img
 qemu-gdb: $(KERNEL_IMAGE) .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
+
+endif

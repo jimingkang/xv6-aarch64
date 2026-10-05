@@ -14,7 +14,8 @@ exec(char *path, char **argv)
 {
   char *s, *last;
   int i, off;
-  uint64 argc, sz = 0, sp, ustack[MAXARG], stackbase;
+  uint64 argc, sz = 0, sp, stackbase;
+  uintptr ustack[MAXARG];
   struct elfhdr elf;
   struct inode *ip;
   struct proghdr ph;
@@ -47,7 +48,12 @@ exec(char *path, char **argv)
   // Check ELF header
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
-  if(elf.magic != ELF_MAGIC)
+  if(elf.magic != ELF_MAGIC
+#ifdef XV6_ARM32
+     || elf.elf[0] != 1 || elf.elf[1] != 1 || elf.machine != 40
+     || elf.phentsize != sizeof(struct proghdr)
+#endif
+    )
     goto bad;
 
   if((pagetable = uvmcreate()) == 0)
@@ -111,11 +117,11 @@ exec(char *path, char **argv)
   ustack[argc] = 0;
 
   // push the array of argv[] pointers.
-  sp -= (argc+1) * sizeof(uint64);
+  sp -= (argc+1) * sizeof(uintptr);
   sp -= sp % 16;
   if(sp < stackbase)
     goto bad;
-  if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
+  if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uintptr)) < 0)
     goto bad;
 
   // arguments to user main(argc, argv)
@@ -138,7 +144,11 @@ exec(char *path, char **argv)
   vm->execing = 0;
   release(&vm->lock);
   p->trapframe->elr = elf.entry;  // initial program counter = main
-  p->trapframe->spsr = 0;     // switch to EL0
+#ifdef XV6_ARM32
+  p->trapframe->spsr = 0x10; // ARM user mode, IRQ enabled.
+#else
+  p->trapframe->spsr = 0;    // AArch64 EL0.
+#endif
   p->trapframe->sp = sp; // initial stack pointer
   // Debug trace (normally disabled): installed entry point and user stack.
   // printf("exec: path=%s entry=%p sz=%p sp=%p\n",

@@ -1,3 +1,6 @@
+#ifdef XV6_ARM32
+#include "../ports/t113/arm.h"
+#else
 #ifndef __ASSEMBLER__
 
 // which core is this?
@@ -281,3 +284,5 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define TCR_SH1(n)    (((n) & 0x3) << 28)
 #define TCR_TG1(n)    (((n) & 0x3) << 30)
 #define TCR_IPS(n)    (((n) & 0x7) << 32)
+
+#endif

@@ -318,6 +318,11 @@ alloc_kstack(struct proc *p)
   if(stack == 0)
     return -1;
 
+#ifdef XV6_ARM32
+  p->kstack = (uintptr)stack;
+  p->kstack_pa = (uintptr)stack;
+  return 0;
+#else
   acquire(&kernel_stack_lock);
   if(mappages(kernel_pagetable, p->kstack, PGSIZE, V2P(stack),
               PTE_NORMAL | PTE_XN) < 0){
@@ -329,16 +334,23 @@ alloc_kstack(struct proc *p)
   release(&kernel_stack_lock);
   p->kstack_pa = V2P(stack);
   return 0;
+#endif
 }
 
 static void
 free_kstack(struct proc *p)
 {
+#ifndef XV6_ARM32
   pte_t *pte;
   uint64 pa;
+#endif
 
   if(p->kstack_pa == 0)
     return;
+#ifdef XV6_ARM32
+  kfree((void*)(uintptr)p->kstack_pa);
+  p->kstack_pa = 0;
+#else
   acquire(&kernel_stack_lock);
   pte = walk(kernel_pagetable, p->kstack, 0);
   if(pte == 0 || (*pte & PTE_V) == 0)
@@ -351,6 +363,7 @@ free_kstack(struct proc *p)
   release(&kernel_stack_lock);
   p->kstack_pa = 0;
   kfree(P2V(pa));
+#endif
 }
 
 static struct proc*
@@ -370,10 +383,12 @@ newprocslot(void)
   va = KSTACK(slot);
   // Keep dynamically growing stacks in the high sparse KSTACK region and
   // never let an arithmetic wrap collide with the kernel direct map.
+#ifndef XV6_ARM32
   if(va < KERNBASE + (1ULL << 37)){
     kfree(p);
     return 0;
   }
+#endif
   p->kstack = va;
   p->kstack_slot = slot;
   if(alloc_kstack(p) < 0){
@@ -433,6 +448,9 @@ found:
   // Allocate a trapframe page.
   sp -= sizeof(*p->trapframe);
   p->trapframe = (struct trapframe*)sp;
+#ifdef XV6_ARM32
+  memset(p->trapframe, 0, sizeof(*p->trapframe));
+#endif
 
   // An empty user address space. clone() replaces this reference with its
   // caller's vmspace; fork() keeps it and copies pages into it.
@@ -512,6 +530,9 @@ freeproc(struct proc *p)
 
 // a user program that calls exec("/init")
 // od -t xC initcode
+#ifdef XV6_ARM32
+extern uchar initcode[], initcode_end[];
+#else
 uchar initcode[] = {
   0xc0, 0x01, 0x00, 0x58, 0xe1, 0x01, 0x00, 0x58, 0xe7,
   0x00, 0x80, 0xd2, 0x01, 0x00, 0x00, 0xd4, 0x47, 0x00,
@@ -522,6 +543,8 @@ uchar initcode[] = {
   0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
+
+#endif
 
 // Set up first user process.
 void
@@ -534,12 +557,20 @@ userinit(void)
   
   // allocate one user page and copy init's instructions
   // and data into it.
+#ifdef XV6_ARM32
+  uvminit(p->vm->pagetable, initcode, initcode_end - initcode);
+#else
   uvminit(p->vm->pagetable, initcode, sizeof(initcode));
+#endif
   p->vm->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->elr = 0;      // user program counter
-  p->trapframe->spsr = 0;     // switch to EL0
+#ifdef XV6_ARM32
+  p->trapframe->spsr = 0x10; // ARM user mode, IRQ enabled.
+#else
+  p->trapframe->spsr = 0;    // AArch64 EL0.
+#endif
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
