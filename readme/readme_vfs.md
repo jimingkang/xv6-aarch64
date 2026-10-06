@@ -12,7 +12,7 @@ vnode，并在统一文件描述符层分派操作。
 /
 ├── 原生 xv6 inode filesystem    读写
 ├── /proc                        procfs，只读
-└── /mnt/ext2                    ext2，只读
+└── /mnt/ext2                    ext2，普通文件读写
 ```
 
 挂载点是内核路径路由，不要求 xv6 根目录中事先创建真实的 `mnt/ext2` inode。
@@ -29,14 +29,17 @@ struct file
                          └── vnode_ops
                               ├── stat
                               ├── read
+                              ├── write/create/truncate
+                              ├── mkdir/unlink/rename
+                              ├── fsync
                               └── readdir
 ```
 
 `sys_open()` 先调用 `vfsopen()`：
 
 - 路径不属于 VFS mount 时返回 0，继续执行原来的 `namei()`；
-- 路径属于 `/mnt/ext2` 且存在时返回 vnode；
-- 路径属于 mount 但不存在或请求写入时返回错误，不会错误地回落到 xv6 root。
+- 路径属于 `/mnt/ext2` 且存在时返回 vnode；创建普通文件时由 ext2 backend 分配 inode；
+- 路径属于 mount 但操作不受支持时返回错误，不会错误地回落到 xv6 root。
 
 `fileread()`、`filestat()` 和 `fileclose()` 根据 `FD_VNODE` 调用对应 VFS 操作。ext2 目录项会
 转换成 xv6 的 `struct dirent`，所以原来的 `ls` 可以工作；普通文件内容经内核页缓冲后
@@ -49,6 +52,8 @@ struct file
 ```text
 $ ls /mnt/ext2
 $ cat /mnt/ext2/path/to/file
+$ echo hello > /mnt/ext2/new.txt
+$ edit /mnt/ext2/new.txt
 ```
 
 也可以继续使用兼容命令：
@@ -58,20 +63,26 @@ $ ext2ls /
 $ ext2cat /path/to/file
 ```
 
+## 当前文件接口
+
+文件描述符偏移已经扩展为 64 位。ext2 vnode 支持 `pread/pwrite/ftruncate/fsync/fdatasync`，
+并支持 `mkdir/unlink/rename`。`pread/pwrite` 不修改共享 open-file offset，适合 WAL 和数据库页
+访问；普通 `read/write/lseek` 继续使用共享 offset。原生 xv6fs 的磁盘格式仍是 32 位大小，
+因此只有 ext2 vnode 能实际使用超过 4 GiB 的偏移。
+
 ## 当前限制
 
-- ext2 后端只读；以写模式打开、创建和截断会失败。
+- ext2 rename 目前不覆盖已经存在的目标，尚未实现 POSIX 的原子替换语义。
 - `chdir()` 和 `exec()` 仍使用原生 inode 路径，暂时不能把 VFS 目录设为 cwd，也不能直接
   执行 ext2 上的程序。
 - xv6 原生目录格式的文件名只有 14 字节；ext2 长文件名在通用 `ls` 中会被截断。专用
   `ext2ls` 仍可显示完整文件名。
-- ext2 驱动目前只支持 direct block 和 single-indirect block，并拒绝 ext4 extents 等不兼容
-  feature。
-- 已实现最小只读 `mount(2)`，目前只接受 `procfs` 和 `ext2`；尚未实现 `umount`、可写挂载、
+- ext2 驱动支持三级间接块和稀疏大文件，但仍拒绝 ext4 extents 等不兼容 feature。
+- 已实现最小 `mount(2)`；ext2/FAT32 可读写，procfs/netfs 只读；尚未实现 `umount`、
   dentry cache、权限检查和符号链接。
 
 下一步可以把原生 xv6 inode 也包装成 vnode，使 `exec/chdir/link/unlink/mkdir` 全部经过
-VFS，然后增加可写 ext2 或 FAT32 filesystem ops。
+VFS，并为 ext2 补齐目录创建、删除、rename 与一致的权限检查。
 
 ## procfs
 
@@ -116,7 +127,8 @@ Linux 通常把详细硬件地址资源放在 `/proc/iomem`，而 `/proc/meminfo
 
 ```text
 kernel main
-  -> fat32init()/ext2init()       探测块设备和文件系统驱动
+  -> fat32init()/rootdev_init()   FAT32 驱动初始化；扫描 MBR，选出 xv6 根分区并挂起 bootfs
+  -> ext2init()                   探测 ext2 分区
   -> vfsinit()                    初始化空的 mount table
   -> userinit()
        -> /init
@@ -155,7 +167,7 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 ```text
 proc /proc procfs ro 0 0
 bootfs /boot fat32 rw 0 0
-ext2 /mnt/ext2 ext2 ro 0 0
+ext2 /mnt/ext2 ext2 rw 0 0
 192.168.0.195:5640 /mnt/net netfs ro 0 0
 ```
 
@@ -163,7 +175,7 @@ ext2 /mnt/ext2 ext2 ro 0 0
 `mount(source, target, fstype, flags)` 系统调用。`procfs` 总能挂载；`ext2` 只有在启动阶段发现
 兼容分区后才会挂载成功；FAT32 bootfs 支持只读或有限的读写挂载；`netfs` 把
 `source` 解析成远端 `IPv4[:port]`，当前只允许只读挂载。`ro`/`rw` 会被转换为挂载标志，
-ext2、procfs 和 netfs 拒绝 `rw`。目前尚未实现设备名解析与 `umount(2)`。
+procfs 和 netfs 拒绝 `rw`，ext2 和 FAT32 接受 `rw`。目前尚未实现设备名解析与 `umount(2)`。
 
 NetFS 通过 VFS vnode 后端将远程 `stat/readdir/read` 映射成带 xid、超时和重试的 UDP RPC，
 完整结构、协议、启动方法和分布式演进路线见
@@ -279,19 +291,22 @@ tftpclient 192.168.0.201 kernel8-xv6_wifi.img
 
 #### 1. 内核启动阶段探测 FAT32
 
-主核在 `kernel/main.c` 中调用 `fat32init()`。该函数通过 SD 块设备读取 MBR，识别 FAT32
-分区并解析 BPB，保存分区起始 LBA、FAT 起始 LBA、数据区起始 LBA、每簇扇区数和根目录簇。
+主核在 `kernel/main.c` 中先调用 `fat32init()` 初始化 FAT32 锁，再调用 `rootdev_init()`。
+后者在 `kernel/rootdev.c` 中读取 MBR，先找带 xv6 超级块的原始根分区，再对 0x0b/0x0c 分区调用
+`fat32mount()`。`fat32mount()` 解析 BPB，保存分区起始 LBA、FAT 起始 LBA、数据区起始 LBA、每簇扇区数和根目录簇。
 探测成功后 `diskmap.fat` 被置位；新增的 `fat32ready()` 将这个状态提供给 VFS。这里仅仅是
 识别并准备文件系统，还没有把它放入用户可见的目录树。
 
 ```text
 main()
-  -> fat32init()
+  -> fat32init()                     初始化 fat32_lock
+  -> rootdev_init()                   kernel/rootdev.c
        -> sdsector(0)                 读取 MBR
-       -> 选择 FAT32 分区
-       -> sdsector(partition_lba)     读取 BPB
-       -> 保存 FAT/data/root 布局
-       -> diskmap.fat = 1
+       -> setup_raw_root()            找 xv6 根分区（块 1 超级块魔数）
+       -> fat32mount(lba, sectors)    kernel/fat32.c
+            -> sdsector(partition_lba)  读取 BPB
+            -> 保存 FAT/data/root 布局
+            -> diskmap.fat = 1
   -> vfsinit()                        初始化空 mount table
 ```
 
@@ -510,3 +525,36 @@ Mini UART/console input queue
 尚无 TCP；SSH 还依赖 TCP 流、随机数、密钥存储、加密算法、SSH 握手和 `/dev/pts` 伪终端。
 因此现阶段没有把明文 UDP/Telnet shell 冒充成 SSH。合理的实现顺序是 TCP -> socket API ->
 pty/会话 -> 密钥与密码学 -> sshd。
+
+
+## 根块设备 rootdev.c 与 FAT32 的分工
+
+xv6 根文件系统（superblock/inode/目录）与 FAT32 是两种不同的格式。为避免“根文件系统要经过 FAT32”
+这种误解，根设备代码单独放在 `kernel/rootdev.c`：
+
+| 文件 | 职责 |
+|---|---|
+| `kernel/rootdev.c` | `rootdev_init()` 扫描 MBR、`setup_raw_root()` 用块 1 超级块识别 xv6 分区、挂起 bootfs；`rootdev_rw()` 把 xv6 块号换算成两个 SD 扇区；`rootdev_raw_info()`、`rootdev_update_begin()` 供 `/dev/sdroot` 和 ext2 外置日志使用 |
+| `kernel/fat32.c` | 只有 FAT32 本身：`fat32mount()` 解析 BPB，目录、长文件名、簇分配、读写；`fat32mapfile()`/`fat32mapsector()` 把根目录中某个文件的扇区号换成卡上扇区号 |
+
+块缓存的调用链：
+
+```text
+bread(ROOTDEV, B) / bwrite(b)
+  -> rootdev_rw(b, write)                     kernel/rootdev.c
+       -> root_sector_lba(2B + i)             i = 0, 1
+            raw   : root.lba + 2B + i         正常情况：p2 原始分区
+            fsimg : fat32mapsector(2B + i)    旧卡兼容：FS.IMG 文件
+            bare  : 2B + i                    QEMU 直接挂 fs.img
+       -> sdsector(lba, data, write)
+```
+
+只有在旧卡兼容（FS.IMG）模式下才会调用 FAT32，而且只是查“文件第 n 个扇区在卡上的位置”，
+块里的内容始终是 xv6 自己的格式。启动日志对应：
+
+```text
+rootdev: raw xv6 root p2 lba=133120 sectors=81920 size=40 MiB
+rootdev: bootfs p1 lba=2048 mounted as FAT32
+rootdev: using FAT32 FS.IMG compatibility mapping, 65536 sectors   (旧卡)
+rootdev: no MBR; using bare xv6 image                              (QEMU 裸镜像)
+```

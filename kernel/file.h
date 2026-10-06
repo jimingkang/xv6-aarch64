@@ -12,7 +12,7 @@ struct file {
   struct pipe *pipe; // FD_PIPE
   struct inode *ip;  // FD_INODE and FD_DEVICE
   struct vnode *vn;  // FD_VNODE
-  uint off;          // FD_INODE
+  uint64 off;        // shared open-file offset; VFS backends may exceed 4 GiB
   short major;       // FD_DEVICE
   void *private_data; // FD_DEVICE: driver state from file_operations.open
   int socket;        // FD_SOCKET: TCP connection handle

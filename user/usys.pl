@@ -89,3 +89,8 @@ entry("socket");
 entry("bind");
 entry("listen");
 entry("lseek");
+entry("fsync");
+entry("fdatasync");
+entry("ftruncate");
+entry("pread");
+entry("pwrite");

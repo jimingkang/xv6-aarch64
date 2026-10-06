@@ -82,7 +82,8 @@ main()
     fileinit();      // file table
     sd_driver_init(); // BCM SDHOST owns the external SD memory card
     arasan_sdio_driver_init(); // Arasan owns BCM43430/43455 on GPIO34--39
-    fat32init();      // locate FS.IMG in a FAT32 boot partition
+    fat32init();      // FAT32 driver state
+    rootdev_init();   // MBR scan: find the xv6 root, mount FAT32 bootfs
     rootupdate_init(); // guarded /dev/sdroot in-place image updater
     brcmfmac_driver_init(); // firmware source is available after FAT32 init
     mt7601u_driver_init(); // bind enumerated USB MT7601U after firmware source

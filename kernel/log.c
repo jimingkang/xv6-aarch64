@@ -119,8 +119,12 @@ recover_from_log(void)
 {
   read_head();
   install_trans(1); // if committed, copy from log to disk
+  if(sdflush() < 0)
+    panic("log recovery flush");
   log.lh.n = 0;
   write_head(); // clear the log
+  if(sdflush() < 0)
+    panic("log recovery clear flush");
 }
 
 // called at the start of each FS system call.
@@ -211,10 +215,18 @@ commit()
 {
   if (log.lh.n > 0) {
     write_log();     // Write modified blocks from cache to log
+    if(sdflush() < 0) // log payload must precede the commit record
+      panic("log payload flush");
     write_head();    // Write header to disk -- the real commit
+    if(sdflush() < 0)
+      panic("log commit flush");
     install_trans(0); // Now install writes to home locations
+    if(sdflush() < 0)
+      panic("log install flush");
     log.lh.n = 0;
     write_head();    // Erase the transaction from the log
+    if(sdflush() < 0)
+      panic("log clear flush");
   }
 }
 

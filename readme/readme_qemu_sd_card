@@ -1,5 +1,7 @@
 # xv6-aarch64 Raspberry Pi 3 SD Card 支持
 
+> 更新说明：根设备代码已从 `kernel/fat32.c` 拆到 `kernel/rootdev.c`。下文中的 `fat32rw()` 现名 `rootdev_rw()`，`file_sector_lba()` 现名 `root_sector_lba()`（在 rootdev.c 内），MBR 扫描和 `setup_raw_root()` 由 `rootdev_init()` 完成；FS.IMG 的簇链映射由 FAT32 层的 `fat32mapfile()`/`fat32mapsector()` 提供。启动日志前缀也从 `fat32:`/`xv6fs:` 改为 `rootdev:`。本文保留当时的函数名作为调试记录。
+
 本文说明当前仓库如何把 xv6 的底层存储从 QEMU loader 加载的 ramdisk，改为 Raspberry Pi 3 BCM2837 的 SD/eMMC 控制器，并进一步支持从 FAT32 启动分区内的 `FS.IMG` 文件读写 xv6 文件系统。
 
 当前实现支持两种运行模式：

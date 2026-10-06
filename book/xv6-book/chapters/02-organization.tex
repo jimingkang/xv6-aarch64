@@ -52,7 +52,7 @@
     启动与异常 & \file{entry.S}、\file{start.c}、\file{main.c}、\file{kernel.ld}、\file{trapasm.S}、\file{trap.c}、\file{timer.c}、\file{bcm2837.c} \\
     内存 & \file{kalloc.c}（物理页分配）、\file{vm.c}（页表）、\file{memlayout.h}、\file{aarch64.h}（系统寄存器与页表位） \\
     进程与同步 & \file{proc.c}、\file{proc.h}、\file{sched.h}、\file{swtch.S}、\file{spinlock.c}、\file{sleeplock.c}、\file{sync.c}、\file{workqueue.c}、\file{exec.c}、\file{syscall.c}、\file{sysproc.c} \\
-    文件系统 & \file{bio.c}、\file{log.c}、\file{fs.c}、\file{file.c}、\file{sysfile.c}、\file{pipe.c}、\file{vfs.c}、\file{fat32.c}、\file{ext2.c} \\
+    文件系统 & \file{bio.c}、\file{log.c}、\file{fs.c}、\file{file.c}、\file{sysfile.c}、\file{pipe.c}、\file{vfs.c}、\file{rootdev.c}、\file{fat32.c}、\file{ext2.c}、\file{xjournal.c} \\
     设备核心 & \file{device.c}、\file{device.h}（总线、设备、驱动、字符设备） \\
     字符设备 & \file{uart.c}、\file{console.c}、\file{tty.c}、\file{pty.c}、\file{input.c} \\
     存储 & \file{sdhost.c}（外置 SD 卡）、\file{sd.c}（早期 Arasan SD 驱动） \\
@@ -224,7 +224,7 @@ void main() {
     timerinit();
     binit(); iinit(); fileinit();                               // -> 第 6 章
     sd_driver_init(); arasan_sdio_driver_init();
-    fat32init();                                                // 找到根文件系统
+    fat32init(); rootdev_init();                                // 找到根文件系统，挂起 bootfs
     brcmfmac_driver_init(); mt7601u_driver_init();              // 需要读 bootfs 里的固件
     ov5647_init(); camera_init();                               // 摄像头
     ext2init(); vfsinit();
@@ -245,6 +245,6 @@ void main() {
   \item 页表必须在内存分配器之前就绪，但建页表本身又要分配页——所以分配器分两次初始化（\code{kinit1}/\code{kinit2}）。
   \item 设备核心（\code{device\_init}）要在任何驱动注册之前初始化；控制台要尽早，因为之后的错误都要靠 \code{printf} 报告。
   \item 异常向量、中断控制器、定时器依次初始化，但真正打开 CPU 中断要等到 \code{scheduler()}。
-  \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以必须排在 \code{fat32init()} 之后。
+  \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以必须排在 \code{rootdev\_init()} 之后——它扫描 MBR 时顺带挂起 FAT32 启动分区。
   \item 其余三个 CPU 最后才被唤醒，它们只做每核相关的初始化，然后直接进入调度器。
 \end{itemize}

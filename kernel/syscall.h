@@ -72,3 +72,8 @@
 #define SYS_bind         71
 #define SYS_listen       72
 #define SYS_lseek        73
+#define SYS_fsync        74
+#define SYS_fdatasync    75
+#define SYS_ftruncate    76
+#define SYS_pread        77
+#define SYS_pwrite       78

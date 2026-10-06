@@ -1,34 +1,30 @@
-// Boot FAT32 reader plus xv6 root-block mapper.
+// FAT32 driver for the Raspberry Pi boot partition (bootfs).
 //
-// The Raspberry Pi sees the whole SD card, not macOS names such as disk4s1.
-// Prefer an MBR partition of type 0x7f containing a raw xv6 filesystem.  The
-// FAT32 boot partition remains mounted internally for Wi-Fi firmware.  For old
-// cards, FS.IMG in FAT32 is retained as a compatibility fallback.
+// This file only understands FAT32: the BPB, the FAT chains, directory
+// entries with long names, and file data.  It is used for /boot and for
+// firmware loading.  It does NOT know where the xv6 root filesystem lives;
+// that is rootdev.c.  rootdev.c calls fat32mount() for the boot partition it
+// found in the MBR, and, only for old cards that keep the root image as the
+// file FS.IMG, fat32mapfile()/fat32mapsector() to translate file sectors to
+// card sectors.
 
 #include "types.h"
 #include "aarch64.h"
 #include "defs.h"
 #include "param.h"
 #include "spinlock.h"
-#include "sleeplock.h"
-#include "fs.h"
-#include "buf.h"
 #include "fat32.h"
 
 #define SECTOR_SIZE       512
 #define FAT32_EOC         0x0ffffff8U
 #define MAX_FILE_CLUSTERS 65536
-#define XV6_PARTITION_TYPE 0x7f
 #define FAT_LFN_MAX 20
 #define FAT_LFN_CHARS 255
 #define FAT_LFN_STORAGE (FAT_LFN_MAX * 13)
 
 static struct {
   int fat;
-  int container;
-  int raw_root;
-  uint32 root_lba;
-  uint32 root_sectors;
+  int mapped;              // file_size/clusters describe a mapped file
   uint32 partition_lba;
   uint32 fat_lba;
   uint32 data_lba;
@@ -48,11 +44,6 @@ static struct {
 
 static uchar scratch[SECTOR_SIZE];
 static struct spinlock fat32_lock;
-static struct {
-  struct spinlock lock;
-  int readers;
-  int updating;
-} rawroot_gate;
 
 static uint16 le16(const uchar *p);
 static uint32 le32(const uchar *p);
@@ -598,24 +589,6 @@ fat32statpath(char *path, struct fat32_dirent *de)
   return result;
 }
 
-static char *
-partition_type_name(uchar type)
-{
-  switch(type){
-  case 0x00: return "empty";
-  case 0x01: return "FAT12";
-  case 0x04: return "FAT16<32M";
-  case 0x06: return "FAT16";
-  case 0x0b: return "FAT32";
-  case 0x0c: return "FAT32-LBA";
-  case 0x0e: return "FAT16-LBA";
-  case 0x83: return "Linux";
-  case XV6_PARTITION_TYPE: return "xv6 raw filesystem";
-  case 0xee: return "GPT-protective";
-  default:   return "unknown";
-  }
-}
-
 static uint16
 le16(const uchar *p)
 {
@@ -629,8 +602,8 @@ le32(const uchar *p)
          ((uint32)p[2] << 16) | ((uint32)p[3] << 24);
 }
 
-static int
-is_fat32_boot_sector(const uchar *s)
+int
+fat32_is_boot_sector(const uchar *s)
 {
   return s[510] == 0x55 && s[511] == 0xaa &&
          le16(s + 11) == SECTOR_SIZE &&
@@ -814,18 +787,6 @@ fat_free_chain(uint32 cluster)
 }
 
 static int
-short_name_is_fsimg(const uchar *entry)
-{
-  static const char name[11] = {
-    'F', 'S', ' ', ' ', ' ', ' ', ' ', ' ', 'I', 'M', 'G'
-  };
-  for(int i = 0; i < 11; i++)
-    if(entry[i] != (uchar)name[i])
-      return 0;
-  return 1;
-}
-
-static int
 short_name_equal(const uchar *entry, const char *name11)
 {
   for(int i = 0; i < 11; i++)
@@ -866,42 +827,12 @@ find_root_file(uint32 root, const char *name11, uint32 *first_cluster,
   return -1;
 }
 
-static int
-find_fsimg(uint32 root, uint32 *first_cluster, uint32 *size)
-{
-  uint32 cluster = root;
-  for(uint32 visited = 0; visited < MAX_FILE_CLUSTERS; visited++){
-    if(cluster < 2 || cluster >= FAT32_EOC)
-      return -1;
-
-    uint32 first_sector = cluster_lba(cluster);
-    for(uint32 s = 0; s < diskmap.sectors_per_cluster; s++){
-      if(sdsector(first_sector + s, scratch, 0) < 0)
-        return -1;
-      for(int off = 0; off < SECTOR_SIZE; off += 32){
-        uchar *entry = scratch + off;
-        if(entry[0] == 0x00)
-          return -1;
-        if(entry[0] == 0xe5 || entry[11] == 0x0f || (entry[11] & 0x08))
-          continue;
-        if(short_name_is_fsimg(entry)){
-          *first_cluster = ((uint32)le16(entry + 20) << 16) |
-                           le16(entry + 26);
-          *size = le32(entry + 28);
-          return 0;
-        }
-      }
-    }
-    cluster = fat_next(cluster);
-  }
-  return -1;
-}
-
-static int
-setup_fat32(uint32 partition_lba, uint32 partition_sectors)
+// Mount the FAT32 volume whose boot sector is at partition_lba.
+int
+fat32mount(uint32 partition_lba, uint32 partition_sectors)
 {
   if(sdsector(partition_lba, scratch, 0) < 0 ||
-     !is_fat32_boot_sector(scratch))
+     !fat32_is_boot_sector(scratch))
     return -1;
 
   uint32 reserved = le16(scratch + 14);
@@ -957,8 +888,9 @@ setup_fat32(uint32 partition_lba, uint32 partition_sectors)
       diskmap.next_alloc_cluster = hint;
   }
 
+  // scratch now holds FSInfo, not the BPB; bytes/sector was checked above.
   printf("fat32: BPB lba=%d bytes/sector=%d sectors/cluster=%d\n",
-         partition_lba, le16(scratch + 11), diskmap.sectors_per_cluster);
+         partition_lba, SECTOR_SIZE, diskmap.sectors_per_cluster);
   printf("fat32: reserved=%d FATs=%d sectors/FAT=%d root-cluster=%d\n",
          reserved, fats, fat_sectors, root);
   printf("fat32: FAT lba=%d data lba=%d\n",
@@ -966,55 +898,10 @@ setup_fat32(uint32 partition_lba, uint32 partition_sectors)
   printf("fat32: allocator next-free hint=%d\n",
          diskmap.next_alloc_cluster);
 
-  // FAT32 is useful for firmware even when the root filesystem resides in a
-  // separate raw partition and FS.IMG no longer exists.
   diskmap.fat = 1;
-  diskmap.container = 0;
+  diskmap.mapped = 0;
   diskmap.cluster_count = 0;
   diskmap.file_size = 0;
-
-  uint32 first_cluster;
-  uint32 file_size;
-  if(find_fsimg(root, &first_cluster, &file_size) < 0)
-    return 0;
-  if(file_size < FSSIZE * BSIZE){
-    printf("fat32: FS.IMG too small: %d bytes\n", file_size);
-    return 0;
-  }
-
-  uint32 needed = (file_size +
-                    diskmap.sectors_per_cluster * SECTOR_SIZE - 1) /
-                   (diskmap.sectors_per_cluster * SECTOR_SIZE);
-  if(needed > MAX_FILE_CLUSTERS)
-    panic("fat32: FS.IMG cluster chain too long");
-
-  uint32 cluster = first_cluster;
-  for(uint32 i = 0; i < needed; i++){
-    if(cluster < 2 || cluster >= FAT32_EOC)
-      panic("fat32: short FS.IMG chain");
-    diskmap.clusters[i] = cluster;
-    diskmap.cluster_count++;
-    if(i + 1 < needed)
-      cluster = fat_next(cluster);
-  }
-
-  diskmap.file_size = file_size;
-  diskmap.container = 1;
-  return 0;
-}
-
-static int
-setup_raw_root(uint32 start, uint32 sectors)
-{
-  // xv6 block 1 is the superblock.  With 1024-byte blocks it starts two
-  // 512-byte sectors after the beginning of the partition.
-  if(start == 0 || sectors < FSSIZE * (BSIZE / SECTOR_SIZE) ||
-     sdsector(start + BSIZE / SECTOR_SIZE, scratch, 0) < 0 ||
-     le32(scratch) != FSMAGIC || le32(scratch + 4) != FSSIZE)
-    return -1;
-  diskmap.raw_root = 1;
-  diskmap.root_lba = start;
-  diskmap.root_sectors = sectors;
   return 0;
 }
 
@@ -1465,178 +1352,60 @@ void
 fat32init(void)
 {
   initlock(&fat32_lock, "fat32");
-  initlock(&rawroot_gate.lock, "rawroot-io");
-  rawroot_gate.readers = 0;
-  rawroot_gate.updating = 0;
-  if(sdsector(0, scratch, 0) < 0)
-    panic("fat32: sector 0");
-
-  // A superfloppy FAT32 volume has its BPB directly in sector zero.
-  if(is_fat32_boot_sector(scratch)){
-    if(setup_fat32(0, 0) == 0 && diskmap.container){
-      printf("fat32: FS.IMG found in superfloppy, size=%d\n",
-             diskmap.file_size);
-      return;
-    }
-    panic("xv6fs: FAT32 superfloppy has no FS.IMG");
-  }
-
-  // Otherwise inspect the four DOS/MBR partition entries.
-  if(scratch[510] == 0x55 && scratch[511] == 0xaa){
-    // setup_fat32() reuses scratch, so preserve all entries before probing.
-    uchar entries[4][16];
-    for(int i = 0; i < 4; i++)
-      for(int j = 0; j < 16; j++)
-        entries[i][j] = scratch[446 + i * 16 + j];
-
-    printf("fat32: MBR partition table\n");
-    for(int i = 0; i < 4; i++){
-      const uchar *part = entries[i];
-      uchar type = part[4];
-      uint32 start = le32(part + 8);
-      uint32 sectors = le32(part + 12);
-      uint32 end = sectors == 0 ? start : start + sectors - 1;
-      printf("fat32: p%d boot=%s type=0x%x (%s)\n",
-             i + 1, part[0] == 0x80 ? "yes" : "no",
-             type, partition_type_name(type));
-      printf("fat32:    start=%d end=%d sectors=%d size=%d MiB\n",
-             start, end, sectors, sectors / 2048);
-    }
-
-    // Root storage is independent from bootfs.  Prefer partition type 0x7f,
-    // but also accept another primary partition when its block-1 superblock
-    // carries the xv6 magic.  macOS diskutil can create MBR Linux partitions
-    // but cannot assign an arbitrary 0x7f type without editing the MBR.
-    for(int i = 0; i < 4; i++){
-      const uchar *part = entries[i];
-      uint32 start = le32(part + 8);
-      uint32 sectors = le32(part + 12);
-      if(part[4] != 0 && part[4] != 0x05 && part[4] != 0x0f &&
-         part[4] != 0x0b && part[4] != 0x0c &&
-         setup_raw_root(start, sectors) == 0){
-        printf("xv6fs: selected raw p%d lba=%d sectors=%d size=%d MiB\n",
-               i + 1, start, sectors, sectors / 2048);
-        break;
-      }
-    }
-
-    // bootfs is still needed for BCM/MT7601 firmware.  It no longer needs to
-    // contain FS.IMG when a valid raw xv6 partition was found.
-    for(int i = 0; i < 4; i++){
-      const uchar *part = entries[i];
-      uchar type = part[4];
-      uint32 start = le32(part + 8);
-      uint32 sectors = le32(part + 12);
-      if((type == 0x0b || type == 0x0c) && start != 0 &&
-         sectors != 0 && start <= 0xffffffffU - sectors &&
-         setup_fat32(start, sectors) == 0){
-        printf("fat32: selected p%d lba=%d", i + 1, start);
-        if(diskmap.container)
-          printf(" FS.IMG=%d bytes clusters=%d",
-                 diskmap.file_size, diskmap.cluster_count);
-        else
-          printf(" firmware-only (no FS.IMG)");
-        printf("\n");
-        break;
-      }
-    }
-
-    if(diskmap.raw_root)
-      return;
-    if(diskmap.container){
-      printf("xv6fs: using FAT32 FS.IMG compatibility mapping\n");
-      return;
-    }
-    panic("xv6fs: no raw partition or FS.IMG");
-  }
-
-  // QEMU development mode attaches fs.img itself as the SD card.
-  diskmap.fat = 0;
-  printf("fat32: no FS.IMG container; using raw xv6 image\n");
 }
 
+// Record the cluster chain of one root-directory file so that it can be
+// addressed as a flat run of 512-byte sectors.  Only one file is mapped at a
+// time; rootdev.c uses this for the FS.IMG compatibility layout.  Called
+// once during boot, before other CPUs or processes touch FAT32.
 int
-fat32_raw_root_info(uint32 *lba, uint32 *sectors)
+fat32mapfile(char *name11, uint32 *bytes)
 {
-  if(!diskmap.raw_root || lba == 0 || sectors == 0)
+  uint32 first_cluster, file_size;
+  if(!diskmap.fat || name11 == 0 || bytes == 0)
     return -1;
-  *lba = diskmap.root_lba;
-  *sectors = diskmap.root_sectors;
+  diskmap.mapped = 0;
+  diskmap.cluster_count = 0;
+  diskmap.file_size = 0;
+  if(find_root_file(diskmap.root_cluster, name11,
+                    &first_cluster, &file_size) < 0)
+    return -1;
+
+  uint32 cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
+  uint32 needed = (file_size + cluster_bytes - 1) / cluster_bytes;
+  if(needed > MAX_FILE_CLUSTERS){
+    printf("fat32: mapped file has too many clusters\n");
+    return -1;
+  }
+  uint32 cluster = first_cluster;
+  for(uint32 i = 0; i < needed; i++){
+    if(cluster < 2 || cluster >= FAT32_EOC){
+      printf("fat32: mapped file has a short cluster chain\n");
+      diskmap.cluster_count = 0;
+      return -1;
+    }
+    diskmap.clusters[i] = cluster;
+    diskmap.cluster_count++;
+    if(i + 1 < needed)
+      cluster = fat_next(cluster);
+  }
+  diskmap.file_size = file_size;
+  diskmap.mapped = 1;
+  *bytes = file_size;
   return 0;
 }
 
-// Quiesce the mounted native root before it is replaced in place.  Log
-// transactions are stopped first; then plain reads already in fat32rw drain.
-// The gate is intentionally never reopened because cached inodes and buffers
-// describe the old image.  The updater must reboot after completing the copy.
+// Card sector holding sector file_sector of the file mapped above.  The map
+// is read-only after boot, so no lock is needed.
 int
-fat32_root_update_begin(void)
+fat32mapsector(uint32 file_sector, uint32 *lba)
 {
-  if(!diskmap.raw_root)
+  if(!diskmap.mapped || lba == 0)
     return -1;
-  if(rootfs_freeze_for_update() < 0)
-    return -1;
-  acquire(&rawroot_gate.lock);
-  rawroot_gate.updating = 1;
-  while(rawroot_gate.readers != 0)
-    sleep(&rawroot_gate, &rawroot_gate.lock);
-  release(&rawroot_gate.lock);
-  return 0;
-}
-
-static void
-rawroot_io_enter(void)
-{
-  acquire(&rawroot_gate.lock);
-  while(rawroot_gate.updating)
-    sleep(&rawroot_gate, &rawroot_gate.lock);
-  rawroot_gate.readers++;
-  release(&rawroot_gate.lock);
-}
-
-static void
-rawroot_io_exit(void)
-{
-  acquire(&rawroot_gate.lock);
-  if(--rawroot_gate.readers == 0)
-    wakeup(&rawroot_gate);
-  release(&rawroot_gate.lock);
-}
-
-static uint32
-file_sector_lba(uint32 file_sector)
-{
-  if(diskmap.raw_root){
-    if(file_sector >= diskmap.root_sectors)
-      panic("xv6fs: sector outside raw partition");
-    return diskmap.root_lba + file_sector;
-  }
-  if(!diskmap.container)
-    return file_sector;
-
   uint32 index = file_sector / diskmap.sectors_per_cluster;
   uint32 within = file_sector % diskmap.sectors_per_cluster;
   if(index >= diskmap.cluster_count)
-    panic("fat32: file sector outside FS.IMG");
-  return cluster_lba(diskmap.clusters[index]) + within;
-}
-
-void
-fat32rw(struct buf *b, int write)
-{
-  if(!holdingsleep(&b->lock))
-    panic("fat32rw: buf not locked");
-  if(b->blockno >= FSSIZE)
-    panic("fat32rw: blockno too big");
-
-  uint32 first = b->blockno * (BSIZE / SECTOR_SIZE);
-  rawroot_io_enter();
-  acquire(&fat32_lock);
-  for(int i = 0; i < BSIZE / SECTOR_SIZE; i++){
-    uint32 lba = file_sector_lba(first + i);
-    if(sdsector(lba, b->data + i * SECTOR_SIZE, write) < 0)
-      panic(write ? "fat32: write FS.IMG" : "fat32: read FS.IMG");
-  }
-  release(&fat32_lock);
-  rawroot_io_exit();
+    return -1;
+  *lba = cluster_lba(diskmap.clusters[index]) + within;
+  return 0;
 }

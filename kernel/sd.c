@@ -500,6 +500,32 @@ sdsector(uint32 sector, void *buffer, int write)
   return result;
 }
 
+int
+sdflush(void)
+{
+  if(!sd_ready)
+    return -1;
+  acquire(&sdlock);
+  asm volatile("dsb sy" ::: "memory");
+  uint64 deadline = r_cntvct_el0() + 5ULL * r_cntfrq_el0();
+  int result = -1;
+  for(;;){
+    uint32 status = 0;
+    if(send_command(CMD_INDEX(13) | CMD_RSPNS_48 | CMD_CRCCHK_EN |
+                    CMD_IXCHK_EN, sd_rca << 16, &status) == 0 &&
+       (status & (1U << 8)) && ((status >> 9) & 0xf) == 4){
+      result = 0;
+      break;
+    }
+    if(r_cntvct_el0() >= deadline)
+      break;
+    sd_delay_us(1000);
+  }
+  asm volatile("dsb sy" ::: "memory");
+  release(&sdlock);
+  return result;
+}
+
 static int
 sd_probe(struct device *dev)
 {

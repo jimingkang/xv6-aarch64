@@ -1,0 +1,459 @@
+\chapter{可选工作}
+\label{chap:optional}
+
+\begin{introduction}[本章内容]
+  \item 为什么要在 xv6 里读写 ext2，分区与日志放在哪里
+  \item ext2 的磁盘结构：superblock、块组、inode、目录
+  \item 从文件偏移到块号：直接块与三级间接块
+  \item 接入 VFS：按 inode 打开、孤儿 inode
+  \item 持久化：\code{sdflush()} 写屏障
+  \item 外置事务日志 xjournal：格式、提交协议、崩溃恢复
+  \item 用 WAL 程序和随机断电做测试
+\end{introduction}
+
+前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致。代码在 \file{kernel/ext2.c}、\file{kernel/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
+
+\section{ext2 读写与外置事务日志}
+\label{sec:ext2}
+
+\subsection{动机与分区布局}
+
+xv6 的根文件系统（第~\ref{chap:fs} 章）只有 xv6 自己认识，开发机上的 macOS 或 Linux 无法直接打开它。要在两边交换文件，需要一种双方都懂的格式。FAT32 启动分区可以，但它只支持根目录、没有权限位，平时也不该频繁写。ext2 是 Linux 最经典的文件系统，结构简单、文档齐全，非常适合在教学内核里实现。
+
+第~\ref{sec:vfs} 节介绍 VFS 时，ext2 后端还只能读：只支持直接块和一级间接块，默认按只读挂载。本节把它补成一个可写的后端，并解决可写之后立刻出现的问题：写到一半断电怎么办。
+
+ext2 放在 SD 卡的第三个分区，xv6 根文件系统仍在 p2，二者互不替代（图~\ref{fig:ext2-card}）。ext2 本身没有日志，这里给它配了一个\emph{外置}的事务日志，放在 p2 尾部：p2 有 400\,MiB，xv6 镜像只用前 32\,MiB（\code{FSSIZE} $=$ 32768 块，即 65536 扇区），后面的空间本来就闲着。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{seg/.style={draw=structurecolor!70!black, minimum height=10mm, inner sep=1pt, align=center, anchor=west}}
+    \node[lab, anchor=east] at (-1,30) {整张卡};
+    \node[seg, fill=gray!20, minimum width=10mm] (mbr) at (0,30) {MBR};
+    \node[seg, fill=structurecolor!20, minimum width=30mm] (p1) at (mbr.east) {p1 FAT32\\\code{/boot}};
+    \node[seg, fill=orange!15, minimum width=46mm] (p2) at (p1.east) {p2 xv6 原始分区\\\code{/}，LBA 208896 起};
+    \node[seg, fill=green!12, minimum width=40mm] (p3) at (p2.east) {p3 ext2\\\code{/mnt/ext2}，LBA 1030144 起};
+    \node[lab, anchor=east] at (-1,8) {p2 内部};
+    \node[seg, fill=orange!25, minimum width=46mm] (img) at (0,8) {xv6 根文件系统\\65536 扇区（32\,MiB）};
+    \node[seg, fill=structurecolor!30, minimum width=14mm] (desc) at (img.east) {描述符\\9 扇区};
+    \node[seg, fill=structurecolor!15, minimum width=34mm] (pay) at (desc.east) {载荷\\$\le$1024 扇区};
+    \node[seg, fill=red!15, minimum width=12mm] (cr) at (pay.east) {提交\\记录};
+    \node[seg, fill=gray!5, minimum width=20mm] (un) at (cr.east) {未用};
+    \draw[gray!60, dashed] (p2.south west) -- (img.north west);
+    \draw[gray!60, dashed] (p2.south east) -- (un.north east);
+    \node[lab, anchor=north] at (desc.south west) {274432};
+    \node[lab, anchor=north] at (cr.south) {275465};
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror}] ([yshift=-5mm]desc.south west) -- node[lab, below=3pt]{xjournal：共 1034 扇区，只保护 p3 的 ext2} ([yshift=-5mm]cr.south east);
+  \end{tikzpicture}
+  \caption{ext2 与外置日志在 SD 卡上的位置。下排数字是真机上的绝对 LBA：日志起点 $=$ p2 起点 208896 $+$ 65536}
+  \label{fig:ext2-card}
+\end{figure}
+
+日志的位置在启动时算出。\code{ext2init()} 先向根块设备（第~\ref{sec:rootfs} 节）要 p2 的位置，再跳过 xv6 镜像：
+
+\begin{ccode}
+uint32 rlba, rsec, jstart = FSSIZE * (BSIZE / SECTOR);     // 65536
+if(rootdev_raw_info(&rlba, &rsec) == 0 && rsec > jstart &&
+   xj_init(rlba + jstart, rsec - jstart) == 0)               // 先恢复日志
+  e2.journal = 1;
+else
+  printf("ext2: no raw xv6 root partition; external journal disabled\n");
+\end{ccode}
+
+\code{xj\_init()} 在解析任何 ext2 元数据之前就检查并重放日志，这样后面读到的 superblock 和位图都已经是一致的。QEMU 裸镜像没有 p2，这时日志关闭，ext2 退回逐扇区同步写。更新根文件系统的 \code{/dev/sdroot}（第~\ref{sec:xv6fs} 节）只写前 \code{FSSIZE} 块，不会碰到日志区。
+
+\subsection{ext2 的磁盘结构}
+
+ext2 把分区切成大小相同的\emph{块}（1、2 或 4\,KiB），再把连续的块分成若干\emph{块组}。每个块组都有自己的位图和 inode 表，这样文件的数据块可以和它的 inode 放在同一个组里，减少磁头移动——这是为机械硬盘设计的，但结构本身对 SD 卡同样适用。图~\ref{fig:ext2-layout} 是 4\,KiB 块时第 0 组的布局。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{seg/.style={draw=structurecolor!70!black, minimum height=11mm, inner sep=1pt, align=center, anchor=west}}
+    \node[seg, fill=gray!15, minimum width=22mm] (b0) at (0,20) {块 0\\引导 1\,KiB +\\superblock};
+    \node[seg, fill=structurecolor!25, minimum width=16mm] (gdt) at (b0.east) {块 1\\组描述符表};
+    \node[seg, fill=orange!25, minimum width=16mm] (bb) at (gdt.east) {块位图\\1 块};
+    \node[seg, fill=orange!15, minimum width=16mm] (ib) at (bb.east) {inode 位图\\1 块};
+    \node[seg, fill=green!15, minimum width=28mm] (it) at (ib.east) {inode 表\\每项 256 字节};
+    \node[seg, fill=gray!5, minimum width=38mm] (data) at (it.east) {数据块\\文件内容、目录、间接块};
+    \draw[decorate, decoration={brace, amplitude=3pt}] ([yshift=1mm]b0.north west) -- node[lab, above=3pt]{第 0 组（\code{blocks\_per\_group} 块，4\,KiB 块时为 32768 块 $=$ 128\,MiB）} ([yshift=1mm]data.north east);
+    \node[box, font=\scriptsize, text width=46mm, align=left] (sb) at (24,0) {superblock（偏移 1024）\\块数、inode 数、块大小、每组块数、魔数 \code{0xEF53}、特性位};
+    \node[box, font=\scriptsize, text width=52mm, align=left] (gd) at (88,0) {组描述符（每组 32 字节）\\块位图、inode 位图、inode 表的块号；空闲块数、空闲 inode 数};
+    \draw[arr] (sb.north) -- (b0.south);
+    \draw[arr] (gd.north) -- (gdt.south);
+    \draw[darr] (gd.north east) to[bend right=20] (it.south);
+  \end{tikzpicture}
+  \caption{ext2 第 0 块组的布局。其他块组结构相同；开启 \code{sparse\_super} 时只有第 0、1 和 3、5、7 的幂次组保存 superblock 与描述符表的备份}
+  \label{fig:ext2-layout}
+\end{figure}
+
+\code{setup\_ext2()} 从 superblock 读取表~\ref{tab:ext2-sb} 中的字段，并在用之前逐个检查。最重要的是三组\emph{特性位}：\code{compat} 中的 \code{has\_journal} 说明这是 ext3/ext4，\code{incompat} 中除 \code{filetype} 以外的任何一位（如 extent、64 位块号）都意味着本驱动看不懂磁盘布局。遇到这些就拒绝挂载，而不是把一个 ext4 分区当成 ext2 去写坏它。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{setup\_ext2()} 读取的 superblock 字段}
+  \label{tab:ext2-sb}
+  \small
+  \begin{tabular}{@{}rll@{}}
+    \toprule
+    偏移 & 字段 & 用途 \\
+    \midrule
+    0 / 4 & \code{inodes\_count} / \code{blocks\_count} & 越界检查；块数 $\times$ 块大小不能超过分区 \\
+    12 / 16 & 空闲块数 / 空闲 inode 数 & 分配、释放时加减 \\
+    20 & \code{first\_data\_block} & 1\,KiB 块时为 1，否则为 0 \\
+    24 & \code{log\_block\_size} & 块大小 $= 1024 \ll$ 该值 \\
+    32 / 40 & 每组块数 / 每组 inode 数 & 块号、inode 号到组号的换算 \\
+    56 & \code{magic} & 必须是 \code{0xEF53} \\
+    58 & \code{state} & 第一次写时清除 \code{VALID\_FS} \\
+    88 & \code{inode\_size} & 动态版本里一般为 256 \\
+    92 / 96 / 100 & \code{compat} / \code{incompat} / \code{ro\_compat} & 拒绝 journal、extent、64bit 等 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{inode 与目录.} inode 号从 1 开始，2 号是根目录。找 $n$ 号 inode 时，先算组号 $g = (n-1)/\text{每组 inode 数}$ 和组内序号 $i = (n-1) \bmod \text{每组 inode 数}$，读第 $g$ 个组描述符拿到 inode 表的块号，inode 就在表内偏移 $i \times \text{inode\_size}$ 处：
+
+\begin{ccode}
+gd_off = (uint64)e2.gd_block * e2.block_size + group * e2.desc_size;
+diskbytes(gd_off, inodebuf, e2.desc_size);
+table = le32(inodebuf + 8);                                // inode 表块号
+off = (uint64)table * e2.block_size + (uint64)index * e2.inode_size;
+diskbytes(off, inodebuf, e2.inode_size);
+ip->mode  = le16(inodebuf);        ip->links = le16(inodebuf + 26);
+ip->size  = le32(inodebuf + 4);
+if((ip->mode & EXT2_S_IFMT) == EXT2_S_IFREG)               // 普通文件的高 32 位
+  ip->size |= (uint64)le32(inodebuf + 108) << 32;
+for(int i = 0; i < 15; i++) ip->block[i] = le32(inodebuf + 40 + i*4);
+\end{ccode}
+
+\code{off} 必须用 64 位计算：一个几 GiB 的分区里，后面块组的 inode 表很可能位于 4\,GiB 之后，32 位乘法会悄悄溢出，读到另一个位置的“inode”。文件大小同理，高 32 位放在 inode 偏移 108 处。
+
+目录是普通的数据块，里面是一串变长目录项：inode 号（4 字节）、本项长度 \code{rec\_len}（2 字节）、名字长度和文件类型（各 1 字节），然后是名字。删除一项时不移动后面的数据，而是把它的 \code{rec\_len} 并入前一项；新增时找一个 \code{rec\_len} 比实际需要大的项把它切开。\code{e2dirlookup()}、\code{e2diradd()}、\code{e2dirremove()}、\code{e2dirreplace()} 分别实现查找、插入、删除和改指向。
+
+\subsection{从文件偏移到块号}
+
+inode 的 \code{block[15]} 是一棵最多四层的树（图~\ref{fig:ext2-blocks}）：前 12 项直接指向数据块，第 13 项指向一个装满块号的\emph{间接块}，第 14、15 项分别多套一层和两层。4\,KiB 块时每个间接块能放 $n = 1024$ 个块号，所以一个文件最多有
+\[
+  12 + n + n^2 + n^3 = 12 + 1024 + 1\,048\,576 + 1\,073\,741\,824 \text{ 块} \approx 4\,\text{TiB}.
+\]
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      cell/.style={draw=structurecolor!70!black, minimum width=8mm, minimum height=5mm, inner sep=0pt, fill=structurecolor!10},
+      blk/.style={box, font=\scriptsize, minimum height=6mm, inner sep=1.5pt}]
+    \node[lab] at (-6,40) {\code{block[]}};
+    \foreach \i/\t in {0/0, 1/1, 2/\ldots, 3/11}
+      \node[cell] (c\i) at (\i*8+6,40) {\t};
+    \foreach \i/\t in {4/12, 5/13, 6/14}
+      \node[cell, fill=orange!20] (c\i) at (\i*8+6,40) {\t};
+    \node[blk, fill=gray!8] (d0) at (6,26) {数据};
+    \node[blk, fill=gray!8] (d11) at (30,26) {数据};
+    \draw[arr] (c0.south) -- (d0.north);
+    \draw[arr] (c3.south) -- (d11.north);
+    \node[blk, fill=orange!15] (s1) at (46,26) {间接块};
+    \node[blk, fill=gray!8] (s1d) at (46,12) {数据 $\times n$};
+    \draw[arr] (c4.south) -- (s1.north); \draw[arr] (s1) -- (s1d);
+    \node[blk, fill=orange!15] (dd1) at (68,26) {二级间接};
+    \node[blk, fill=orange!15] (dd2) at (68,12) {间接 $\times n$};
+    \node[blk, fill=gray!8] (dd3) at (68,0) {数据 $\times n^2$};
+    \draw[arr] (c5.south) to[out=-60,in=120] (dd1.north); \draw[arr] (dd1) -- (dd2); \draw[arr] (dd2) -- (dd3);
+    \node[blk, fill=orange!15] (t1) at (96,40) {三级间接};
+    \node[blk, fill=orange!15] (t2) at (96,26) {二级 $\times n$};
+    \node[blk, fill=orange!15] (t3) at (96,12) {间接 $\times n^2$};
+    \node[blk, fill=gray!8] (t4) at (96,0) {数据 $\times n^3$};
+    \draw[arr] (c6.east) -- (t1.west); \draw[arr] (t1) -- (t2); \draw[arr] (t2) -- (t3); \draw[arr] (t3) -- (t4);
+    \node[lab, align=left, anchor=west] at (106,26) {逻辑块 $\ge 12+n+n^2$\\走这一支};
+  \end{tikzpicture}
+  \caption{ext2 inode 的块指针树。块号为 0 表示空洞：读时返回全 0，写时才分配}
+  \label{fig:ext2-blocks}
+\end{figure}
+
+\code{fileblock()} 按逻辑块号依次减去每一层能覆盖的块数，落到哪一层就沿哪一支往下读：
+
+\begin{ccode}
+static uint32 fileblock(struct einode *ip, uint64 logical) {
+  uint64 n = e2.block_size / 4;
+  if(logical < 12) return ip->block[logical];
+  logical -= 12;
+  if(logical < n){                                          // 一级间接
+    if(ip->block[12] == 0 || readblock(ip->block[12], ptrbuf[0]) < 0) return 0;
+    return ptrbuf[0][logical];
+  }
+  logical -= n;
+  if(logical < n*n){ ... 读 block[13]，再读 ptrbuf[0][logical / n] ... }
+  logical -= n*n;                                           // 三级间接
+  ... 读 block[14]，再依次取 logical / n²、(logical % n²) / n、logical % n ...
+}
+\end{ccode}
+
+三层用三个独立的 4\,KiB 缓冲 \code{ptrbuf[0..2]}，它们是全局变量而不是局部数组——内核栈只有 4\,KiB，放不下其中任何一个（第~\ref{chap:drivers} 章的摄像头调试记录里有过同样的教训）。所有 ext2 操作都持着同一把锁，所以全局缓冲是安全的。
+
+写的方向由 \code{set\_fileblock()} 和 \code{get\_or\_alloc\_fileblock()} 完成：路径上缺哪一层间接块就分配哪一层。截断时 \code{clear\_fileblock()} 释放数据块，再检查它所在的间接块是否已经全为 0（\code{ptr\_empty()}），是就把间接块也释放掉，逐层向上。\code{waltest large} 在偏移 5\,GiB 处写一个字节：$5\,\text{GiB}/4\,\text{KiB} = 1\,310\,720 > 12 + n + n^2$，正好走到三级间接这一支，文件只占 4 个块。
+
+\subsection{分配与释放}
+
+分配一个数据块要改三处：块位图里的一位、组描述符里的空闲块数、superblock 里的空闲块数。\code{alloc\_block()} 从首选的组开始找第一个空闲位：
+
+\begin{ccode}
+for(uint32 bit = 0; bit < count; bit++){
+  if((blockbuf[bit >> 3] & (1U << (bit & 7))) != 0) continue;
+  if(freed_in_tx(first + bit)) continue;        // 本事务刚释放的块，暂不复用
+  blockbuf[bit >> 3] |= 1U << (bit & 7);
+  writeblock(bitmap, blockbuf);                 // 位图
+  put16(gd + 12, le16(gd + 12) - 1);
+  writegd(group, gd);                           // 组描述符
+  adjust_super_count(12, -1);                   // superblock
+  *out = first + bit;
+  memset(blockbuf, 0, e2.block_size);
+  writeblock_data(*out, blockbuf);              // 新块清零，直接写
+  return 0;
+}
+\end{ccode}
+
+两处细节和后面的日志有关。第一，\code{freed\_in\_tx()}：一个块如果在\emph{同一个事务里}刚被释放，就不能立刻再分配出去并原地改写——事务一旦中止或者断电，释放会被撤销，这个块又回到原主人手里，内容却已经是别人的了。第二，新块直接清零而不经过日志：在事务提交之前，没有任何 inode 指向它，写什么都不会被看见。
+
+inode 的分配（\code{alloc\_inode()}）和释放（\code{free\_inode()}）是同样的三步，只是改的是 inode 位图和空闲 inode 数；目录还要维护组描述符里的目录计数。
+
+\subsection{接入 VFS：按 inode 打开}
+
+第~\ref{sec:vfs} 节的 VFS 最初是“按路径”的：每次 \code{read}、\code{write} 都把路径传给后端重新查找。对 ext2 这会带来两个问题：每次读写都要从根目录走一遍；更糟的是，文件被重命名或删除以后，已经打开的描述符会突然指向别的文件，或者失效。Unix 的语义是：打开的是 inode，而不是名字。
+
+为此 \code{vnode\_ops} 增加了一组可选的\emph{句柄}操作：
+
+\begin{ccode}
+struct vnode_ops {
+  ...                                                       // 原来的按路径操作
+  int  (*open)(char*, uint64*);                  // 解析一次路径，返回句柄
+  void (*release)(uint64);                       // 最后一次 close
+  int  (*hstat)(uint64, struct stat*);
+  int  (*hread)(uint64, uint64, void*, int);     // 句柄、偏移、缓冲、长度
+  int  (*hwrite)(uint64, uint64, int, uint64, int);
+  int  (*htruncate)(uint64, uint64);
+};
+\end{ccode}
+
+\code{vfsopen()} 打开普通文件时，如果后端提供了 \code{open}，就调用它得到句柄并记在 vnode 里，之后的 \code{read}/\code{write}/\code{fstat}/\code{ftruncate} 都走句柄版本。ext2 的句柄就是 inode 号；\code{ext2open()} 还在一个小表 \code{e2.open[]} 里给这个 inode 记一个引用计数。
+
+有了引用计数，就能实现“删除仍被打开的文件”：\code{unlink} 或被 \code{rename} 覆盖时，目录项立即消失；如果 inode 的链接数降到 0 而它还被打开着，\code{drop\_link()} 只把它标成\emph{孤儿}，块不释放。旧描述符照常读写原来的数据，最后一次 \code{close} 时 \code{ext2release()} 才在一个事务里截断并释放 inode。
+
+\code{rename} 也补全了 POSIX 语义：目标已存在时原子地替换它（类型必须相同，目录必须为空）；把目录移进它自己的子树会被 \code{is\_ancestor()} 拒绝——否则这棵子树会从根上脱落，形成一个环。
+
+\paragraph{锁.} 所有 ext2 操作由睡眠锁 \code{e2.lock} 串行化。最初用的是自旋锁，但 SD 卡是轮询 PIO，一次 \code{fsync} 最长可能等 5 秒，持自旋锁期间 CPU 一直关着中断，键盘和网络都会卡住。换成睡眠锁后，等待的进程会让出 CPU。
+
+\subsection{持久化：\code{sdflush()} 写屏障}
+
+\code{sdsector(lba, buf, 1)} 返回时，CMD24 的数据已经传给卡，但卡可能还在内部把它编程进 NAND。这时断电，这个扇区可能是新的、旧的，甚至是坏的。要建立“之前的写都已落盘”这样一个边界，需要单独的屏障：
+
+\begin{ccode}
+int sdflush(void) {                                         // kernel/sd.c
+  acquire(&sdlock);                                         // 与所有传输互斥
+  asm volatile("dsb sy" ::: "memory");
+  uint64 deadline = r_cntvct_el0() + 5ULL * r_cntfrq_el0();
+  for(;;){
+    uint32 status = 0;
+    if(send_command(CMD_INDEX(13) | CMD_RSPNS_48 | CMD_CRCCHK_EN | CMD_IXCHK_EN,
+                    sd_rca << 16, &status) == 0 &&
+       (status & (1U << 8)) && ((status >> 9) & 0xf) == 4)  // READY_FOR_DATA，TRAN 态
+      return 0;                                             // （省略解锁与超时）
+    ...
+  }
+}
+\end{ccode}
+
+CMD13 读卡的状态寄存器。第 8 位 \code{READY\_FOR\_DATA} 置位、第 9～12 位的状态回到 TRAN（4），说明卡已经处理完之前的写，可以接受新命令。因为 \code{sdflush()} 持有块设备锁，屏障之后的写也不可能越过它。SD 6.x 规范还定义了一个可选的写缓存，需要专门的 Flush Cache 命令；本驱动没有启用它，所以 CMD13 就是当前支持的卡的持久化边界。
+
+xv6 原生日志（第~\ref{chap:fs} 章）也在四个位置用上了这个屏障：日志内容 → flush → 提交头 → flush → 写回原位 → flush → 清提交头 → flush。下面的 xjournal 用的是同一个思路。
+
+\subsection{外置事务日志 xjournal}
+
+\paragraph{要解决的问题.} 一次 \code{rename} 要改新目录的数据块、旧目录的数据块，覆盖已有文件时还要改目标 inode、位图和计数，一共可能十几个扇区。这些写落在卡上的不同位置，断电可能发生在任意两次之间，留下“两个名字指向同一个 inode”或者“块已分配但没人用”的状态。ext2 本身对此无能为力，只能事后让 \code{e2fsck} 修。
+
+xjournal 的思路与 xv6 原生日志相同：先把一次操作要写的所有元数据扇区完整地写到一块独立的区域，写一个“提交”标记，然后才写回原位。断电后只要看到提交标记就重放一遍，没看到就当这次操作没发生。区别在于它工作在 \emph{512 字节扇区}一层，不依赖 xv6 的块缓存，也不知道 ext2 的格式，所以叫“外置”。
+
+\paragraph{接口.} 客户（这里是 ext2）在每个修改型操作前后调用 \code{xj\_begin()} 和 \code{xj\_commit()}；中间的写调用 \code{xj\_write()}，它不写卡，而是把扇区存进事务缓冲；读调用 \code{xj\_read()}，命中缓冲时返回未提交的新内容，这样同一个操作后面的步骤能看到前面的修改。缓冲是 128 个物理页（1024 个扇区），启动时分配。ext2 只在两个函数里接入它：
+
+\begin{ccode}
+static int e2_rsector(uint32 lba, void *buf) {
+  if(e2.journal && xj_read(lba, buf))                       // 先查事务缓冲
+    return 0;
+  return sdsector(lba, buf, 0);
+}
+
+static int e2_wsector(uint32 lba, const void *buf) {
+  if(e2.journal && xj_active() && (!e2.direct || xj_contains(lba)))
+    return xj_write(lba, buf);                              // 元数据：进事务
+  return sdsector(lba, (void*)buf, 1);                      // 文件数据：直接写
+}
+\end{ccode}
+
+\paragraph{ordered 模式.} 文件内容不进日志，由 \code{writeblock\_data()} 置 \code{e2.direct} 后直接写回原位。这借鉴的是 ext3 的 \code{data=ordered}：数据先落盘，引用它的元数据（inode 里的块号、文件大小）后提交。新分配的块在提交前没人能看到，所以永远不会出现“文件里有一段垃圾”；覆盖已有数据则不保证原子——这与 Linux 上的语义一致，需要原子更新的程序应该自己用 WAL（见下一小节的 \code{waltest}）。这样做让日志只承载元数据，一个事务 1024 个扇区的容量对绝大多数操作都绰绰有余。
+
+\paragraph{磁盘格式与提交协议.} 日志区分三部分（图~\ref{fig:ext2-card}）：9 个扇区的\emph{描述符}（魔数 \code{XJD1}、序号、扇区数和每个扇区的原位 LBA，$16 + 4\times1024$ 字节恰好需要 9 个扇区）、最多 1024 个扇区的\emph{载荷}，以及 1 个扇区的\emph{提交记录}（魔数 \code{XJC1}、序号、扇区数、整个事务的校验和，再加一个对这 16 字节自身的校验和）。校验和用 32 位 FNV-1a，覆盖描述符和全部载荷。提交分四步，每步后面都有一次 \code{sdflush()}（图~\ref{fig:xj-commit}）：
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      st/.style={box, font=\scriptsize, minimum height=9mm, text width=24mm, align=center},
+      fl/.style={draw=red!60!black, fill=red!10, rounded corners=1pt, font=\scriptsize, inner sep=1.5pt, minimum height=9mm, text width=7mm, align=center}]
+    \node[st] (s1) at (14,20) {\textbf{1} 写描述符\\和载荷};
+    \node[fl] (f1) at (32,20) {flush};
+    \node[st, fill=red!15] (s2) at (50,20) {\textbf{2} 写提交记录\\（提交点）};
+    \node[fl] (f2) at (68,20) {flush};
+    \node[st] (s3) at (86,20) {\textbf{3} 载荷写回\\原位 LBA};
+    \node[fl] (f3) at (104,20) {flush};
+    \node[st] (s4) at (122,20) {\textbf{4} 清除\\提交记录};
+    \node[fl] (f4) at (140,20) {flush};
+    \foreach \a/\b in {s1/f1, f1/s2, s2/f2, f2/s3, s3/f3, f3/s4, s4/f4} \draw[arr] (\a) -- (\b);
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror}] (2,13) -- node[lab, below=3pt, align=center]{此处断电：没有有效提交记录\\→ 丢弃，操作“没发生”} (58,13);
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror}] (62,13) -- node[lab, below=3pt, align=center]{此处断电：提交记录有效\\→ 启动时重放 3、4 两步} (130,13);
+    \node[lab, align=left, anchor=west] at (2,30) {之前 ordered 模式下直接写的文件数据，被第 1 步后的 flush 一起“压”到卡上};
+  \end{tikzpicture}
+  \caption{xjournal 的提交协议。四次 \code{sdflush()} 把四步严格排序；提交点之前和之后的断电有两种确定的结局}
+  \label{fig:xj-commit}
+\end{figure}
+
+\begin{ccode}
+int xj_commit(void) {                                       // kernel/xjournal.c，节选
+  ...
+  uint32 sum = txsum(count);                               // 描述符 + 载荷的 FNV
+  // 1. 描述符和载荷；这次 flush 也保证此前直接写的数据已经落盘
+  for(uint32 i = 0; i < XJ_DESC; i++)  sdsector(xj.start + i, desc + i*512, 1);
+  for(uint32 i = 0; i < count; i++)    sdsector(xj.start + XJ_DESC + i, slot(i), 1);
+  if(sdflush() < 0) goto fail;
+  // 2. 提交记录：这个扇区落盘的那一刻，事务就生效了
+  make_commit(seq, count, sum);
+  if(sdsector(xj.start + XJ_DESC + XJ_CAP, xj.commit, 1) < 0 || sdflush() < 0)
+    goto fail;
+  // 3./4. 写回原位并清除提交记录；失败也没关系，下次启动会重放
+  if(write_home(count) < 0 || clear_commit() < 0)
+    printf("xjournal: checkpoint of seq=%d incomplete; replay at boot\n", seq);
+  return 0;
+fail:
+  printf("xjournal: commit of seq=%d failed before commit point\n", seq);
+  return -1;
+}
+\end{ccode}
+
+提交点是一个扇区的写入。SD 卡保证单个扇区的写要么完成、要么不生效吗？并不完全保证，所以提交记录自带一个校验和：写坏的提交记录校验不过，等同于没有。
+
+\paragraph{崩溃恢复.} \code{recover()} 在 \code{xj\_init()} 里执行，顺序是：读提交记录并校验它自身；读描述符，确认魔数、序号和扇区数与提交记录一致；读载荷，重算整个事务的校验和并与提交记录比较；全部通过才把载荷写回原位、清除提交记录。任何一步不符都丢弃——描述符或载荷写到一半时断电，校验和必然对不上。表~\ref{tab:xj-crash} 列出了各个断电时刻的结局。
+
+\begin{table}[htbp]
+  \centering
+  \caption{断电时刻与恢复结果}
+  \label{tab:xj-crash}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXl@{}}
+    \toprule
+    断电发生在 & 磁盘状态 & 启动时 \\
+    \midrule
+    第 1 步期间或之后 & 原位元数据未动；日志里有半个或一整个事务，但没有提交记录 & 无事可做，操作没发生 \\
+    第 2 步期间 & 提交记录可能是旧的 0 扇区或写坏的扇区 & 校验失败，丢弃 \\
+    第 3 步期间 & 原位一部分是新的、一部分是旧的 & 重放：\code{xjournal: replayed seq=N} \\
+    第 4 步期间 & 原位已全部更新，提交记录还在 & 再重放一次（幂等），结果相同 \\
+    第 4 步之后 & 一切都是新的 & 无事可做 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+重放是幂等的：载荷是扇区的完整新内容，而不是“加 1”“置位”这样的增量，写一次和写两次结果一样。这让恢复本身被打断也没有关系，下次启动再来一遍即可。
+
+\paragraph{ext2 怎样使用事务.} 每个修改型操作的外形都一样，以 \code{rename} 为例：
+
+\begin{ccode}
+int ext2rename(char *oldpath, char *newpath) {
+  acquiresleep(&e2.lock);
+  tx_begin();                                               // xj_begin()，清空 freed[]
+  int r = tx_end(rename_locked(oldpath, newpath) == 0);     // 成功则提交，失败则中止
+  releasesleep(&e2.lock);
+  return r;
+}
+\end{ccode}
+
+\code{tx\_end(0)} 调用 \code{xj\_abort()}，事务缓冲被直接丢掉，这次操作对磁盘的元数据没有留下任何痕迹。以前 \code{rename} 中途失败（比如目标目录满了又分配不到新块）会留下“新名字加上了、旧名字没删”的状态，有了事务就不会了。
+
+少数操作会超过一个事务的容量：截断一个几 GiB 的文件要改成千上万个位图扇区。\code{tx\_checkpoint()} 在剩余空间不足 96 个扇区时，先把 inode 以\emph{当前已截断到的大小}写入事务并提交，再开一个新事务继续。每个分段的终点都是一个一致的状态：inode 的大小与它还引用的块相符，释放掉的块已经回到位图，只是文件还没截到最终长度。
+
+最后，第一次写 ext2 时，\code{mark\_write\_session\_dirty()} 绕过日志直接清除 superblock 的 \code{VALID\_FS} 位并 flush。驱动还没有 \code{umount}，从来不会把它置回去，所以开发机上的 \code{e2fsck} 总会做一次完整检查。
+
+\subsection{测试：WAL 程序与随机断电}
+
+\code{user/waltest.c} 是一个极小的“数据库”：数据文件 \code{data.db} 里存一个值，修改时先写一条 redo 记录到 \code{redo.wal}。每条记录带魔数、事务号和校验和，提交顺序是：
+
+\begin{txtcode}
+写 redo.wal -> fdatasync -> 写 data.db -> fsync -> 清空 redo.wal -> fsync
+\end{txtcode}
+
+它同时检验了两件事：\code{fsync} 是否真的建立了持久化边界，以及文件系统操作的语义是否正确。子命令如表~\ref{tab:waltest}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{waltest} 的子命令}
+  \label{tab:waltest}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    命令 & 检查什么 \\
+    \midrule
+    \code{init} / \code{commit 42} / \code{show} & 正常提交与读取 \\
+    \code{prepare 123}，断电，\code{recover} & 只持久化 WAL 后断电，重启必须输出 \code{REDO tx=… value=123} \\
+    \code{fsops} & \code{mkdir}、\code{rename}、\code{unlink}、\code{ftruncate}、\code{pread}、\code{pwrite} \\
+    \code{semantics} & rename 覆盖已有文件；目录不能移入自己的子树；删除仍被打开的文件后，旧描述符仍可读写 \\
+    \code{large} & 5\,GiB 处写一个字节，走三级间接块 \\
+    \code{jstress} & 无限循环：写文件、\code{rename} 覆盖、\code{unlink}，供随机断电使用 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+断电测试在 QEMU 里做：准备一个与真机分区布局相同的 256\,MiB SD 镜像，运行 \code{waltest jstress}，在随机时刻直接杀掉 QEMU 进程，再从同一个镜像启动。每次重启后，把 p3 从镜像里取出来，在宿主机上运行 \code{e2fsck -fn}。
+
+\begin{shcode}
+dd if=sd.img of=p3.img bs=512 skip=215040 count=309248
+e2fsck -fn p3.img          # 退出码 0 表示没有任何错误
+\end{shcode}
+
+结果：第一轮随机断电 14 次，其中 3 次正好落在“已提交、未写回”的窗口——这时如果不重放，\code{e2fsck} 会报错（退出码 4）；三次启动都打印了 \code{xjournal: replayed seq=…}，重放后全部无错误。其余 11 次断电前后都没有错误。拆分出 \file{rootdev.c} 以后又断电 4 次，1 次重放（\code{seq=85}，27 个扇区），\code{e2fsck} 全部通过。
+
+\begin{txtcode}
+xjournal: replayed seq=85 (27 sectors)
+xjournal: ready lba=198656 capacity=1024 sectors
+ext2: p2 has no ext superblock
+ext2: p3 ready rw start=215040 sectors=309248 block=4096 groups=2
+\end{txtcode}
+
+（QEMU 镜像的 p2 较小，日志起点是 198656；真机上应为 274432。）
+
+\subsection{在真机上使用}
+
+p3 要格式化成不带 ext4 特性的 ext2。比第~\ref{chap:fs} 章“烧录 SD 卡”一节里的命令多指定几个特性开关更稳妥：
+
+\begin{shcode}
+diskutil unmount /dev/disk4s3
+sudo mke2fs -F -t ext2 -b 4096 \
+  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
+  -L xv6-linux /dev/rdisk4s3
+sudo e2fsck -fn /dev/rdisk4s3
+\end{shcode}
+
+\code{/etc/fstab} 里 ext2 一行要从 \code{ro} 改成 \code{rw}（\code{init} 不会覆盖已有的 \code{fstab}）。正常的启动日志：
+
+\begin{txtcode}
+xjournal: ready lba=274432 capacity=1024 sectors
+ext2: p3 ready rw start=1030144 sectors=... block=4096 groups=...
+vfs: mounted ext2 at /mnt/ext2 read-write
+\end{txtcode}
+
+\subsection{当前边界}
+
+这仍是一个小型的 ext2 后端，与 Linux 的实现相比还缺不少：
+
+\begin{itemize}
+  \item 不支持硬链接、符号链接、扩展属性、配额、HTree 索引目录和 GPT 分区表；
+  \item 不支持 ext3 日志、ext4 extent、64 位块号和元数据校验和；
+  \item 外置日志只有本内核认识。如果日志里还有已提交未写回的事务，要先在 xv6 里启动一次让它重放，再把卡插到 Linux 上；
+  \item 孤儿 inode 只记在内存里，没有 ext3 那样的磁盘孤儿链表。“删除仍被打开的文件”之后断电，这个 inode 要靠 \code{e2fsck} 回收；
+  \item 还没有 \code{umount}，接回开发机时应运行 \code{e2fsck -f}。
+\end{itemize}
+
+这些都是不错的后续练习。其中最有价值的大概是磁盘孤儿链表和 \code{umount}：前者只需要在 superblock 的 \code{s\_last\_orphan} 和 inode 的 \code{dtime} 字段里串一条链，在同一个事务里维护；后者让 \code{VALID\_FS} 能在干净卸载时置回去，开发机就不必每次都做完整检查。

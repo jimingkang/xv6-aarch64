@@ -156,6 +156,11 @@ extern uint64 sys_socket(void);
 extern uint64 sys_bind(void);
 extern uint64 sys_listen(void);
 extern uint64 sys_lseek(void);
+extern uint64 sys_fsync(void);
+extern uint64 sys_fdatasync(void);
+extern uint64 sys_ftruncate(void);
+extern uint64 sys_pread(void);
+extern uint64 sys_pwrite(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -231,6 +236,11 @@ static uint64 (*syscalls[])(void) = {
 [SYS_bind]         sys_bind,
 [SYS_listen]       sys_listen,
 [SYS_lseek]        sys_lseek,
+[SYS_fsync]        sys_fsync,
+[SYS_fdatasync]    sys_fdatasync,
+[SYS_ftruncate]    sys_ftruncate,
+[SYS_pread]        sys_pread,
+[SYS_pwrite]       sys_pwrite,
 };
 
 void

@@ -123,7 +123,7 @@ main(void)
   create_config("etc/fstab",
                 "proc /proc procfs ro 0 0\n"
                 "bootfs /boot fat32 rw 0 0\n"
-                "ext2 /mnt/ext2 ext2 ro 0 0\n"
+                "ext2 /mnt/ext2 ext2 rw 0 0\n"
                 "192.168.0.195:5640 /mnt/net netfs ro 0 0\n");
   create_config("etc/wifi.conf",
                 "ssid=TP-Link_B114\n"

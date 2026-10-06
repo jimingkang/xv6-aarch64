@@ -9,6 +9,7 @@
   \item 根文件系统放在哪里
   \item VFS 中间层：procfs、ext2、FAT32
   \item FAT32 与启动分区：bootfs、BPB、FAT 表、目录项与长文件名
+  \item xv6 根文件系统：superblock、inode、目录、路径查找与在线更新
   \item 烧录 SD 卡
 \end{introduction}
 
@@ -27,7 +28,7 @@ xv6 的文件系统是一叠职责单一的层（图~\ref{fig:fslayers}）。本
     \node[layer, below=of path] (inode) {\textbf{inode}\quad \code{ilock/readi/writei}、inode 缓存};
     \node[layer, below=of inode] (log) {\textbf{日志}\quad \code{begin\_op/log\_write/end\_op}};
     \node[layer, below=of log] (bio) {\textbf{块缓存}\quad \code{bread/bwrite}，\code{NBUF}=30};
-    \node[layer, below=of bio, fill=structurecolor!22] (map) {\textbf{根文件系统定位}\quad \code{fat32rw()}：原始分区 / FS.IMG / 裸镜像};
+    \node[layer, below=of bio, fill=structurecolor!22] (map) {\textbf{根块设备}\quad \file{rootdev.c}，\code{rootdev\_rw()}：原始分区 / 裸镜像};
     \node[layer, below=of map, fill=structurecolor!22] (sd) {\textbf{SD 卡驱动}\quad \code{sdsector()}：SDHOST，CMD17/CMD24};
   \end{tikzpicture}
   \caption{文件系统分层（深色为本项目新增或替换的层）}
@@ -35,6 +36,7 @@ xv6 的文件系统是一叠职责单一的层（图~\ref{fig:fslayers}）。本
 \end{figure}
 
 \section{磁盘布局}
+\label{sec:layout}
 
 xv6 原生文件系统的块大小是 1\,KiB，磁盘依次为：
 
@@ -129,37 +131,30 @@ sd: I/O failure lba=295956 write=0 phase=1 status=17f0207 irq=18000 control1=e08
 \section{根文件系统放在哪里}
 \label{sec:rootfs}
 
-启动时 \code{fat32init()} 读 SD 卡第 0 扇区，按优先级尝试三种布局（表~\ref{tab:rootfs}），由 \code{fat32rw()} 把 xv6 块号翻译成 SD 卡的绝对扇区号。
+启动时 \code{rootdev\_init()} 读 SD 卡第 0 扇区，判断根文件系统用哪种布局（表~\ref{tab:rootfs}），此后由 \code{rootdev\_rw()} 把 xv6 块号翻译成 SD 卡的绝对扇区号。这两个函数都在 \file{kernel/rootdev.c} 里。
+
+\paragraph{根块设备不是 FAT32 的一部分.} \file{rootdev.c} 不解释任何文件系统格式。它只读 MBR，用 xv6 superblock 的魔数认出根分区，再把 FAT32 启动分区交给 \file{fat32.c} 挂起来，供 \code{/boot} 和固件加载使用。根分区的块里装的始终是 xv6 自己的 superblock、inode 和目录（\ref{sec:xv6fs} 节），与 FAT32 毫无关系。块缓存的读写入口 \code{rootdev\_rw()} 也只做地址换算，不调用任何 FAT32 函数。
 
 \begin{table}[htbp]
   \centering
-  \caption{根文件系统的三种存放方式}
+  \caption{根文件系统的两种存放方式}
   \label{tab:rootfs}
   \small
   \begin{tabularx}{\linewidth}{@{}lXl@{}}
     \toprule
     方式 & 识别条件与地址换算 & 适用场景 \\
     \midrule
-    原始分区 & MBR 中某个非 FAT32 主分区的第 1 块是 xv6 superblock（魔数与大小匹配）；扇区 $=$ 分区起点 $+$ 块号$\times 2$ & 真机（当前方式） \\
-    FAT32 容器 & FAT32 根目录中有 \code{FS.IMG}；启动时缓存它的簇链，按簇链换算 & 真机（早期方式） \\
+    原始分区 & MBR 中某个非 FAT32 主分区的第 1 块是 xv6 superblock（魔数与大小匹配）；扇区 $=$ 分区起点 $+$ 块号$\times 2$ & 真机 \\
     裸镜像 & 没有 MBR；扇区 $=$ 块号$\times 2$ & QEMU \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
-\paragraph{FAT32 容器模式}曾经是很巧妙的过渡方案：树莓派的启动分区本来就是 FAT32，把 \code{fs.img} 当成普通文件拷进去，内核只需解析 MBR、BPB 和根目录，找到 \code{FS.IMG} 的首簇并沿 FAT 表缓存整条簇链：
-
-\[
-  \text{LBA} = \text{data\_lba} + (\text{clusters}[i] - 2)\times\text{spc} + j,\quad
-  i = \lfloor s/\text{spc} \rfloor,\ j = s \bmod \text{spc},
-\]
-其中 $s$ 是文件内扇区号，spc 是每簇扇区数。xv6 只改写 \code{FS.IMG} 已分配的簇，从不修改 FAT 表和目录项，所以即使文件在 FAT32 中是碎片化的也没有问题。
-
-\paragraph{原始分区模式}是现在的做法：SD 卡分成 4 个区，xv6 文件系统独占一个分区。它避免了 32\,MiB 的镜像挤占 100\,MiB 的启动分区，xv6 的写入也不会再经过 FAT32 的簇链。识别时只认 superblock 魔数，而不看 MBR 类型（macOS 只能建 \code{0x83} 类型的分区，与 ext2 相同）。启动日志会显示：
+\paragraph{原始分区模式}是真机上的做法：SD 卡分成 4 个区，xv6 文件系统独占一个分区，与 FAT32 启动分区互不干扰。识别时只认 superblock 魔数，而不看 MBR 类型（macOS 只能建 \code{0x83} 类型的分区，与 ext2 相同）。启动日志会显示：
 
 \begin{txtcode}
-xv6fs: selected raw p2 lba=208896 sectors=819200 size=400 MiB
-fat32: selected p1 lba=2048 firmware-only (no FS.IMG)
+rootdev: raw xv6 root p2 lba=208896 sectors=819200 size=400 MiB
+rootdev: bootfs p1 lba=2048 mounted as FAT32
 \end{txtcode}
 
 \section{VFS 中间层}
@@ -201,7 +196,7 @@ open("/boot/config.txt")
 
 \begin{itemize}
   \item \textbf{procfs}（\code{/proc}）：没有磁盘数据，打开目录时遍历进程表生成每个 PID 的目录，读 \code{status} 时持锁生成快照。另有 \code{/proc/meminfo}、\code{/proc/iomem}、\code{/proc/devices} 等诊断文件；
-  \item \textbf{ext2}（\code{/mnt/ext2}）：只读，支持 1/2/4\,KiB 块、直接块和一级间接块，遇到 ext4 extent 等不兼容特性就拒绝挂载。可以从 Linux 那边准备文件给 xv6 读；
+  \item \textbf{ext2}（\code{/mnt/ext2}）：支持 1/2/4\,KiB 块，遇到 ext4 extent 等不兼容特性就拒绝挂载，可以和 Linux 交换文件。最初只能读、只支持一级间接块；后来补成了可读写、带外置事务日志的后端，见第~\ref{chap:optional} 章；
   \item \textbf{FAT32}（\code{/boot}）：挂载启动分区，支持根目录的读、创建、截断、顺序写和重命名，支持 ASCII 长文件名。这让系统可以在运行时更新自己的内核：\code{tftp} 下载 \code{kernel8-xv6\_wifi.img} 到 \code{/boot}，重启即生效。
 \end{itemize}
 
@@ -212,7 +207,7 @@ open("/boot/config.txt")
 \begin{txtcode}
 proc    /proc      procfs ro 0 0
 bootfs  /boot      fat32  rw 0 0
-ext2    /mnt/ext2  ext2   ro 0 0
+ext2    /mnt/ext2  ext2   rw 0 0
 \end{txtcode}
 
 然后逐行调用 \code{mount(source, target, fstype, flags)}。启动日志出现 “vfs: mounted fat32 at /boot read-write” 才说明 FAT32 真的挂上了；否则 \code{/boot} 只是 \code{init} 创建的空目录。
@@ -283,7 +278,7 @@ camera_auto_detect=0          # 不让固件占用摄像头
 
 然后把 \file{kernel8-xv6\_wifi.img} 原样拷到物理地址 \code{0x80000}，才放开 ARM 核（第~\ref{chap:boot} 章）。所以内核镜像必须是裸二进制而不是 ELF，固件也从不理会 xv6 的根文件系统。
 
-\paragraph{第二组由 xv6 内核驱动读.} 两块 Wi-Fi 网卡每次上电都要由主机下载固件：BCM43430/43455 需要 \file{.BIN}（R4 的执行代码）、\file{.TXT}（NVRAM）和 \file{.CLM}（法规数据库），MT7601U 需要 \file{MT7601U.BIN}。驱动在 \code{main()} 里初始化，这时还没有任何进程，更谈不上挂载点，所以它们直接调用 \code{fat32openroot()} 按 8.3 短名在根目录里找文件，再用 \code{fat32readnext()} 顺序读出。这也是 \code{fat32init()} 必须排在 \code{brcmfmac\_driver\_init()} 之前的原因。
+\paragraph{第二组由 xv6 内核驱动读.} 两块 Wi-Fi 网卡每次上电都要由主机下载固件：BCM43430/43455 需要 \file{.BIN}（R4 的执行代码）、\file{.TXT}（NVRAM）和 \file{.CLM}（法规数据库），MT7601U 需要 \file{MT7601U.BIN}。驱动在 \code{main()} 里初始化，这时还没有任何进程，更谈不上挂载点，所以它们直接调用 \code{fat32openroot()} 按 8.3 短名在根目录里找文件，再用 \code{fat32readnext()} 顺序读出。这也是挂起 bootfs 的 \code{rootdev\_init()} 必须排在 \code{brcmfmac\_driver\_init()} 之前的原因。
 
 \paragraph{第三组由用户程序经 \code{/boot} 读写.} 进入用户态以后，\code{init} 按 \file{/etc/fstab} 把同一个分区挂到 \code{/boot}（\ref{sec:vfs} 节）。于是 \code{ls /boot}、\code{cat /boot/config.txt} 都走普通的 \code{open/read}；\code{tftpclient} 把新内核下载成 \file{/boot/kernel8-xv6\_wifi.img}，重启即生效；\code{camshot} 把超过 xv6 单文件上限的照片写成 \file{/boot/camera.bmp}，关机后插到电脑上就能看到。
 
@@ -320,17 +315,17 @@ FAT32 的结构可以用一句话概括：\emph{文件内容按簇存放，簇�
     \draw[gray!60] (fat1.south west) -- ++(0,-6.5);
     \draw[gray!60] (data.south west) -- ++(0,-6.5);
   \end{tikzpicture}
-  \caption{SD 卡与 FAT32 分区的磁盘布局。\code{setup\_fat32()} 从 BPB 读出各区的大小，算出 \code{fat\_lba} 和 \code{data\_lba}；簇号从 2 开始编号}
+  \caption{SD 卡与 FAT32 分区的磁盘布局。\code{fat32mount()} 从 BPB 读出各区的大小，算出 \code{fat\_lba} 和 \code{data\_lba}；簇号从 2 开始编号}
   \label{fig:fat-layout}
 \end{figure}
 
-\paragraph{MBR 和分区表.} 整张卡的第 0 扇区是 MBR：偏移 446 起是 4 个 16 字节的分区表项，最后两个字节是签名 \code{0x55 0xAA}。每个表项里第 4 字节是分区类型（\code{0x0B}/\code{0x0C} 是 FAT32），第 8、12 字节是起始 LBA 和扇区数。\code{fat32init()} 先把四个表项全部打印出来，再分两轮挑选：第一轮找 block 1 带 xv6 superblock 魔数的分区做根文件系统（\code{setup\_raw\_root()}），第二轮找第一个 FAT32 分区（\code{setup\_fat32()}）。两轮互不依赖，所以根文件系统和启动分区可以各在各的分区里。
+\paragraph{MBR 和分区表.} 整张卡的第 0 扇区是 MBR：偏移 446 起是 4 个 16 字节的分区表项，最后两个字节是签名 \code{0x55 0xAA}。每个表项里第 4 字节是分区类型（\code{0x0B}/\code{0x0C} 是 FAT32），第 8、12 字节是起始 LBA 和扇区数。读分区表的是 \file{rootdev.c} 的 \code{rootdev\_init()}，而不是 FAT32 驱动。它先把四个表项全部打印出来，再分两轮挑选：第一轮找 block 1 带 xv6 superblock 魔数的分区做根文件系统（\code{setup\_raw\_root()}），第二轮把第一个 FAT32 分区的起点交给 \code{fat32mount()}。两轮互不依赖，所以根文件系统和启动分区可以各在各的分区里。FAT32 驱动的工作从 \code{fat32mount()} 拿到分区起点开始。
 
-\paragraph{BPB：分区的第一个扇区.} FAT32 分区的第 0 扇区叫 BPB（BIOS Parameter Block），记录了整个分区的几何参数。\code{setup\_fat32()} 用到的字段如表~\ref{tab:bpb}。
+\paragraph{BPB：分区的第一个扇区.} FAT32 分区的第 0 扇区叫 BPB（BIOS Parameter Block），记录了整个分区的几何参数。\code{fat32mount()} 用到的字段如表~\ref{tab:bpb}。
 
 \begin{table}[htbp]
   \centering
-  \caption{\code{setup\_fat32()} 读取的 BPB 字段}
+  \caption{\code{fat32mount()} 读取的 BPB 字段}
   \label{tab:bpb}
   \small
   \begin{tabularx}{\linewidth}{@{}llX@{}}
@@ -360,7 +355,7 @@ static uint32 cluster_lba(uint32 cluster) {     // 簇号从 2 开始
 }
 \end{ccode}
 
-\code{setup\_fat32()} 对每个字段都做了合法性检查（2 的幂、不越界、不溢出）——SD 卡上的数据是外部输入，一个损坏的 BPB 不应该让内核算出一个指向别处的 LBA 然后去写它。
+\code{fat32mount()} 对每个字段都做了合法性检查（2 的幂、不越界、不溢出）——SD 卡上的数据是外部输入，一个损坏的 BPB 不应该让内核算出一个指向别处的 LBA 然后去写它。
 
 \subsection{FAT 表与簇链}
 
@@ -438,11 +433,11 @@ static uint32 fat_next(uint32 cluster) {
     % callers
     \node[fn, text width=34mm] (c1) at (34,64) {Wi-Fi 驱动下载固件\\\file{brcmfmac.c}、\file{mt7601u.c}};
     \node[fn, text width=34mm] (c2) at (80,64) {VFS \code{/boot}：\code{fat\_vread}\\\code{fat\_vwrite}、\code{fat\_vreaddir}…};
-    \node[fn, text width=30mm] (c3) at (128,64) {xv6 块缓存 \code{bio.c}\\（\code{FS.IMG} 兼容模式）};
+    \node[fn, text width=30mm] (c3) at (128,64) {根块设备 \file{rootdev.c}\\（仅 \code{FS.IMG} 兼容模式）};
     % interface
     \node[fn, text width=30mm] (i1) at (30,48) {\code{fat32openroot}\\\code{fat32readerinit/readnext}};
     \node[fn, text width=40mm] (i2) at (80,48) {\code{fat32statpath} \code{fat32pread}\\\code{fat32createfile} \code{fat32writefile}\\\code{fat32truncatefile} \code{fat32renamefile}};
-    \node[fn, text width=30mm] (i3) at (128,48) {\code{fat32rw}\\→ \code{file\_sector\_lba}};
+    \node[fn, text width=30mm] (i3) at (128,48) {\code{fat32mapfile}\\\code{fat32mapsector}};
     % helpers
     \node[fn, text width=37mm] (h1) at (36,30) {\code{fat\_find\_path}/\code{fat\_find\_root}\\\code{fat\_reserve\_root\_slots}\\\code{fat\_make\_lfn\_entry}};
     \node[fn, text width=40mm] (h2) at (86,30) {\code{fat\_next} \code{fat\_set\_next}\\\code{fat\_alloc\_cluster} \code{fat\_free\_chain}\\\code{fat\_mark\_fsinfo\_unknown}};
@@ -454,7 +449,7 @@ static uint32 fat_next(uint32 cluster) {
     \draw[call] (h1) -- (s1); \draw[call] (h2) -- (s1);
     \draw[call] (i3.east) -- ++(3,0) |- (s1.east);
     \draw[call] (s1) -- (d1);
-    \node[fn, text width=30mm, fill=gray!10, draw=gray!60] (boot) at (127,30) {启动时 \code{fat32init}\\→ \code{setup\_fat32}\\→ \code{setup\_raw\_root}};
+    \node[fn, text width=30mm, fill=gray!10, draw=gray!60] (boot) at (127,30) {启动时 \code{rootdev\_init}\\→ \code{fat32mount}};
   \end{tikzpicture}
   \caption{FAT32 驱动的调用关系。三类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \code{scratch} 扇区缓冲和 \code{sdsector()} 上}
   \label{fig:fat-calls}
@@ -463,10 +458,10 @@ static uint32 fat_next(uint32 cluster) {
 \file{fat32.c} 的函数可以按图~\ref{fig:fat-calls} 分成四层：
 
 \begin{itemize}
-  \item \textbf{启动探测}：\code{fat32init()} 读 MBR 并选择分区；\code{setup\_fat32()} 解析 BPB、读 FSInfo 里的空闲簇提示；\code{setup\_raw\_root()} 用 superblock 魔数识别 xv6 分区；\code{is\_fat32\_boot\_sector()} 判断“没有分区表、整张卡就是一个 FAT32”的 superfloppy 格式。
+  \item \textbf{挂载}：\code{fat32mount(lba, sectors)} 解析 BPB、读 FSInfo 里的空闲簇提示；\code{fat32\_is\_boot\_sector()} 判断一个扇区是不是 FAT32 引导扇区，\file{rootdev.c} 用它识别“没有分区表、整张卡就是一个 FAT32”的 superfloppy 格式；\code{fat32init()} 只初始化 \code{fat32\_lock}。分区表扫描和 xv6 根分区识别都不在这个文件里。
   \item \textbf{对外接口}：只读的 \code{fat32openroot()}、\code{fat32openpath()}、\code{fat32statpath()}、\code{fat32readdirroot()}、\code{fat32pread()}、\code{fat32readerinit()}/\code{fat32readnext()}；写入的 \code{fat32createfile()}、\code{fat32openwrite()}、\code{fat32writefile()}、\code{fat32truncatefile()}、\code{fat32renamefile()}。VFS 的 \code{fat32\_ops} 把它们包装成 \code{/boot} 上的 vnode 操作。
   \item \textbf{目录与 FAT}：上一小节的查找和 LFN 函数，以及 \code{fat\_next()}、\code{fat\_set\_next()}、\code{fat\_alloc\_cluster()}、\code{fat\_free\_chain()}、\code{fat\_mark\_fsinfo\_unknown()}。
-  \item \textbf{根文件系统映射}：\code{fat32rw()} 是 xv6 块缓存的读写入口，\code{file\_sector\_lba()} 按当前模式（原始分区、\code{FS.IMG} 容器或裸镜像）把块号换算成扇区号（\ref{sec:rootfs} 节）。
+  \item \textbf{文件扇区映射}：\code{fat32mapfile()} 记下根目录中某个文件的整条簇链，\code{fat32mapsector()} 把“文件内第 $s$ 个扇区”换成卡上的扇区号。它们只为兼容早期把根镜像存成 \code{FS.IMG} 文件的旧卡而保留，调用者是 \file{rootdev.c}。FAT32 只回答“这个扇区在哪里”，从不解释扇区里的 xv6 数据。
 \end{itemize}
 
 两个读接口的区别值得一提。\code{fat32pread(file, offset, …)} 是无状态的：每次调用都从首簇沿链走 $\lfloor\text{offset}/\text{簇大小}\rfloor$ 步，适合 VFS 偶尔的随机读。如果用它按 512 字节分块读一个 600\,KiB 的 Wi-Fi 固件，总共要走 $O(n^2)$ 次 \code{fat\_next()}。\code{fat32reader} 则记住当前簇和簇内偏移，顺序读时每跨一个簇只查一次 FAT——固件下载就用它。
@@ -491,6 +486,298 @@ static uint32 fat_next(uint32 cluster) {
 \end{itemize}
 
 \paragraph{并发与局限.} 所有接口都持同一把自旋锁 \code{fat32\_lock}，共用一个 512 字节的 \code{scratch} 扇区缓冲，没有块缓存，也没有日志。路径解析、LFN 字符、目录槽这些较大的临时数组也放在一个静态工作区 \code{fat\_work} 里，而不是放在栈上——每个进程的内核栈只有 4\,KiB，它们曾经把创建文件的调用链撑爆（第~\ref{chap:drivers} 章 \ref{sec:cam-bugs} 小节）；既然有 \code{fat32\_lock} 串行化，一个工作区就够用。这让实现很简单，代价也很清楚：持锁期间 \code{sdsector()} 以 PIO 方式等待 SD 卡，一次大文件写会长时间占着这把锁；同一时间只能有一个写者；写入途中断电可能损坏分区。启动分区平时几乎只读，偶尔更新内核或写一张照片，这些代价是可以接受的，但修改它之前最好备份。
+
+\section{xv6 根文件系统：superblock、inode 与目录}
+\label{sec:xv6fs}
+
+前一节分析了启动分区上的 FAT32，这一节用同样的方法看 p2 上的 xv6 根文件系统：它怎么被认出来，磁盘上每一块放的是什么，文件和目录怎样表示，一个路径怎样一步步变成 SD 卡上的扇区。\ref{sec:rootfs} 节讲过根文件系统可以放在哪里；这里只讨论现在的“原始分区”方式。
+
+\subsection{根文件系统怎样被认出来}
+
+\code{rootdev\_init()} 扫描 MBR 时，对每个既不是 FAT32 也不是扩展分区的主分区调用 \code{setup\_raw\_root()}（两者都在 \file{kernel/rootdev.c}）：
+
+\begin{ccode}
+static int setup_raw_root(uint32 start, uint32 sectors) {
+  // xv6 的第 1 块是 superblock；块大小 1024，所以它在分区起点之后第 2 个扇区
+  if(start == 0 || sectors < FSSIZE * SECTORS_PER_BLOCK ||
+     sdsector(start + SECTORS_PER_BLOCK, sector, 0) < 0 ||
+     le32(sector) != FSMAGIC || le32(sector + 4) != FSSIZE)
+    return -1;
+  root.mode = ROOT_RAW;
+  root.lba = start;
+  root.sectors = sectors;
+  return 0;
+}
+\end{ccode}
+
+判断只看两样东西：superblock 开头的魔数 \code{0x10203040}，以及紧跟着的 \code{size} 是否等于内核编译时的 \code{FSSIZE}。MBR 里的分区类型不作数——macOS 的 \code{diskutil} 只能把这个分区建成 Linux 的 \code{0x83} 类型，和真正的 ext2 分区一样，靠魔数才能分开。\code{size} 的检查同样重要：如果有人改了 \code{FSSIZE} 重新编译内核却没重新烧 \code{fs.img}，这里会拒绝，而不是让新内核去解释旧格式的磁盘。识别成功后启动日志打印：
+
+\begin{txtcode}
+rootdev: raw xv6 root p2 lba=208896 sectors=819200 size=400 MiB
+\end{txtcode}
+
+此后块缓存的每一次读写都经过 \code{rootdev\_rw()}：
+
+\begin{ccode}
+void rootdev_rw(struct buf *b, int write) {         // kernel/rootdev.c
+  uint32 first = b->blockno * SECTORS_PER_BLOCK;    // 1 块 = 2 扇区
+  gate_enter();                                     // /dev/sdroot 更新时在此挡住
+  for(int i = 0; i < SECTORS_PER_BLOCK; i++)
+    if(sdsector(root_sector_lba(first + i),
+                b->data + i * SECTOR_SIZE, write) < 0)
+      panic(write ? "rootdev: write block" : "rootdev: read block");
+  gate_exit();
+}
+\end{ccode}
+
+原始分区模式下 \code{root\_sector\_lba()} 只做一次加法：扇区号 $=$ \code{root.lba} $+$ 块号 $\times 2 + i$。整条路径不经过 \file{fat32.c} 的任何函数。分区有 400\,MiB，文件系统只用前 32\,MiB；可分配多少块由 superblock 决定，与分区大小无关。
+
+\subsection{superblock 与磁盘布局}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{seg/.style={draw=structurecolor!70!black, minimum height=11mm, inner sep=1pt, align=center, anchor=west}}
+    \node[seg, fill=gray!15, minimum width=10mm] (b0) at (0,10) {启动块\\0};
+    \node[seg, fill=orange!30, minimum width=13mm] (sb) at (b0.east) {superblock\\1};
+    \node[seg, fill=structurecolor!25, minimum width=24mm] (lg) at (sb.east) {日志\\2～31（30 块）};
+    \node[seg, fill=structurecolor!15, minimum width=26mm] (in) at (lg.east) {inode 区\\32～44（13 块）};
+    \node[seg, fill=orange!15, minimum width=20mm] (bm) at (in.east) {位图\\45～49（5 块）};
+    \node[seg, fill=gray!5, minimum width=45mm] (dt) at (bm.east) {数据区\\50～32767（32718 块）};
+    % zooms
+    \node[lab, anchor=north, align=center] at (lg.south) {第一块是日志头：\\\code{n} + 30 个块号};
+    \node[lab, anchor=north, align=center] at (in.south) {每块 16 个 \code{dinode}\\共 200 个 inode};
+    \node[lab, anchor=north, align=center] at (bm.south) {每块 8192 位\\1 位管 1 块};
+    \node[lab, anchor=north, align=center] at (dt.south) {文件内容、目录内容、\\间接块};
+    \draw[-{Stealth[length=1.6mm]}, orange!70!black] (sb.north) to[out=70, in=110] node[lab, above]{\code{logstart}} (lg.north);
+    \draw[-{Stealth[length=1.6mm]}, orange!70!black] (sb.north) to[out=60, in=115] node[lab, above, pos=0.6]{\code{inodestart}} (in.north);
+    \draw[-{Stealth[length=1.6mm]}, orange!70!black] (sb.north) to[out=55, in=120] node[lab, above, pos=0.7]{\code{bmapstart}} (bm.north);
+    \node[lab, anchor=south west] at (0,36) {块号（1\,KiB 一块）；分区内的扇区号 $=$ 块号 $\times 2$};
+  \end{tikzpicture}
+  \caption{\code{mkfs} 生成的 32\,MiB 根文件系统布局。所有数字都由 \code{FSSIZE}、\code{NINODES}、\code{LOGSIZE} 算出，并写进第 1 块的 superblock}
+  \label{fig:xv6-layout}
+\end{figure}
+
+superblock 是第 1 块（第 0 块是从 Unix 继承下来的“启动块”，xv6 不用），内容就是 8 个 32 位整数：
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{fs.img} 的 superblock（\code{struct superblock}，\file{kernel/fs.h}）}
+  \label{tab:xv6-sb}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    字段 & 值 & 含义与来源 \\
+    \midrule
+    \code{magic} & \code{0x10203040} & \code{FSMAGIC}；\code{fsinit()} 和 \code{setup\_raw\_root()} 都检查它 \\
+    \code{size} & 32768 & 总块数，\code{FSSIZE}；32\,MiB \\
+    \code{nblocks} & 32718 & 数据块数 $=$ \code{size} $-$ 元数据块数 50 \\
+    \code{ninodes} & 200 & \code{mkfs} 里的 \code{NINODES} \\
+    \code{nlog} & 30 & \code{LOGSIZE} $=$ \code{MAXOPBLOCKS}$\times 3$ \\
+    \code{logstart} & 2 & 紧跟 superblock \\
+    \code{inodestart} & 32 & $2 + 30$；inode 区 $200/16+1=13$ 块 \\
+    \code{bmapstart} & 45 & $32 + 13$；位图 $32768/8192+1=5$ 块 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+这些数都是 \code{mkfs} 在宿主机上算出来写进去的（运行 \code{make fs.img} 时会打印 \code{nmeta 50 (boot, super, log blocks 30 inode blocks 13, bitmap blocks 5) blocks 32718 total 32768}）。内核启动时 \code{fsinit()} 读第 1 块、核对魔数、交给日志层，之后所有“某个东西在哪一块”的问题都由 superblock 加两个宏回答：
+
+\begin{ccode}
+#define IPB           (BSIZE / sizeof(struct dinode))   // 每块 16 个 inode
+#define IBLOCK(i, sb) ((i) / IPB + sb.inodestart)       // inode i 所在的块
+#define BPB           (BSIZE * 8)                       // 每个位图块管 8192 块
+#define BBLOCK(b, sb) ((b) / BPB + sb.bmapstart)        // 块 b 的位所在的位图块
+\end{ccode}
+
+\paragraph{日志区.} 30 块中第一块是日志头 \code{struct logheader}：一个计数 \code{n} 加上 \code{n} 个“这些块属于哪个目标块号”。其余是被修改的块的副本。提交时先写副本、再写日志头（这一写就是提交点）、再把副本拷回原位、最后把 \code{n} 清零；\code{fsinit()} → \code{initlog()} 在启动时检查日志头，\code{n} 不为 0 就重做一遍。
+
+\paragraph{位图.} 每一位对应一块，1 表示已用。\code{mkfs} 把前 \code{freeblock} 块（元数据加上镜像里已经写入的全部文件内容）一次性标成已用；运行时 \code{balloc()} 从头扫描位图找第一个 0 位，置 1、\code{log\_write}、再把新块清零。早期 \code{FSSIZE} 只有 1000 块时，光是打包进镜像的程序就用掉 986 块，首次启动创建 \code{/etc} 配置时 \code{balloc} 找不到 0 位，panic “out of blocks”——这就是 \code{FSSIZE} 改成 32768 的原因。
+
+\subsection{inode：文件的元数据与块映射}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{f/.style={draw=gray!60, minimum height=6mm, inner sep=1pt, align=center, anchor=west}}
+    \node[lab, anchor=west] at (0,47) {\code{struct dinode}（64 字节，inode 区每块 16 个）};
+    \node[f, fill=orange!20, minimum width=12mm] (t) at (0,40) {\code{type}\\2 B};
+    \node[f, fill=gray!8, minimum width=12mm] (ma) at (t.east) {\code{major}\\2 B};
+    \node[f, fill=gray!8, minimum width=12mm] (mi) at (ma.east) {\code{minor}\\2 B};
+    \node[f, fill=orange!10, minimum width=12mm] (nl) at (mi.east) {\code{nlink}\\2 B};
+    \node[f, fill=orange!10, minimum width=12mm] (sz) at (nl.east) {\code{size}\\4 B};
+    \node[f, fill=structurecolor!15, minimum width=60mm] (ad) at (sz.east) {\code{addrs[0..11]}：12 个直接块号\\48 B};
+    \node[f, fill=structurecolor!30, minimum width=16mm] (ind) at (ad.east) {\code{addrs[12]}\\间接块号};
+    % data blocks
+    \foreach \i in {0,...,4}{
+      \draw[fill=gray!5, draw=gray!60] (62+\i*7,22) rectangle ++(6,6);
+    }
+    \node[lab] at (98,25) {…};
+    \node[lab, anchor=west] at (62,18) {直接块：文件第 0～11 KiB};
+    \foreach \i in {0,...,3}{ \draw[-{Stealth[length=1.2mm]}, gray!60] (64+\i*10,37) -- (65+\i*7,28); }
+    \draw[fill=structurecolor!20, draw=structurecolor!70!black] (122,18) rectangle ++(18,10) node[midway, align=center]{间接块\\256 个块号};
+    \draw[-{Stealth[length=1.6mm]}, thick, structurecolor!70!black] (ind.south) -- (131,28);
+    \foreach \i in {0,...,4}{
+      \draw[fill=gray!5, draw=gray!60] (110+\i*7,2) rectangle ++(6,6);
+    }
+    \node[lab] at (147,5) {…};
+    \draw[-{Stealth[length=1.6mm]}, gray!60] (131,18) -- (124,8);
+    \draw[-{Stealth[length=1.6mm]}, gray!60] (131,18) -- (138,8);
+    \node[lab, anchor=east] at (108,5) {文件第 12～267 KiB};
+    \node[lab, anchor=west, align=left] at (0,24) {\code{type}：0 空闲，1 目录，\\2 普通文件，3 设备\\[2pt]\code{nlink}：有几个目录项指向它\\[2pt]最大文件 $12+256=268$ 块};
+  \end{tikzpicture}
+  \caption{磁盘上的 inode 和它的块映射。\code{bmap(ip, bn)} 把文件内第 \code{bn} 块翻译成磁盘块号：小于 12 直接查 \code{addrs[bn]}，否则读间接块再查第 \code{bn-12} 项；遇到 0 就当场 \code{balloc()} 一块}
+  \label{fig:xv6-inode}
+\end{figure}
+
+每个文件、目录和设备节点都由一个 64 字节的磁盘 inode 描述（图~\ref{fig:xv6-inode}）。它不包含文件名——名字在目录里——只有类型、链接数、大小和数据块的位置。内存里的 \code{struct inode} 在此之外再加上 \code{dev}、\code{inum}、引用计数 \code{ref}、睡眠锁和 \code{valid} 标志（是否已从磁盘读入）。\code{iget()} 只在 inode 缓存里占一个槽、不读盘；\code{ilock()} 第一次加锁时才 \code{bread(IBLOCK(...))} 把磁盘 inode 拷进来；修改后 \code{iupdate()} 写回。
+
+块映射由 \code{bmap()} 完成：
+
+\begin{ccode}
+static uint bmap(struct inode *ip, uint bn) {
+  uint addr, *a;
+  struct buf *bp;
+  if(bn < NDIRECT){                                   // 前 12 块：直接块
+    if((addr = ip->addrs[bn]) == 0)
+      ip->addrs[bn] = addr = balloc(ip->dev);
+    return addr;
+  }
+  bn -= NDIRECT;
+  if(bn < NINDIRECT){                                 // 之后 256 块：经间接块
+    if((addr = ip->addrs[NDIRECT]) == 0)
+      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn]) == 0){
+      a[bn] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+  panic("bmap: out of range");
+}
+\end{ccode}
+
+所以单个文件最大 $12+256=268$ 块，即 268\,KiB。这是 xv6 根文件系统最明显的限制：Wi-Fi 固件、640$\times$480 的 BMP（900\,KB）、原始帧（375\,KB）都放不下，只能放在 FAT32 的 \code{/boot}（\ref{sec:fat32} 节）。
+
+根文件系统里几个特殊的 inode 号：1 号永远是根目录（\code{ROOTINO}），\code{namex()} 遇到以 \code{/} 开头的路径就从它开始；2 号是 \code{mkfs} 建的 \code{/bin}；之后是按 \code{Makefile} 顺序装入的每个用户程序。\code{init} 是唯一一个在根目录下也有名字的程序（启动代码执行的是 \code{exec("init")}），所以 \code{/init} 和 \code{/bin/init} 是同一个 inode 的两个目录项，\code{mkfs} 把它的 \code{nlink} 设为 2。
+
+\subsection{目录与路径查找}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      ino/.style={draw=orange!70!black, fill=orange!12, rounded corners=1pt, align=left, inner sep=2pt, text width=34mm, anchor=north west},
+      de/.style={draw=gray!60, fill=gray!4, minimum height=4.6mm, minimum width=34mm, inner sep=1pt, anchor=north west, font=\scriptsize\ttfamily},
+      hit/.style={de, fill=structurecolor!20, draw=structurecolor!70!black},
+      go/.style={-{Stealth[length=1.8mm]}, thick, draw=structurecolor!80!black},
+      lk/.style={-{Stealth[length=1.6mm]}, semithick, draw=orange!70!black}]
+    % column 1: root
+    \node[lab, anchor=west] at (0,62) {\ding{172} \code{iget(ROOTDEV, 1)}};
+    \node[ino] (i1) at (0,58) {inode 1：\code{type=1} 目录\\\code{size=1024}，\code{addrs[0]=50}};
+    \node[lab, anchor=west] at (0,44) {块 50（根目录内容）};
+    \node[de] (r0) at (0,41) {\ \ 1  .};
+    \node[de] (r1) at (r0.south west) {\ \ 1  ..};
+    \node[hit] (r2) at (r1.south west) {\ \ 2  bin};
+    \node[de] (r3) at (r2.south west) {\ \ k  init};
+    \node[de] (r4) at (r3.south west) {\ \ …  dev etc boot…（init 建）};
+    \node[de] (r5) at (r4.south west) {\ \ 0  （空槽）};
+    \draw[lk] (i1.south) ++(-6,0) -- ++(0,-3.5);
+    % column 2: /bin
+    \node[lab, anchor=west] at (52,62) {\ding{173} \code{dirlookup(root,"bin")}};
+    \node[ino] (i2) at (52,58) {inode 2：\code{type=1} 目录\\\code{size=}若干 KiB，\code{addrs[0]=51}…};
+    \node[lab, anchor=west] at (52,44) {块 51…（\code{/bin} 的内容）};
+    \node[de] (b0) at (52,41) {\ \ 2  .};
+    \node[de] (b1) at (b0.south west) {\ \ 1  ..};
+    \node[de] (b2) at (b1.south west) {\ \ 3  cat};
+    \node[de] (b3) at (b2.south west) {\ \ …};
+    \node[hit] (b4) at (b3.south west) {\ \ m  ls};
+    \node[de] (b5) at (b4.south west) {\ \ …};
+    \draw[lk] (i2.south) ++(-6,0) -- ++(0,-3.5);
+    % column 3: ls
+    \node[lab, anchor=west] at (104,62) {\ding{174} \code{dirlookup(bin,"ls")}};
+    \node[ino] (i3) at (104,58) {inode m：\code{type=2} 文件\\\code{size}＝ELF 大小\\\code{addrs[0..11]}、\code{addrs[12]}};
+    \node[draw=gray!60, fill=gray!5, align=center, text width=34mm, anchor=north west, inner sep=2pt] (dl) at (104,41) {数据块：ELF 头、\\程序段……\\（\code{exec} 用 \code{readi} 读取）};
+    \draw[lk] (i3.south) ++(-6,0) -- ++(0,-6.5);
+    % lookups
+    \draw[go] (r2.east) -- ++(4,0) |- (i2.west);
+    \draw[go] (b4.east) -- ++(4,0) |- (i3.west);
+    \node[lab, anchor=west, align=left] at (0,6) {每个目录项 32 字节：\code{ushort inum} + \code{char name[30]}，每块 32 项；\code{inum=0} 表示空槽。\\\code{/init} 与 \code{/bin/init} 是同一个 inode k 的两个名字，所以它的 \code{nlink=2}。};
+  \end{tikzpicture}
+  \caption{\code{namei("/bin/ls")} 的查找过程。目录本身也是文件，内容是一串目录项；\code{namex()} 每次用 \code{skipelem()} 取出一个路径分量，在当前目录的内容里 \code{dirlookup()}，得到下一个 inode。块号 50、51 是 \code{mkfs} 的分配顺序决定的，k、m 取决于 \code{Makefile} 里程序的排列顺序}
+  \label{fig:xv6-namei}
+\end{figure}
+
+目录就是 \code{type=1} 的文件，内容是一串 32 字节的 \code{struct dirent}：2 字节 inode 号加 30 字节文件名（\code{DIRSIZ} 从原版的 14 扩到 30，见 \ref{sec:layout} 节），一块恰好 32 项，\code{inum=0} 表示空槽。\code{mkfs} 把目录大小向上取整到整块。目录操作只有两个基本函数：\code{dirlookup(dp, name)} 顺序读目录内容、比较名字，命中就 \code{iget()} 对应的 inode；\code{dirlink(dp, name, inum)} 先确认不重名，再找第一个空槽（没有就追加在末尾）写入新目录项。
+
+路径查找是 \code{namex()}，图~\ref{fig:xv6-namei} 画的是 \code{namei("/bin/ls")}：
+
+\begin{ccode}
+if(*path == '/') ip = iget(ROOTDEV, ROOTINO);        // 绝对路径从 inode 1 开始
+else             ip = idup(myproc()->cwd);            // 相对路径从当前目录开始
+while((path = skipelem(path, name)) != 0){           // 依次取出 "bin"、"ls"
+  ilock(ip);
+  if(ip->type != T_DIR){ iunlockput(ip); return 0; }
+  if(nameiparent && *path == '\0'){ iunlock(ip); return ip; }   // 停在父目录
+  if((next = dirlookup(ip, name, 0)) == 0){ iunlockput(ip); return 0; }
+  iunlockput(ip);
+  ip = next;
+}
+\end{ccode}
+
+注意加锁的顺序：每一步只锁当前目录，查到下一级以后先 \code{iunlockput()} 当前目录再进入下一级，任何时刻最多持有一把 inode 锁，所以不会因为两个进程以相反顺序查找路径而死锁。\code{nameiparent()} 在最后一个分量之前停下，返回父目录并把最后一个名字留给调用者——\code{create}、\code{unlink}、\code{link} 都需要它。
+
+根目录的内容分两部分：\code{mkfs} 写入的 \code{.}、\code{..}、\code{bin}、\code{init}；以及 \code{init} 首次启动时创建的 \code{dev}（含 \code{console}、\code{ttyS0}、\code{input/event0}、\code{video0}、\code{sdroot} 等设备节点）、\code{etc}（\code{fstab} 等配置）、\code{proc}、\code{boot}、\code{mnt/ext2}、\code{root}、\code{usr/bin}。其中 \code{proc}、\code{boot}、\code{mnt/ext2} 只是空目录，挂载以后会被 VFS 的挂载表“盖住”（\ref{sec:vfs} 节）。设备节点是 \code{type=3} 的 inode，不占数据块，只在 \code{major}/\code{minor} 里记下交给哪个驱动。
+
+\subsection{从路径到 SD 扇区}
+
+把这一节和前面几节串起来，读 \code{/bin/ls} 的第 0 字节要经过这些层：
+
+\begin{txtcode}
+namei("/bin/ls")             -> inode m（经 inode 1、inode 2 的目录内容）
+readi(ip, ..., off=0, n)     -> bn = off / 1024 = 0
+bmap(ip, 0)                  -> 块号 B = ip->addrs[0]
+bread(ROOTDEV, B)            -> 块缓存未命中，调用 rootdev_rw(b, 0)
+root_sector_lba(2B), (2B+1)  -> 扇区 208896 + 2B 和 208896 + 2B + 1
+sdsector(lba, buf, 0)        -> SDHOST CMD17，PIO 读 512 字节
+\end{txtcode}
+
+一个 1\,KiB 的 xv6 块对应两个 512 字节扇区。写入的路径与此相同，只是中间多了日志：\code{writei()} 修改的块经 \code{log\_write()} 记入日志，\code{end\_op()} 提交时才真正经 \code{rootdev\_rw()} 写到 SD 卡。
+
+\subsection{\code{mkfs} 怎样生成 \code{fs.img}}
+
+\code{mkfs} 是一个在宿主机上运行的普通 C 程序，它和内核共用 \file{kernel/fs.h}，因此磁盘格式只有一份定义：
+
+\begin{enumerate}
+  \item 按 \code{FSSIZE}、\code{NINODES}、\code{LOGSIZE} 算出各区大小，把 32768 块全部写 0，再在第 1 块写入 superblock；
+  \item \code{ialloc(T\_DIR)} 得到 inode 1，写入 \code{.} 和 \code{..}（都指向自己）；再建 inode 2 作为 \code{/bin}，在根目录里加 \code{bin} 项；
+  \item 对命令行上的每个程序（\code{\_ls}、\code{\_cat}…去掉前缀下划线）分配一个 inode、在 \code{/bin} 里加目录项、用 \code{iappend()} 把文件内容逐块追加——它和内核的 \code{bmap()} 一样，前 12 块直接放、之后经间接块；\code{init} 额外在根目录里加一项；
+  \item 把两个目录的大小取整到整块；最后 \code{balloc(freeblock)} 把已经用掉的前 \code{freeblock} 块在位图里标成 1。
+\end{enumerate}
+
+\code{mkfs} 只按顺序分配块和 inode，不需要日志，也不处理删除；所有整数都用 \code{xint()}/\code{xshort()} 写成小端序，与 AArch64 内核一致。
+
+\subsection{在系统里更新根文件系统}
+
+根文件系统的格式一旦改动（例如 \code{DIRSIZ} 从 14 改成 30），就必须整体重写 p2。最初只能把 SD 卡拔到电脑上 \code{dd}；后来内核增加了一个受保护的字符设备 \code{/dev/sdroot}，它只允许写启动时 \code{setup\_raw\_root()} 选中的那个分区，绝不暴露整张卡。更新流程是：
+
+\begin{shcode}
+/bin/tftpclient 192.168.0.195 fs.img          # 下载到 /boot（FAT32）
+/bin/dd if=/boot/fs.img of=/dev/sdroot bs=32768
+\end{shcode}
+
+\code{dd} 在写之前先检查镜像大小恰好是 \code{FSSIZE}$\times$\code{BSIZE}、把整个镜像读进内存并校验 superblock 的魔数、大小和各区起点——因为一旦开始覆盖 p2，就再也不能从旧的根文件系统读任何东西，连 \code{dd} 自己的代码也不行（用户程序是静态链接的，已全部在内存里）。打开 \code{/dev/sdroot} 时内核冻结根文件系统：不再接受新的事务，等已有事务提交、读者退出；然后每写一个扇区就读回比较一次。结束时打印：
+
+\begin{txtcode}
+sdroot: verified 32/32 MiB
+sdroot: update complete and verified; reboot now
+dd: 33554432 bytes installed and read-back verified
+dd: root filesystem is frozen; power-cycle Raspberry Pi now
+\end{txtcode}
+
+冻结是单向的，无论成败都必须断电重启——内存里的块缓存和 inode 缓存描述的是旧磁盘，不能再拿来解释新磁盘。
 
 \section{烧录 SD 卡}
 

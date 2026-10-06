@@ -9,9 +9,13 @@ struct vnode;
 // belongs to the native xv6 filesystem, and -1 for an error below a mount.
 int  vfsopen(char *path, int omode, struct vnode **out);
 int  vfsrename(char *oldpath, char *newpath);
+int  vfsunlink(char *path);
+int  vfsmkdir(char *path);
 void vfsclose(struct vnode *vn);
-int  vfsread(struct vnode *vn, int user_dst, uint64 dst, uint off, uint n);
-int  vfswrite(struct vnode *vn, int user_src, uint64 src, uint off, uint n);
+int  vfsread(struct vnode *vn, int user_dst, uint64 dst, uint64 off, uint n);
+int  vfswrite(struct vnode *vn, int user_src, uint64 src, uint64 off, uint n);
+int  vfsftruncate(struct vnode *vn, uint64 size);
+int  vfsfsync(struct vnode *vn);
 int  vfsstat(struct vnode *vn, struct stat *st);
 
 #endif

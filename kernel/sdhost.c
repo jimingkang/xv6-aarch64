@@ -373,6 +373,44 @@ sdsector(uint32 sector, void *buffer, int write)
   return result;
 }
 
+// Complete all writes issued before this call and establish an ordering
+// barrier for writes issued afterwards.  SDHOST is PIO and sdlock serializes
+// commands, but a completed host transfer can still leave the card internally
+// programming NAND.  CMD13's READY_FOR_DATA + TRAN state is the portable
+// completion boundary for cards which do not expose the optional SD 6.x cache
+// extension.
+int
+sdflush(void)
+{
+  if(!sd_ready)
+    return -1;
+  acquire(&sdlock);
+  asm volatile("dsb sy" ::: "memory");
+  uint64 deadline = r_cntvct_el0() + 5ULL * r_cntfrq_el0();
+  int result = -1;
+  for(;;){
+    uint32 status = 0;
+    if(send_command(13, sd_rca << 16, RESP_SHORT, 0, &status) == 0){
+      uint32 state = (status >> 9) & 0xf;
+      if((status & (1U << 8)) && state == 4){
+        result = 0;
+        break;
+      }
+    } else {
+      wr(SDHSTS, HSTS_CLEAR);
+    }
+    if(r_cntvct_el0() >= deadline)
+      break;
+    delay_us(1000);
+  }
+  asm volatile("dsb sy" ::: "memory");
+  release(&sdlock);
+  if(result < 0)
+    printf("sdhost: flush timeout cmd=%x hsts=%x edm=%x\n",
+           rd(SDCMD), rd(SDHSTS), rd(SDEDM));
+  return result;
+}
+
 static int
 sdhost_probe(struct device *dev)
 {

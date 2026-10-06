@@ -59,9 +59,10 @@
   \item \textbf{第 3 章 基于汇编的启动代码}：固件把控制权交给内核之后，\file{entry.S} 如何统一异常级别、点亮早期串口、建立临时页表、打开 MMU，并唤醒其余三个核；异常向量表和中断控制器也在这一章。
   \item \textbf{第 4 章 MMU}：39 位虚拟地址、三级页表、内存属性；内核页表与用户页表；MMIO 与 DMA 地址；以及三个与缓存和 TLB 有关的真机故障。
   \item \textbf{第 5 章 进程创建}：\code{struct proc}、第一个用户进程、\code{fork()} 的每一步、上下文切换和调度器，以及在此基础上加入的同步原语和软实时调度。
-  \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，SD 卡驱动，根文件系统的三种存放方式，VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
+  \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，SD 卡驱动，根文件系统的存放方式，VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
   \item \textbf{第 7 章 驱动架构}：设备模型与上下半部；控制台、UART 与 TTY；USB 与输入子系统；I2C；SDIO 与 USB 两种无线网卡；CSI-2 摄像头。
   \item \textbf{第 8 章 用户进程、线程与 libc}：系统调用桩、\code{init} 与 shell、用户线程、POSIX 兼容层和一个能在 xv6 里运行的小型 C 编译器。
+  \item \textbf{第 9 章 可选工作}：主线之外的扩展。目前收录可读写的 ext2、\code{sdflush()} 写屏障和外置事务日志 xjournal，以及用 WAL 程序做的断电测试。
 \end{itemize}
 
 \section{阅读方法与约定}

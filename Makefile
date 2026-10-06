@@ -65,8 +65,10 @@ OBJS = \
   $K/timer.o \
   $K/sdhost.o \
 	$K/fat32.o \
+	$K/rootdev.o \
 	$K/rootupdate.o \
 	$K/ext2.o \
+	$K/xjournal.o \
   $K/bcm2837.o \
   $K/mbox.o \
   $K/i2c.o \
@@ -319,6 +321,7 @@ UPROGS=\
 	$U/_wifi\
 	$U/_dhcp\
 	$U/_dd\
+	$U/_waltest\
 	$U/_tcpd\
 	$U/_epollserver\
 	$U/_ptytest\

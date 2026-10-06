@@ -1,3 +1,5 @@
+> 更新说明：根设备代码已从 `kernel/fat32.c` 拆到 `kernel/rootdev.c`。下文中的 `fat32rw()` 现名 `rootdev_rw()`，`file_sector_lba()` 现名 `root_sector_lba()`（在 rootdev.c 内），MBR 扫描和 `setup_raw_root()` 由 `rootdev_init()` 完成；FS.IMG 的簇链映射由 FAT32 层的 `fat32mapfile()`/`fat32mapsector()` 提供。启动日志前缀也从 `fat32:`/`xv6fs:` 改为 `rootdev:`。本文保留当时的函数名作为调试记录。
+
 # Raspberry Pi 3 SD CMD17 超时与恢复重试
 
 本文记录 xv6-aarch64 在 Raspberry Pi 3 真机进入 shell 后，执行 `ls` 时发生 SD 卡读取失败的诊断和解决方案。

@@ -143,6 +143,8 @@ fileread(struct file *f, uint64 addr, int n)
   } else if(f->type == FD_DEVICE){
     r = chrdev_read(f, 1, addr, n);
   } else if(f->type == FD_INODE){
+    if(f->off > 0xffffffffULL || (uint64)n > 0x100000000ULL - f->off)
+      return -1;
     ilock(f->ip);
     if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
       f->off += r;
@@ -176,6 +178,8 @@ filewrite(struct file *f, uint64 addr, int n)
   } else if(f->type == FD_DEVICE){
     ret = chrdev_write(f, 1, addr, n);
   } else if(f->type == FD_INODE){
+    if(f->off > 0xffffffffULL || (uint64)n > 0x100000000ULL - f->off)
+      return -1;
     // write a few blocks at a time to avoid exceeding
     // the maximum log transaction size, including
     // i-node, indirect block, allocation blocks,
@@ -215,4 +219,85 @@ filewrite(struct file *f, uint64 addr, int n)
   }
 
   return ret;
+}
+
+int
+filepread(struct file *f, uint64 addr, int n, uint64 off)
+{
+  int r;
+  if(n < 0 || !f->readable)
+    return -1;
+  if(f->type == FD_INODE){
+    if(off > 0xffffffffULL || (uint64)n > 0x100000000ULL - off)
+      return -1;
+    ilock(f->ip);
+    r = readi(f->ip, 1, addr, off, n);
+    iunlock(f->ip);
+    return r;
+  }
+  if(f->type == FD_VNODE)
+    return vfsread(f->vn, 1, addr, off, n);
+  return -1;
+}
+
+int
+filepwrite(struct file *f, uint64 addr, int n, uint64 off)
+{
+  int r, done = 0;
+  if(n < 0 || !f->writable)
+    return -1;
+  if(f->type == FD_VNODE)
+    return vfswrite(f->vn, 1, addr, off, n);
+  if(f->type != FD_INODE || off > 0xffffffffULL ||
+     (uint64)n > 0x100000000ULL - off)
+    return -1;
+  int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
+  while(done < n){
+    int chunk = n - done;
+    if(chunk > max) chunk = max;
+    begin_op();
+    ilock(f->ip);
+    r = writei(f->ip, 1, addr + done, off + done, chunk);
+    iunlock(f->ip);
+    end_op();
+    if(r != chunk)
+      return -1;
+    done += r;
+  }
+  return done;
+}
+
+int
+filetruncate(struct file *f, uint64 size)
+{
+  if(!f->writable)
+    return -1;
+  if(f->type == FD_VNODE)
+    return vfsftruncate(f->vn, size);
+  if(f->type != FD_INODE || size != 0)
+    return -1;
+  begin_op();
+  ilock(f->ip);
+  if(f->ip->type != T_FILE){
+    iunlock(f->ip);
+    end_op();
+    return -1;
+  }
+  itrunc(f->ip);
+  iunlock(f->ip);
+  end_op();
+  return 0;
+}
+
+int
+filefsync(struct file *f, int dataonly)
+{
+  (void)dataonly;
+  if(f->type == FD_VNODE)
+    return vfsfsync(f->vn);
+  if(f->type == FD_INODE)
+    // Native-root writes commit synchronously in filewrite(); this waits for
+    // the card's programming state and creates the storage ordering barrier.
+    return sdflush();
+  return -1;
 }

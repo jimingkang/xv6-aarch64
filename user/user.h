@@ -91,6 +91,11 @@ int socket(int, int, int);
 int bind(int, const void*, int);
 int listen(int, int);
 long lseek(int, long, int);
+int fsync(int);
+int fdatasync(int);
+int ftruncate(int, uint64);
+int pread(int, void*, int, uint64);
+int pwrite(int, const void*, int, uint64);
 
 // ulib.c
 int stat(const char*, struct stat*);

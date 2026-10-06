@@ -26,13 +26,25 @@ struct vnode_ops {
   int (*write)(char*, struct fat32_file*, uint64, int, uint64, int);
   int (*readdir)(char*, int, void*);
   int (*create)(char*);
-  int (*truncate)(char*, struct fat32_file*);
+  int (*truncate)(char*, uint64);
   int (*rename)(char*, char*);
+  int (*unlink)(char*);
+  int (*mkdir)(char*);
+  int (*fsync)(void);
+  // Optional inode-bound file I/O.  A backend that provides open() returns a
+  // handle naming the object itself; later I/O on the vnode uses the handle,
+  // so unlink/rename of the path cannot redirect an open descriptor.
+  int (*open)(char*, uint64*);
+  void (*release)(uint64);
+  int (*hstat)(uint64, struct stat*);
+  int (*hread)(uint64, uint64, void*, int);
+  int (*hwrite)(uint64, uint64, int, uint64, int);
+  int (*htruncate)(uint64, uint64);
 };
 
 struct vfs_dirent {
   uint ino;
-  uint size;
+  uint64 size;
   short type;
   char name[EXT2_NAME_MAX + 1];
 };
@@ -44,6 +56,8 @@ struct vnode {
   char path[MAXPATH];
   struct vnode_ops *ops;
   int readonly;
+  int has_handle;
+  uint64 handle;
   struct fat32_file fat_file;
 };
 
@@ -64,9 +78,27 @@ static struct vfs_mount mounts[NMOUNT];
 static int
 ext2_vstat(char *path, struct stat *st)
 {
-  uint ino, size;
+  uint ino;
+  uint64 size;
   ushort mode;
   if(ext2stat(path, &ino, &mode, &size) < 0)
+    return -1;
+  memset(st, 0, sizeof(*st));
+  st->dev = 2;
+  st->ino = ino;
+  st->type = (mode & 0xf000) == 0x4000 ? T_DIR : T_FILE;
+  st->nlink = 1;
+  st->size = size;
+  return 0;
+}
+
+static int
+ext2_vhstat(uint64 handle, struct stat *st)
+{
+  uint ino;
+  uint64 size;
+  ushort mode;
+  if(ext2statino(handle, &ino, &mode, &size) < 0)
     return -1;
   memset(st, 0, sizeof(*st));
   st->dev = 2;
@@ -96,7 +128,20 @@ ext2_vreaddir(char *path, int index, void *arg)
 static struct vnode_ops ext2_ops = {
   .stat = ext2_vstat,
   .read = ext2readfile,
+  .write = ext2writefile,
   .readdir = ext2_vreaddir,
+  .create = ext2createfile,
+  .truncate = ext2truncatefile,
+  .rename = ext2rename,
+  .unlink = ext2unlink,
+  .mkdir = ext2mkdir,
+  .fsync = ext2fsync,
+  .open = ext2open,
+  .release = ext2release,
+  .hstat = ext2_vhstat,
+  .hread = ext2readino,
+  .hwrite = ext2writeino,
+  .htruncate = ext2truncino,
 };
 
 static int
@@ -135,9 +180,18 @@ fat_vcreate(char *path)
 }
 
 static int
-fat_vtruncate(char *path, struct fat32_file *file)
+fat_vtruncate(char *path, uint64 size)
 {
-  return fat32truncatefile(path, file);
+  struct fat32_file file;
+  if(size != 0 || fat32openwrite(path, &file) < 0)
+    return -1;
+  return fat32truncatefile(path, &file);
+}
+
+static int
+fat_vfsync(void)
+{
+  return sdflush();
 }
 
 static int
@@ -168,7 +222,7 @@ fat_vreaddir(char *path, int index, void *arg)
 static struct vnode_ops fat32_ops = {
   .stat = fat_vstat, .read = fat_vread, .readdir = fat_vreaddir,
   .write = fat_vwrite, .create = fat_vcreate, .truncate = fat_vtruncate,
-  .rename = fat_vrename,
+  .rename = fat_vrename, .fsync = fat_vfsync,
 };
 
 static int
@@ -569,7 +623,7 @@ vfsmount(char *source, char *path, char *fstype, int flags)
     ops = &netfs_ops;
   else
     return -1;
-  if(!readonly && ops != &fat32_ops)
+  if(!readonly && ops != &fat32_ops && ops != &ext2_ops)
     return -1;
   acquire(&vnodes.lock);
   int r = mountops(path, ops, readonly);
@@ -632,16 +686,18 @@ vfsopen(char *path, int omode, struct vnode **out)
   exists = ops->stat(sub, &st) == 0;
   if(trace_create)
     printf("vfs: boot create stat complete exists=%d\n", exists);
-  if(omode == O_RDONLY){
+  int access = omode & (O_WRONLY | O_RDWR);
+  if(access == O_RDONLY){
     if(!exists)
       return -1;
   } else {
-    if(readonly || (omode & O_RDWR) || !(omode & O_WRONLY) ||
-       (omode & ~(O_WRONLY | O_CREATE | O_TRUNC)) ||
+    if(readonly || (access != O_WRONLY && access != O_RDWR) ||
+       (omode & ~(O_WRONLY | O_RDWR | O_CREATE | O_TRUNC | O_NONBLOCK)) ||
        ops->write == 0 || (!exists && (!(omode & O_CREATE) ||
                                        ops->create == 0)))
       return -1;
-    if(exists && !(omode & O_TRUNC) && st.type == T_FILE && st.size != 0)
+    if(exists && ops == &fat32_ops && !(omode & O_TRUNC) &&
+       st.type == T_FILE && st.size != 0)
       return -1;
     if(!exists){
       if(trace_create)
@@ -652,10 +708,9 @@ vfsopen(char *path, int omode, struct vnode **out)
         printf("vfs: boot create directory-entry complete\n");
     }
     if(omode & O_TRUNC){
-      struct fat32_file ignored;
       if(trace_create)
         printf("vfs: boot create truncate begin\n");
-      if(ops->truncate == 0 || ops->truncate(sub, &ignored) < 0)
+      if(ops->truncate == 0 || ops->truncate(sub, 0) < 0)
         return -1;
       if(trace_create)
         printf("vfs: boot create truncate complete\n");
@@ -677,6 +732,8 @@ vfsopen(char *path, int omode, struct vnode **out)
       vn->ops = ops;
       vn->readonly = readonly;
       safestrcpy(vn->path, sub, sizeof(vn->path));
+      vn->has_handle = 0;
+      vn->handle = 0;
       memset(&vn->fat_file, 0, sizeof(vn->fat_file));
       break;
     }
@@ -684,8 +741,14 @@ vfsopen(char *path, int omode, struct vnode **out)
   release(&vnodes.lock);
   if(vn == 0)
     return -1;
-  if(!readonly && omode != O_RDONLY &&
-     vn->ops->write != 0){
+  if(vn->type == T_FILE && ops->open){
+    if(ops->open(sub, &vn->handle) < 0){
+      vfsclose(vn);
+      return -1;
+    }
+    vn->has_handle = 1;
+  }
+  if(!readonly && omode != O_RDONLY && vn->ops == &fat32_ops){
     if(trace_create)
       printf("vfs: boot create openwrite begin\n");
     if(fat32openwrite(sub, &vn->fat_file) < 0){
@@ -714,27 +777,63 @@ vfsrename(char *oldpath, char *newpath)
   return oldops->rename(oldsub, newsub);
 }
 
+// -2 means the path belongs to the native root and the syscall should use the
+// native inode implementation. -1 is an error below a VFS mount.
+int
+vfsunlink(char *path)
+{
+  char *sub;
+  int readonly;
+  struct vnode_ops *ops = findmount(path, &sub, &readonly);
+  if(ops == 0) return -2;
+  if(readonly || ops->unlink == 0) return -1;
+  return ops->unlink(sub);
+}
+
+int
+vfsmkdir(char *path)
+{
+  char *sub;
+  int readonly;
+  struct vnode_ops *ops = findmount(path, &sub, &readonly);
+  if(ops == 0) return -2;
+  if(readonly || ops->mkdir == 0) return -1;
+  return ops->mkdir(sub);
+}
+
 void
 vfsclose(struct vnode *vn)
 {
+  void (*rel)(uint64) = 0;
+  uint64 handle = 0;
   acquire(&vnodes.lock);
   if(vn == 0 || !vn->used || vn->ref < 1)
     panic("vfsclose");
   if(--vn->ref == 0){
+    if(vn->has_handle){
+      rel = vn->ops->release;
+      handle = vn->handle;
+      vn->has_handle = 0;
+    }
     vn->used = 0;
     vn->ops = 0;
   }
   release(&vnodes.lock);
+  // The backend may do disk I/O (orphan reclaim) under its own sleeplock.
+  if(rel)
+    rel(handle);
 }
 
 int
 vfsstat(struct vnode *vn, struct stat *st)
 {
+  if(vn->has_handle && vn->ops->hstat)
+    return vn->ops->hstat(vn->handle, st);
   return vn->ops->stat(vn->path, st);
 }
 
 int
-vfsread(struct vnode *vn, int user_dst, uint64 dst, uint off, uint n)
+vfsread(struct vnode *vn, int user_dst, uint64 dst, uint64 off, uint n)
 {
   struct vfs_dirent vde;
   struct dirent de;
@@ -763,7 +862,10 @@ vfsread(struct vnode *vn, int user_dst, uint64 dst, uint off, uint n)
     int chunk = n - total;
     if(chunk > PGSIZE)
       chunk = PGSIZE;
-    got = vn->ops->read(vn->path, off + total, page, chunk);
+    if(vn->has_handle && vn->ops->hread)
+      got = vn->ops->hread(vn->handle, off + total, page, chunk);
+    else
+      got = vn->ops->read(vn->path, off + total, page, chunk);
     if(got <= 0)
       break;
     if(either_copyout(user_dst, dst + total, page, got) < 0){
@@ -779,10 +881,31 @@ vfsread(struct vnode *vn, int user_dst, uint64 dst, uint off, uint n)
 }
 
 int
-vfswrite(struct vnode *vn, int user_src, uint64 src, uint off, uint n)
+vfswrite(struct vnode *vn, int user_src, uint64 src, uint64 off, uint n)
 {
   if(vn == 0 || vn->readonly || vn->type != T_FILE ||
-     vn->ops->write == 0 || n > 0xffffffffU - off)
+     vn->ops->write == 0 || off + n < off)
     return -1;
+  if(vn->has_handle && vn->ops->hwrite)
+    return vn->ops->hwrite(vn->handle, off, user_src, src, n);
   return vn->ops->write(vn->path, &vn->fat_file, off, user_src, src, n);
+}
+
+int
+vfsftruncate(struct vnode *vn, uint64 size)
+{
+  if(vn == 0 || vn->readonly || vn->type != T_FILE ||
+     vn->ops->truncate == 0)
+    return -1;
+  if(vn->has_handle && vn->ops->htruncate)
+    return vn->ops->htruncate(vn->handle, size);
+  return vn->ops->truncate(vn->path, size);
+}
+
+int
+vfsfsync(struct vnode *vn)
+{
+  if(vn == 0 || vn->ops->fsync == 0)
+    return -1;
+  return vn->ops->fsync();
 }

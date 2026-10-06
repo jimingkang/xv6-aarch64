@@ -58,6 +58,10 @@ int             epollwait(struct epoll*, uint64, int, int);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+int             filepread(struct file*, uint64, int, uint64);
+int             filepwrite(struct file*, uint64, int, uint64);
+int             filetruncate(struct file*, uint64);
+int             filefsync(struct file*, int);
 
 // fs.c
 void            fsinit(int);
@@ -87,15 +91,19 @@ void            ramdiskrw(struct buf*, int);
 void            sdinit(void);
 void            sd_driver_init(void);
 int             sdsector(uint32, void*, int);
+int             sdflush(void);
 void            rootupdate_init(void);
 int             rootupdate_root_frozen(void);
 
 // fat32.c
 void            fat32init(void);
-void            fat32rw(struct buf*, int);
-int             fat32_raw_root_info(uint32*, uint32*);
-int             fat32_root_update_begin(void);
-int             rootfs_freeze_for_update(void);
+
+// rootdev.c
+void            rootdev_init(void);
+void            rootdev_rw(struct buf*, int);
+int             rootdev_raw_info(uint32*, uint32*);
+int             rootdev_update_begin(void);
+int             rootfs_freeze_for_update(void);   // log.c
 struct fat32_file;
 int             fat32openroot(char*, struct fat32_file*);
 int             fat32openpath(char*, struct fat32_file*);
@@ -114,16 +122,45 @@ int             fat32readdirroot(int, struct fat32_dirent*);
 void            ext2init(void);
 int             ext2readfile(char*, uint64, void*, int);
 int             ext2readdir(char*, int, struct ext2_user_dirent*);
-int             ext2stat(char*, uint*, ushort*, uint*);
+int             ext2stat(char*, uint*, ushort*, uint64*);
 int             ext2ready(void);
+int             ext2createfile(char*);
+int             ext2truncatefile(char*, uint64);
+int             ext2writefile(char*, struct fat32_file*, uint64, int, uint64, int);
+int             ext2mkdir(char*);
+int             ext2unlink(char*);
+int             ext2rename(char*, char*);
+int             ext2fsync(void);
+int             ext2open(char*, uint64*);
+void            ext2release(uint64);
+int             ext2readino(uint64, uint64, void*, int);
+int             ext2writeino(uint64, uint64, int, uint64, int);
+int             ext2truncino(uint64, uint64);
+int             ext2statino(uint64, uint*, ushort*, uint64*);
+
+// xjournal.c
+int             xj_init(uint32, uint32);
+int             xj_ready(void);
+uint32          xj_space(void);
+void            xj_begin(void);
+int             xj_active(void);
+int             xj_write(uint32, const void*);
+int             xj_read(uint32, void*);
+int             xj_contains(uint32);
+void            xj_abort(void);
+int             xj_commit(void);
 
 // vfs.c
 void            vfsinit(void);
 int             vfsopen(char*, int, struct vnode**);
 int             vfsrename(char*, char*);
+int             vfsunlink(char*);
+int             vfsmkdir(char*);
 void            vfsclose(struct vnode*);
-int             vfsread(struct vnode*, int, uint64, uint, uint);
-int             vfswrite(struct vnode*, int, uint64, uint, uint);
+int             vfsread(struct vnode*, int, uint64, uint64, uint);
+int             vfswrite(struct vnode*, int, uint64, uint64, uint);
+int             vfsftruncate(struct vnode*, uint64);
+int             vfsfsync(struct vnode*);
 int             vfsstat(struct vnode*, struct stat*);
 int             vfsmount(char*, char*, char*, int);
 

@@ -418,7 +418,7 @@ flowchart TD
     B --> P["procinit + workqueue_init"]
     P --> C["netinit"]
     C --> D["arasan_sdio_driver_init"]
-    D --> E["fat32init"]
+    D --> E["rootdev_init / fat32mount"]
     E --> F["brcmfmac_driver_init"]
     F --> G["下载 firmware/NVRAM/CLM"]
     G --> H["register_netdev wlan0"]
@@ -430,7 +430,7 @@ flowchart TD
 
 - 没有 `sdio_bus_init()`，SDIO function 无法绑定驱动；
 - 没有 `arasan_sdio_driver_init()`，不会枚举出 BCM43455；
-- 没有 `fat32init()`，驱动读取不到 bootfs firmware；
+- 没有 `rootdev_init()` 挂起 bootfs（`fat32mount()`），驱动读取不到 bootfs firmware；
 - 没有 `netinit()`，不能注册 `wlan0`；
 - `/bin/wifi` 必须等上述内核层全部 ready 后才能发起连接。
 

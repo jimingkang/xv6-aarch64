@@ -639,7 +639,7 @@ Arasan 驱动 probe 后创建 \code{mmc\_host}，SDIO core 依次发送 CMD0（�
 
 \subsection{固件装载}
 
-FullMAC 芯片每次上电都要由主机下载固件。驱动从 FAT32 启动分区读取三个文件（所以必须排在 \code{fat32init()} 之后）：
+FullMAC 芯片每次上电都要由主机下载固件。驱动从 FAT32 启动分区读取三个文件（所以必须排在挂起 bootfs 的 \code{rootdev\_init()} 之后）：
 
 \begin{itemize}
   \item \code{BCM43455.BIN}：芯片 CR4 的执行代码；

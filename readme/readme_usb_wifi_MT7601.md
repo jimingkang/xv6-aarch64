@@ -643,14 +643,14 @@ device_init
   -> usb_bus_init
   -> dwc2_driver_init
        -> usb_device_register(148f:7601)
-  -> fat32init
+  -> fat32init / rootdev_init (mount bootfs)
   -> mt7601u_driver_init
        -> usb_register_driver
        -> VID/PID match
        -> mt7601u_probe
 ```
 
-DWC2必须先发现设备，但`MT7601U.BIN`要等`fat32init()`后才能读取。USB core会在
+DWC2必须先发现设备，但`MT7601U.BIN`要等`rootdev_init()`挂起 bootfs 后才能读取。USB core会在
 driver注册时遍历已经存在的device并执行匹配。
 
 | 日志 | 已完成阶段 |

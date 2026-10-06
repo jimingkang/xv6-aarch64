@@ -24,6 +24,10 @@ struct fat32_dirent {
 };
 
 int fat32ready(void);
+int fat32_is_boot_sector(const uchar *sector);
+int fat32mount(uint32 partition_lba, uint32 partition_sectors);
+int fat32mapfile(char *name11, uint32 *bytes);
+int fat32mapsector(uint32 file_sector, uint32 *lba);
 int fat32openroot(char *name11, struct fat32_file *file);
 int fat32openpath(char *path, struct fat32_file *file);
 int fat32openwrite(char *path, struct fat32_file *file);

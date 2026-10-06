@@ -1,7 +1,7 @@
 // Guarded in-place updater for the mounted xv6 raw-root partition.
 //
 // This is intentionally not a general raw-disk device.  It exposes only the
-// partition selected by fat32init(), accepts exactly one FSSIZE image, checks
+// partition selected by rootdev_init(), accepts exactly one FSSIZE image, checks
 // its superblock before touching media, freezes the old root, and verifies
 // every 512-byte sector after writing.  Once writing starts the old root is
 // never unfrozen; the machine must be rebooted.
@@ -85,7 +85,7 @@ rootupdate_open(struct file *f)
   uint32 lba, sectors;
   struct rootupdate_file *u;
   if(!f->writable || f->readable ||
-     fat32_raw_root_info(&lba, &sectors) < 0 ||
+     rootdev_raw_info(&lba, &sectors) < 0 ||
      sectors < FSSIZE * (BSIZE / SECTOR_SIZE))
     return -1;
   acquire(&open_lock);
@@ -140,7 +140,7 @@ rootupdate_write(struct file *f, int user_src, uint64 src, int n)
       goto bad;
     }
     printf("sdroot: image validated; freezing mounted root filesystem\n");
-    if(fat32_root_update_begin() < 0)
+    if(rootdev_update_begin() < 0)
       goto bad;
     acquire(&open_lock);
     root_frozen = 1;

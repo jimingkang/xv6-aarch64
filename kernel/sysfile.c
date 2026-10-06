@@ -101,6 +101,56 @@ argfd(int n, int *pfd, struct file **pf)
   return 0;
 }
 
+uint64
+sys_fsync(void)
+{
+  struct file *f;
+  if(argfd(0, 0, &f) < 0) return -1;
+  return filefsync(f, 0);
+}
+
+uint64
+sys_fdatasync(void)
+{
+  struct file *f;
+  if(argfd(0, 0, &f) < 0) return -1;
+  return filefsync(f, 1);
+}
+
+uint64
+sys_ftruncate(void)
+{
+  struct file *f;
+  uint64 size;
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &size) < 0)
+    return -1;
+  return filetruncate(f, size);
+}
+
+uint64
+sys_pread(void)
+{
+  struct file *f;
+  uint64 dst, off;
+  int n;
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &dst) < 0 ||
+     argint(2, &n) < 0 || argaddr(3, &off) < 0)
+    return -1;
+  return filepread(f, dst, n, off);
+}
+
+uint64
+sys_pwrite(void)
+{
+  struct file *f;
+  uint64 src, off;
+  int n;
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &src) < 0 ||
+     argint(2, &n) < 0 || argaddr(3, &off) < 0)
+    return -1;
+  return filepwrite(f, src, n, off);
+}
+
 // Allocate a file descriptor for the given file.
 // Takes over file reference from caller on success.
 static int
@@ -186,7 +236,8 @@ sys_lseek(void)
   struct file *f;
   uint64 raw_offset;
   int whence;
-  long offset, base, result;
+  long offset;
+  uint64 base, result;
   struct stat st;
 
   if(argfd(0, 0, &f) < 0 || argaddr(1, &raw_offset) < 0 ||
@@ -212,8 +263,16 @@ sys_lseek(void)
   } else {
     return -1;
   }
-  result = base + offset;
-  if(result < 0 || (uint64)result > 0xffffffffULL)
+  if(offset < 0){
+    uint64 magnitude = (uint64)(-(offset + 1)) + 1;
+    if(magnitude > base) return -1;
+    result = base - magnitude;
+  } else {
+    if(base + (uint64)offset < base) return -1;
+    result = base + (uint64)offset;
+  }
+  if((f->type == FD_INODE && result > 0xffffffffULL) ||
+     result > 0x7fffffffffffffffULL)
     return -1;
   f->off = result;
   return result;
@@ -482,6 +541,10 @@ sys_unlink(void)
   if(argstr(0, path, MAXPATH) < 0)
     return -1;
 
+  int vr = vfsunlink(path);
+  if(vr != -2)
+    return vr;
+
   begin_op();
   if((dp = nameiparent(path, name)) == 0){
     end_op();
@@ -682,8 +745,14 @@ sys_mkdir(void)
   char path[MAXPATH];
   struct inode *ip;
 
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+  int vr = vfsmkdir(path);
+  if(vr != -2)
+    return vr;
+
   begin_op();
-  if(argstr(0, path, MAXPATH) < 0 || (ip = create(path, T_DIR, 0, 0)) == 0){
+  if((ip = create(path, T_DIR, 0, 0)) == 0){
     end_op();
     return -1;
   }
