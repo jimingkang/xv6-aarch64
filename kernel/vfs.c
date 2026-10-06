@@ -801,6 +801,22 @@ vfsmkdir(char *path)
   return ops->mkdir(sub);
 }
 
+int
+vfsstatpath(char *path, struct stat *st)
+{
+  char *sub;
+  struct vnode_ops *ops = findmount(path, &sub, 0);
+  if(ops == 0) return -2;
+  return ops->stat(sub, st);
+}
+
+int
+vfsmounted(char *path)
+{
+  char *sub;
+  return findmount(path, &sub, 0) != 0;
+}
+
 void
 vfsclose(struct vnode *vn)
 {

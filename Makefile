@@ -13,6 +13,20 @@ TFTPBOOT_FS ?= $(TFTPBOOT_DIR)/fs.img
 # Raw xv6 partition device.  Intentionally empty: callers must name the exact
 # partition (for example /dev/rdisk4s2) to prevent accidental whole-disk writes.
 RPI3_XV6_DEV ?=
+# ext2 image target partition.  Empty by default: callers must name the exact
+# partition (for example /dev/rdisk4s3) to prevent accidental whole-disk writes.
+RPI3_EXT2_DEV ?=
+EXT2_IMAGE ?= fs_ext2.img
+EXT2_SIZE ?= 32M
+EXT2_LABEL ?= xv6-linux
+# e2fsprogs is a Homebrew keg whose sbin is not on the default PATH.
+MKE2FS ?= $(shell if command -v mke2fs >/dev/null 2>&1; then \
+	command -v mke2fs; \
+	elif test -x /opt/homebrew/opt/e2fsprogs/sbin/mke2fs; then \
+	echo /opt/homebrew/opt/e2fsprogs/sbin/mke2fs; \
+	elif test -x /usr/local/opt/e2fsprogs/sbin/mke2fs; then \
+	echo /usr/local/opt/e2fsprogs/sbin/mke2fs; \
+	else echo mke2fs; fi)
 WIFI_FIRMWARE_DIR ?= firmware
 SUDO ?= sudo
 
@@ -249,6 +263,25 @@ install-rpi3-rawfs: fs.img
 	sync
 	@echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"
 
+.PHONY: install-rpi3-ext2
+install-rpi3-ext2: $(EXT2_IMAGE)
+	@test -n "$(RPI3_EXT2_DEV)" || { \
+		echo "error: set RPI3_EXT2_DEV to the ext2 partition, never the whole disk" 1>&2; \
+		echo "example: make install-rpi3-ext2 RPI3_EXT2_DEV=/dev/rdisk4s3" 1>&2; \
+		exit 1; \
+	}
+	@case "$(RPI3_EXT2_DEV)" in \
+	  /dev/disk*s[0-9]*|/dev/rdisk*s[0-9]*) ;; \
+	  *) echo "error: RPI3_EXT2_DEV must be a partition device, never a whole disk" 1>&2; exit 1 ;; \
+	esac
+	@test -e "$(RPI3_EXT2_DEV)" || { \
+		echo "error: $(RPI3_EXT2_DEV) does not exist" 1>&2; \
+		exit 1; \
+	}
+	$(SUDO) dd if=$(EXT2_IMAGE) of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
+	sync
+	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 partition)"
+
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
 	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
@@ -351,6 +384,15 @@ fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)
 	truncate -s 32M fs.img
 
+# Linux/ext2 image used by the VFS /mnt/ext2 backend.  mke2fs formats a regular
+# file with only the features kernel/ext2.c understands (no journal, no extents,
+# no 64-bit block numbers, no metadata checksums); see readme/readme_ext2.md.
+$(EXT2_IMAGE):
+	truncate -s $(EXT2_SIZE) $@
+	$(MKE2FS) -F -t ext2 -b 4096 \
+	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
+	  -L $(EXT2_LABEL) $@
+
 -include kernel/*.d user/*.d
 
 .PHONY: clean-t113
@@ -363,7 +405,7 @@ clean: clean-t113
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
-	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img \
+	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) \
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
 	$(UPROGS)

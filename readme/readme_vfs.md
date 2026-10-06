@@ -558,3 +558,40 @@ rootdev: bootfs p1 lba=2048 mounted as FAT32
 rootdev: using FAT32 FS.IMG compatibility mapping, 65536 sectors   (旧卡)
 rootdev: no MBR; using bare xv6 image                              (QEMU 裸镜像)
 ```
+
+
+## 当前目录（cwdpath）与 exec 走 VFS
+
+VFS 挂载表按绝对路径做最长前缀匹配，而原生的当前目录是 inode 指针 `p->cwd`。以前因此有两个限制：
+`cd /mnt/ext2` 只进入被挂载点遮住的原生空目录，相对路径看不到 ext2；`exec()` 只走 `namei()`/`readi()`，
+挂载点上的程序无法运行。现在：
+
+- `struct proc` 增加 `cwdpath[MAXPATH]`（`userinit` 置 `/`，`fork`/`clone` 复制）。
+- `kernel/sysfile.c` 的 `abspath()` 把相对路径接到 `cwdpath` 后面并按文字处理 `.`、`..`（xv6 没有符号链接，
+  结果与沿目录树走一致）。`open/mkdir/unlink/rename/link/mknod/mount/chdir/exec` 进入时都先调用它。
+- `chdir()`：`vfsstatpath()` 命中挂载点且后端报告 `T_DIR` 时只更新 `cwdpath`；否则沿用原生 `namei()`，
+  同时更新 `p->cwd` 和 `cwdpath`。
+- `link()`、`mknod()` 遇到挂载点下的路径返回错误（硬链接和设备节点只存在于原生 fs）。
+- `kernel/exec.c` 用 `struct execsrc { inode *ip; vnode *vn; }` 统一读取源：先 `vfsopen(path, O_RDONLY)`，
+  命中挂载点且是普通文件就用 `vfsread()`，否则走原来的 `begin_op/namei/ilock/readi`；`loadseg()` 改调
+  `srcread()`，结束时 `srcclose()` 释放 inode 或 vnode。
+
+QEMU 验证：
+
+```text
+$ cd /mnt/ext2
+$ echo hello > a.txt ; cat a.txt          -> hello
+$ mkdir d ; cd d ; cat /bin/echo > e
+$ ./e hi from ext2                        -> hi from ext2
+$ ls ..                                   -> 列出 ext2 根目录
+$ cd / ; mnt/ext2/d/e relative exec       -> relative exec
+$ cd /proc ; cat meminfo                  -> 正常
+$ cd /mnt/ext2/a.txt                      -> cannot cd（不是目录）
+$ ln /mnt/ext2/a.txt /x                   -> failed
+$ cd t/../t/./                            -> 原生目录的 . / .. 正常
+```
+
+`waltest init/fsops/semantics` 通过，宿主机 `e2fsck -fn` 无错误。
+
+已知边界：`cwdpath` 是文字路径，如果当前目录本身被别的进程改名或删除，`cwdpath` 不会跟着变，
+之后的相对路径会解析失败（Linux 会保留目录对象本身）。

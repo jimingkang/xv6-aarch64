@@ -192,6 +192,50 @@ open("/boot/config.txt")
 
 返回值约定是这一层设计的关键：\code{1} 表示 VFS 已打开；\code{-1} 表示路径属于某个挂载点但打开失败（不能退回原生根文件系统，否则会打开挂载点下面被遮住的同名文件）；\code{0} 表示不属于任何挂载点，继续走原生的 \code{namei()}。
 
+\subsection{当前目录与 \code{exec}}
+\label{sec:vfs-cwd}
+
+最长前缀匹配只认绝对路径，而原生 xv6 的当前目录是一个 inode 指针 \code{p->cwd}，\code{namex()} 遇到相对路径就从它开始走。两者合在一起，最初有两个明显的漏洞：\code{cd /mnt/ext2} 只会进入原生根文件系统里那个被挂载点遮住的空目录，之后的相对路径全部落在空目录里；\code{exec()} 只调用 \code{namei()} 和 \code{readi()}，挂载点上的程序根本无法运行。
+
+修复的办法是让路径在进入系统调用时就变成绝对路径。\code{struct proc} 增加一个字段 \code{cwdpath}，记录当前目录的规范化绝对路径（\code{fork}、\code{clone} 复制它，\code{userinit} 置为 \code{/}）。\file{sysfile.c} 的 \code{abspath()} 把相对路径接在 \code{cwdpath} 后面，再逐段处理 \code{.} 和 \code{..}：
+
+\begin{txtcode}
+cwdpath = /mnt/ext2/d      输入 ../a.txt     ->  /mnt/ext2/a.txt
+cwdpath = /bin             输入 ../etc       ->  /etc
+cwdpath = /                输入 mnt/ext2/d/e ->  /mnt/ext2/d/e
+\end{txtcode}
+
+xv6 没有符号链接，所以按文字处理 \code{..} 与沿目录树向上走的结果完全相同。\code{open}、\code{mkdir}、\code{unlink}、\code{rename}、\code{link}、\code{mknod}、\code{mount}、\code{chdir}、\code{exec} 一进来就调用它，此后原生 \code{namei()} 和 VFS 挂载表看到的是同一个绝对名字。原生的 \code{p->cwd} 仍然保留，但相对路径已不再经过它。
+
+\code{chdir()} 先用 \code{vfsstatpath()} 判断目标是否在挂载点下：如果是，只要后端报告它是目录，就记下新的 \code{cwdpath}，不需要原生 inode；否则照原来的方式用 \code{namei()} 找到目录 inode，换掉 \code{p->cwd}，同时更新 \code{cwdpath}。硬链接和设备节点只存在于原生文件系统，\code{link()} 和 \code{mknod()} 遇到挂载点下的路径直接返回错误，以免在被遮住的原生目录里留下看不见的文件。
+
+\code{exec()} 则把“从哪里读 ELF”抽象成一个小结构：
+
+\begin{ccode}
+struct execsrc {                 // kernel/exec.c
+  struct inode *ip;              // 原生根：已加锁的 inode，处在日志事务中
+  struct vnode *vn;              // 挂载点：只读打开的 vnode
+};
+
+static int srcread(struct execsrc *src, uint64 dst, uint off, uint n) {
+  if(src->vn)
+    return vfsread(src->vn, 0, dst, off, n);   // 例如 ext2 的 hread
+  return readi(src->ip, 0, dst, off, n);
+}
+\end{ccode}
+
+\code{exec()} 先调用 \code{vfsopen(path, O\_RDONLY, …)}：返回 1 且对象是普通文件，就从 vnode 读；返回 0 才进入原来的 \code{begin\_op()} → \code{namei()} → \code{ilock()} 路径。读 ELF 头、程序头和 \code{loadseg()} 都改调 \code{srcread()}，结束时由 \code{srcclose()} 统一释放 inode 或 vnode。这样 \code{/mnt/ext2} 和 \code{/boot} 上的程序都能直接运行：
+
+\begin{shcode}
+$ cd /mnt/ext2/d
+$ cat /bin/echo > e
+$ ./e hi from ext2
+hi from ext2
+$ cd /
+$ mnt/ext2/d/e relative exec
+relative exec
+\end{shcode}
+
 \subsection{三个后端}
 
 \begin{itemize}

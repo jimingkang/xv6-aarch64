@@ -6,8 +6,40 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
+#include "stat.h"
+#include "fcntl.h"
+#include "vfs.h"
 
-static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
+// An executable comes either from the native xv6 root (a locked inode inside
+// a log transaction) or from a VFS mount such as /mnt/ext2 (an open vnode).
+struct execsrc {
+  struct inode *ip;
+  struct vnode *vn;
+};
+
+static int
+srcread(struct execsrc *src, uint64 dst, uint off, uint n)
+{
+  if(src->vn)
+    return vfsread(src->vn, 0, dst, off, n);
+  return readi(src->ip, 0, dst, off, n);
+}
+
+static void
+srcclose(struct execsrc *src)
+{
+  if(src->ip){
+    iunlockput(src->ip);
+    end_op();
+    src->ip = 0;
+  }
+  if(src->vn){
+    vfsclose(src->vn);
+    src->vn = 0;
+  }
+}
+
+static int loadseg(pde_t *pgdir, uint64 addr, struct execsrc *src, uint offset, uint sz);
 
 int
 exec(char *path, char **argv)
@@ -16,7 +48,8 @@ exec(char *path, char **argv)
   int i, off;
   uint64 argc, sz = 0, sp, ustack[MAXARG], stackbase;
   struct elfhdr elf;
-  struct inode *ip;
+  struct execsrc src = { 0, 0 };
+  struct stat st;
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
@@ -33,19 +66,28 @@ exec(char *path, char **argv)
   vm->execing = 1;
   release(&vm->lock);
 
-  begin_op();
-
-  if((ip = namei(path)) == 0){
-    end_op();
+  int vr = vfsopen(path, O_RDONLY, &src.vn);
+  if(vr > 0 && (vfsstat(src.vn, &st) < 0 || st.type != T_FILE))
+    vr = -1;
+  if(vr == 0){
+    begin_op();
+    if((src.ip = namei(path)) == 0){
+      end_op();
+      vr = -1;
+    } else {
+      ilock(src.ip);
+    }
+  }
+  if(vr < 0){
+    srcclose(&src);
     acquire(&vm->lock);
     vm->execing = 0;
     release(&vm->lock);
     return -1;
   }
-  ilock(ip);
 
   // Check ELF header
-  if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
+  if(srcread(&src, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
   if(elf.magic != ELF_MAGIC)
     goto bad;
@@ -55,7 +97,7 @@ exec(char *path, char **argv)
 
   // Load program into memory.
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
-    if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
+    if(srcread(&src, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
     if(ph.type != ELF_PROG_LOAD)
       continue;
@@ -72,12 +114,10 @@ exec(char *path, char **argv)
     sz = sz1;
     if((ph.vaddr % PGSIZE) != 0)
       goto bad;
-    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    if(loadseg(pagetable, ph.vaddr, &src, ph.off, ph.filesz) < 0)
       goto bad;
   }
-  iunlockput(ip);
-  end_op();
-  ip = 0;
+  srcclose(&src);
 
   p = myproc();
   uint64 oldsz;
@@ -156,10 +196,7 @@ exec(char *path, char **argv)
   release(&vm->lock);
   if(pagetable)
     uvmfree(pagetable, sz);
-  if(ip){
-    iunlockput(ip);
-    end_op();
-  }
+  srcclose(&src);
   return -1;
 }
 
@@ -168,7 +205,7 @@ exec(char *path, char **argv)
 // and the pages from va to va+sz must already be mapped.
 // Returns 0 on success, -1 on failure.
 static int
-loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
+loadseg(pagetable_t pagetable, uint64 va, struct execsrc *src, uint offset, uint sz)
 {
   uint i, n;
   uint64 pa;
@@ -181,7 +218,7 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
       n = sz - i;
     else
       n = PGSIZE;
-    if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
+    if(srcread(src, (uint64)pa, offset+i, n) != n)
       return -1;
   }
   

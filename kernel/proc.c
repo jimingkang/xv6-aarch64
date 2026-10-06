@@ -544,6 +544,7 @@ userinit(void)
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
+  safestrcpy(p->cwdpath, "/", sizeof(p->cwdpath));
 
   make_runnable(p, 0);
 
@@ -639,6 +640,7 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  safestrcpy(np->cwdpath, p->cwdpath, sizeof(np->cwdpath));
   np->sid = p->sid;
   np->pgid = p->pgid;
   np->ctty = p->ctty;
@@ -720,6 +722,7 @@ threadclone(uint64 entry, uint64 arg, uint64 stack_top)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  safestrcpy(np->cwdpath, p->cwdpath, sizeof(np->cwdpath));
   np->sid = p->sid;
   np->pgid = p->pgid;
   np->ctty = p->ctty;

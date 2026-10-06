@@ -17,5 +17,9 @@ int  vfswrite(struct vnode *vn, int user_src, uint64 src, uint64 off, uint n);
 int  vfsftruncate(struct vnode *vn, uint64 size);
 int  vfsfsync(struct vnode *vn);
 int  vfsstat(struct vnode *vn, struct stat *st);
+// -2 when path belongs to the native root, otherwise the backend's stat.
+int  vfsstatpath(char *path, struct stat *st);
+// 1 when an absolute path lies below a VFS mount point.
+int  vfsmounted(char *path);
 
 #endif

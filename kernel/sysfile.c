@@ -27,6 +27,66 @@ net16(uint16 value)
   return (value << 8) | (value >> 8);
 }
 
+// Rewrite path in place as a normalized absolute path.  A relative path is
+// joined to the process's cwdpath; "." and ".." are resolved textually, which
+// is exact because xv6 has no symbolic links.  Every path-taking syscall calls
+// this first, so the native namei() and the VFS mount table both see the same
+// absolute name and relative paths work inside /mnt/ext2, /boot or /proc.
+static int
+abspath(char *path)
+{
+  char tmp[MAXPATH];
+  struct proc *p = myproc();
+  int n;
+
+  if(path[0] == 0)
+    return -1;
+  if(path[0] == '/'){
+    safestrcpy(tmp, path, sizeof(tmp));
+  } else {
+    int a = strlen(p->cwdpath), b = strlen(path);
+    if(a + 1 + b + 1 > MAXPATH)
+      return -1;
+    memmove(tmp, p->cwdpath, a);
+    tmp[a] = '/';
+    memmove(tmp + a + 1, path, b + 1);
+  }
+
+  path[0] = '/';
+  n = 1;
+  for(char *s = tmp; *s; ){
+    while(*s == '/')
+      s++;
+    if(*s == 0)
+      break;
+    char *e = s;
+    while(*e && *e != '/')
+      e++;
+    int len = e - s;
+    if(len == 1 && s[0] == '.'){
+      // stay
+    } else if(len == 2 && s[0] == '.' && s[1] == '.'){
+      if(n > 1){                       // drop the last component
+        n--;
+        while(n > 1 && path[n - 1] != '/')
+          n--;
+        if(n > 1)
+          n--;
+      }
+    } else {
+      if(n + (n > 1) + len >= MAXPATH)
+        return -1;
+      if(n > 1)
+        path[n++] = '/';
+      memmove(path + n, s, len);
+      n += len;
+    }
+    s = e;
+  }
+  path[n] = 0;
+  return 0;
+}
+
 uint64
 sys_mount(void)
 {
@@ -34,7 +94,8 @@ sys_mount(void)
   int flags;
   if(argstr(0, source, sizeof(source)) < 0 ||
      argstr(1, target, sizeof(target)) < 0 ||
-     argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0)
+     argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0 ||
+     abspath(target) < 0)
     return -1;
   return vfsmount(source, target, fstype, flags);
 }
@@ -44,7 +105,8 @@ sys_rename(void)
 {
   char oldpath[MAXPATH], newpath[MAXPATH];
   if(argstr(0, oldpath, sizeof(oldpath)) < 0 ||
-     argstr(1, newpath, sizeof(newpath)) < 0)
+     argstr(1, newpath, sizeof(newpath)) < 0 ||
+     abspath(oldpath) < 0 || abspath(newpath) < 0)
     return -1;
   return vfsrename(oldpath, newpath);
 }
@@ -471,7 +533,10 @@ sys_link(void)
   char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
   struct inode *dp, *ip;
 
-  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+  if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0 ||
+     abspath(old) < 0 || abspath(new) < 0)
+    return -1;
+  if(vfsmounted(old) || vfsmounted(new))   // hard links are native-only
     return -1;
 
   begin_op();
@@ -538,7 +603,7 @@ sys_unlink(void)
   char name[DIRSIZ], path[MAXPATH];
   uint off;
 
-  if(argstr(0, path, MAXPATH) < 0)
+  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
 
   int vr = vfsunlink(path);
@@ -647,7 +712,8 @@ sys_open(void)
   int n;
   int vr;
 
-  if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
+  if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0 ||
+     abspath(path) < 0)
     return -1;
 
   vr = vfsopen(path, omode, &vn);
@@ -745,7 +811,7 @@ sys_mkdir(void)
   char path[MAXPATH];
   struct inode *ip;
 
-  if(argstr(0, path, MAXPATH) < 0)
+  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
   int vr = vfsmkdir(path);
   if(vr != -2)
@@ -768,9 +834,11 @@ sys_mknod(void)
   char path[MAXPATH];
   int major, minor;
 
+  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0 ||
+     vfsmounted(path))                     // device nodes are native-only
+    return -1;
   begin_op();
-  if((argstr(0, path, MAXPATH)) < 0 ||
-     argint(1, &major) < 0 ||
+  if(argint(1, &major) < 0 ||
      argint(2, &minor) < 0 ||
      (ip = create(path, T_DEVICE, major, minor)) == 0){
     end_op();
@@ -788,8 +856,22 @@ sys_chdir(void)
   struct inode *ip;
   struct proc *p = myproc();
   
+  struct stat st;
+
+  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
+    return -1;
+  // Below a VFS mount the directory exists only as a path.  The native cwd
+  // inode is left alone; relative names are resolved through cwdpath.
+  int vr = vfsstatpath(path, &st);
+  if(vr != -2){
+    if(vr < 0 || st.type != T_DIR)
+      return -1;
+    safestrcpy(p->cwdpath, path, sizeof(p->cwdpath));
+    return 0;
+  }
+
   begin_op();
-  if(argstr(0, path, MAXPATH) < 0 || (ip = namei(path)) == 0){
+  if((ip = namei(path)) == 0){
     end_op();
     return -1;
   }
@@ -803,6 +885,7 @@ sys_chdir(void)
   iput(p->cwd);
   end_op();
   p->cwd = ip;
+  safestrcpy(p->cwdpath, path, sizeof(p->cwdpath));
   return 0;
 }
 
@@ -813,7 +896,8 @@ sys_exec(void)
   int i;
   uint64 uargv, uarg;
 
-  if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
+  if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0 ||
+     abspath(path) < 0){
     return -1;
   }
   memset(argv, 0, sizeof(argv));

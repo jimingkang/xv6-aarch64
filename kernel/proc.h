@@ -145,7 +145,10 @@ struct proc {
   void (*kthread_fn)(void*);   // kernel-thread entry, or zero for user process
   void *kthread_arg;
   struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory
+  struct inode *cwd;           // Current directory (native inode)
+  char cwdpath[MAXPATH];       // Current directory as a normalized absolute
+                               // path; relative paths are resolved against it
+                               // so they also work below VFS mount points
   char name[16];               // Process name (debugging)
 };
 
