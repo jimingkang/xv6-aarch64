@@ -335,7 +335,12 @@ fs.img: mkfs/mkfs $(UPROGS)
 
 -include kernel/*.d user/*.d
 
-clean:
+.PHONY: clean-t113
+clean-t113:
+	# T113 sources live in ports/t113; build/t113 contains generated files only.
+	rm -rf build/t113
+
+clean: clean-t113
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \

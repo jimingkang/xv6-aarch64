@@ -935,32 +935,9 @@ struct camsensor {
 camera: OV5647 on CSI1 (2 lanes) -> /dev/video0, 640x480 RAW10
 \end{txtcode}
 
-\paragraph{mailbox.} 供电走的是固件 property mailbox。电源控制现在与 Linux \file{gpio-raspberrypi-exp.c} 一致：先用 \code{GET\_GPIO\_CONFIG} 读出并保留 CAM\_GPIO0 的极性，再设置方向和电平，最后用 \code{GET\_GPIO\_STATE} 回读，标准 Pi 3 应显示 \code{direction=output polarity=normal state=1}。消息本身按 Linux \code{rpi\_firmware\_property()} 的约定组织：标签的请求/应答长度字填 0；发送前清空 FIFO 里其他驱动超时后遗留的旧回复（日志里的 \code{stale replies K}）；只接受地址与本次请求相同的回复；判断成败时不看单个标签的 response 位，而看整条消息成功后返回结构的第一个字。早先那次“标签不支持”的日志，很可能就是读到了别人的旧回复。
+\paragraph{mailbox.} 供电走的是固件 property mailbox。电源控制现在与 Linux \file{gpio-raspberrypi-exp.c} 一致：先用 \code{GET\_GPIO\_CONFIG} 读出并保留 CAM\_GPIO0 的极性，再设置方向和电平，最后用 \code{GET\_GPIO\_STATE} 回读，标准 Pi 3 应显示 \code{direction=output polarity=normal state=1}。消息本身按 Linux \code{rpi\_firmware\_property()} 的约定组织：标签的请求/应答长度字填 0；发送前清空 FIFO 里其他驱动超时后遗留的旧回复（日志里的 \code{stale replies K}）；只接受地址与本次请求相同的回复；判断成败时不看单个标签的 response 位，而看整条消息成功后返回结构的第一个字。这些规则是怎么来的，见 \ref{sec:cam-bugs} 小节的问题 1。
 
-\paragraph{为什么硬件 I2C 读不到芯片 ID.} 读 16 位寄存器地址需要“写地址、不发 STOP、repeated START、读数据”的组合事务。BSC 的状态机有个硬件限制：写 FIFO 不能预填，驱动要先启动一个空写事务，等 \code{TXW} 置位后再填数据，并在最后一个写字节之后立即切换到读阶段——\code{i2c\_write\_read()} 照 Linux \file{i2c-bcm2835.c} 实现了这条路径；失败时再试 SCCB 常见的“STOP 后再 START”分离读法。真机上的现象却是：BSC0 在每一种读法下都返回 \code{ERR}（NACK）。诊断行把能看的状态都打了出来：
-
-\begin{txtcode}
-ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=90000131 flags=131 \
-        now=... div=2500 fsel=55 levels=3
-\end{txtcode}
-
-\code{flags} 的 \code{0x100} 是 NACK、\code{0x200} 是时钟拉伸超时；\code{fsel=55} 表示两个引脚都是 ALT1；\code{levels=3} 表示 SDA、SCL 都是高电平，总线空闲。还有一个真机与 QEMU 的区别：出错后若在 \code{TA}（transfer active）仍为 1 时就关掉 \code{I2CEN}，真 BCM2837 的状态机可能被冻结，所以驱动先保持使能、清 FIFO、等 NACK+STOP 让 \code{TA} 归零，再关控制器。顺带发现内核 \code{printf} 的 \code{\%x} 把最高位为 1 的值当有符号数打印（\code{0x90000131} 显示成 \code{-6ffffecf}），已改成无符号。
-
-\paragraph{用 bit-bang 把问题切成两半.} 三个常见地址（\code{0x36} OV5647、\code{0x10} IMX219、\code{0x1a} IMX477 等）在 BSC 上都 NACK 时，驱动临时把 GPIO44/45 改成开漏 GPIO，用约 100\,kHz 的软件时序只发一个地址字节、读第九个时钟上的 ACK，然后恢复 ALT1。这个测试不读写任何传感器寄存器，却能把故障一分为二：bit-bang 也 NACK，问题在控制器之外（排线、插座、供电或模块）；bit-bang ACK 而 BSC NACK，传感器、地址、供电、上拉、排线都已被证明没问题，故障只在 BSC0 的复用或时序。三个地址都 NACK 时还会扫描全部合法地址 \code{0x08}～\code{0x77}。
-
-诊断代码自己也出过错：第九个时钟最初调用的是通用的 \code{bb\_release()}，它释放 SDA 后会等 SDA 回到高电平——可 ACK 的定义恰恰是从设备把 SDA 拉低，于是每次都白等 100\,µs，同一个模块时而 ACK、时而 NACK。现在 ACK 周期只把 SDA 切成输入，在 SCL 高电平中间直接采样。
-
-\paragraph{BSC 恢复扫描.} 出现“bit-bang ACK、BSC NACK”时，驱动依次用 100、50、25、10\,kHz 重新读芯片 ID。每档都按 Linux 的比例同时更新 \code{BSC\_DIV} 和边沿采样延迟 \code{BSC\_DEL}（不继承固件留下的 FEDL/REDL），并在写完地址、长度、FIFO 之后加 \code{dsb sy}，保证这些配置在 START 之前已经到达控制器。第一个成功的速率留给后面整张寄存器表。
-
-\paragraph{软件 SCCB：从后备路径到首选路径.} 在本书使用的那块板子上，四档全部失败，而修正后的 bit-bang 稳定 ACK。于是驱动改用完整的软件 SCCB 事务（STOP/START 分离读法）读 \code{0x300a/0x300b}，此后 OV5647 的所有读写都走 GPIO44/45。软件路径比硬件慢，但只用来写一百来个短寄存器，图像本身走 CSI-2 和 DMA，不受影响。它又经历了两轮加固（驱动版本串 \code{gpio-sccb-v7}、\code{v8}）：
-
-\begin{itemize}
-  \item \textbf{偶发错误 ID}：v6 曾在地址 ACK 之后读出 \code{chip-id=3631}，接着全地址扫描报告 BUS-STUCK。\code{0x3631} 不是任何有效 ID，说明事务本身被应答了、但数据位采样不稳。v7 把软件时钟降到约 25\,kHz（半周期约 20\,µs）；任何不是 \code{0x5647} 的完整读数都被拒绝重读；只要 \code{0x36} 已经完成过寄存器事务，就不再做全地址扫描，而是直接断电重来——扫描本身就是对一个状态不稳的模块的额外扰动；
-  \item \textbf{恢复脉冲只在需要时发}：旧版每次软件事务前都无条件送 9 个 SCL 恢复脉冲；现在只有发现 SDA 被拉低（从设备卡在一个字节中间）才送，最多 9 个，然后统一发 STOP；
-  \item \textbf{更干净的电源沿}：上电前先把 CAM\_GPIO0 拉低 20\,ms 让模块放电，置高后等 100\,ms 再访问（Linux 设备树只要求 20\,ms，克隆模块需要更多）；
-  \item \textbf{不再先碰 BSC0}（v8）：v7 在真机上仍会出现“\code{0x36} ACK，但三次 ID 读取都失败”。原因是每次上电仍先跑几次注定失败的 BSC0 事务，再切到 GPIO，而 BSC 的半截事务会让传感器进入不稳定状态。v8 从第一次读 ID 起就直接用 25\,kHz 软件 SCCB，日志第一行就是 \code{probing with 25 kHz GPIO SCCB; BSC0 bypassed}；
-  \item 开始软件事务前直接关闭 BSC、清 FIFO 和粘滞状态位再切 GPIO，不等 BSC 的 \code{TA}；寄存器表里的 \code{0x0103=1} 会让传感器软件复位，写完这一项明确等 10\,ms；普通寄存器写最多重试三次。
-\end{itemize}
+\paragraph{控制总线：从 BSC0 到软件 SCCB.} 读 16 位寄存器地址需要“写地址、不发 STOP、repeated START、读数据”的组合事务，\code{i2c\_write\_read()} 照 Linux \file{i2c-bcm2835.c} 实现了它（BSC 的写 FIFO 不能预填，要先启动空写事务、等 \code{TXW} 再填）。但在真机上，BSC0 对 \code{0x36} 始终 NACK，而 GPIO bit-bang 探测能得到 ACK，降速也无济于事。最终的驱动（\code{gpio-sccb-v8}）因此从第一次访问起就用 GPIO44/45 上约 25\,kHz 的软件 SCCB：STOP/START 分离读法，拒绝任何不是 \code{0x5647} 的读数，失败就断电重来，不再扫描其他地址。BSC0 仍按 100\,kHz 初始化并保留两段式中止，只是不再发事务。这条路是怎么一步步走过来的，见 \ref{sec:cam-bugs} 小节的问题 2～6。
 
 \paragraph{延迟探测.} \code{/dev/video0} 在探测之前就已注册，所以 \code{open} 成功不代表绑定了传感器。启动时只探测一次，避免没有摄像头时拖慢开机；如果启动探测偶然失败，第一次 \code{read()} 或 \code{pattern=N} 写入会在拍照睡眠锁 \code{cam.busy} 下重新探测，最多三个完整的断电/上电周期，每次失败等 100\,ms。
 
@@ -1083,7 +1060,7 @@ ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=90000131 flags=131 \
   \label{fig:cam-fsm}
 \end{figure}
 
-\paragraph{为什么用轮询而不是中断.} 设备树说 CSI1 是 GPU IRQ 39，但这个编号没有在真机上验证过。第一次真机出流时打开了这个中断，CPU0 随即陷入一个清不掉的电平中断：连更新 \code{ticks} 的通用定时器中断都得不到执行，而原来的 4 秒超时恰恰是按 \code{ticks} 计的，于是永远不会到期。bring-up 版本因此屏蔽 IRQ 39，用 \reg{CNTVCT\_EL0} 计一个与中断无关的 4 秒期限，每 1\,ms 轮询一次 Unicam 状态；无论成败都能返回，失败时打印 FS/FE 计数、\code{STA}、\code{IBWP} 等诊断。之后若要重新打开中断，也只在拍照期间打开，连续 100 次没有发现 Unicam 状态就自动关掉，并始终保留这个有界轮询作兜底。现在真机上的日志是：
+\paragraph{为什么用轮询而不是中断.} 设备树说 CSI1 是 GPU IRQ 39，但这个编号没有在真机上验证过；第一次打开它时 CPU0 陷入了清不掉的电平中断（\ref{sec:cam-bugs} 小节问题 7）。所以目前屏蔽 IRQ 39，用 \reg{CNTVCT\_EL0} 计一个 4 秒期限、每 1\,ms 轮询一次 Unicam 状态。现在真机上的日志是：
 
 \begin{txtcode}
 unicam: frame captured by polling; CSI1 IRQ 39 intentionally masked
@@ -1168,28 +1145,165 @@ $ /bin/camshot -t 1 -s -o /boot/cam02.bmp
 
 最后一行的 \code{230454} 是 54 字节 BMP 头加 $320\times240\times3=230400$ 字节像素；\code{frame 31} 是帧头里的序号，即帧结束计数——30 帧预热之后的第 31 帧。输出是 320$\times$240，是因为 \code{-s} 把每个 2$\times$2 Bayer 块合成一个像素，不是 Unicam 丢了一半分辨率。
 
-\paragraph{这份日志证明了什么.} 对照 \ref{sec:cam-hw} 小节的四条通路：mailbox 供电（CAM\_GPIO0 回读）、SCCB 控制（读到 \code{5647}、三张表写完）、CSI-2 数据面与 DMA（\code{frame captured}、长度正确）、事件（轮询完成，IRQ 有意屏蔽）全部打通；用户态转换和 FAT32 写盘也都完成。它同时也是下一小节两个问题——\code{directory-entry begin} 之后停住、以及 \code{chip-id=3631}——修好之后的验证记录。
+\paragraph{这份日志证明了什么.} 对照 \ref{sec:cam-hw} 小节的四条通路：mailbox 供电（CAM\_GPIO0 回读）、SCCB 控制（读到 \code{5647}、三张表写完）、CSI-2 数据面与 DMA（\code{frame captured}、长度正确）、事件（轮询完成，IRQ 有意屏蔽）全部打通；用户态转换和 FAT32 写盘也都完成。它同时也是 \ref{sec:cam-bugs} 小节问题 5、6（软件 SCCB 读 ID 不稳）和问题 11（新建文件停在 \code{directory-entry begin}）修好之后的验证记录。
 
-\subsection{摄像头暴露的四个系统问题}
+\subsection{真机调试记录}
 \label{sec:cam-bugs}
 
-摄像头是第一个同时用到大块 DMA、长时间用户态计算、FAT32 大文件写和 Wi-Fi 并发的程序，它把四个与摄像头本身无关的缺陷逼了出来。
+摄像头从“QEMU 上能探测到没有摄像头”到“真机写出第一张 BMP”，经历了下面十一个问题。前七个属于摄像头本身的控制面和数据面；后四个是摄像头作为第一个同时用到大块 DMA、长时间用户态计算、FAT32 大文件写和 Wi-Fi 并发的程序，逼出来的系统问题。每个问题都按同样的顺序记录：先是串口上看到的日志，再是分析，最后是解决方案。日志中凡是标注“格式”的，是按驱动源码里的 \code{printf} 格式写出的形式，其余是真机原样输出。
 
-\paragraph{SDIO 事务重叠.} 转换进行到白平衡统计时，串口偶发 \code{arasan-sdio: request CMD52 failed status=df0001 irq=100}。两行日志挨在一起，很容易得出“用户程序抢占了 Wi-Fi 工作线程”的结论，但这站不住：\code{camshot} 和 \code{brcmf0\_wq} 都是 \code{SCHED\_OTHER}、nice 0，用户态并不自动低于内核线程，而且 SDIO 中断上半部随时能打断用户程序。真正的线索是 \code{status} 的 bit~0 \code{CMD\_INHIBIT} 和只有卡中断、没有本次 \code{CMD\_DONE} 的 \code{irq}：上一个事务还没结束，另一个就开始写寄存器了。原来 \code{sdio\_cmd52()}/\code{sdio\_cmd53()} 直接调用 Arasan 的 \code{request()}，而 Wi-Fi 的状态工作、NAPI 收发和 BCDC 控制请求可能在不同核上同时运行，共用同一组 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器。修复是给 \code{struct mmc\_host} 加一把睡眠锁 \code{request\_lock}，所有 CMD52/CMD53 都经 \code{mmc\_request\_sync()} 串行化——锁的粒度是物理控制器，对应 Linux MMC core 的 host claim；用睡眠锁是因为一次请求可能要等命令、数据和超时（第~\ref{chap:process} 章）。
+\subsubsection{问题 1：mailbox 打开摄像头电源失败}
 
-\paragraph{另一个核上的旧指令.} 更新 \code{/bin/camshot} 后，程序偶尔在第一行输出之前就以 \code{esr=0x92000004} 退出，\code{ELR} 指向 \code{strncpy()} 里一条纯寄存器的 \code{sub}，\code{FAR} 是个随机指针。一条不访存的指令不可能产生数据中止，说明 CPU 实际执行的并不是磁盘上这个 ELF 的指令。原因是 \code{uvmsync\_icache()} 末尾的 \code{ic iallu} 只作废\emph{本核}的指令缓存：\code{exec()} 在一个核上装入新程序，进程随后迁移到另一个核，那里的 I-cache 仍命中同一低地址上旧程序的指令。改成广播版本 \code{ic ialluis} 后问题消失（第~\ref{chap:mmu} 章故障二）。
+\paragraph{日志输出.}
+\begin{txtcode}
+ov5647: firmware GPIO 133 (camera power) failed, firmware rev N          （格式）
+ov5647:   SET_GPIO_CONFIG: <结果> (status .., tag response .. = done D len L,
+          first word W, stale replies K)
+ov5647:   SET_GPIO_STATE:  <结果> (...)
+ov5647: no reply at i2c0 0x36 (GPIO44/45), ...
+\end{txtcode}
 
-\paragraph{\code{O\_TRUNC} 释放 FAT 链太慢.} 测试图案模式下日志停在 \code{fixed WB/level} 之后很久不动，看起来像转换死循环。实际上转换还没开始：程序正以 \code{O\_TRUNC} 打开已有的 \code{/boot/camera.bmp}，旧的 \code{fat\_free\_chain()} 对每个簇分别读 FAT、再读改写两份 FAT 副本，覆盖一个 320$\times$240 的 BMP 就要五百多次 SD 扇区事务。现在它缓存当前 FAT 扇区，批量清除其中属于旧文件的链项，再把整个扇区写到各个 FAT 副本（第~\ref{chap:fs} 章）。
+\paragraph{问题分析.} 传感器的稳压器由固件扩展 GPIO 133（CAM\_GPIO0）使能，ARM 只能请 VideoCore 固件代办；固件说“不支持”，传感器就没电，I2C 上自然读不到 \code{0x36}。第一行的结果字段可以这样判读：\code{no reply} 是固件根本没回；\code{message rejected} 是整条消息被拒；\code{done 1 len 0} 是标签被应答但没有数据（QEMU 就是这样）；\code{len 8} 且 \code{first word 133} 是固件认识这个标签、但认为 GPIO 133 无效。对照 Linux 的 \code{rpi\_firmware\_property()} 和 \file{gpio-raspberrypi-exp.c}，旧的 mailbox 代码有三处不同：标签的请求长度字填了数据长度，Linux 填 0；发送前不清 FIFO，而 SD、USB 驱动各有一份私有 mailbox 代码，它们超时后留下的回复会被当成本次的回复读走；收到回复不核对地址。另外，旧代码在复制数据之前就因为单个标签的 response 位没置而判失败，Linux 并不这样判。最后一列 \code{stale replies} 就是为验证第二点加的：它统计发送前清掉了多少条别人的回复。
 
-\paragraph{创建文件时内核栈溢出.} 写新文件 \code{/boot/cam02.bmp} 时，日志曾停在 \code{vfs: boot create directory-entry begin}，再无下文。前一行 \code{exists=0} 说明 \code{stat} 已经正常返回，所以问题在 \code{fat32createfile()} 里。第一个猜测是“根目录要扩展、簇分配器扫描太慢”，于是先给分配器加了按扇区缓存（\ref{sec:fat32} 节），但真机上仍停在同一行，连新加的 \code{fat32: extending root directory} 都没打印——说明根本没走到分配器。
+\paragraph{解决方案.} 把各处私有代码收拢成带锁的 \file{kernel/mbox.c}，按 Linux 的约定重写：请求长度字填 0；发送前清空 FIFO；只接受地址与本次请求相同的回复；以“整条消息成功”加“返回结构第一个字为 0”判断 GPIO 操作成败。电源控制也按 Linux 的做法：先 \code{GET\_GPIO\_CONFIG} 读出并保留极性，再设置，最后 \code{GET\_GPIO\_STATE} 回读。修复后的日志是 \code{ov5647: CAM\_GPIO0 direction=output polarity=normal state=1}。如果某个固件确实不处理这个标签，兜底方案是自制 \file{dt-blob.bin}，让固件启动时就把 p133 置为输出高。
 
-真正的原因是内核栈。每个进程的内核栈只有一页 4\,KiB。旧的 \code{fat32createfile()} 在栈上放了一个路径匹配结构、22 个目录槽和一个 256 字节的文件名缓冲，又嵌套调用 \code{fat\_find\_path()}，后者在栈上再放 256 字节文件名、520 字节的 LFN 字符数组和 20 个目录槽。光这些数组就接近 3.5\,KiB，加上 VFS、系统调用的栈帧和保存的寄存器，越过了 4\,KiB。\code{stat} 没事，是因为它只用到其中一层；只有 create 把两层大数组叠在一起。
+\subsubsection{问题 2：BSC0 对 \code{0x36} 始终 NACK}
 
-栈越界为什么表现为“停住”而不是一条 \code{kerneltrap} 报错？内核栈之间隔着不映射的保护页（第~\ref{chap:mmu} 章），越界首先落进保护页，触发 EL1 数据中止；可 EL1 的异常入口要在\emph{同一个} \code{SP\_EL1} 上压 272 字节保存现场（\ref{sec:irq} 节），这一压又落在保护页里，于是异常入口自己再次中止，CPU 在异常向量里反复进出，串口上什么也不会出现。
+\paragraph{日志输出.}
+\begin{txtcode}
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=90000131 flags=131 \
+        now=... div=2500 fsel=55 levels=3
+（更早的内核把 raw 打成 -6ffffecf）
+\end{txtcode}
 
-修复是把这些大数组移出栈，放进 FAT32 私有的静态工作区 \code{fat\_work}。所有 FAT32 操作本来就持 \code{fat32\_lock} 串行执行，所以一个工作区就够，也不用把每个进程的内核栈都加大。反汇编确认两个函数的栈帧降到 \code{fat32createfile} 464 字节、\code{fat\_find\_path} 176 字节。同时在 create 路径上加了更细的阶段日志（\code{create lookup}、\code{create reserve}），以后再出问题，可以直接区分是查找、保留目录项还是分配簇。\ref{sec:cam-log} 小节的日志就是修复后的样子。
+\paragraph{问题分析.} 供电已经正常，BSC0 却在 repeated-START 和 STOP/START 两种读法下都报错。逐个字段看：\code{flags} 的 \code{0x100} 是 \code{ERR}（从机没应答），\code{0x200} 才是时钟拉伸超时；\code{div=2500} 是 250\,MHz$/$100\,kHz；\code{fsel=55} 表示 GPIO44/45 都是 ALT1；\code{levels=3} 表示 SDA、SCL 都是高电平，总线空闲、没有被谁拉住。控制器确实发出了事务，从机确实没应答——但仅凭这一行，还分不清是“传感器不在”还是“控制器这条路不通”。另外两个副产品：真 BCM2837 在 \code{TA}（transfer active）仍为 1 时撤掉 \code{I2CEN}，状态机可能冻结，QEMU 不模拟这一点；内核 \code{printf} 的 \code{\%x} 把最高位为 1 的值当有符号数打印，\code{0x90000131} 成了 \code{-6ffffecf}。
 
-这个问题和前一段的 \code{O\_TRUNC} 截然不同，判断依据就是停在哪一行：\code{exists=1} 且停在 \code{truncate begin}，是释放旧簇链慢；\code{exists=0} 且停在 \code{directory-entry begin}，是创建目录项这一路——这次是栈溢出，也可能是根目录需要扩展时的簇分配。
+\paragraph{解决方案.} 出错时采用两段式中止：先保持 \code{I2CEN}、清 FIFO，等 NACK+STOP 让 \code{TA} 归零，再关控制器、清粘滞状态位；\code{\%x} 改为无符号。为了回答“传感器在不在”，增加一个与 BSC 完全无关的 bit-bang 探测（问题 3）。
+
+\subsubsection{问题 3：bit-bang 探测时而 ACK、时而 NACK}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+camera: GPIO bitbang probe 0x36=ACK 0x10=NACK 0x1a=NACK        （某次启动，格式）
+camera: GPIO bitbang probe 0x36=NACK 0x10=NACK 0x1a=NACK       （同一模块，另一次）
+\end{txtcode}
+
+\paragraph{问题分析.} bit-bang 探测把 GPIO44/45 临时切成开漏 GPIO，只发一个地址字节、读第九个时钟上的 ACK，不读写任何寄存器。它本该给出确定的答案，同一个模块的结果却不稳定，问题出在诊断代码自己：第九个时钟调用的是通用的 \code{bb\_release()}，它释放 SDA 之后会等 SDA 回到高电平——这对数据位是对的，对 ACK 却正好相反，ACK 的定义就是从设备把 SDA 拉低。于是每次都白等 100\,µs 超时，再去采样时从设备可能已经松开了 SDA。
+
+\paragraph{解决方案.} ACK 周期只把 SDA 切成输入，在 SCL 高电平的中间直接采样。修正以后结果稳定为 \code{0x36=ACK}。这个结论很有分量：bit-bang ACK 而 BSC NACK，说明传感器、地址、供电、上拉和排线都没问题，故障只在 BSC0 的复用或时序这一段。同时规定无论 bit-bang 结果如何，都继续执行问题 4 的恢复扫描。
+
+\subsubsection{问题 4：BSC 四档降速全部失败}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+ov5647: BSC retry 100000 Hz failed status=... now=... div=...   （格式）
+ov5647: BSC retry 50000 Hz failed status=...
+ov5647: BSC retry 25000 Hz failed status=...
+ov5647: BSC retry 10000 Hz failed status=...
+\end{txtcode}
+
+\paragraph{问题分析.} 既然传感器在，就怀疑速率或寄存器写入顺序：依次用 100、50、25、10\,kHz 重读芯片 ID，每档都按 Linux 的比例同时更新 \code{BSC\_DIV} 和边沿采样延迟 \code{BSC\_DEL}（不继承固件留下的值），并在写完地址、长度、FIFO 后加 \code{dsb sy}，保证配置在 START 之前到达控制器。四档全部是 \code{ERR}，速率和 MMIO 写序都被排除了；剩下的只能是 BSC0 到 GPIO44/45 这条路由本身，或者固件对 BSC0 的占用。继续在这里花时间，收益已经很低。
+
+\paragraph{解决方案.} 绕开 BSC0：用 GPIO 完成完整的软件 SCCB 事务（写寄存器地址、STOP、START、读一个字节），读到 \code{0x5647} 后打印 \code{using GPIO software SCCB; BSC0 bypassed}，此后传感器的所有读写都走这条路。寄存器表里 \code{0x0103=1} 会让传感器软件复位、期间不应答，写完这一项等 10\,ms；普通寄存器写最多重试三次。软件 SCCB 慢，但只用来写一百来个寄存器，图像走 CSI-2，不受影响。
+
+\subsubsection{问题 5：软件 SCCB 偶发读出 \code{0x3631}，随后 BUS-STUCK}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+ov5647: software SCCB chip-id=3631 attempt=1                   （格式）
+...
+camera: full GPIO I2C scan bus stuck at 0x..
+\end{txtcode}
+
+\paragraph{问题分析.} 地址被 ACK 了，读回的却是 \code{0x3631}——它不是任何传感器的 ID，事务层面成功、数据位却采错了，说明时序处于边缘。旧代码随后的两个动作让情况更糟：每次软件事务前无条件送 9 个 SCL 恢复脉冲；读到错误 ID 后立即扫描整个 7 位地址空间。对一个状态已经不稳的模块，这些都是额外的扰动，扫描最终把总线卡住（BUS-STUCK）。
+
+\paragraph{解决方案.}（\code{gpio-sccb-v7}）软件时钟降到约 25\,kHz（半周期约 20\,µs）；任何不是 \code{0x5647} 的完整读数都被拒绝重读（日志 \code{rejected unstable chip-id=..}）；恢复脉冲只在发现 SDA 被拉低时才送，最多 9 个，然后统一发 STOP；只要 \code{0x36} 已经完成过寄存器事务，就不再做全地址扫描，而是打印 \code{address 0x36 responds but chip-id is unstable; power-cycle retry required} 后直接断电重来；上电前 CAM\_GPIO0 先拉低 20\,ms 让模块放电，置高后等 100\,ms 再访问。
+
+\subsubsection{问题 6：\code{0x36} ACK，但三次读 ID 都失败}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+ov5647: software SCCB ID read retry 1/3 (probe=ACK)            （格式）
+ov5647: software SCCB ID read retry 2/3 (probe=ACK)
+ov5647: software SCCB ID read retry 3/3 (probe=ACK)
+ov5647: address 0x36 ACK but chip-id read failed; power-cycle retry required (fsel=.. levels=..)
+\end{txtcode}
+
+\paragraph{问题分析.} v7 在真机上仍会出现这种情况。看调用顺序就明白了：每次上电，驱动仍然先用 BSC0 读 ID，失败几次之后才切到 GPIO。问题 4 已经证明这些 BSC 事务注定失败，而它们留下的半截事务会让传感器的 SCCB 接口进入不确定状态，紧接着的软件读取就跟着失败。
+
+\paragraph{解决方案.}（\code{gpio-sccb-v8}）从第一次读 \code{0x300a/0x300b} 起就直接用 25\,kHz 软件 SCCB，BSC0 只初始化、不再发事务，日志变为 \code{probing with 25 kHz GPIO SCCB; BSC0 bypassed} 和 \code{software SCCB power-on chip-id=5647}。如果 \code{0x36} 已 ACK 但读寄存器仍失败，本轮立即断电，交给 \code{camera\_bind()} 做下一次完整的电源周期（用户首次 \code{read()} 时最多三次，每次间隔 100\,ms），不再探测其他地址。\ref{sec:cam-log} 小节的日志就是 v8 的样子。
+
+\subsubsection{问题 7：开始出流后整机无响应}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+unicam: receiver enabled, starting sensor stream
+ov5647: streaming started
+unicam: sensor streaming, waiting for frame
+（此后再无任何输出，4 秒超时也没有触发）
+\end{txtcode}
+
+\paragraph{问题分析.} 第一次真机出流时打开了设备树给出的 CSI1 中断 GPU IRQ 39。“4 秒超时也没触发”是关键线索：超时是按 xv6 的 \code{ticks} 计的，而 \code{ticks} 由 CPU0 的通用定时器中断推进；如果它不走了，说明 CPU0 一直在处理别的中断。IRQ 39 是电平触发的，若这个编号实际不对应 Unicam，或者处理程序清不掉它的源，CPU0 一从中断返回就立刻再次进入，定时器中断永远得不到服务——超时机制本身依赖于它要监督的那条路径，所以失效了。
+
+\paragraph{解决方案.} bring-up 阶段屏蔽 IRQ 39，改用与中断无关的 \reg{CNTVCT\_EL0} 计 4 秒期限，每 1\,ms 轮询一次 Unicam 的 \code{STA}/\code{ISTA}；无论成败都能返回，失败时打印 FS/FE 计数、\code{STA}、\code{IBWP}。成功时的日志是 \code{unicam: frame captured by polling; CSI1 IRQ 39 intentionally masked}——“intentionally”说明中断是有意屏蔽的，不是丢了。以后再验证中断时，也只在拍照期间打开，连续 100 次没有发现 Unicam 状态就自动关掉，并始终保留这个有界轮询作兜底。
+
+\subsubsection{问题 8：转换期间偶发 \code{SDIO CMD52 failed}}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+camshot: calculating white balance and level...
+arasan-sdio: request CMD52 failed status=df0001 irq=100 c1=e0807
+\end{txtcode}
+
+\paragraph{问题分析.} 两行挨在一起，很容易得出“用户程序抢占了 Wi-Fi 工作线程”的结论，但这站不住：\code{camshot} 和 \code{brcmf0\_wq} 都是 \code{SCHED\_OTHER}、nice 0，用户态并不自动低于内核线程，SDIO 中断上半部也随时能打断用户程序。真正的线索在数值里：\code{status} 的 bit~0 是 \code{CMD\_INHIBIT}，\code{irq=100} 只有卡中断、没有本次的 \code{CMD\_DONE}——上一个事务还没结束，另一个就开始写寄存器了。原来 \code{sdio\_cmd52()}/\code{sdio\_cmd53()} 直接调用 Arasan 的 \code{request()}，而 Wi-Fi 的状态 work、NAPI 收发和 BCDC 控制请求可能在不同核上同时运行，共用同一组 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器。
+
+\paragraph{解决方案.} 给 \code{struct mmc\_host} 加睡眠锁 \code{request\_lock}，所有 CMD52/CMD53 都经 \code{mmc\_request\_sync()} 串行化。锁的粒度是物理控制器而不是某个 function 或某块网卡，对应 Linux MMC core 的 host claim；用睡眠锁是因为一次请求可能要等命令、数据和超时（\ref{sec:wifi-flow} 小节）。启动枚举时还没有进程，这时只有启动 CPU 发请求，直接执行、不取锁。此前为 \code{camshot} 加的 \code{sched\_yield()} 撤回——它掩盖不了并发访问。
+
+\subsubsection{问题 9：执行不访存的指令却报数据中止}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+usertrap(): unexpected esr=0x92000004 ec=0x24
+            elr=0x0000000000000b40 far=0xf3910003fda9a57b
+\end{txtcode}
+
+\paragraph{问题分析.} 更新 \code{/bin/camshot} 后，程序偶尔在第一行输出之前就退出。EC$=$\code{0x24} 是来自 EL0 的数据中止，可用当前 ELF 反汇编，\code{ELR=0xb40} 是 \code{strncpy()} 里一条纯寄存器的 \code{sub}，不可能访存；\code{FAR} 又是一个随机指针。CPU 实际执行的并不是磁盘上这个 ELF 的指令。\code{exec()} 通过内核高地址把新程序写进物理页，\code{uvmsync\_icache()} 做了 \code{dc cvau}，最后却用 \code{ic iallu}——它只作废\emph{执行它的那个核}的指令缓存。进程在一个核上装好，迁移到另一个核运行，那里的 I-cache 仍命中同一低地址上旧程序的指令：执行的是旧代码，用的却是新程序的数据和栈。
+
+\paragraph{解决方案.} 改为广播到 Inner Shareable 域的 \code{ic ialluis}，前面的逐行 \code{dc cvau} 和 \code{dsb ish} 保留（第~\ref{chap:mmu} 章故障二）。\code{exec()}、\code{uvminit()}、\code{uvmcopy()} 都经过这个函数。排查这类问题时，要用实际装进 SD 卡的那个 ELF 去反查 \code{ELR}，不能用另一次构建的符号文件。
+
+\subsubsection{问题 10：输出到 \code{fixed WB/level} 后长时间停顿}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+camshot: frame received 640x480, 384040 bytes
+camshot: unpacking RAW10...
+camshot: sensor test pattern; fixed WB/level
+（长时间没有新输出）
+\end{txtcode}
+
+\paragraph{问题分析.} 看起来像转换死循环，但测试图案模式下转换并不做统计，下一步其实是以 \code{O\_TRUNC} 打开已存在的 \code{/boot/camera.bmp}。截断要释放旧文件的簇链，旧的 \code{fat\_free\_chain()} 对每个簇都读一次 FAT、再对两份 FAT 各做一次读改写，覆盖一个 320$\times$240 的 BMP 就要五百多次 SD 扇区事务，而且每次都是 PIO 轮询。
+
+\paragraph{解决方案.} \code{fat\_free\_chain()} 缓存当前 FAT 扇区，在其中批量清除属于这条链的项，换扇区时才把整扇区写到每份 FAT（\ref{sec:fat32} 节）。同时 \code{camshot} 在打开输出文件、写 BMP 头和开始转换之前各打印一行阶段日志，BMP 每 16 行写一次，并用版本串 \code{converter fixed-pattern-v2 fat-progress batch16} 确认 SD 卡上的程序已经更新——以后再停住，可以直接看出停在哪一步。
+
+\subsubsection{问题 11：新建文件停在 \code{directory-entry begin}}
+
+\paragraph{日志输出.}
+\begin{txtcode}
+camshot: sensor test pattern; fixed WB/level
+camshot: preparing output /boot/cavfs: boot create begin path=/boot/cam02.bmp sub=/cam02.bmp mode=601
+m02.bmp (230454 bytes)...
+vfs: boot create stat complete exists=0
+vfs: boot create directory-entry begin
+（此后再无输出）
+\end{txtcode}
+
+\paragraph{问题分析.} 先排除两个干扰：\code{/boot/cavfs: ... m02.bmp} 是用户态逐字符输出与内核 \code{printf} 交错的结果，路径本身没坏（\ref{sec:cam-log} 小节）；\code{exists=0} 说明 \code{stat} 已经正常返回，阻塞点在 \code{fat32createfile()} 里。这和问题 10 不是同一个问题：\code{exists=1} 且停在 \code{truncate begin} 才是释放旧簇链慢。第一个猜测是“根目录要扩展，簇分配器扫描太慢”，于是先给 \code{fat\_alloc\_cluster()} 加了按扇区缓存和 FSInfo 提示，并加了 \code{fat32: extending root directory} 日志——真机上仍停在同一行，连新日志都没出现，说明根本没走到分配器。
+
+真正的原因是内核栈。每个进程的内核栈只有 4\,KiB，旧的 \code{fat32createfile()} 在栈上放了一个路径匹配结构、22 个目录槽和 256 字节的文件名，又嵌套调用 \code{fat\_find\_path()}，后者再放 256 字节文件名、520 字节 LFN 字符数组和 20 个目录槽。光这些数组就接近 3.5\,KiB，加上 VFS、系统调用的栈帧和保存的寄存器，越过了 4\,KiB。\code{stat} 只用到其中一层，所以没事。至于为什么是“停住”而不是一条报错：内核栈之间隔着不映射的保护页（第~\ref{chap:mmu} 章），越界先落进保护页、触发 EL1 数据中止；而 EL1 的异常入口要在同一个 \code{SP\_EL1} 上压 272 字节保存现场（\ref{sec:irq} 节），这一压又落在保护页里，异常入口自己再次中止，CPU 在异常向量里反复进出，串口上什么也不会出现。
+
+\paragraph{解决方案.} 把这些大数组移出栈，放进 FAT32 私有的静态工作区 \code{fat\_work}。所有 FAT32 操作本来就持 \code{fat32\_lock} 串行执行，一个工作区就够，不必加大每个进程的内核栈。反汇编确认栈帧降到 \code{fat32createfile} 464 字节、\code{fat\_find\_path} 176 字节。create 路径上加了更细的阶段日志（\code{create lookup}、\code{create reserve}、\code{extending root directory}），可以直接区分是查找、保留目录项还是分配簇出了问题；之前对分配器的优化也保留下来。修复后的完整日志见 \ref{sec:cam-log} 小节。
+
+\paragraph{小结.} 回头看这十一个问题，有效的做法是一样的：让每一层都有自己的日志，日志里带上能判读的原始数值（\code{flags}、\code{fsel}、\code{levels}、\code{status}、\code{esr}、\code{exists}），然后只把日志实际证明了的东西当作结论。几次走弯路，都是因为把“两行日志挨在一起”当成了因果（问题 8），或者先修了猜测中的原因而没有确认程序是否真的走到那里（问题 11）。
 
 \subsection{当前状态}
 
