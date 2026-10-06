@@ -1,0 +1,147 @@
+% !TEX program = xelatex
+% !BIB program = biber
+%
+% 从裸机到操作系统：基于 xv6 的简单实现
+% 模板：ElegantBook（https://github.com/ElegantLaTeX/ElegantBook）
+% 编译：XeLaTeX -> Biber -> XeLaTeX -> XeLaTeX（latexmk 会自动完成）
+%
+% 本书必须用 XeLaTeX（或 LuaLaTeX）编译：ctex 的 Fandol 中文字体在 pdfLaTeX 下不可用。
+% 在线平台请在“项目设置/编译器”中选择 XeLaTeX。
+\RequirePackage{iftex}
+\ifPDFTeX
+  \errmessage{This book must be compiled with XeLaTeX (or LuaLaTeX), not pdfLaTeX.
+    Please change the compiler to XeLaTeX in the project settings.
+    请把编译器改为 XeLaTeX}
+  \expandafter\stop
+\fi
+\documentclass[lang=cn,newtx,10pt,scheme=chinese,cyan]{elegantbook}
+
+\title{从裸机到操作系统}
+\subtitle{基于 xv6 的简单实现 \ ——\ Raspberry Pi 3 / AArch64}
+
+\author{Jiming Kang}
+\institute{xv6-aarch64 项目}
+\date{2026 年 10 月}
+\version{0.1}
+\bioinfo{源码}{xv6-aarch64（分支 rpi3-vfs）}
+
+\extrainfo{从上电后的第一条指令，到能远程 SSH 登录、连 Wi-Fi、拍照的多核内核。}
+
+\setcounter{tocdepth}{2}
+\setcounter{secnumdepth}{2}
+
+\cover{cover.jpg}
+\logo{logo.png}
+
+\definecolor{customcolor}{RGB}{23,96,120}
+\colorlet{coverlinecolor}{customcolor}
+
+% ---------------------------------------------------------------- 宏包
+\usepackage{array,tabularx,longtable}
+\usepackage{cprotect}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,backgrounds,matrix,decorations.pathreplacing}
+
+\addbibresource[location=local]{reference.bib}
+
+% ---------------------------------------------------------------- 代码样式
+% 模板默认把 listings 设成 LaTeX 语言并高亮一批 LaTeX 词，这里为 C、汇编、
+% 终端和纯文本示意图分别定义样式，并清空模板的 emph 列表。
+\definecolor{codekw}{RGB}{160,30,60}
+\definecolor{codecm}{RGB}{110,120,130}
+\definecolor{codestr}{RGB}{20,110,90}
+\definecolor{codebg}{RGB}{248,249,250}
+
+\lstdefinelanguage{armasm}{
+  sensitive=false,
+  morekeywords={mov,movk,movz,ldr,ldrb,str,strb,ldp,stp,adr,adrp,add,sub,subs,
+    and,orr,bic,lsr,lsl,mul,cmp,cbz,cbnz,tbz,tbnz,b,bl,br,blr,ret,eret,msr,mrs,
+    isb,dsb,dmb,tlbi,ic,dc,sev,wfe,wfi,svc,hvc,smc,ldar,stlr,ldaxr,stxr,nop},
+  morekeywords=[2]{.global,.section,.balign,.align,.org,.word,.quad,.ascii,
+    .macro,.endm,.ltorg,.p2align,.text,.data},
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+}
+
+\lstdefinestyle{xbase}{
+  emph={}, emphstyle={},
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{structurecolor!60},
+  backgroundcolor=\color{codebg},
+  tabsize=4,
+  showstringspaces=false,
+  aboveskip=6pt, belowskip=6pt,
+  xleftmargin=2pt, xrightmargin=2pt,
+}
+\lstdefinestyle{xc}{style=xbase, language=C,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecm},
+  stringstyle=\color{codestr},
+  morekeywords={uint,uint8,uint16,uint32,uint64,uchar,pte_t,pagetable_t,
+    asm,volatile,static,inline,__attribute__}}
+\lstdefinestyle{xasm}{style=xbase, language=armasm,
+  keywordstyle=\color{codekw}\bfseries,
+  keywordstyle=[2]\color{structurecolor},
+  commentstyle=\color{codecm},
+  stringstyle=\color{codestr}}
+\lstdefinestyle{xsh}{style=xbase, language=bash,
+  keywordstyle=\color{codekw},
+  commentstyle=\color{codecm},
+  stringstyle=\color{codestr}}
+\lstdefinestyle{xtxt}{style=xbase, language={},
+  basicstyle=\ttfamily\small, columns=fixed, basewidth=0.5em}
+\lstdefinestyle{xmake}{style=xbase, language=make,
+  keywordstyle=\color{codekw},
+  commentstyle=\color{codecm}}
+
+\lstnewenvironment{ccode}[1][]{\lstset{style=xc,#1}}{}
+\lstnewenvironment{asmcode}[1][]{\lstset{style=xasm,#1}}{}
+\lstnewenvironment{shcode}[1][]{\lstset{style=xsh,#1}}{}
+\lstnewenvironment{txtcode}[1][]{\lstset{style=xtxt,#1}}{}
+\lstnewenvironment{makecode}[1][]{\lstset{style=xmake,#1}}{}
+
+% 行内代码：\code{...}，下划线等特殊字符请自行转义
+\newcommand{\code}[1]{\texttt{\hyphenchar\font=-1 #1}}
+\setlength{\emergencystretch}{3em}
+\XeTeXlinebreaklocale "zh"
+\XeTeXlinebreakskip = 0pt plus 1pt
+\newcommand{\file}[1]{\texttt{\color{structurecolor!80!black}#1}}
+\newcommand{\reg}[1]{\texttt{\textsc{#1}}}
+
+% TikZ 公共样式
+\tikzset{
+  box/.style={draw=structurecolor!70!black, rounded corners=2pt, fill=structurecolor!8,
+    align=center, minimum height=7mm, inner sep=3pt, font=\small},
+  hbox/.style={box, fill=structurecolor!22},
+  gbox/.style={box, draw=gray!70, fill=gray!8},
+  arr/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!70!black},
+  darr/.style={arr, dashed},
+  lab/.style={font=\footnotesize, text=gray!70!black},
+}
+
+\begin{document}
+
+\maketitle
+\frontmatter
+\tableofcontents
+
+\mainmatter
+
+\include{chapters/01-preface}
+\include{chapters/02-organization}
+\include{chapters/03-boot}
+\include{chapters/04-mmu}
+\include{chapters/05-process}
+\include{chapters/06-filesystem}
+\include{chapters/07-drivers}
+\include{chapters/08-userland}
+
+\nocite{*}
+\printbibliography[heading=bibintoc, title=参考文献]
+
+\end{document}

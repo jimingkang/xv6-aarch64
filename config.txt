@@ -5,3 +5,4 @@ disable_commandline_tags=1
 core_freq=250
 core_freq_min=250
 kernel=kernel8-xv6_wifi.img
+camera_auto_detect=0

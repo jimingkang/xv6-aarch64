@@ -356,6 +356,17 @@ void            virtio_disk_intr(void);
 // arasan_sdio.c
 void            arasan_sdio_irq_enable(void);
 void            arasan_sdio_irq(void);
+
+// bcm2837.c
+void            bcm2837_enable_irq(int);
+void            bcm2837_disable_irq(int);
+
+// unicam.c (camera bridge: Unicam CSI-2 -> /dev/video0)
+void            camera_init(void);
+void            unicam_irq(void);
+
+// camera sensor drivers (register a struct camsensor)
+void            ov5647_init(void);
 int             arasan_sdio_irq_pending(void);
 void            arasan_sdio_irq_complete(void);
 

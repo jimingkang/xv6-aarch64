@@ -1,0 +1,20 @@
+\chapter{基于汇编的裸机代码}
+\label{chap:boot}
+\setcounter{secnumdepth}{3}
+
+\begin{introduction}[本章内容]
+  \item 上电、链接地址与装载地址
+  \item 异常级别：从 ARM9 的七种模式到 AArch64 的 EL0～EL3
+  \item 不依赖任何环境的早期串口
+  \item 异常和中断：向量表、现场保存、中断控制器与定时器
+\end{introduction}
+
+\ref{sec:xv6-startup} 节讲本项目的启动代码：从固件交出控制权、统一异常级别，到点亮早期串口。\ref{sec:irq} 节讲异常和中断：向量表、现场保存、两级中断控制器和通用定时器。清 BSS、建启动页表、打开 MMU 和多核启动与页表关系密切，放在第~\ref{chap:mmu} 章的 \ref{sec:bootpgt}、\ref{sec:smp-boot} 节。这两节的代码全部来自 xv6-aarch64；它要兼容真机固件、QEMU 和多核，比教学内核复杂，所以每一步都先讲清楚背后的原理，这些原理主要参考了 Sergey Matyukevich 的 \emph{raspberry-pi-os}\cite{rpios}（下文简称 RPi OS）第 1～3 课。RPi OS 后三课的原理也按同样的方式融入了后面各章：第 4 课（进程调度器）在第~\ref{chap:process} 章，第 5 课（用户进程与系统调用）在第~\ref{chap:user} 章，第 6 课（虚拟内存管理）在第~\ref{chap:mmu} 章，那些地方同样只用本项目的代码来讲。
+
+\section{xv6-aarch64 的启动代码}
+\label{sec:xv6-startup}
+\input{chapters/03-1-startup}
+
+\input{chapters/03-2-irq}
+
+\setcounter{secnumdepth}{2}

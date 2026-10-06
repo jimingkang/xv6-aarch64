@@ -1,0 +1,340 @@
+\chapter{用户进程、线程与 libc}
+\label{chap:user}
+
+\begin{introduction}[本章内容]
+  \item 用户程序的形态与系统调用桩
+  \item 从 \code{init} 到 shell
+  \item 用户程序一览
+  \item 用户线程：\code{clone}、\code{texit}、\code{tjoin}
+  \item libc 与 POSIX 源码兼容层
+  \item 在 xv6 里编译 C 程序
+  \item 一个大型用户程序：\code{sshd}
+\end{introduction}
+
+\section{用户程序的形态}
+
+\subsection{为什么需要系统调用}
+
+进程隔离的第一步，是把所有用户程序放到特权最低的 EL0：在这一级，程序不能修改页表基址、不能屏蔽中断、不能访问没有映射给它的内存，也就无法改写内核为隔离所做的任何设置。否则，其他一切隔离手段都没有意义。
+
+可是用户程序总要打印字符、读文件、发网络包，而这些都需要直接操作设备。我们不能让每个程序直接去写 UART 寄存器，而是由内核提供一组受控的入口——系统调用。它不能是普通的函数调用，因为每次调用都要把执行级别从 EL0 提升到 EL1，而提升级别只有一条路：产生异常。所以每个系统调用本质上都是一次\emph{同步异常}：用户程序准备好参数，执行 \code{svc} 指令；硬件把它带到 EL1 的异常向量；内核检查参数、完成请求，然后执行普通的异常返回，从 \code{svc} 的下一条指令继续。进程隔离的第三个方面——每个进程有自己独立的内存视图——由页表完成（第~\ref{chap:mmu} 章）。
+
+
+\subsection{链接与装载}
+
+xv6 的用户程序是静态链接的 ELF64 文件，链接在虚拟地址 0，入口是 \code{main}：
+
+\begin{makecode}
+_%: %.o $(ULIB)
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+\end{makecode}
+
+\code{-N} 让代码段和数据段放在同一个可读写可执行的段里，\code{exec()} 只需处理一个 \code{PT\_LOAD}。没有动态链接，也没有 C 运行时启动代码：\code{exec()} 把 \code{argc}、\code{argv} 放进 \code{x0}、\code{x1}，把 PC 设为入口地址，\code{main} 返回后由用户库调用 \code{exit()}——实际上 xv6 的程序习惯在 \code{main} 末尾显式调用 \code{exit(0)}。
+
+\subsection{系统调用桩}
+
+\file{user/usys.pl} 为每个系统调用生成三条指令：
+
+\begin{asmcode}
+.global write
+write:
+ mov x7, #SYS_write      // 系统调用号放 x7
+ svc #0                  // 陷入 EL1
+ ret                     // 返回值已在 x0
+\end{asmcode}
+
+参数按 AArch64 调用约定已经在 \code{x0}～\code{x5} 里，所以桩函数什么都不用搬。内核侧 \code{syscall()} 用 \code{trapframe->x7} 索引函数表，返回值写回 \code{trapframe->x0}。目前共有 70 多个系统调用：除了 xv6 原有的 21 个，还有同步对象、网络（UDP、ICMP、TCP socket、epoll）、挂载、TTY 会话、线程、调度属性、高精度时钟等。
+
+\begin{note}
+  系统调用号放在 \code{x7}，这是本项目沿用的约定；Linux AArch64 用的是 \code{x8}。所以 Linux 的二进制或汇编系统调用包装不能直接拿来用，第~\ref{sec:posix} 节的 POSIX 层是\emph{源码}兼容，不是二进制兼容。
+\end{note}
+
+\subsection{内核如何分发系统调用}
+\label{sec:syscall-dispatch}
+
+\code{svc} 进入 \code{el0sync}，\code{usavereg} 把全部用户寄存器存进 trapframe，\code{usertrap()} 检查 \reg{ESR\_EL1} 的异常类别是否为 \code{0x15}（来自 AArch64 的 SVC），然后打开中断、调用 \code{syscall()}（第~\ref{sec:irq} 节）。分发函数在 \file{kernel/syscall.c} 中：
+
+\begin{ccode}
+void syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p->trapframe->x7;
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    p->trapframe->x0 = syscalls[num]();
+  } else {
+    printf("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+    p->trapframe->x0 = -1;
+  }
+}
+\end{ccode}
+
+\code{syscalls[]} 是一张以系统调用号为下标的函数指针表。处理函数先检查调用号是否越界，越界就返回 $-1$，而不是像教学内核那样直接停机——一个用户程序传错调用号，不应该让整个系统死掉。
+
+参数不需要搬运：用户态执行 \code{svc} 时它们就在 \code{x0}～\code{x5} 中，现在原样躺在 trapframe 里，各个 \code{sys\_*} 函数用 \code{argint()}/\code{argaddr()}/\code{argstr()} 按编号取出：
+
+\begin{ccode}
+static uint64 argraw(int n)
+{
+  struct proc *p = myproc();
+  switch (n) {
+  case 0: return p->trapframe->x0;
+  case 1: return p->trapframe->x1;
+  ...
+  case 5: return p->trapframe->x5;
+  }
+  panic("argraw");
+  return -1;
+}
+\end{ccode}
+
+指针参数只取出数值，不在这里检查合法性；真正访问用户内存时由 \code{copyin()}/\code{copyout()} 查用户页表，非法地址会使系统调用返回 $-1$，而不会让内核出错。
+
+返回值写回 \code{p->trapframe->x0}，而不是直接放进 \code{x0} 寄存器。原因是返回用户态时 \code{urestorereg} 会从 trapframe 恢复\emph{所有}寄存器，直接写寄存器的值会被覆盖；只有改写保存的那一份，用户程序在 \code{svc} 之后才能在 \code{x0} 中看到它。
+
+\subsection{两个栈指针与返回级别}
+
+EL0 和 EL1 各有自己的栈指针。从用户态陷入时，硬件立刻把 \code{sp} 换成 \reg{SP\_EL1}（内核栈），用户栈指针原样留在 \reg{SP\_EL0} 中。即使内核从不使用 \reg{SP\_EL0}，也必须把它连同其他寄存器一起保存和恢复：陷入期间可能发生进程切换，下一个返回用户态的进程需要的是\emph{它自己}的用户栈指针。所以 \code{usavereg} 把 \reg{SP\_EL0} 存进 trapframe 的 \code{sp} 字段，\code{urestorereg} 把它写回。
+
+内核态的 \code{savereg} 则不需要恢复 \code{sp}：内核栈是同一个，即使中间发生了进程切换，\code{swtch()} 也已经把 \code{sp} 换成了正确的值。
+
+\code{eret} 回到哪一级，由 \reg{SPSR\_EL1} 的模式字段决定，不需要另外指定，所以总是回到异常发生时所在的那一级。利用这一点，内核可以“伪造”一次从未发生过的异常来进入用户态：\code{userinit()} 在第一个进程的 trapframe 中写入 \code{elr = 0}、\code{spsr = 0}（模式 EL0t）、\code{sp = PGSIZE}，\code{usertrapret()} 一执行 \code{eret}，CPU 就第一次来到 EL0（第~\ref{chap:process} 章）。启动时从 EL2 降到 EL1 用的也是同一个技巧（第~\ref{chap:boot} 章）。
+
+\section{从 \code{init} 到 shell}
+
+第一个用户进程 \code{initcode} 执行 \code{exec("/init")}（第~\ref{chap:process} 章）。\file{user/init.c} 做的事情相当于一个嵌入式 Linux 的启动脚本：
+
+\begin{enumerate}
+  \item 创建 \code{/dev}，用 \code{mknod} 建立 \code{console}、\code{tty}、\code{ttyS0}、\code{input/event0}、\code{video0} 设备节点；以 \code{/dev/ttyS0} 打开 fd 0，复制为 fd 1、2；
+  \item 创建 \code{/proc}、\code{/boot}、\code{/mnt/ext2}、\code{/etc}、\code{/root}、\code{/bin} 等目录，为根目录下的程序在 \code{/bin} 中建立硬链接；
+  \item 首次启动时生成 \code{/etc/hostname}、\code{/etc/fstab}、\code{/etc/passwd}（默认账号 \code{root}，密码 \code{xv6}）、\code{/etc/rc}；
+  \item 按 \code{/etc/fstab} 逐行调用 \code{mount()}；
+  \item 如果存在 \code{/etc/wifi.conf}，先运行 \code{/bin/wifi} 连接无线网络；
+  \item 在一个循环里 fork 并 exec \code{/bin/login}；\code{login} 退出后回收它，再启动一个新的登录提示；同时回收所有过继来的孤儿进程。
+\end{enumerate}
+
+\code{login} 校验密码后调用 \code{tty\_attach()} 建立会话，切到 passwd 中指定的家目录，exec 指定的 shell。\code{sh} 在 xv6 原版基础上增加了：读取 \code{/etc/rc}、\code{PATH} 搜索（找不到时再回退到根目录，作为存储异常时的恢复路径）、\code{export}、\code{exit}/\code{logout} 内建命令，以及把外部命令设为前台进程组的作业控制。
+
+\section{用户程序一览}
+
+\begin{table}[htbp]
+  \centering
+  \caption{用户程序（\code{UPROGS}）}
+  \label{tab:uprogs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    类别 & 程序 \\
+    \midrule
+    基本工具 & \code{sh}、\code{init}、\code{login}、\code{ls}、\code{cat}、\code{echo}、\code{grep}、\code{wc}、\code{mkdir}、\code{rm}、\code{ln}、\code{mv}、\code{touch}、\code{kill}、\code{ps}、\code{edit}、\code{file} \\
+    文件系统 & \code{ext2ls}、\code{ext2cat}、\code{stressfs} \\
+    网络 & \code{wifi}、\code{dhcp}、\code{ping}、\code{netdns}、\code{nettest}、\code{tftp}、\code{tcpd}、\code{epollserver}、\code{sshd} \\
+    调度与同步 & \code{chrt}、\code{taskset}、\code{nice}、\code{renice}、\code{rtlat}、\code{spin}、\code{syncdemo}、\code{prodcons} \\
+    线程与 POSIX & \code{threadtest}、\code{posixtest} \\
+    设备 & \code{camshot}、\code{ptytest}、\code{vmmap} \\
+    开发 & \code{tcc} \\
+    测试 & \code{usertests}、\code{forktest}、\code{grind}、\code{zombie} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+几个调度工具的用法与 Linux 相同，它们都是“先修改自己的调度属性，再 exec 目标程序”，利用了 \code{fork}/\code{exec} 对调度属性的继承：
+
+\begin{shcode}
+chrt -f 80 rtlat          # 以 SCHED_FIFO 优先级 80 运行 rtlat
+taskset 0x8 spin &        # 只允许在 CPU3 上运行
+nice -n 10 grind          # 降低普通进程的时间片
+chrt -f -p 60 6           # 修改 PID 6（某个 kworker）的策略
+\end{shcode}
+
+\section{用户线程}
+
+\subsection{设计}
+
+原来的模型是“一个 \code{struct proc} 对应一个独立的地址空间”。加入线程时，项目没有引入新的“线程控制块”，而是让每个线程仍然是一个完整的 \code{struct proc}——有自己的内核栈、trapframe、调度属性、TID 和 CPU 亲和性——只是同一线程组的成员共享同一个引用计数的 \code{struct vmspace}（图~\ref{fig:threads}）。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=4mm and 14mm]
+    \node[box, text width=30mm] (p) {leader\\TID $=$ TGID};
+    \node[box, below=of p, text width=30mm] (t1) {线程 1\\独立内核栈/trapframe};
+    \node[box, below=of t1, text width=30mm] (t2) {线程 2\\独立内核栈/trapframe};
+    \node[hbox, right=of t1, text width=36mm] (vm) {\code{struct vmspace}\\TTBR0 页表、sz\\refcount $=3$};
+    \draw[arr] (p.east) -- (vm); \draw[arr] (t1) -- (vm); \draw[arr] (t2.east) -- (vm);
+  \end{tikzpicture}
+  \caption{线程组共享 \code{vmspace}}
+  \label{fig:threads}
+\end{figure}
+
+调度器切换到任何一个线程时，\code{switchuvm()} 都写入 \code{p->vm->pagetable}，所以同组线程看到相同的代码、全局变量、堆和彼此的栈；而它们的内核栈和 trapframe 各自独立，可以同时在多个 Cortex-A53 核上运行。
+
+\subsection{系统调用}
+
+\begin{table}[htbp]
+  \centering
+  \caption{线程相关系统调用}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    调用 & 作用 \\
+    \midrule
+    \code{clone(entry, arg, stack\_top)} & 创建共享地址空间的新调度实体：\code{x0}=arg，\code{SP}=stack\_top，\code{ELR}=entry \\
+    \code{texit(status)} & 只退出调用线程；leader 调用时等同于整个进程退出 \\
+    \code{tjoin(tid, \&status)} & 等待并回收同组中的指定线程（0 表示任意） \\
+    \code{gettid()} / \code{getpid()} & 返回线程 ID / 线程组 ID \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+用户库在其上提供更安全的包装，它负责分配 16 字节对齐的 16\,KiB 用户栈，并保证线程函数返回后自动调用 \code{texit()}：
+
+\begin{ccode}
+static void thread_boot(void *opaque) {
+  struct thread_start start = *(struct thread_start *)opaque;
+  free(opaque);                       // 启动记录用完即释放
+  start.fn(start.arg);
+  texit(0);                           // 线程函数返回后自动退出
+}
+
+int thread_create(thread_t *thread, void (*fn)(void *), void *arg) {
+  thread->stack = malloc(THREAD_STACK_SIZE + 16);
+  struct thread_start *start = malloc(sizeof(*start));
+  start->fn = fn;  start->arg = arg;
+  uint64 top = ((uint64)thread->stack + THREAD_STACK_SIZE + 16) & ~15ULL;
+  thread->tid = clone(thread_boot, start, (void *)top);
+  ...
+}
+\end{ccode}
+
+用户栈要等 \code{thread\_join()} 中内核回收了线程之后才释放，否则线程可能还在用这块栈。
+
+\subsection{\code{clone} 为什么“返回两次”}
+
+\code{fork()} 会返回两次：父进程中返回子进程的 pid，子进程中返回 0，因为子进程的 trapframe 是父进程的完整拷贝，只把 \code{x0} 改成了 0。Linux 的 \code{clone} 系统调用语义相同，所以 glibc 的 \code{clone()} 包装函数要在汇编里处理两次返回：调用前把函数指针和参数存进不会被系统调用破坏的寄存器；系统调用返回非 0 说明还在原线程，直接返回调用者；返回 0 说明已经身处新线程，就取出函数指针调用它，函数结束后再调用 \code{exit}——新线程永远不会回到包装函数的调用者那里。
+
+xv6-aarch64 的 \code{clone(entry, arg, stack\_top)} 换了一种更简单的语义：内核直接把新线程的入口、参数和栈写进它的 trapframe，新线程第一次回到用户态时就从 \code{entry} 开始执行，用户态不需要任何汇编包装：
+
+\begin{ccode}
+int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
+{
+  ...
+  if(entry == 0 || stack_top < 16 || (stack_top & 15) != 0)
+    return -1;                          // 栈必须 16 字节对齐
+  ...
+  vm->refcount++;                       // 共享同一个地址空间
+  vmspace_put(np->vm);
+  np->vm = vm;
+  np->is_thread = 1;
+  np->tgid = p->tgid;
+
+  *(np->trapframe) = *(p->trapframe);
+  np->trapframe->elr = entry;           // eret 之后从这里开始
+  np->trapframe->sp  = stack_top;       // 新的用户栈
+  np->trapframe->x0  = arg;             // 第一个参数
+  np->trapframe->x30 = 0;               // 不允许“返回”
+  ...
+  make_runnable(np, 0);
+  return tid;
+}
+\end{ccode}
+
+\code{x30} 被清零，线程函数如果直接 \code{ret} 就会跳到地址 0 出错，所以用户库的 \code{thread\_boot()} 包了一层，保证函数返回后调用 \code{texit()}。线程退出后变成 ZOMBIE，等 \code{tjoin()} 回收——与进程的 \code{exit}/\code{wait} 是同一种约定：先保留“尸体”，让等待者能取到退出状态，再由等待者释放资源。
+
+\subsection{多核下的细节}
+
+\begin{itemize}
+  \item \code{sbrk()} 修改共享的页表时持有 \code{vmspace.lock}，改完执行 \code{tlbi vmalle1is} 广播失效，覆盖其他核上正在运行的同组线程；
+  \item 用户态的 K\&R \code{malloc} 加了一把基于 \code{ldaxr}/\code{stxr} 的锁；
+  \item \code{exec()} 只在线程组只剩调用者时才允许执行；\code{exit()} 先终止并回收同组线程；\code{kill(pid)} 以 TGID 为目标，标记并唤醒整组；
+  \item \code{clone()} 像 \code{fork()} 一样复制文件描述符\emph{引用}——底层 \code{struct file} 和偏移共享，但描述符表独立。这与 Linux 的 \code{CLONE\_FILES} 不同，是有意保留的简化。
+\end{itemize}
+
+\code{threadtest} 创建两个线程，用内核同步对象保护共享计数器，允许它们被调度到不同 CPU，预期输出 \code{threadtest: PASS counter=2000}。
+
+\section{libc 与 POSIX 源码兼容层}
+\label{sec:posix}
+
+\subsection{\code{libc.a}}
+
+用户库被打包成一个静态库：
+
+\begin{itemize}
+  \item \file{ulib.c}：字符串、内存函数、\code{gets}、\code{stat}、\code{atoi}；
+  \item \file{usys.S}：系统调用桩；
+  \item \file{printf.c}：\code{printf}/\code{fprintf}，支持 \code{\%d \%x \%p \%s \%c}；
+  \item \file{umalloc.c}：K\&R 风格的 \code{malloc}/\code{free}，用 \code{sbrk} 向内核要内存；
+  \item \file{thread.c}：上一节的线程包装；
+  \item \file{posix.c}：POSIX 包装层；
+  \item \file{tweetnacl.c}、\file{ssh\_crypto.c}：密码学原语（\code{sshd} 使用）。
+\end{itemize}
+
+\subsection{POSIX 层}
+
+目标是让只依赖常见 POSIX 接口的 C 源码能直接用 xv6 工具链重新编译。它由三部分组成：
+
+\begin{enumerate}
+  \item \file{include/} 提供标准名字的头文件：\code{stdio.h}、\code{stdlib.h}、\code{string.h}、\code{unistd.h}、\code{fcntl.h}、\code{errno.h}、\code{time.h}、\code{pthread.h}、\code{semaphore.h}、\code{sys/types.h}、\code{sys/stat.h}、\code{sys/socket.h}、\code{netinet/in.h}、\code{arpa/inet.h}、\code{sys/epoll.h}；
+  \item \file{user/posix.c} 把标准 API 映射到 xv6 已有的能力；
+  \item 内核补上无法只靠库函数实现的语义，如 \code{lseek()}，以及 \code{socket()} → \code{bind()} → \code{listen()} → \code{accept()} 的生命周期。
+\end{enumerate}
+
+\begin{table}[htbp]
+  \centering
+  \caption{POSIX 接口到 xv6 的映射}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    POSIX 接口 & 实现 \\
+    \midrule
+    \code{open/read/write/lseek/fstat} & 直接对应系统调用；\code{O\_CREAT} 是 \code{O\_CREATE} 的别名 \\
+    \code{pthread\_create/join/exit} & \code{clone}/\code{tjoin}/\code{texit}；\code{pthread\_join} 同时回收用户栈 \\
+    \code{pthread\_mutex\_*}、\code{sem\_*} & 内核同步对象；支持 \code{PTHREAD\_MUTEX\_INITIALIZER} 延迟初始化 \\
+    \code{clock\_gettime(CLOCK\_MONOTONIC)} & \code{clock\_us()}，读 \reg{CNTVCT\_EL0} \\
+    \code{sleep/usleep/nanosleep} & 秒语义；原来按 tick 计的 \code{sleep} 改名为 \code{sleep\_ticks} \\
+    \code{socket/bind/listen/accept} & 统一的 socket 文件描述符，可用 \code{read/write/close/epoll} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{posixtest} 只包含标准头文件，验证文件读写与 \code{lseek}、POSIX 信号量、两个 pthread 并发更新共享变量、静态初始化的互斥锁以及 socket 生命周期。
+
+这仍是第一阶段：系统调用失败只返回 $-1$，没有传回具体错误码，\code{errno} 也还不是线程局部的；缺少 \code{waitpid}、\code{dup2}、条件变量、目录流和 TCP \code{connect()}。
+
+\section{在 xv6 里编译 C 程序}
+
+\code{tcc} 是一个面向教学的极小 C 编译器，运行在 xv6 用户态，直接输出 \code{exec()} 能加载的 ELF64 文件，不需要汇编器和链接器：
+
+\begin{shcode}
+$ edit hello.c
+int main() {
+  int answer = 6 * 7;
+  printf("hello from xv6 C\n");
+  return answer - 42;
+}
+$ tcc hello.c -o hello
+$ hello
+hello from xv6 C
+\end{shcode}
+
+它支持整数局部变量、四则运算、\code{return}、只含字面量的 \code{printf}/\code{puts} 和注释。生成的代码用 \code{x29} 指向 256 字节的局部变量区，表达式结果放在 \code{x0}，字符串地址用 \code{adr} 指令取得，所以无需重定位；输出和退出直接用 \code{svc \#0} 调用 \code{SYS\_write} 和 \code{SYS\_exit}。文件布局是一个 ELF 头、一个程序头、机器码和字符串池。
+
+一个能在自己身上编译并运行程序的系统，才算是有了一点“自举”的味道。
+
+\section{一个大型用户程序：\code{sshd}}
+
+\code{sshd} 有一千多行，是整个系统里最复杂的用户程序，也是对内核各子系统的一次综合考验。它用到了：
+
+\begin{itemize}
+  \item TCP socket 与 \code{accept}——网络协议栈；
+  \item 密码学全部在用户态完成：基于 TweetNaCl\cite{tweetnacl} 的 X25519 密钥交换和 Ed25519 主机密钥签名，传输层用 AES-128-CTR 加密、HMAC-SHA256 校验；熵来自内核的硬件随机数发生器（\file{kernel/rng.c}）；
+  \item \code{/etc/passwd} 口令认证；
+  \item PTY：为每个会话分配一对伪终端，shell 的 fd 0/1/2 指向 PTY 从端，\code{sshd} 读写主端并加密转发；
+  \item 会话与控制终端：SSH 会话中的 \code{/dev/tty} 指向该会话的 PTY。
+\end{itemize}
+
+调试 \code{sshd} 时发现的问题推动了内核的多处改进：字符回显慢暴露了“网卡每 100\,ms 轮询一次”和“TCP \code{write()} 同步等 ACK”两个瓶颈，促成了 SDIO 中断、workqueue 下半部、NAPI 和 TCP 异步发送队列；\code{ps} 输出跑到串口上，促成了 \code{sys\_ps()} 改为返回缓冲区。
+
+\begin{remark}
+  从 \code{\_entry} 的第一条 \code{mrs} 指令，到一个可以通过 Wi-Fi 被 SSH 登录、能在多核上运行实时任务、能用 \code{tcc} 编译程序的系统，中间经过的每一层——串口、页表、进程、文件系统、驱动、协议栈、libc——都写在这本书里了。它们都还很简单，但每一层都在真机上跑过、出过错、被修好过。这也许就是“从裸机到操作系统”最有价值的部分。
+\end{remark}

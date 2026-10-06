@@ -1,0 +1,551 @@
+\chapter{文件系统}
+\label{chap:fs}
+
+\begin{introduction}[本章内容]
+  \item xv6 文件系统的分层
+  \item 磁盘布局与 \code{mkfs}
+  \item 块缓存、日志与 inode
+  \item 块设备：从 ramdisk 到 SD 卡
+  \item 根文件系统放在哪里
+  \item VFS 中间层：procfs、ext2、FAT32
+  \item FAT32 与启动分区：bootfs、BPB、FAT 表、目录项与长文件名
+  \item 烧录 SD 卡
+\end{introduction}
+
+\section{分层结构}
+
+xv6 的文件系统是一叠职责单一的层（图~\ref{fig:fslayers}）。本项目保留了中间各层不动，在上面加了一层 VFS，在下面把块设备从 VirtIO 磁盘换成了真正的 SD 卡。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=2mm]
+    \tikzset{layer/.style={box, minimum width=78mm, text width=74mm, align=left}}
+    \node[layer] (sys) {\textbf{系统调用}\quad \code{open/read/write/mkdir/mount}};
+    \node[layer, below=of sys] (file) {\textbf{文件描述符}\quad \code{struct file}：inode、设备、管道、vnode、socket、PTY};
+    \node[layer, below=of file, fill=structurecolor!22] (vfs) {\textbf{VFS}\quad 挂载表、\code{vnode\_ops}：procfs、ext2、FAT32};
+    \node[layer, below=of vfs] (path) {\textbf{路径名}\quad \code{namei}、目录项};
+    \node[layer, below=of path] (inode) {\textbf{inode}\quad \code{ilock/readi/writei}、inode 缓存};
+    \node[layer, below=of inode] (log) {\textbf{日志}\quad \code{begin\_op/log\_write/end\_op}};
+    \node[layer, below=of log] (bio) {\textbf{块缓存}\quad \code{bread/bwrite}，\code{NBUF}=30};
+    \node[layer, below=of bio, fill=structurecolor!22] (map) {\textbf{根文件系统定位}\quad \code{fat32rw()}：原始分区 / FS.IMG / 裸镜像};
+    \node[layer, below=of map, fill=structurecolor!22] (sd) {\textbf{SD 卡驱动}\quad \code{sdsector()}：SDHOST，CMD17/CMD24};
+  \end{tikzpicture}
+  \caption{文件系统分层（深色为本项目新增或替换的层）}
+  \label{fig:fslayers}
+\end{figure}
+
+\section{磁盘布局}
+
+xv6 原生文件系统的块大小是 1\,KiB，磁盘依次为：
+
+\begin{txtcode}
+[ 启动块 | superblock | 日志 | inode 块 | 空闲位图 | 数据块 ]
+   0          1          2..
+\end{txtcode}
+
+superblock 记录各区的起始块号和大小，魔数为 \code{0x10203040}。几个参数与原版不同：
+
+\begin{itemize}
+  \item \code{FSSIZE}$=32768$：文件系统 32\,MiB。原来只有 1000 块，加入网络、SSH 等程序后，打包就用掉了 986 块，首次启动创建 \code{/etc} 配置时 panic “balloc: out of blocks”；
+  \item \code{DIRSIZ}$=30$：文件名最长 30 字节，目录项从 16 字节变为 32 字节，为了让 TFTP 下载的 \code{kernel8-xv6\_wifi.img} 这样的长文件名能通过普通 \code{ls} 显示；
+  \item inode 有 12 个直接块和 1 个一级间接块，单个文件最大 $12+256=268$ 块，即 268\,KiB。
+\end{itemize}
+
+\begin{note}
+  分区再大也不会改变可分配的块数——它由 superblock 里的 \code{size} 字段决定。修改 \code{FSSIZE} 或 \code{DIRSIZ} 之后必须重新生成并整体烧录 \code{fs.img}，只替换内核会让新内核去解释旧格式的磁盘。
+\end{note}
+
+\section{块缓存、日志与 inode}
+
+这三层基本沿用 xv6 原样，这里只说明本项目中与它们相关的两点。
+
+\paragraph{日志.} 一次文件系统操作可能修改多个块（例如创建文件要改 inode、目录、位图）。\code{begin\_op()}/\code{end\_op()} 之间的所有修改先写进日志区，提交时一次性写回原位置；启动时 \code{fsinit()} 检查日志，把已提交但未写完的事务重做一遍。这样即使在写的过程中断电，文件系统也只会处于“操作前”或“操作后”两种状态之一。对 SD 卡来说这很重要：真机经常是直接拔电源关机的。
+
+\paragraph{inode 睡眠锁.} inode 操作可能触发 SD 卡读写，耗时很长，不能持有自旋锁，所以每个内存 inode 有一把睡眠锁。项目中出现过一次典型的锁配对错误：在为文件描述符层加入 \code{FD\_DEVICE}、\code{FD\_VNODE}、\code{FD\_SOCKET} 等分支时，\code{fileread()} 的 \code{FD\_INODE} 分支丢了 \code{iunlock()}。
+
+\begin{ccode}
+} else if(f->type == FD_INODE){
+  ilock(f->ip);
+  if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
+    f->off += r;
+  iunlock(f->ip);       // 这一行被误删
+}
+\end{ccode}
+
+现象非常迷惑：启动卡在 “exec-login: inode found” 之后，调试输出显示 \code{/bin/login} 的 inode 被 PID 1 锁着，而 \code{valid=0}。原因是 \code{init} 读 \code{/etc/fstab} 时没有解锁，关闭文件后引用计数归零，这个 inode 缓存槽被 \code{iget()} 复用给了 \code{/bin/login}——槽换了主人，锁却还“记得”上一任的持有者。
+
+\begin{note}
+  \code{iput()} 不能代替 \code{iunlock()}：前者管“有多少引用”，后者管“是否正在独占访问内容”。一个有用的调试断言是：\code{iget()} 复用 \code{ref==0} 的槽时，若发现锁仍被持有，立即 panic 并打印旧的 dev/inum/owner。
+\end{note}
+
+\section{块设备：从 ramdisk 到 SD 卡}
+
+\subsection{三个阶段}
+
+块设备驱动经历了三次替换：
+
+\begin{enumerate}
+  \item \textbf{ramdisk}：刚移植到 \code{raspi3b} 时，用 QEMU 的 loader 把 \code{fs.img} 装到物理地址 \code{0x07000000}，\code{bread/bwrite} 直接 \code{memmove}。简单，但改动不会写回宿主机；
+  \item \textbf{Arasan SDHCI}（\file{kernel/sd.c}）：BCM2837 的 EMMC 控制器，GPIO48～53 设为 ALT3。QEMU 用 \code{-drive if=sd} 把 \code{fs.img} 接到 SD 总线，数据终于可以持久保存；
+  \item \textbf{SDHOST}（\file{kernel/sdhost.c}）：后来要驱动板载 Wi-Fi，而 Wi-Fi 芯片只能接在 Arasan 控制器上（GPIO34～39）。于是外置 SD 卡改由 Broadcom 自己的 SDHOST 控制器（\code{0x3f202000}）驱动，GPIO48～53 改为 ALT0。
+\end{enumerate}
+
+两种 SD 驱动对上都提供同一个接口：
+
+\begin{ccode}
+int sdsector(uint32 sector, void *buffer, int write);   // 读写一个 512 字节扇区
+\end{ccode}
+
+xv6 的块是 1\,KiB，因此一个块对应两个扇区：块 $N$ 是扇区 $2N$ 和 $2N+1$。
+
+\subsection{SD 卡初始化}
+
+无论哪个控制器，SD 卡协议层的初始化顺序都一样（SD 物理层规范\cite{sdspec}）：
+
+\begin{txtcode}
+400 kHz 识别时钟
+CMD0                复位，卡进入 idle
+CMD8                检查电压范围，确认 SD 2.0
+CMD55 + ACMD41      反复发送直到卡完成上电；OCR.CCS=1 表示 SDHC（按扇区寻址）
+CMD2                读 CID
+CMD3                取得相对地址 RCA
+CMD7                选中卡，进入 transfer 状态
+(SDSC) CMD16        设置块长 512
+切换到 25 MHz 工作时钟
+\end{txtcode}
+
+读一个扇区发 CMD17，写一个扇区发 CMD24，数据通过数据寄存器以轮询 PIO 方式搬运 128 个 32 位字。驱动用一把自旋锁串行化对控制器的访问。
+
+\subsection{命令超时与恢复}
+
+真机在 shell 里执行 \code{ls} 时偶尔 panic “fat32: read FS.IMG”。在驱动里加入事务阶段编号后得到：
+
+\begin{txtcode}
+sd: I/O failure lba=295956 write=0 phase=1 status=17f0207 irq=18000 control1=e0807
+\end{txtcode}
+
+\code{phase=1} 表示失败发生在 CMD17 的命令阶段；中断状态 \code{0x18000} 是 ERROR 加 COMMAND TIMEOUT。更麻烦的是，超时后控制器的命令/数据状态机停在 inhibit 状态，之后的每条命令都会失败。仅仅清中断位不够，还要用 \reg{CONTROL1} 的软件复位位分别复位命令线和数据线，等硬件自动清零这两位。修复后的 \code{sdsector()} 对同一扇区最多重试三次，每次失败后先 \code{recover\_io()}。这只复位主机控制器内部的状态机，卡本身仍处于 transfer 状态，不需要重新初始化。
+
+\section{根文件系统放在哪里}
+\label{sec:rootfs}
+
+启动时 \code{fat32init()} 读 SD 卡第 0 扇区，按优先级尝试三种布局（表~\ref{tab:rootfs}），由 \code{fat32rw()} 把 xv6 块号翻译成 SD 卡的绝对扇区号。
+
+\begin{table}[htbp]
+  \centering
+  \caption{根文件系统的三种存放方式}
+  \label{tab:rootfs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXl@{}}
+    \toprule
+    方式 & 识别条件与地址换算 & 适用场景 \\
+    \midrule
+    原始分区 & MBR 中某个非 FAT32 主分区的第 1 块是 xv6 superblock（魔数与大小匹配）；扇区 $=$ 分区起点 $+$ 块号$\times 2$ & 真机（当前方式） \\
+    FAT32 容器 & FAT32 根目录中有 \code{FS.IMG}；启动时缓存它的簇链，按簇链换算 & 真机（早期方式） \\
+    裸镜像 & 没有 MBR；扇区 $=$ 块号$\times 2$ & QEMU \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{FAT32 容器模式}曾经是很巧妙的过渡方案：树莓派的启动分区本来就是 FAT32，把 \code{fs.img} 当成普通文件拷进去，内核只需解析 MBR、BPB 和根目录，找到 \code{FS.IMG} 的首簇并沿 FAT 表缓存整条簇链：
+
+\[
+  \text{LBA} = \text{data\_lba} + (\text{clusters}[i] - 2)\times\text{spc} + j,\quad
+  i = \lfloor s/\text{spc} \rfloor,\ j = s \bmod \text{spc},
+\]
+其中 $s$ 是文件内扇区号，spc 是每簇扇区数。xv6 只改写 \code{FS.IMG} 已分配的簇，从不修改 FAT 表和目录项，所以即使文件在 FAT32 中是碎片化的也没有问题。
+
+\paragraph{原始分区模式}是现在的做法：SD 卡分成 4 个区，xv6 文件系统独占一个分区。它避免了 32\,MiB 的镜像挤占 100\,MiB 的启动分区，xv6 的写入也不会再经过 FAT32 的簇链。识别时只认 superblock 魔数，而不看 MBR 类型（macOS 只能建 \code{0x83} 类型的分区，与 ext2 相同）。启动日志会显示：
+
+\begin{txtcode}
+xv6fs: selected raw p2 lba=208896 sectors=819200 size=400 MiB
+fat32: selected p1 lba=2048 firmware-only (no FS.IMG)
+\end{txtcode}
+
+\section{VFS 中间层}
+\label{sec:vfs}
+
+\subsection{动机}
+
+最初的 ext2 驱动只能通过两个专用系统调用 \code{ext2read}、\code{ext2readdir} 访问，普通的 \code{ls}、\code{cat} 完全不知道它的存在。VFS 层把非原生文件系统包装成 \emph{vnode}，让它们通过统一的文件描述符接口工作：
+
+\begin{ccode}
+struct vnode_ops {                       // kernel/vfs.c，参数是挂载点内的相对路径
+  int (*stat)(char*, struct stat*);
+  int (*read)(char*, uint64 off, void*, int n);
+  int (*write)(char*, struct fat32_file*, uint64 off, int user_src, uint64 src, int n);
+  int (*readdir)(char*, int index, void*);
+  int (*create)(char*);
+  int (*truncate)(char*, struct fat32_file*);
+  int (*rename)(char*, char*);
+};
+\end{ccode}
+
+这些操作以路径为参数而不是以 inode 为参数，后端每次按路径重新查找。这是一个极简的 VFS：没有 dentry 缓存，也没有把原生 xv6 inode 纳入 vnode，但足以让 \code{ls}、\code{cat}、\code{mv} 等普通命令透明地访问其他文件系统。
+
+\code{struct file} 增加了 \code{FD\_VNODE} 类型，\code{fileread()}、\code{filestat()}、\code{fileclose()} 遇到它就转发给对应的 \code{vnode\_ops}。
+
+\subsection{挂载表与路径路由}
+
+\code{sys\_open()} 先调用 \code{vfsopen()}，它在挂载表里做\emph{最长前缀匹配}：
+
+\begin{txtcode}
+open("/boot/config.txt")
+  -> findmount(): 绝对路径 /boot/config.txt，匹配挂载点 /boot，相对路径 /config.txt
+  -> fat32_ops.stat("/config.txt")
+\end{txtcode}
+
+返回值约定是这一层设计的关键：\code{1} 表示 VFS 已打开；\code{-1} 表示路径属于某个挂载点但打开失败（不能退回原生根文件系统，否则会打开挂载点下面被遮住的同名文件）；\code{0} 表示不属于任何挂载点，继续走原生的 \code{namei()}。
+
+\subsection{三个后端}
+
+\begin{itemize}
+  \item \textbf{procfs}（\code{/proc}）：没有磁盘数据，打开目录时遍历进程表生成每个 PID 的目录，读 \code{status} 时持锁生成快照。另有 \code{/proc/meminfo}、\code{/proc/iomem}、\code{/proc/devices} 等诊断文件；
+  \item \textbf{ext2}（\code{/mnt/ext2}）：只读，支持 1/2/4\,KiB 块、直接块和一级间接块，遇到 ext4 extent 等不兼容特性就拒绝挂载。可以从 Linux 那边准备文件给 xv6 读；
+  \item \textbf{FAT32}（\code{/boot}）：挂载启动分区，支持根目录的读、创建、截断、顺序写和重命名，支持 ASCII 长文件名。这让系统可以在运行时更新自己的内核：\code{tftp} 下载 \code{kernel8-xv6\_wifi.img} 到 \code{/boot}，重启即生效。
+\end{itemize}
+
+\subsection{由用户态决定挂载}
+
+挂载策略仿照嵌入式 Linux：内核只负责探测驱动，\code{init} 读取 \code{/etc/fstab} 决定挂载什么。首次启动时 \code{init} 创建：
+
+\begin{txtcode}
+proc    /proc      procfs ro 0 0
+bootfs  /boot      fat32  rw 0 0
+ext2    /mnt/ext2  ext2   ro 0 0
+\end{txtcode}
+
+然后逐行调用 \code{mount(source, target, fstype, flags)}。启动日志出现 “vfs: mounted fat32 at /boot read-write” 才说明 FAT32 真的挂上了；否则 \code{/boot} 只是 \code{init} 创建的空目录。
+
+\section{FAT32 与启动分区}
+\label{sec:fat32}
+
+前面几节讲的是 xv6 自己的文件系统。SD 卡上还有一个 xv6 无法回避的 FAT32 分区：树莓派的固件只认 FAT32，内核镜像、\file{config.txt}、Wi-Fi 固件都必须放在这里。本节先看这个分区里放了什么、谁来读，再看 FAT32 在磁盘上的组织，最后逐个讲 \file{kernel/fat32.c} 里的函数。
+
+\subsection{bootfs 里有什么，谁来读}
+
+图~\ref{fig:bootfs} 按读者把启动分区的文件分成三组。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize,
+      rd/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!70!black},
+      wr/.style={{Stealth[length=2mm]}-{Stealth[length=2mm]}, thick, draw=orange!80!black},
+      f/.style={font=\scriptsize\ttfamily, anchor=west, inner sep=1pt}]
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (48,0) rectangle (100,74);
+    \node[lab, anchor=north] at (74,73.5) {SD 卡 p1：BOOTFS（FAT32 根目录）};
+    % group A: firmware boot
+    \draw[fill=gray!10, draw=gray!50] (51,52) rectangle (97,69);
+    \node[f] at (52,66.5) {bootcode.bin};
+    \node[f] at (52,63) {start.elf  fixup.dat};
+    \node[f] at (52,59.5) {config.txt};
+    \node[f] at (52,56) {kernel8-xv6\_wifi.img};
+    \node[lab, anchor=east] at (96.5,53.8) {启动阶段};
+    % group B: drivers
+    \draw[fill=structurecolor!8, draw=structurecolor!50] (51,24) rectangle (97,49);
+    \node[f] at (52,46) {BCM43430.BIN/.TXT/.CLM};
+    \node[f] at (52,42.5) {BCM43455.BIN/.TXT/.CLM};
+    \node[f] at (52,39) {MT7601U.BIN};
+    \node[lab, anchor=east] at (96.5,26) {驱动固件};
+    % group C: runtime
+    \draw[fill=orange!8, draw=orange!50] (51,3) rectangle (97,21);
+    \node[f] at (52,18) {camera.bmp  camera.raw};
+    \node[f] at (52,14.5) {kernel8-xv6\_wifi.img（新）};
+    \node[f] at (52,11) {（早期）FS.IMG};
+    \node[lab, anchor=east] at (96.5,5) {运行时读写};
+    % readers
+    \node[gbox, text width=36mm, minimum height=16mm] (gpu) at (20,61) {VideoCore GPU\\ROM → \code{bootcode.bin}\\→ \code{start.elf}\\（ARM 尚未运行）};
+    \node[hbox, text width=36mm, minimum height=14mm] (drv) at (20,37) {xv6 内核驱动\\\code{fat32openroot()}\\\code{fat32readnext()}};
+    \node[box, text width=36mm, minimum height=14mm] (usr) at (20,12) {用户程序经 \code{/boot}\\\code{ls cat mv tftpclient}\\\code{camshot}};
+    \draw[rd] (51,61) -- node[lab, above]{读} (gpu.east);
+    \draw[rd] (51,37) -- node[lab, above]{读} (drv.east);
+    \draw[wr] (51,12) -- node[lab, above]{读写} (usr.east);
+    \node[lab, align=left, anchor=west] at (102,61) {把 \code{kernel8-xv6\_wifi.img}\\装到物理 \code{0x80000}，\\然后放开 ARM};
+    \node[lab, align=left, anchor=west] at (102,37) {\file{brcmfmac.c}、\file{mt7601u.c}\\每次上电下载给网卡};
+    \node[lab, align=left, anchor=west] at (102,12) {VFS 挂载 \code{/boot}，\\按 \code{/etc/fstab} 读写};
+  \end{tikzpicture}
+  \caption{启动分区里的文件和它们的三类读者。同一个 FAT32 分区，先被 GPU 固件读（ARM 还没开始执行），再被 xv6 内核驱动读，最后作为 \code{/boot} 被用户程序读写}
+  \label{fig:bootfs}
+\end{figure}
+
+\paragraph{第一组由 GPU 读，在 ARM 执行第一条指令之前.} 树莓派上电后先运行的是 VideoCore GPU：片内 ROM 读 \file{bootcode.bin}，它再装入 \file{start.elf} 和 \file{fixup.dat}。\file{start.elf} 解析 \file{config.txt}：
+
+\begin{txtcode}
+arm_64bit=1                   # 以 AArch64 启动 ARM 核
+enable_uart=1                 # 打开 Mini UART，固定 core 时钟
+uart_2ndstage=1               # 固件自己的启动日志也从串口输出
+disable_commandline_tags=1    # 不往内存里写 ATAG/设备树
+core_freq=250                 # VPU 时钟 250 MHz（Unicam 的下限，串口波特率也依赖它）
+core_freq_min=250
+kernel=kernel8-xv6_wifi.img   # 内核镜像文件名
+camera_auto_detect=0          # 不让固件占用摄像头
+\end{txtcode}
+
+然后把 \file{kernel8-xv6\_wifi.img} 原样拷到物理地址 \code{0x80000}，才放开 ARM 核（第~\ref{chap:boot} 章）。所以内核镜像必须是裸二进制而不是 ELF，固件也从不理会 xv6 的根文件系统。
+
+\paragraph{第二组由 xv6 内核驱动读.} 两块 Wi-Fi 网卡每次上电都要由主机下载固件：BCM43430/43455 需要 \file{.BIN}（R4 的执行代码）、\file{.TXT}（NVRAM）和 \file{.CLM}（法规数据库），MT7601U 需要 \file{MT7601U.BIN}。驱动在 \code{main()} 里初始化，这时还没有任何进程，更谈不上挂载点，所以它们直接调用 \code{fat32openroot()} 按 8.3 短名在根目录里找文件，再用 \code{fat32readnext()} 顺序读出。这也是 \code{fat32init()} 必须排在 \code{brcmfmac\_driver\_init()} 之前的原因。
+
+\paragraph{第三组由用户程序经 \code{/boot} 读写.} 进入用户态以后，\code{init} 按 \file{/etc/fstab} 把同一个分区挂到 \code{/boot}（\ref{sec:vfs} 节）。于是 \code{ls /boot}、\code{cat /boot/config.txt} 都走普通的 \code{open/read}；\code{tftpclient} 把新内核下载成 \file{/boot/kernel8-xv6\_wifi.img}，重启即生效；\code{camshot} 把超过 xv6 单文件上限的照片写成 \file{/boot/camera.bmp}，关机后插到电脑上就能看到。
+
+\subsection{磁盘上的 FAT32}
+
+FAT32 的结构可以用一句话概括：\emph{文件内容按簇存放，簇与簇之间的先后关系记在一张表（FAT）里，目录本身也是一个文件}。图~\ref{fig:fat-layout} 是它在 SD 卡上的位置和内部划分。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{seg/.style={draw=structurecolor!70!black, minimum height=10mm, inner sep=1pt, align=center, anchor=west}}
+    % whole card
+    \node[lab, anchor=east] at (-1,30) {整张卡};
+    \node[seg, fill=gray!20, minimum width=12mm] (mbr) at (0,30) {MBR\\扇区 0};
+    \node[seg, fill=gray!5, minimum width=8mm] (gap) at (mbr.east) {空};
+    \node[seg, fill=structurecolor!20, minimum width=40mm] (p1) at (gap.east) {p1 BOOTFS（FAT32）\\LBA 2048 起};
+    \node[seg, fill=orange!15, minimum width=34mm] (p2) at (p1.east) {p2 xv6 原始分区\\LBA 208896 起};
+    \node[seg, fill=gray!10, minimum width=26mm] (p3) at (p2.east) {p3 ext2 …};
+    % zoom p1
+    \node[lab, anchor=east] at (-1,8) {p1 内部};
+    \node[seg, fill=structurecolor!30, minimum width=10mm] (bpb) at (0,8) {BPB\\扇区 0};
+    \node[seg, fill=structurecolor!20, minimum width=10mm] (fsi) at (bpb.east) {FSInfo\\扇区 1};
+    \node[seg, fill=structurecolor!10, minimum width=12mm] (rsv) at (fsi.east) {保留区\\其余扇区};
+    \node[seg, fill=orange!25, minimum width=20mm] (fat1) at (rsv.east) {FAT \#1};
+    \node[seg, fill=orange!25, minimum width=20mm] (fat2) at (fat1.east) {FAT \#2（副本）};
+    \node[seg, fill=gray!8, minimum width=48mm] (data) at (fat2.east) {数据区：簇 2、3、4 …\\根目录也是一条簇链};
+    \draw[gray!60, dashed] (p1.south west) -- (bpb.north west);
+    \draw[gray!60, dashed] (p1.south east) -- (data.north east);
+    % labels below
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror}] ([yshift=-1mm]bpb.south west) -- node[lab, below=3pt]{\code{reserved} 个扇区} ([yshift=-1mm]rsv.south east);
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror}] ([yshift=-1mm]fat1.south west) -- node[lab, below=3pt]{\code{fats} $\times$ \code{fat\_sectors}} ([yshift=-1mm]fat2.south east);
+    \node[lab, anchor=north] at (fat1.south west |- 0,-4) {\code{fat\_lba}};
+    \node[lab, anchor=north] at (data.south west |- 0,-4) {\code{data\_lba}};
+    \draw[gray!60] (fat1.south west) -- ++(0,-6.5);
+    \draw[gray!60] (data.south west) -- ++(0,-6.5);
+  \end{tikzpicture}
+  \caption{SD 卡与 FAT32 分区的磁盘布局。\code{setup\_fat32()} 从 BPB 读出各区的大小，算出 \code{fat\_lba} 和 \code{data\_lba}；簇号从 2 开始编号}
+  \label{fig:fat-layout}
+\end{figure}
+
+\paragraph{MBR 和分区表.} 整张卡的第 0 扇区是 MBR：偏移 446 起是 4 个 16 字节的分区表项，最后两个字节是签名 \code{0x55 0xAA}。每个表项里第 4 字节是分区类型（\code{0x0B}/\code{0x0C} 是 FAT32），第 8、12 字节是起始 LBA 和扇区数。\code{fat32init()} 先把四个表项全部打印出来，再分两轮挑选：第一轮找 block 1 带 xv6 superblock 魔数的分区做根文件系统（\code{setup\_raw\_root()}），第二轮找第一个 FAT32 分区（\code{setup\_fat32()}）。两轮互不依赖，所以根文件系统和启动分区可以各在各的分区里。
+
+\paragraph{BPB：分区的第一个扇区.} FAT32 分区的第 0 扇区叫 BPB（BIOS Parameter Block），记录了整个分区的几何参数。\code{setup\_fat32()} 用到的字段如表~\ref{tab:bpb}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{setup\_fat32()} 读取的 BPB 字段}
+  \label{tab:bpb}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    偏移 & 字段 & 用途 \\
+    \midrule
+    11 & 每扇区字节数 & 必须是 512，否则拒绝 \\
+    13 & 每簇扇区数 \code{spc} & 必须是 2 的幂；一簇通常 4\,KiB 或更大 \\
+    14 & 保留扇区数 \code{reserved} & FAT 表从 \code{partition\_lba + reserved} 开始 \\
+    16 & FAT 份数 \code{fats} & 通常为 2，第二份是备份，写入时要同步 \\
+    32 & 总扇区数 & 与 FAT 大小一起算出总簇数 \\
+    36 & 每份 FAT 的扇区数 & 数据区从 \code{fat\_lba + fats×fat\_sectors} 开始 \\
+    44 & 根目录首簇 & 通常为 2；根目录也是一条簇链 \\
+    48 & FSInfo 扇区号 & 内有“下一个空闲簇”的提示 \\
+    510 & \code{0x55 0xAA} & 签名 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+有了这些字段，任何簇号都能换算成 SD 卡上的绝对扇区号：
+
+\begin{ccode}
+fat_lba  = partition_lba + reserved;
+data_lba = fat_lba + fats * fat_sectors;
+static uint32 cluster_lba(uint32 cluster) {     // 簇号从 2 开始
+  return diskmap.data_lba + (cluster - 2) * diskmap.sectors_per_cluster;
+}
+\end{ccode}
+
+\code{setup\_fat32()} 对每个字段都做了合法性检查（2 的幂、不越界、不溢出）——SD 卡上的数据是外部输入，一个损坏的 BPB 不应该让内核算出一个指向别处的 LBA 然后去写它。
+
+\subsection{FAT 表与簇链}
+
+FAT 表是一个巨大的 32 位整数数组，下标就是簇号，第 $c$ 项的值是“簇 $c$ 之后的下一个簇”。只有低 28 位有效，高 4 位保留且写入时要保持原值；0 表示空闲，\code{0x0FFFFFF8} 及以上表示链尾（EOC）。一个 512 字节的扇区装 128 项，所以查第 $c$ 项只需读一个扇区：
+
+\begin{ccode}
+static uint32 fat_next(uint32 cluster) {
+  uint32 sector = diskmap.fat_lba + cluster / 128;   // 128 = 512 / 4
+  uint32 pos    = (cluster % 128) * 4;
+  if(sdsector(sector, scratch, 0) < 0) panic("fat32: read FAT");
+  return le32(scratch + pos) & 0x0fffffffU;
+}
+\end{ccode}
+
+\code{fat\_set\_next()} 是对应的写操作，它要把同一个扇区在每一份 FAT 里都读改写一遍，保证两份副本一致。图~\ref{fig:fat-chain} 下半部分画的就是一条簇链：从目录项里拿到首簇，然后反复 \code{fat\_next()} 直到 EOC。
+
+\subsection{目录项与长文件名}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{cell/.style={draw=gray!60, minimum height=7mm, inner sep=1pt, align=center, anchor=west}}
+    % directory entries
+    \node[lab, anchor=west] at (0,66) {根目录簇中的连续 32 字节目录项};
+    \node[cell, fill=structurecolor!10, minimum width=118mm] (l2) at (0,60) {LFN \#2（序号 \code{0x42}＝最后一片 | 第 2 片）：\code{"ifi.img"}，属性 \code{0x0F}，校验和 \code{c}};
+    \node[cell, fill=structurecolor!10, minimum width=118mm] (l1) at (0,53) {LFN \#1（序号 \code{0x01}）：\code{"kernel8-xv6\_w"}，前 13 个 UTF-16 字符，属性 \code{0x0F}，校验和 \code{c}};
+    \node[cell, fill=orange!15, minimum width=22mm] (sn) at (0,45) {\code{KERNEL\~{}1IMG}\\名字 [0:11)};
+    \node[cell, fill=orange!8, minimum width=14mm] (at) at (sn.east) {属性\\{}[11]＝\code{0x20}};
+    \node[cell, fill=gray!5, minimum width=30mm] (mi) at (at.east) {时间、日期等};
+    \node[cell, fill=orange!25, minimum width=22mm] (hi) at (mi.east) {首簇高 16 位\\{}[20:22)};
+    \node[cell, fill=orange!25, minimum width=16mm] (lo) at (hi.east) {首簇低 16 位\\{}[26:28)};
+    \node[cell, fill=orange!8, minimum width=14mm] (sz) at (lo.east) {大小\\{}[28:32)};
+    \node[lab, anchor=west] at (119,56.5) {LFN 片倒序存放};
+    \node[lab, anchor=west] at (119,45) {短名目录项};
+    % FAT table
+    \node[lab, anchor=west, align=left] at (109,22) {FAT 表\\每项 4 字节，低 28 位有效};
+    \foreach \i/\v/\c in {2/EOC/gray!8, 3/4/gray!8, 4/EOC/gray!8, 5/6/orange!25, 6/9/orange!25, 7/0/gray!3, 8/0/gray!3, 9/EOC/orange!25, 10/0/gray!3}{
+      \node[cell, minimum width=11mm, fill=\c] (fat\i) at ({(\i-2)*12},22) {[\i]\enspace\code{\v}};
+    }
+    % data clusters
+    
+    \foreach \i/\c in {2/gray!8, 3/gray!8, 4/gray!8, 5/structurecolor!20, 6/structurecolor!20, 7/gray!3, 8/gray!3, 9/structurecolor!20, 10/gray!3}{
+      \node[cell, minimum width=11mm, fill=\c] (dc\i) at ({(\i-2)*12},6) {簇 \i};
+    }
+    \node[lab, anchor=west, align=left] at (109,6) {数据区的簇\\簇 2 是根目录};
+    % arrows
+    \draw[-{Stealth[length=2mm]}, thick, orange!80!black, rounded corners] (lo.south) -- (lo.south |- 0,37.5) -- node[lab, below, pos=0.5]{首簇号（高 16 位拼低 16 位）＝ 5} (fat5.north |- 0,37.5) -- (fat5.north);
+    \draw[-{Stealth[length=1.6mm]}, thick, orange!80!black] (fat5.south east) to[out=-30, in=-150] (fat6.south west);
+    \draw[-{Stealth[length=1.6mm]}, thick, orange!80!black] (fat6.south east) to[out=-25, in=-155] (fat9.south west);
+    \foreach \i in {5,6,9}{ \draw[gray!60, dashed] (fat\i.south) ++(0,-0.2) -- (dc\i.north); }
+  \end{tikzpicture}
+  \caption{长文件名、目录项与簇链。文件 \code{kernel8-xv6\_wifi.img} 占两片 LFN 加一个短名目录项；短名项里的首簇号是 5，沿 FAT 表 5→6→9 直到 EOC 就是它的全部数据簇}
+  \label{fig:fat-chain}
+\end{figure}
+
+目录的内容是一串 32 字节的目录项（图~\ref{fig:fat-chain} 上半部分）。短名目录项里有 8.3 格式的名字（11 字节，大写、空格填充）、属性字节、首簇号（拆成高低两个 16 位字段，这是 FAT16 向 FAT32 扩展时留下的痕迹）和文件大小。扫描目录时，首字节有两个特殊值：\code{0x00} 表示后面再没有目录项，\code{0xE5} 表示这一项已被删除。属性字节的 \code{0x10} 表示子目录，\code{0x08} 表示卷标。
+
+长文件名（LFN）是后来加的：属性等于 \code{0x0F} 的目录项不是文件，而是一片名字，每片装 13 个 UTF-16 字符，倒序排在它所属的短名目录项前面。第一片（物理上最靠前的）序号带 \code{0x40} 标志，表示“最后一片”；每片都存着短名的校验和，以便发现“LFN 和短名不配套”（例如老系统删了短名但留下了 LFN）。\code{fat\_find\_path()} 扫描目录时把遇到的 LFN 片按序号拼进一个缓冲区，遇到短名项时检查三件事——片序号连续到 1、校验和与短名一致、拼出的名字与要找的名字相同（不区分大小写）——满足才算长名匹配；否则再按短名比较。
+
+创建文件时反过来：\code{fat32createfile()} 先用 \code{fat\_make\_short\_alias()} 造一个 \code{KERNEL\~{}1.IMG} 这样的短名（取前 6 个字母数字、加 \code{\~{}1}～\code{\~{}9} 避免重名），算出需要几片 LFN，用 \code{fat\_reserve\_root\_slots()} 在根目录里找到足够的连续空位（不够就给根目录分配新簇），按倒序写入 LFN 片和短名项，最后补一个全 0 的目录项作为结束标记。
+
+本项目的 FAT32 驱动只处理\emph{根目录}：查找、创建、枚举、重命名都在根目录簇链里进行，不支持子目录，LFN 也只支持 ASCII 字符。对启动分区来说这已经足够——上面列出的所有文件都在根目录里。
+
+\subsection{函数一览与调用关系}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      fn/.style={box, font=\scriptsize, minimum height=6.5mm, inner sep=1.5pt},
+      call/.style={-{Stealth[length=1.6mm]}, semithick, draw=structurecolor!70!black}]
+    \foreach \y/\t in {64/{调用者}, 48/{\file{fat32.c} 接口}, 30/{目录与 FAT}, 14/{扇区}, 2/{设备}}{
+      \fill[gray!5] (0,\y-6.5) rectangle (150,\y+6.5);
+      \node[lab, align=center, text width=14mm] at (7,\y) {\t};
+    }
+    % callers
+    \node[fn, text width=34mm] (c1) at (34,64) {Wi-Fi 驱动下载固件\\\file{brcmfmac.c}、\file{mt7601u.c}};
+    \node[fn, text width=34mm] (c2) at (80,64) {VFS \code{/boot}：\code{fat\_vread}\\\code{fat\_vwrite}、\code{fat\_vreaddir}…};
+    \node[fn, text width=30mm] (c3) at (128,64) {xv6 块缓存 \code{bio.c}\\（\code{FS.IMG} 兼容模式）};
+    % interface
+    \node[fn, text width=30mm] (i1) at (30,48) {\code{fat32openroot}\\\code{fat32readerinit/readnext}};
+    \node[fn, text width=40mm] (i2) at (80,48) {\code{fat32statpath} \code{fat32pread}\\\code{fat32createfile} \code{fat32writefile}\\\code{fat32truncatefile} \code{fat32renamefile}};
+    \node[fn, text width=30mm] (i3) at (128,48) {\code{fat32rw}\\→ \code{file\_sector\_lba}};
+    % helpers
+    \node[fn, text width=37mm] (h1) at (36,30) {\code{fat\_find\_path}/\code{fat\_find\_root}\\\code{fat\_reserve\_root\_slots}\\\code{fat\_make\_lfn\_entry}};
+    \node[fn, text width=40mm] (h2) at (86,30) {\code{fat\_next} \code{fat\_set\_next}\\\code{fat\_alloc\_cluster} \code{fat\_free\_chain}\\\code{fat\_mark\_fsinfo\_unknown}};
+    % sector
+    \node[fn, text width=70mm] (s1) at (64,14) {\code{cluster\_lba(c) = data\_lba + (c-2)×spc}\\全部经 \code{sdsector(lba, scratch, write)}，持 \code{fat32\_lock}};
+    \node[fn, text width=70mm, fill=gray!10, draw=gray!60] (d1) at (64,2) {\file{sdhost.c}：CMD17/CMD24，PIO 搬运 512 字节};
+    \draw[call] (c1) -- (i1); \draw[call] (c2) -- (i2); \draw[call] (c3) -- (i3);
+    \draw[call] (i1) -- (h1); \draw[call] (i2) -- (h1); \draw[call] (i2) -- (h2); \draw[call] (i1.south east) -- (h2.north west);
+    \draw[call] (h1) -- (s1); \draw[call] (h2) -- (s1);
+    \draw[call] (i3.east) -- ++(3,0) |- (s1.east);
+    \draw[call] (s1) -- (d1);
+    \node[fn, text width=30mm, fill=gray!10, draw=gray!60] (boot) at (127,30) {启动时 \code{fat32init}\\→ \code{setup\_fat32}\\→ \code{setup\_raw\_root}};
+  \end{tikzpicture}
+  \caption{FAT32 驱动的调用关系。三类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \code{scratch} 扇区缓冲和 \code{sdsector()} 上}
+  \label{fig:fat-calls}
+\end{figure}
+
+\file{fat32.c} 的函数可以按图~\ref{fig:fat-calls} 分成四层：
+
+\begin{itemize}
+  \item \textbf{启动探测}：\code{fat32init()} 读 MBR 并选择分区；\code{setup\_fat32()} 解析 BPB、读 FSInfo 里的空闲簇提示；\code{setup\_raw\_root()} 用 superblock 魔数识别 xv6 分区；\code{is\_fat32\_boot\_sector()} 判断“没有分区表、整张卡就是一个 FAT32”的 superfloppy 格式。
+  \item \textbf{对外接口}：只读的 \code{fat32openroot()}、\code{fat32openpath()}、\code{fat32statpath()}、\code{fat32readdirroot()}、\code{fat32pread()}、\code{fat32readerinit()}/\code{fat32readnext()}；写入的 \code{fat32createfile()}、\code{fat32openwrite()}、\code{fat32writefile()}、\code{fat32truncatefile()}、\code{fat32renamefile()}。VFS 的 \code{fat32\_ops} 把它们包装成 \code{/boot} 上的 vnode 操作。
+  \item \textbf{目录与 FAT}：上一小节的查找和 LFN 函数，以及 \code{fat\_next()}、\code{fat\_set\_next()}、\code{fat\_alloc\_cluster()}、\code{fat\_free\_chain()}、\code{fat\_mark\_fsinfo\_unknown()}。
+  \item \textbf{根文件系统映射}：\code{fat32rw()} 是 xv6 块缓存的读写入口，\code{file\_sector\_lba()} 按当前模式（原始分区、\code{FS.IMG} 容器或裸镜像）把块号换算成扇区号（\ref{sec:rootfs} 节）。
+\end{itemize}
+
+两个读接口的区别值得一提。\code{fat32pread(file, offset, …)} 是无状态的：每次调用都从首簇沿链走 $\lfloor\text{offset}/\text{簇大小}\rfloor$ 步，适合 VFS 偶尔的随机读。如果用它按 512 字节分块读一个 600\,KiB 的 Wi-Fi 固件，总共要走 $O(n^2)$ 次 \code{fat\_next()}。\code{fat32reader} 则记住当前簇和簇内偏移，顺序读时每跨一个簇只查一次 FAT——固件下载就用它。
+
+\subsection{写入：分配、追加与截断}
+
+\code{fat32writefile()} 只支持追加：要求写入位置正好等于文件当前大小。写入过程是：
+
+\begin{enumerate}
+  \item 重新按路径查找目录项，核对首簇和大小与调用者手里的 \code{fat32\_file} 一致，防止文件已被别人改过；
+  \item 写入跨进新簇时调用 \code{fat\_alloc\_cluster()}：从 FSInfo 提示的位置开始找 FAT 值为 0 的项，把它标成 EOC（每份 FAT 都写），把这一簇清零；再用 \code{fat\_set\_next()} 把它挂到链尾；
+  \item 按扇区写数据：整扇区直接写，不满一个扇区的先读出来再改再写回；
+  \item 最后一次性更新目录项里的首簇和大小。
+\end{enumerate}
+
+\code{fat32truncatefile()}（\code{O\_TRUNC}）的顺序恰好相反：先把目录项的首簇和大小清零并写回，再释放旧簇链。这个顺序的意义在于断电时的后果：先改目录项，最坏情况是旧簇成了没人引用的“丢失簇”，浪费一点空间；如果先释放簇链，断电后目录项会指向已被标为空闲、随时可能分给别人的簇，那才是真正的损坏。分配和释放之后，\code{fat\_mark\_fsinfo\_unknown()} 把 FSInfo 里的空闲簇计数标成“未知”（\code{0xFFFFFFFF}），只更新“下一个空闲簇”提示，避免留下一个过时的计数让别的系统误信。
+
+两处性能问题都是真机上暴露出来的，修法相同——缓存当前 FAT 扇区：
+\begin{itemize}
+  \item \code{fat\_alloc\_cluster()} 最初对每个候选簇调用一次 \code{fat\_next()}，同一个扇区要重复读 128 次，根目录一长就像卡死了一样；现在扫描时只在跨扇区时才读；
+  \item \code{fat\_free\_chain()} 最初对每个簇做一次读和两份 FAT 的读改写，截断一张 320$\times$240 的 BMP 要五百多次 SD 事务（第~\ref{chap:drivers} 章 \ref{sec:cam-bugs} 小节）；现在在一个扇区内批量清除链项，换扇区时才把整扇区写到每份 FAT。
+\end{itemize}
+
+\paragraph{并发与局限.} 所有接口都持同一把自旋锁 \code{fat32\_lock}，共用一个 512 字节的 \code{scratch} 扇区缓冲，没有块缓存，也没有日志。路径解析、LFN 字符、目录槽这些较大的临时数组也放在一个静态工作区 \code{fat\_work} 里，而不是放在栈上——每个进程的内核栈只有 4\,KiB，它们曾经把创建文件的调用链撑爆（第~\ref{chap:drivers} 章 \ref{sec:cam-bugs} 小节）；既然有 \code{fat32\_lock} 串行化，一个工作区就够用。这让实现很简单，代价也很清楚：持锁期间 \code{sdsector()} 以 PIO 方式等待 SD 卡，一次大文件写会长时间占着这把锁；同一时间只能有一个写者；写入途中断电可能损坏分区。启动分区平时几乎只读，偶尔更新内核或写一张照片，这些代价是可以接受的，但修改它之前最好备份。
+
+\section{烧录 SD 卡}
+
+\subsection{分区布局}
+
+一张为 xv6 准备的 SD 卡分成四个区（表~\ref{tab:sdparts}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{SD 卡分区（63.8\,GB 卡的实例）}
+  \label{tab:sdparts}
+  \small
+  \begin{tabular}{@{}lllrl@{}}
+    \toprule
+    分区 & 名称 & 格式 & 起始 LBA & 用途 \\
+    \midrule
+    p1 & BOOTFS & FAT32 & 2048 & 固件、\code{config.txt}、内核、Wi-Fi 固件 \\
+    p2 & XV6FS & 原始 & 208896 & xv6 根文件系统（400\,MiB，用到 32\,MiB） \\
+    p3 & EXT2 & ext2 & 1030144 & Linux 文件交换 \\
+    p5 & SPFS & 原始 & 123654144 & 预留给其他教学文件系统 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{步骤}
+
+以 macOS 为例（\code{disk4} 必须先用 \code{diskutil list} 确认，写错磁盘会毁掉数据）：
+
+\begin{shcode}
+# 1. 卸载整张卡并重新分区
+diskutil unmountDisk force /dev/disk4
+diskutil partitionDisk /dev/disk4 4 MBR \
+  FAT32 BOOTFS 100MiB  UFSD_EXTFS XV6FS 400MiB \
+  UFSD_EXTFS EXT2 R    UFSD_EXTFS SPFS 500MiB
+
+# 2. 写入 xv6 根文件系统（只能写分区 2，绝不能写整卡 /dev/rdisk4）
+make fs.img
+make install-rpi3-rawfs RPI3_XV6_DEV=/dev/rdisk4s2
+
+# 3. 把分区 3 格式化成不带 ext4 特性的 ext2
+sudo mke2fs -F -t ext2 -L EXT2 /dev/rdisk4s3
+
+# 4. 在 BOOTFS 中放入树莓派官方固件（bootcode.bin、start.elf、fixup.dat 等），
+#    然后安装内核、config.txt 和 Wi-Fi 固件
+make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2
+\end{shcode}
+
+\code{Makefile} 对 \code{RPI3\_XV6\_DEV} 做了检查：变量为空时只更新内核、配置和固件，并给出警告；不是 \code{/dev/diskNsM} 形式的分区设备则拒绝执行。这些防护是吃过亏之后加上的——\code{dd} 写错一个字母就会覆盖整张卡的分区表。
+
+\subsection{日常更新}
+
+改了内核之后不必每次拔卡：运行 \code{make}，内核会被拷到宿主机的 TFTP 目录；在树莓派上执行
+
+\begin{shcode}
+tftp 192.168.0.195 kernel8-xv6_wifi.img
+\end{shcode}
+
+文件就会下载到 \code{/boot}（FAT32 启动分区），重启后生效。只有用户程序或文件系统格式变化时，才需要重新烧录分区 2。

@@ -844,3 +844,29 @@ brcmfmac: wlan0 IPv4 ready
 
 随后应持续运行 `ping` 和 SSH 交互，确认 IRQ 能立即收包，并确认 burst 处理后
 `CARD_INT` 被正确重新打开，不会出现运行一段时间后停止接收。
+# MMC host 请求串行化
+
+用户态程序和内核 Wi-Fi worker 的调度优先级不是 SDIO 请求正确性的保证。当前 xv6 中普通用户
+进程与新建 kworker 默认都属于 `SCHED_OTHER/nice 0`，而且 BCM43455 的 NAPI、状态 work 和控制
+路径可以在不同 CPU 上并发运行。Arasan 控制器只有一套 `ARG1/CMDTM/INTERRUPT/DATA` 寄存器，
+所以 CMD52/CMD53 事务必须以 **host** 为粒度串行，而不能只依赖每个 brcmf 设备自己的锁。
+
+`struct mmc_host` 现在包含 `request_lock` sleeplock，MMC core 的 `mmc_request_sync()` 在完整命令/
+数据事务外持有它。所有 CMD52 和 CMD53 都通过该入口，作用类似 Linux MMC core 的 host claim：
+
+```text
+brcmf control/state work ─┐
+brcmf NAPI RX/TX         ├─ mmc_request_sync()
+SDIO function control   ─┘       │
+                                 └─ request_lock
+                                      └─ Arasan ARG/CMD/IRQ/DATA registers
+```
+
+这里使用 sleeplock 而不是 spinlock，因为 Arasan request 会等待命令、数据和超时，持有期间不能
+禁止调度。此前偶发的 `CMD52 failed status=df0001 irq=100` 中 bit 0 是 `CMD_INHIBIT`，可能由并发
+请求覆盖寄存器或前一事务尚未结束造成；host 串行化消除了软件侧请求重叠。单次硬件超时仍可能
+发生，届时应继续依据 ERROR/timeout 位诊断，不能归因于同时运行的普通用户程序。
+
+启动探测发生在 `userinit()` 之前，此时 `myproc()` 为空，并且只有启动 CPU 会提交 MMC 请求；
+`mmc_request_sync()` 在这个阶段直接执行 host request。进入用户进程、NAPI 和 workqueue 运行阶段
+后才获取 sleeplock，避免现有 sleeplock 为记录 owner PID 而解引用空的 `myproc()`。

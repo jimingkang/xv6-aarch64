@@ -2,6 +2,8 @@
 #define XV6_SDIO_H
 
 #include "device.h"
+#include "spinlock.h"
+#include "sleeplock.h"
 
 #define MMC_MAX_HOSTS       2
 #define SDIO_MAX_FUNCS      7
@@ -50,6 +52,7 @@ struct mmc_host_ops {
 
 struct mmc_host {
   struct device dev;
+  struct sleeplock request_lock; // one command/data transaction at a time
   char *name;
   struct device *parent;
   const struct mmc_host_ops *ops;

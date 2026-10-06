@@ -1,0 +1,881 @@
+% 3.7 raspberry-pi-os 第 6 课（docs/lesson06/rpi-os.md 的中文译本）
+\section{第 6 课：虚拟内存管理}
+\label{sec:rpios-l6}
+
+\begin{note}
+  \ref{sec:rpios-l6} 节译自 Sergey Matyukevich 的开源教程 \emph{raspberry-pi-os}（\url{https://github.com/s-matyukevich/raspberry-pi-os}，提交 \code{31fc148}）中 \code{docs/lesson06/rpi-os.md}（第 1～3 课的原理已融入 \ref{sec:xv6-startup}、\ref{sec:rpios-l3} 两节，第 4、5 课的原理已融入第~\ref{chap:process}、\ref{chap:user} 章，那些地方的代码全部来自本项目），代码取自同一仓库的 \code{src/lesson06}。译文按源码逐一校对；原文与源码不一致之处，以源码为准并用“译注”标出。原教程以 MIT 许可发布，按其要求附上版权与许可声明：
+
+  \smallskip
+  {\footnotesize\ttfamily\raggedright
+  Copyright (c) 2018 Sergey Matyukevich\par
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\par
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\par}
+\end{note}
+
+RPi OS 现在能运行和调度用户进程了，但它们之间的隔离并不完整——所有进程和内核本身共享同一块内存。任何进程都能轻易访问别人的数据，甚至内核的数据。即使假定所有进程都没有恶意，还有另一个缺点：每个进程在分配内存之前，都得知道哪些内存区域已经被占用了——这让进程的内存分配变得更复杂。
+
+\subsection{地址翻译过程}
+
+这一课通过引入虚拟内存来解决上述所有问题。虚拟内存为每个进程提供一种抽象，让它以为自己独占了全部可用内存。进程每次访问某个内存位置时，用的都是虚拟地址，这个地址会被翻译成物理地址。翻译对进程完全透明，由一个专门的部件 MMU（内存管理单元）完成。MMU 借助转换表（页表）把虚拟地址翻译成物理地址，过程如图~\ref{fig:rpios-walk} 所示。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=3.1mm,y=7mm, font=\scriptsize]
+    \foreach \x/\w/\t/\c in {0/8/{未用}/gray!15, 8/9/{PGD 索引\\[-1pt]47:39}/structurecolor!12,
+        17/9/{PUD 索引\\[-1pt]38:30}/structurecolor!20, 26/9/{PMD 索引\\[-1pt]29:21}/structurecolor!28,
+        35/9/{PTE 索引\\[-1pt]20:12}/structurecolor!36, 44/9/{页内偏移\\[-1pt]11:0}/gray!10}{
+      \draw[fill=\c] (\x,0) rectangle ++(\w,1);
+      \node[align=center] at (\x+\w/2,0.5) {\t};
+    }
+    \node[box, font=\scriptsize] (ttbr) at (2,-2.2) {\code{ttbr0\_el1}};
+    \foreach \n/\x in {pgd/12.5, pud/21.5, pmd/30.5, pte/39.5}{
+      \node[box, minimum width=20mm, font=\scriptsize] (\n) at (\x,-2.2) {\MakeUppercase{\n}};
+    }
+    \node[hbox, minimum width=18mm, font=\scriptsize] (page) at (48.5,-2.2) {物理页};
+    \draw[arr] (ttbr) -- (pgd); \draw[arr] (pgd) -- (pud); \draw[arr] (pud) -- (pmd);
+    \draw[arr] (pmd) -- (pte); \draw[arr] (pte) -- (page);
+    \foreach \x/\n in {12.5/pgd, 21.5/pud, 30.5/pmd, 39.5/pte, 48.5/page} \draw[darr] (\x,0) -- (\n.north);
+  \end{tikzpicture}
+  \caption{四级页表的地址翻译（4\,KB 页，48 位虚拟地址）}
+  \label{fig:rpios-walk}
+\end{figure}
+
+理解这幅图乃至整个地址翻译过程，有几点至关重要：
+
+\begin{itemize}
+  \item 进程的内存总是以页为单位分配。页是一块 4\,KB 的连续内存（ARM 处理器也支持更大的页，但 4\,KB 最常见，我们只讨论这种页大小）；
+  \item 页表是分层的。任何一张表中的表项都存放着下一层表的地址；
+  \item 表的层次共有 4 级：PGD（页全局目录）、PUD（页上层目录）、PMD（页中间目录）和 PTE（页表项）。PTE 是最后一级，它指向物理内存中真正的页；
+  \item 地址翻译从找到 PGD 的地址开始，这个地址存放在 \reg{TTBR0\_EL1} 寄存器中。每个进程都有自己的一整套页表（包括 PGD），所以每个进程都要记住自己的 PGD 地址。上下文切换时，把下一个进程的 PGD 地址装入 \reg{TTBR0\_EL1}；
+  \item 接下来，MMU 用 PGD 指针和虚拟地址算出对应的物理地址。所有虚拟地址只用 64 位中的 48 位。翻译时，MMU 把地址分成 5 段：
+  \begin{itemize}
+    \item 第 39～47 位是 PGD 中的下标，MMU 用它找到 PUD 的位置；
+    \item 第 30～38 位是 PUD 中的下标，MMU 用它找到 PMD 的位置；
+    \item 第 21～29 位是 PMD 中的下标，MMU 用它找到 PTE 的位置；
+    \item 第 12～20 位是 PTE 中的下标，MMU 用它找到物理内存中的页；
+    \item 第 0～11 位是物理页内的偏移，MMU 用它确定在前面找到的页中，与原虚拟地址对应的确切位置。
+  \end{itemize}
+\end{itemize}
+
+做个小练习，算一算一张页表的大小。从图中可知，每级页表的下标都占 9 位，所以每张页表有 $2^9 = 512$ 项。页表中的每一项都是一个地址：或者是下一级页表的地址，或者（对 PTE 而言）是物理页的地址。我们用的是 64 位处理器，每个地址都是 64 位即 8 字节。合起来，一张页表的大小是 $512 \times 8 = 4096$ 字节，即 4\,KB——恰好是一页的大小！这也许能让你体会到 MMU 的设计者为什么选择这些数字。
+
+\subsection{段映射}
+
+在看源码之前，还有一件事要讨论：段映射（section mapping）。有时需要映射大片连续的物理内存。这时可以不用 4\,KB 的页，而是直接映射 2\,MB 的块，称为“段”（section）。这样可以省去一级翻译：PMD 中的表项直接指向物理段，偏移占 21 位而不是 12 位（编码 2\,MB 的范围需要 21 位），如图~\ref{fig:rpios-section} 所示。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=3.1mm,y=7mm, font=\scriptsize]
+    \foreach \x/\w/\t/\c in {0/8/{未用}/gray!15, 8/9/{PGD 索引\\[-1pt]47:39}/structurecolor!12,
+        17/9/{PUD 索引\\[-1pt]38:30}/structurecolor!20, 26/9/{PMD 索引\\[-1pt]29:21}/structurecolor!28,
+        35/18/{段内偏移 20:0}/gray!10}{
+      \draw[fill=\c] (\x,0) rectangle ++(\w,1);
+      \node[align=center] at (\x+\w/2,0.5) {\t};
+    }
+    \node[box] (ttbr) at (2,-2.2) {\code{ttbr}};
+    \node[box, minimum width=20mm] (pgd) at (12.5,-2.2) {PGD};
+    \node[box, minimum width=20mm] (pud) at (21.5,-2.2) {PUD};
+    \node[box, minimum width=20mm] (pmd) at (30.5,-2.2) {PMD};
+    \node[hbox, minimum width=26mm] (sec) at (44,-2.2) {2\,MB 物理段};
+    \draw[arr] (ttbr) -- (pgd); \draw[arr] (pgd) -- (pud); \draw[arr] (pud) -- (pmd); \draw[arr] (pmd) -- (sec);
+  \end{tikzpicture}
+  \caption{段映射：PMD 表项直接指向 2\,MB 物理段}
+  \label{fig:rpios-section}
+\end{figure}
+
+\subsection{描述符格式}
+
+你可能会问：MMU 怎么知道 PMD 中的表项指向的是 PTE 还是一个 2\,MB 的物理段？要回答这个问题，需要仔细看看页表项的结构。我现在得承认，前面说页表项总是存放下一张页表或物理页的地址，并不完全准确：每个表项还包含一些其他信息。页表中的表项称为“描述符”，格式如下：
+
+\begin{center}
+  \small
+  \begin{tabular}{@{}|c|c|c|c|c|@{}}
+    \hline
+    上层属性 & 地址（47:12） & 下层属性 & 块/表位 & 有效位 \\
+    \hline
+    63:48 & 47:12 & 11:2 & 1 & 0 \\
+    \hline
+  \end{tabular}
+\end{center}
+
+关键在于：每个描述符指向的东西（物理页、段或下一级页表）总是按页对齐的。这意味着描述符中地址的低 12 位永远是 0，MMU 就可以用这几位存放更有用的信息——事实正是如此。下面解释描述符中各位的含义：
+
+\begin{itemize}
+  \item \textbf{第 0 位}：所有有效的描述符这一位都必须为 1。MMU 在翻译过程中遇到无效描述符时，会产生同步异常。内核随后应当处理这个异常：分配一个新页，准备好正确的描述符（稍后会详细介绍这是如何工作的）；
+  \item \textbf{第 1 位}：表示当前描述符指向的是下一级页表（称为“表描述符”），还是物理页或段（称为“块描述符”）；
+  \item \textbf{第 2～11 位}：对表描述符无意义。对块描述符，它们包含一些属性，例如控制被映射的页是否可缓存、是否可执行等；
+  \item \textbf{第 12～47 位}：存放描述符所指向的地址。如前所述，只需存放地址的 47:12 位，因为其余位总是 0；
+  \item \textbf{第 48～63 位}：另一组属性。
+\end{itemize}
+
+\begin{remark}
+  译注：“第 1 位”的语义在最后一级（PTE）上有所不同：PTE 中 bit 1 必须为 1 才表示一个有效的 4\,KB 页描述符，所以源码中 \code{MM\_TYPE\_PAGE\_TABLE} 和 \code{MM\_TYPE\_PAGE} 都是 \code{0x3}，而 \code{MM\_TYPE\_BLOCK} 是 \code{0x1}。
+\end{remark}
+
+\subsection{配置页属性}
+
+上一节提到，每个块描述符都包含一组控制虚拟页各种参数的属性。不过，对我们来说最重要的那些属性并不直接写在描述符里。ARM 处理器采用了一个技巧，可以节省描述符中属性部分的空间。
+
+ARMv8 架构引入了 \reg{MAIR\_EL1} 寄存器。这个寄存器由 8 个部分组成，每部分 8 位，每部分配置一组常用属性。描述符中只需指明 \reg{MAIR} 中某一部分的下标，而不必直接写出全部属性。这样描述符只需 3 位就能引用 \reg{MAIR} 的某一部分。\reg{MAIR} 各部分中每一位的含义见 ARM 架构参考手册。RPi OS 只用到了少数几种属性组合，准备 \reg{MAIR} 值的代码如下（\code{include/arm/mmu.h}）：
+
+\begin{ccode}
+/*
+ * Memory region attributes:
+ *
+ *   n = AttrIndx[2:0]
+ *			n	MAIR
+ *   DEVICE_nGnRnE	000	00000000
+ *   NORMAL_NC		001	01000100
+ */
+#define MT_DEVICE_nGnRnE 		0x0
+#define MT_NORMAL_NC			0x1
+#define MT_DEVICE_nGnRnE_FLAGS		0x00
+#define MT_NORMAL_NC_FLAGS  		0x44
+#define MAIR_VALUE			(MT_DEVICE_nGnRnE_FLAGS << (8 * MT_DEVICE_nGnRnE)) | \
+					(MT_NORMAL_NC_FLAGS << (8 * MT_NORMAL_NC))
+\end{ccode}
+
+这里只用了 \reg{MAIR} 寄存器 8 个槽位中的 2 个：第一个对应设备内存，第二个对应普通的不可缓存内存。\code{MT\_DEVICE\_nGnRnE} 和 \code{MT\_NORMAL\_NC} 是在块描述符中使用的下标，\code{MT\_DEVICE\_nGnRnE\_FLAGS} 和 \code{MT\_NORMAL\_NC\_FLAGS} 是存进 \reg{MAIR\_EL1} 前两个槽位的值。
+
+同一个头文件还定义了几组描述符标志：
+
+\begin{ccode}
+#define MM_TYPE_PAGE_TABLE		0x3
+#define MM_TYPE_PAGE 			0x3
+#define MM_TYPE_BLOCK			0x1
+#define MM_ACCESS			(0x1 << 10)
+#define MM_ACCESS_PERMISSION		(0x01 << 6)
+
+#define MMU_FLAGS	 	(MM_TYPE_BLOCK | (MT_NORMAL_NC << 2) | MM_ACCESS)
+#define MMU_DEVICE_FLAGS	(MM_TYPE_BLOCK | (MT_DEVICE_nGnRnE << 2) | MM_ACCESS)
+#define MMU_PTE_FLAGS		(MM_TYPE_PAGE | (MT_NORMAL_NC << 2) | MM_ACCESS | MM_ACCESS_PERMISSION)
+\end{ccode}
+
+\subsection{内核虚拟内存与用户虚拟内存}
+
+MMU 打开之后，每次内存访问都必须使用虚拟地址而不是物理地址。由此带来的一个结果是：内核本身也必须准备好使用虚拟内存，并维护自己的一套页表。一种可能的方案是每次从用户态切到内核态时都重新装载 PGD 寄存器。问题在于切换 PGD 代价很高，因为它要求让所有缓存失效。考虑到从用户态切到内核态有多么频繁，这种方案会让缓存完全失去作用，所以操作系统开发中从来不用它。操作系统的实际做法是把地址空间分成两部分：用户空间和内核空间。32 位架构通常把地址空间的前 3\,GB 分配给用户程序，后 1\,GB 留给内核。64 位架构在这方面要宽裕得多，因为地址空间非常大。不仅如此，ARMv8 架构还提供了一项原生特性，可以很方便地实现用户/内核地址空间的划分。
+
+有两个寄存器可以存放 PGD 的地址：\reg{TTBR0\_EL1} 和 \reg{TTBR1\_EL1}。你可能还记得，我们只用了地址 64 位中的 48 位，所以高 16 位可以用来区分走 \reg{TTBR0} 还是 \reg{TTBR1} 的翻译过程：如果高 16 位全是 0，就使用 \reg{TTBR0\_EL1} 中的 PGD 地址；如果地址以 \code{0xffff} 开头（高 16 位全是 1），就使用 \reg{TTBR1\_EL1} 中的 PGD 地址。架构还保证，运行在 EL0 的进程访问以 \code{0xffff} 开头的虚拟地址时一定会产生同步异常。从这些描述很容易推出：内核 PGD 的指针存放在 \reg{TTBR1\_EL1} 中，并在内核的整个生命周期内保持不变；\reg{TTBR0\_EL1} 则用来存放当前用户进程的 PGD。
+
+\begin{remark}
+  译注：“运行在 EL0 的进程访问 \code{0xffff...} 地址一定会产生异常”严格说来并不来自 TTBR1 本身，而是因为内核映射的页表项没有设置允许 EL0 访问的 AP 位。本课内核的 \code{MMU\_FLAGS} 中 AP 位为 0，即只允许 EL1 访问。
+\end{remark}
+
+这种做法的一个推论是：内核的所有绝对地址都必须以 \code{0xffff} 开头。RPi OS 的源码中有两处处理这一点。在链接脚本中，我们把镜像的基址指定为 \code{0xffff000000000000}。这会让编译器以为我们的镜像将被装载到 \code{0xffff000000000000}，于是每当它需要生成绝对地址时，都能生成正确的值。（链接脚本还有一些其他改动，稍后讨论。）
+
+另一处硬编码内核绝对基址的地方，是定义设备基址的头文件。现在我们将从 \code{0xffff00003F000000} 开始访问所有设备内存：
+
+\begin{ccode}
+#define VA_START        0xffff000000000000
+#define DEVICE_BASE     0x3F000000
+#define PBASE           (VA_START + DEVICE_BASE)
+\end{ccode}
+
+当然，要让这一切工作起来，必须先映射内核需要访问的全部内存。下一节详细研究建立这些映射的代码。
+
+\subsection{初始化内核页表}
+
+建立内核页表需要在启动过程的很早阶段完成。它从 \code{boot.S} 开始：切换到 EL1 并清零 BSS 之后，立即调用 \code{\_\_create\_page\_tables}：
+
+\begin{asmcode}
+el1_entry:
+	adr	x0, bss_begin
+	adr	x1, bss_end
+	sub	x1, x1, x0
+	bl 	memzero
+
+	bl 	__create_page_tables
+	...
+\end{asmcode}
+
+逐行来看这个函数：
+
+\begin{asmcode}
+__create_page_tables:
+	mov	x29, x30						// save return address
+\end{asmcode}
+
+首先保存 \code{x30}（链接寄存器）。我们要在 \code{\_\_create\_page\_tables} 中调用其他函数，\code{x30} 会被覆盖。通常 \code{x30} 保存在栈上，但我们知道这里不会递归，而且在 \code{\_\_create\_page\_tables} 执行期间没人会用 \code{x29}，所以这种简单的保存链接寄存器的方法也完全可行。
+
+\begin{asmcode}
+	adrp	x0, pg_dir
+	mov	x1, #PG_DIR_SIZE
+	bl 	memzero
+\end{asmcode}
+
+接着清空初始页表区。这里要理解的重点是：这块区域在哪里？我们怎么知道它的大小？初始页表区是在链接脚本中定义的——也就是说，我们在内核镜像本身中为它预留了位置：
+
+\begin{txtcode}
+SECTIONS
+{
+	. = 0xffff000000000000;
+	.text.boot : { *(.text.boot) }
+	. = ALIGN(0x00001000);
+	user_begin = .;
+	.text.user : { build/user* (.text) }
+	.rodata.user : { build/user* (.rodata) }
+	.data.user : { build/user* (.data) }
+	.bss.user : { build/user* (.bss) }
+	user_end = .;
+	.text :  { *(.text) }
+	.rodata : { *(.rodata) }
+	.data : { *(.data) }
+	. = ALIGN(0x8);
+	bss_begin = .;
+	.bss : { *(.bss*) }
+	bss_end = .;
+	. = ALIGN(0x00001000);
+	pg_dir = .;
+	.data.pgd : { . += (3 * (1 << 12)); }
+}
+\end{txtcode}
+
+计算这块区域的大小要稍微复杂一些。首先要理解初始内核页表的结构。我们知道所有映射都在 1\,GB 范围之内（这是树莓派内存的大小）。一个 PGD 描述符可以覆盖 $2^{39} = 512$\,GB，一个 PUD 描述符可以覆盖 $2^{30} = 1$\,GB 的连续虚拟映射区域（这些值是根据 PGD、PUD 下标在虚拟地址中的位置算出来的）。所以映射整个树莓派内存只需要一张 PGD 和一张 PUD，而且 PGD 和 PUD 各自只含一个描述符。只有一个 PUD 表项，它指向的 PMD 表也就只有一张。（一个 PMD 表项覆盖 2\,MB，一张 PMD 有 512 项，合起来整张 PMD 覆盖的正好是一个 PUD 描述符所覆盖的 1\,GB 内存。）
+
+其次，我们要映射的 1\,GB 内存是 2\,MB 的整数倍，所以可以使用段映射，完全不需要 PTE。因此总共需要 3 页：PGD、PUD、PMD 各一页——这正是初始页表区的大小（\code{PG\_DIR\_SIZE = 3 * PAGE\_SIZE}）。
+
+现在暂时离开 \code{\_\_create\_page\_tables}，看看两个关键的宏：\code{create\_table\_entry} 和 \code{create\_block\_map}。
+
+\code{create\_table\_entry} 负责分配一张新页表（在我们这里是 PGD 或 PUD），源码如下：
+
+\begin{asmcode}
+	.macro	create_table_entry, tbl, virt, shift, tmp1, tmp2
+	lsr	\tmp1, \virt, #\shift
+	and	\tmp1, \tmp1, #PTRS_PER_TABLE - 1			// table index
+	add	\tmp2, \tbl, #PAGE_SIZE
+	orr	\tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+	str	\tmp2, [\tbl, \tmp1, lsl #3]
+	add	\tbl, \tbl, #PAGE_SIZE					// next level table page
+	.endm
+\end{asmcode}
+
+这个宏接受以下参数：
+
+\begin{itemize}
+  \item \code{tbl}：指向要分配新表的那块内存；
+  \item \code{virt}：当前正在映射的虚拟地址；
+  \item \code{shift}：为了从虚拟地址中取出当前这一级表的下标，需要对虚拟地址做的移位（PGD 是 39，PUD 是 30）；
+  \item \code{tmp1}、\code{tmp2}：临时寄存器。
+\end{itemize}
+
+这个宏非常重要，我们花点时间理解它。
+
+\begin{asmcode}
+	lsr	\tmp1, \virt, #\shift
+	and	\tmp1, \tmp1, #PTRS_PER_TABLE - 1			// table index
+\end{asmcode}
+
+前两行从虚拟地址中取出表下标：先右移，去掉下标右边的所有位；再用 \code{and} 去掉左边的所有位。
+
+\begin{asmcode}
+	add	\tmp2, \tbl, #PAGE_SIZE
+\end{asmcode}
+
+然后计算下一级页表的地址。这里用的约定是：所有初始页表位于一块连续内存中，所以我们简单地假定层次中的下一张页表紧挨着当前页表。
+
+\begin{asmcode}
+	orr	\tmp2, \tmp2, #MM_TYPE_PAGE_TABLE
+\end{asmcode}
+
+接着把指向下一级页表的指针转换成表描述符（描述符的低 2 位必须都为 1）。
+
+\begin{asmcode}
+	str	\tmp2, [\tbl, \tmp1, lsl #3]
+\end{asmcode}
+
+然后把描述符存进当前页表，用前面算出的下标找到正确的位置。
+
+\begin{asmcode}
+	add	\tbl, \tbl, #PAGE_SIZE					// next level table page
+\end{asmcode}
+
+最后，让 \code{tbl} 参数指向层次中的下一张页表。这很方便，因为这样就可以对下一级页表再调用一次 \code{create\_table\_entry}，而无需对 \code{tbl} 做任何调整。\code{create\_pgd\_entry} 宏正是这样做的，它只是一个同时分配 PGD 和 PUD 的包装：
+
+\begin{asmcode}
+	.macro	create_pgd_entry, tbl, virt, tmp1, tmp2
+	create_table_entry \tbl, \virt, PGD_SHIFT, \tmp1, \tmp2
+	create_table_entry \tbl, \virt, PUD_SHIFT, \tmp1, \tmp2
+	.endm
+\end{asmcode}
+
+下一个重要的宏是 \code{create\_block\_map}。你大概能猜到，它负责填充 PMD 表中的表项：
+
+\begin{asmcode}
+	.macro	create_block_map, tbl, phys, start, end, flags, tmp1
+	lsr	\start, \start, #SECTION_SHIFT
+	and	\start, \start, #PTRS_PER_TABLE - 1			// table index
+	lsr	\end, \end, #SECTION_SHIFT
+	and	\end, \end, #PTRS_PER_TABLE - 1				// table end index
+	lsr	\phys, \phys, #SECTION_SHIFT
+	mov	\tmp1, #\flags
+	orr	\phys, \tmp1, \phys, lsl #SECTION_SHIFT			// table entry
+9999:	str	\phys, [\tbl, \start, lsl #3]				// store the entry
+	add	\start, \start, #1					// next entry
+	add	\phys, \phys, #SECTION_SIZE				// next block
+	cmp	\start, \end
+	b.ls	9999b
+	.endm
+\end{asmcode}
+
+这里的参数稍有不同：
+
+\begin{itemize}
+  \item \code{tbl}：指向 PMD 表；
+  \item \code{phys}：要映射的物理区域的起始地址；
+  \item \code{start}：要映射的第一个段的虚拟地址；
+  \item \code{end}：要映射的最后一个段的虚拟地址；
+  \item \code{flags}：要拷进块描述符低位属性的标志；
+  \item \code{tmp1}：临时寄存器。
+\end{itemize}
+
+来看源码：
+
+\begin{asmcode}
+	lsr	\start, \start, #SECTION_SHIFT
+	and	\start, \start, #PTRS_PER_TABLE - 1			// table index
+\end{asmcode}
+
+这两行从 \code{start} 虚拟地址中取出表下标，做法与 \code{create\_table\_entry} 完全相同。
+
+\begin{asmcode}
+	lsr	\end, \end, #SECTION_SHIFT
+	and	\end, \end, #PTRS_PER_TABLE - 1				// table end index
+\end{asmcode}
+
+对 \code{end} 地址重复同样的操作。现在 \code{start} 和 \code{end} 中存放的不再是虚拟地址，而是原地址在 PMD 表中对应的下标。
+
+\begin{asmcode}
+	lsr	\phys, \phys, #SECTION_SHIFT
+	mov	\tmp1, #\flags
+	orr	\phys, \tmp1, \phys, lsl #SECTION_SHIFT			// table entry
+\end{asmcode}
+
+接着准备块描述符。为此先把 \code{phys} 右移，再左移回来，然后用 \code{orr} 指令与 \code{flags} 参数合并。如果你奇怪为什么要把地址来回移位——答案是这样会清除 \code{phys} 地址的低 21 位，使这个宏通用：任何地址都能用，而不只是段的起始地址。
+
+\begin{remark}
+  译注：原文说描述符“存放在 \code{tmp1} 变量中”，实际上 \code{tmp1} 只用来暂存 \code{flags}，合并后的描述符存放在 \code{phys} 寄存器里，循环中被不断加上 \code{SECTION\_SIZE}。
+\end{remark}
+
+\begin{asmcode}
+9999:	str	\phys, [\tbl, \start, lsl #3]				// store the entry
+	add	\start, \start, #1					// next entry
+	add	\phys, \phys, #SECTION_SIZE				// next block
+	cmp	\start, \end
+	b.ls	9999b
+\end{asmcode}
+
+宏的最后一部分在循环中执行：先把当前描述符存到 PMD 表中正确的下标处，然后把当前下标加 1，并更新描述符使其指向下一个段。重复这个过程，直到当前下标等于最后一个下标。
+
+理解了 \code{create\_table\_entry} 和 \code{create\_block\_map} 的工作原理，\code{\_\_create\_page\_tables} 的其余部分就很容易理解了。
+
+\begin{asmcode}
+	adrp	x0, pg_dir
+	mov	x1, #VA_START
+	create_pgd_entry x0, x1, x2, x3
+\end{asmcode}
+
+这里创建 PGD 和 PUD，并让它们从虚拟地址 \code{VA\_START} 开始映射。由于 \code{create\_table\_entry} 宏的语义，\code{create\_pgd\_entry} 执行完后，\code{x0} 中是层次中下一张表——即 PMD——的地址。
+
+\begin{asmcode}
+	/* Mapping kernel and init stack*/
+	mov 	x1, xzr							// start mapping from physical offset 0
+	mov 	x2, #VA_START						// first virtual address
+	ldr	x3, =(VA_START + DEVICE_BASE - SECTION_SIZE)		// last virtual address
+	create_block_map x0, x1, x2, x3, MMU_FLAGS, x4
+\end{asmcode}
+
+接下来为除设备寄存器区之外的全部内存建立虚拟映射。\code{flags} 参数用的是常量 \code{MMU\_FLAGS}——它把所有要映射的段都标记为普通的不可缓存内存。（注意 \code{MMU\_FLAGS} 中还包含 \code{MM\_ACCESS} 标志。没有这个标志，每次内存访问都会产生同步异常。）
+
+\begin{asmcode}
+	/* Mapping device memory*/
+	mov 	x1, #DEVICE_BASE					// start mapping from device base address
+	ldr 	x2, =(VA_START + DEVICE_BASE)				// first virtual address
+	ldr	x3, =(VA_START + PHYS_MEMORY_SIZE - SECTION_SIZE)	// last virtual address
+	create_block_map x0, x1, x2, x3, MMU_DEVICE_FLAGS, x4
+\end{asmcode}
+
+然后映射设备寄存器区。做法与上一段代码完全相同，只是起止地址和标志不同。
+
+\begin{asmcode}
+	mov	x30, x29						// restore return address
+	ret
+\end{asmcode}
+
+最后，函数恢复链接寄存器并返回调用者。
+
+\subsection{配置地址翻译}
+
+页表建好了，我们回到 \code{el1\_entry}。但在打开 MMU 之前，还有一些工作要做：
+
+\begin{asmcode}
+	mov	x0, #VA_START
+	add	sp, x0, #LOW_MEMORY
+\end{asmcode}
+
+更新初始任务的栈指针。现在它使用虚拟地址而不是物理地址（因此只能在 MMU 打开之后使用）。
+
+\begin{asmcode}
+	adrp	x0, pg_dir
+	msr	ttbr1_el1, x0
+\end{asmcode}
+
+把 \reg{TTBR1\_EL1} 设为指向前面填好的 PGD 表。
+
+\begin{asmcode}
+	ldr	x0, =(TCR_VALUE)
+	msr	tcr_el1, x0
+\end{asmcode}
+
+\reg{TCR\_EL1}（地址转换控制寄存器）负责配置 MMU 的一些通用参数。例如这里配置内核页表和用户页表都使用 4\,KB 页：
+
+\begin{ccode}
+#define TCR_T0SZ			(64 - 48)
+#define TCR_T1SZ			((64 - 48) << 16)
+#define TCR_TG0_4K			(0 << 14)
+#define TCR_TG1_4K			(2 << 30)
+#define TCR_VALUE			(TCR_T0SZ | TCR_T1SZ | TCR_TG0_4K | TCR_TG1_4K)
+\end{ccode}
+
+\begin{asmcode}
+	ldr	x0, =(MAIR_VALUE)
+	msr	mair_el1, x0
+\end{asmcode}
+
+\reg{MAIR} 寄存器已经在“配置页属性”一节讨论过了，这里只是设置它的值。
+
+\begin{asmcode}
+	ldr	x2, =kernel_main
+
+	mov	x0, #SCTLR_MMU_ENABLED
+	msr	sctlr_el1, x0
+
+	br 	x2
+\end{asmcode}
+
+\code{msr sctlr\_el1, x0} 这一行才真正打开 MMU。现在就可以跳到 \code{kernel\_main} 了。一个有意思的问题是：为什么不能直接执行 \code{br kernel\_main}？确实不行。打开 MMU 之前我们一直使用物理内存，内核装载在物理地址 0 处——这意味着当前的程序计数器非常接近 0。打开 MMU 并不会更新程序计数器。如果此时执行 \code{br kernel\_main}，这条指令使用的是相对于当前程序计数器的偏移，会跳到“如果没有打开 MMU，\code{kernel\_main} 本该所在的位置”。而 \code{ldr x2, =kernel\_main} 把 \code{kernel\_main} 函数的绝对地址装入 \code{x2}。由于链接脚本把镜像基址设为了 \code{0xffff000000000000}，\code{kernel\_main} 的绝对地址等于它相对镜像开头的偏移加上 \code{0xffff000000000000}——这正是我们需要的。
+
+另一件要理解的重要事情是：为什么 \code{ldr x2, =kernel\_main} 必须在打开 MMU 之前执行？原因是 \code{ldr} 同样使用相对于 \code{pc} 的偏移（从文字池中取出常量），所以如果在打开 MMU 之后、跳到镜像基址之前执行这条指令，就会产生页错误。
+
+\begin{remark}
+  译注：本课的启动页表只建立了 \reg{TTBR1} 的高地址映射，没有恒等映射，而打开 MMU 后紧接着的 \code{br x2} 仍要从低地址取指。架构上可靠的做法是像本项目（\ref{sec:xv6-startup} 节）那样，同时在 \reg{TTBR0} 中建立覆盖当前代码的恒等映射，并在写 \reg{SCTLR\_EL1} 之后执行 \code{isb}，再跳到高地址。
+\end{remark}
+
+\subsection{分配用户进程}
+
+在真实的操作系统中，你会期望它能从文件系统读取程序并执行。RPi OS 不一样——它还不支持文件系统。前几课我们并不在意这一点，因为用户进程与内核共享同一个地址空间。现在情况变了，每个进程都应该有自己的地址空间，我们得想办法存放用户程序，以便之后把它装载到新创建的进程中。我最后采用的技巧，是把用户程序存放在内核镜像的一个独立区域中。链接脚本中负责这件事的部分是：
+
+\begin{txtcode}
+	. = ALIGN(0x00001000);
+	user_begin = .;
+	.text.user : { build/user* (.text) }
+	.rodata.user : { build/user* (.rodata) }
+	.data.user : { build/user* (.data) }
+	.bss.user : { build/user* (.bss) }
+	user_end = .;
+\end{txtcode}
+
+我约定，用户态的源代码都放在以 \code{user} 为前缀的文件中。链接脚本就可以把所有与用户有关的代码隔离在一块连续区域中，并定义 \code{user\_begin} 和 \code{user\_end} 两个变量标出这块区域的起止位置。这样我们只需把 \code{user\_begin} 和 \code{user\_end} 之间的所有内容拷到新分配的进程地址空间中，就模拟了“装载用户程序”。这个办法很简单，对我们目前的需要也足够好；等实现了文件系统支持、能够装载 ELF 文件之后，就可以去掉这个“小把戏”了。
+
+目前有两个文件被编译进用户区域：
+
+\begin{itemize}
+  \item \code{user\_sys.S}：系统调用包装函数的定义。RPi OS 仍然支持上一课的那些系统调用，只是现在用 \code{fork} 系统调用代替了 \code{clone}。两者的区别在于 \code{fork} 会复制进程的虚拟内存，而这正是我们想尝试的；
+  \item \code{user.c}：用户程序的源代码，与上一课用的几乎相同。
+\end{itemize}
+
+\subsection{创建第一个用户进程}
+
+与上一课一样，\code{move\_to\_user\_mode} 负责创建第一个用户进程。我们在一个内核线程中调用它：
+
+\begin{ccode}
+void kernel_process(){
+	printf("Kernel process started. EL %d\r\n", get_el());
+	unsigned long begin = (unsigned long)&user_begin;
+	unsigned long end = (unsigned long)&user_end;
+	unsigned long process = (unsigned long)&user_process;
+	int err = move_to_user_mode(begin, end - begin, process - begin);
+	if (err < 0){
+		printf("Error while moving process to user mode\n\r");
+	}
+}
+\end{ccode}
+
+现在调用 \code{move\_to\_user\_mode} 需要 3 个参数：用户代码区域的起始指针、区域的大小，以及启动函数在区域中的偏移。这些信息都是根据前面讨论的 \code{user\_begin} 和 \code{user\_end} 算出来的。\code{move\_to\_user\_mode} 如下：
+
+\begin{ccode}
+int move_to_user_mode(unsigned long start, unsigned long size, unsigned long pc)
+{
+	struct pt_regs *regs = task_pt_regs(current);
+	regs->pstate = PSR_MODE_EL0t;
+	regs->pc = pc;
+	regs->sp = 2 *  PAGE_SIZE;
+	unsigned long code_page = allocate_user_page(current, 0);
+	if (code_page == 0)	{
+		return -1;
+	}
+	memcpy(code_page, start, size);
+	set_pgd(current->mm.pgd);
+	return 0;
+}
+\end{ccode}
+
+下面仔细看看这里发生了什么。
+
+\begin{ccode}
+	struct pt_regs *regs = task_pt_regs(current);
+\end{ccode}
+
+和上一课一样，取得 \code{pt\_regs} 区域的指针，并设置 \code{pstate}，使得 \code{kernel\_exit} 之后进入 EL0。
+
+\begin{ccode}
+	regs->pc = pc;
+\end{ccode}
+
+\code{pc} 现在指向启动函数在用户区域中的偏移。
+
+\begin{ccode}
+	regs->sp = 2 *  PAGE_SIZE;
+\end{ccode}
+
+我们做了一个简单的约定：用户程序不超过 1 页，第二页分配给栈。
+
+\begin{ccode}
+	unsigned long code_page = allocate_user_page(current, 0);
+	if (code_page == 0)	{
+		return -1;
+	}
+\end{ccode}
+
+\code{allocate\_user\_page} 预留 1 个内存页，并把它映射到第二个参数给出的虚拟地址。映射过程中，它会填充与当前进程关联的页表。本节后面会详细研究这个函数的工作原理。
+
+\begin{ccode}
+	memcpy(code_page, start, size);
+\end{ccode}
+
+接着把整个用户区域拷贝到新的地址空间中（拷进刚刚映射的那一页），从偏移 0 开始。这样，用户区域中的偏移就成了启动函数实际的虚拟地址。
+
+\begin{ccode}
+	set_pgd(current->mm.pgd);
+\end{ccode}
+
+最后调用 \code{set\_pgd}，它更新 \reg{TTBR0\_EL1} 寄存器，从而激活当前进程的页表。
+
+\subsection{TLB（转换后备缓冲区）}
+
+看看 \code{set\_pgd} 函数就会发现，它在设置 \reg{TTBR0\_EL1} 之后，还清空了 TLB（Translation Lookaside Buffer，转换后备缓冲区）：
+
+\begin{asmcode}
+.globl set_pgd
+set_pgd:
+	msr	ttbr0_el1, x0
+	tlbi vmalle1is
+	DSB ISH              // ensure completion of TLB invalidation
+	isb
+	ret
+\end{asmcode}
+
+TLB 是专门用来保存物理页与虚拟页之间映射关系的缓存。某个虚拟地址第一次被翻译成物理地址时，这个映射就存进 TLB。下一次访问同一页时，就不必再做完整的页表遍历了。所以更新页表之后让 TLB 失效是完全合理的——否则已经存在 TLB 中的那些页不会受到我们修改的影响。
+
+通常为了简单起见，我们尽量不用任何缓存。但没有 TLB 的话，每次内存访问都会极其低效，而且我认为根本不可能完全关闭 TLB。此外，除了在切换 \reg{TTBR0\_EL1} 之后必须清空它以外，TLB 并不会给操作系统增加其他复杂性。
+
+\subsection{映射一个虚拟页}
+
+前面已经看到 \code{allocate\_user\_page} 是怎么用的，现在来看它的内部：
+
+\begin{ccode}
+unsigned long allocate_user_page(struct task_struct *task, unsigned long va) {
+	unsigned long page = get_free_page();
+	if (page == 0) {
+		return 0;
+	}
+	map_page(task, va, page);
+	return page + VA_START;
+}
+\end{ccode}
+
+这个函数分配一个新页，把它映射到给定的虚拟地址，并返回指向这一页的指针。现在说“指针”时，需要区分三种东西：指向物理页的指针、内核地址空间中的指针，以及用户地址空间中的指针——这三种不同的指针可以指向内存中的同一个位置。在这里，变量 \code{page} 是物理指针，返回值是内核地址空间中的指针。后者很容易算出来，因为我们把整个物理内存从虚拟地址 \code{VA\_START} 开始线性映射了。我们也不必为分配新的内核页表操心，因为所有内存都已经在 \code{boot.S} 中映射好了。用户映射仍然需要建立，这由 \code{map\_page} 完成：
+
+\begin{ccode}
+void map_page(struct task_struct *task, unsigned long va, unsigned long page){
+	unsigned long pgd;
+	if (!task->mm.pgd) {
+		task->mm.pgd = get_free_page();
+		task->mm.kernel_pages[++task->mm.kernel_pages_count] = task->mm.pgd;
+	}
+	pgd = task->mm.pgd;
+	int new_table;
+	unsigned long pud = map_table((unsigned long *)(pgd + VA_START), PGD_SHIFT, va, &new_table);
+	if (new_table) {
+		task->mm.kernel_pages[++task->mm.kernel_pages_count] = pud;
+	}
+	unsigned long pmd = map_table((unsigned long *)(pud + VA_START) , PUD_SHIFT, va, &new_table);
+	if (new_table) {
+		task->mm.kernel_pages[++task->mm.kernel_pages_count] = pmd;
+	}
+	unsigned long pte = map_table((unsigned long *)(pmd + VA_START), PMD_SHIFT, va, &new_table);
+	if (new_table) {
+		task->mm.kernel_pages[++task->mm.kernel_pages_count] = pte;
+	}
+	map_table_entry((unsigned long *)(pte + VA_START), va, page);
+	struct user_page p = {page, va};
+	task->mm.user_pages[task->mm.user_pages_count++] = p;
+}
+\end{ccode}
+
+\code{map\_page} 在某种程度上重复了 \code{\_\_create\_page\_tables} 所做的事：分配并填充一个页表层次。不过有 3 点重要的区别：现在我们用 C 而不是汇编来做；\code{map\_page} 只映射一个页，而不是整个内存；并且使用普通的页映射，而不是段映射。
+
+这个过程涉及两个重要的函数：\code{map\_table} 和 \code{map\_table\_entry}。
+
+\code{map\_table} 如下：
+
+\begin{ccode}
+unsigned long map_table(unsigned long *table, unsigned long shift, unsigned long va, int* new_table) {
+	unsigned long index = va >> shift;
+	index = index & (PTRS_PER_TABLE - 1);
+	if (!table[index]){
+		*new_table = 1;
+		unsigned long next_level_table = get_free_page();
+		unsigned long entry = next_level_table | MM_TYPE_PAGE_TABLE;
+		table[index] = entry;
+		return next_level_table;
+	} else {
+		*new_table = 0;
+	}
+	return table[index] & PAGE_MASK;
+}
+\end{ccode}
+
+它的参数是：
+
+\begin{itemize}
+  \item \code{table}：指向父页表。假定这张页表已经分配好了，但可能是空的；
+  \item \code{shift}：用来从给定的虚拟地址中取出表下标；
+  \item \code{va}：虚拟地址本身；
+  \item \code{new\_table}：输出参数。如果分配了新的子表就设为 1，否则为 0。
+\end{itemize}
+
+可以把这个函数看成 \code{create\_table\_entry} 宏的对应物。它从虚拟地址中取出表下标，在父表中准备一个指向子表的描述符。与 \code{create\_table\_entry} 不同，我们不假定子表在内存中紧挨着父表，而是依靠 \code{get\_free\_page} 返回任何一个可用的页。也可能子表已经分配过了（如果子页表覆盖的区域中之前已经分配过别的页，就会这样）。这时把 \code{new\_table} 设为 0，并从父表中读出子页表的地址。
+
+\code{map\_page} 调用 \code{map\_table} 3 次：分别针对 PGD、PUD 和 PMD。最后一次调用分配 PTE，并在 PMD 中设置描述符。接着调用 \code{map\_table\_entry}：
+
+\begin{ccode}
+void map_table_entry(unsigned long *pte, unsigned long va, unsigned long pa) {
+	unsigned long index = va >> PAGE_SHIFT;
+	index = index & (PTRS_PER_TABLE - 1);
+	unsigned long entry = pa | MMU_PTE_FLAGS;
+	pte[index] = entry;
+}
+\end{ccode}
+
+\code{map\_table\_entry} 从虚拟地址中取出 PTE 下标，然后准备并设置 PTE 描述符。这与 \code{create\_block\_map} 宏中所做的类似。
+
+用户页表的分配就是这些。不过 \code{map\_page} 还承担另一个重要职责：它记录在映射虚拟地址过程中分配的所有页。这些页都保存在 \code{kernel\_pages} 数组中。我们需要这个数组，以便在任务退出后清理分配的页。还有一个 \code{user\_pages} 数组，同样由 \code{map\_page} 填充，它保存进程虚拟页与物理页之间的对应关系。\code{fork} 时复制进程的虚拟内存要用到这个信息（后面详述）。它们都是 \code{struct mm\_struct} 的成员：
+
+\begin{ccode}
+struct user_page {
+	unsigned long phys_addr;
+	unsigned long virt_addr;
+};
+
+struct mm_struct {
+	unsigned long pgd;
+	int user_pages_count;
+	struct user_page user_pages[MAX_PROCESS_PAGES];
+	int kernel_pages_count;
+	unsigned long kernel_pages[MAX_PROCESS_PAGES];
+};
+\end{ccode}
+
+\begin{remark}
+  译注：注意 \code{kernel\_pages[++kernel\_pages\_count]} 使用的是前置自增，所以下标 0 永远不会被使用，记录从下标 1 开始；而 \code{user\_pages} 使用后置自增，从下标 0 开始。另外，\code{get\_free\_page()} 在本课中会先用 \code{memzero} 把新页清零——新分配的页表页必须全为 0（全部描述符无效），这一点很关键。
+\end{remark}
+
+\subsection{复制进程（fork）}
+
+继续之前，先小结一下目前的进展：我们已经看到第一个用户进程是怎样创建的——它的页表被填好，代码被拷到正确的位置，栈也初始化了。所有这些准备工作完成后，进程就可以运行了。在用户进程中执行的代码如下：
+
+\begin{ccode}
+void loop(char* str)
+{
+	char buf[2] = {""};
+	while (1){
+		for (int i = 0; i < 5; i++){
+			buf[0] = str[i];
+			call_sys_write(buf);
+			user_delay(1000000);
+		}
+	}
+}
+
+void user_process()
+{
+	call_sys_write("User process\n\r");
+	int pid = call_sys_fork();
+	if (pid < 0) {
+		call_sys_write("Error during fork\n\r");
+		call_sys_exit();
+		return;
+	}
+	if (pid == 0){
+		loop("abcde");
+	} else {
+		loop("12345");
+	}
+}
+\end{ccode}
+
+代码本身很简单，唯一需要动脑筋的是 \code{fork} 系统调用的语义。与 \code{clone} 不同，\code{fork} 不需要提供在新进程中执行的函数。\code{fork} 的包装函数也比 \code{clone} 的简单得多：
+
+\begin{asmcode}
+.globl call_sys_fork
+call_sys_fork:
+	mov w8, #SYS_FORK_NUMBER
+	svc #0
+	ret
+\end{asmcode}
+
+这一切之所以可能，是因为 \code{fork} 完整地复制了进程的虚拟地址空间，所以 \code{fork} 包装函数会返回两次：一次在原进程中，一次在新进程中。此时我们有了两个完全相同的进程，栈和 \code{pc} 位置都相同。唯一的区别是 \code{fork} 系统调用的返回值：在父进程中返回子进程的 PID，在子进程中返回 0。从这一刻起，两个进程开始各自完全独立的生命，它们可以修改各自的栈，在相同的内存地址上写入不同的内容——全都互不影响。
+
+现在看看 \code{fork} 系统调用是如何实现的。大部分工作由 \code{copy\_process} 完成：
+
+\begin{ccode}
+int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg)
+{
+	preempt_disable();
+	struct task_struct *p;
+
+	unsigned long page = allocate_kernel_page();
+	p = (struct task_struct *) page;
+	struct pt_regs *childregs = task_pt_regs(p);
+
+	if (!p)
+		return -1;
+
+	if (clone_flags & PF_KTHREAD) {
+		p->cpu_context.x19 = fn;
+		p->cpu_context.x20 = arg;
+	} else {
+		struct pt_regs * cur_regs = task_pt_regs(current);
+		*childregs = *cur_regs;
+		childregs->regs[0] = 0;
+		copy_virt_memory(p);
+	}
+	p->flags = clone_flags;
+	p->priority = current->priority;
+	p->state = TASK_RUNNING;
+	p->counter = p->priority;
+	p->preempt_count = 1; //disable preemtion until schedule_tail
+
+	p->cpu_context.pc = (unsigned long)ret_from_fork;
+	p->cpu_context.sp = (unsigned long)childregs;
+	int pid = nr_tasks++;
+	task[pid] = p;
+
+	preempt_enable();
+	return pid;
+}
+\end{ccode}
+
+这个函数与上一课的几乎完全一样，只有一处例外：复制用户进程时，现在不再修改新进程的栈指针和程序计数器，而是调用 \code{copy\_virt\_memory}：
+
+\begin{ccode}
+int copy_virt_memory(struct task_struct *dst) {
+	struct task_struct* src = current;
+	for (int i = 0; i < src->mm.user_pages_count; i++) {
+		unsigned long kernel_va = allocate_user_page(dst, src->mm.user_pages[i].virt_addr);
+		if( kernel_va == 0) {
+			return -1;
+		}
+		memcpy(kernel_va, src->mm.user_pages[i].virt_addr, PAGE_SIZE);
+	}
+	return 0;
+}
+\end{ccode}
+
+它遍历 \code{user\_pages} 数组，其中是当前进程分配的所有页。注意，\code{user\_pages} 中只保存进程真正能使用的、存放其代码或数据的页；页表页不在其中，它们保存在 \code{kernel\_pages} 数组里。接着，对每一页，再分配一个空页，把原页的内容拷进去，并用原页所用的同一个虚拟地址映射新页。这样就得到了原进程地址空间的一份精确拷贝。
+
+\begin{remark}
+  译注：\code{memcpy} 的源地址直接用的是用户虚拟地址 \code{virt\_addr}。这能工作，是因为执行 \code{fork} 的正是 \code{current}，\reg{TTBR0\_EL1} 中装的就是它的页表，所以在内核中也能通过用户低地址读到父进程的页。xv6 的 \code{uvmcopy()} 则通过 \code{P2V(pa)} 走内核直接映射去读，不依赖当前 \reg{TTBR0}。
+\end{remark}
+
+\code{fork} 过程的其他所有细节，与上一课完全相同。
+
+\subsection{按需分配新页}
+
+回过头去看 \code{move\_to\_user\_mode}，你可能会注意到，我们只映射了从偏移 0 开始的一个页，却假定第二页会被用作栈。为什么不把第二页也映射上？如果你认为这是个 bug——不，这是个特性！栈页，以及进程需要访问的任何其他页，都会在第一次被访问时才映射。下面就来探究这个机制的内部工作。
+
+当进程试图访问属于尚未映射的页的地址时，会产生同步异常。这是我们要支持的第二种同步异常（第一种是 \code{svc} 指令产生的异常，即系统调用）。同步异常处理程序现在是这样的：
+
+\begin{asmcode}
+el0_sync:
+	kernel_entry 0
+	mrs	x25, esr_el1				// read the syndrome register
+	lsr	x24, x25, #ESR_ELx_EC_SHIFT		// exception class
+	cmp	x24, #ESR_ELx_EC_SVC64			// SVC in 64-bit state
+	b.eq	el0_svc
+	cmp	x24, #ESR_ELx_EC_DABT_LOW		// data abort in EL0
+	b.eq	el0_da
+	handle_invalid_entry 0, SYNC_ERROR
+\end{asmcode}
+
+这里用 \reg{ESR\_EL1} 判断异常类型。如果是页错误异常（也就是数据访问异常，\code{ESR\_ELx\_EC\_DABT\_LOW} = \code{0x24}），就调用 \code{el0\_da}：
+
+\begin{asmcode}
+el0_da:
+	bl	enable_irq
+	mrs	x0, far_el1
+	mrs	x1, esr_el1
+	bl	do_mem_abort
+	cmp x0, 0
+	b.eq 1f
+	handle_invalid_entry 0, DATA_ABORT_ERROR
+1:
+	bl disable_irq
+	kernel_exit 0
+\end{asmcode}
+
+\code{el0\_da} 把主要工作交给 \code{do\_mem\_abort}，它接受两个参数：
+
+\begin{enumerate}
+  \item 我们试图访问的内存地址，取自 \reg{FAR\_EL1}（故障地址寄存器）；
+  \item \reg{ESR\_EL1}（异常综合征寄存器）的内容。
+\end{enumerate}
+
+\code{do\_mem\_abort} 如下：
+
+\begin{ccode}
+static int ind = 1;
+
+int do_mem_abort(unsigned long addr, unsigned long esr) {
+	unsigned long dfs = (esr & 0b111111);
+	if ((dfs & 0b111100) == 0b100) {
+		unsigned long page = get_free_page();
+		if (page == 0) {
+			return -1;
+		}
+		map_page(current, addr & PAGE_MASK, page);
+		ind++;
+		if (ind > 2){
+			return -1;
+		}
+		return 0;
+	}
+	return -1;
+}
+\end{ccode}
+
+要理解这个函数，需要了解一点 \reg{ESR\_EL1} 寄存器的细节。这个寄存器的第 26～31 位叫“异常类别”（Exception Class）。我们在 \code{el0\_sync} 处理程序中检查这些位，以判断异常是系统调用、数据中止还是别的什么。异常类别决定了第 0～24 位的含义——这些位通常用来提供关于异常的附加信息。数据中止异常时 0～24 位的含义见 ARM 架构参考手册。一般来说，数据中止可能在许多不同的情形下发生（权限错误、地址大小错误，以及其他很多情况）。我们只关心转换错误（translation fault），它发生在当前虚拟地址的某些页表尚未初始化的时候。
+
+所以在 \code{do\_mem\_abort} 的前两行，我们检查当前异常是否确实是转换错误。如果是，就分配一个新页，并把它映射到所请求的虚拟地址。这一切对用户程序完全透明——它察觉不到有些内存访问被打断了，也察觉不到期间分配了新的页表。
+
+\begin{remark}
+  译注：原文把异常类别写成第 26～32 位，实为第 26～31 位（6 位）。DFSC（第 0～5 位）为 \code{0b0001xx} 时表示第 0～3 级的转换错误，\code{(dfs \& 0b111100) == 0b100} 检查的就是这一点。源码中的静态计数器 \code{ind} 限制最多只按需映射两页，第三次缺页就当作错误处理——这是演示代码的一个保护措施，原文没有提及。
+\end{remark}
+
+\subsection{小结}
+
+这一课又长又难，但我希望它也同样有用。虚拟内存确实是任何操作系统最基础的部分之一，很高兴我们完成了这一课，也希望你已经开始在最底层理解它是如何工作的。引入虚拟内存之后，我们终于有了完整的进程隔离，但 RPi OS 离完成还很远：它还不支持文件系统、驱动程序、信号和中断等待队列、网络以及其他许多有用的概念。
+
+\begin{remark}
+  原教程到此为止。这些“尚不支持”的内容——文件系统、驱动、等待队列、网络——正是本书第 4～8 章在 xv6-aarch64 上逐一实现的东西。
+\end{remark}

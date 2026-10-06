@@ -1,0 +1,593 @@
+% 3.2 raspberry-pi-os 第 1 课（docs/lesson01/rpi-os.md 的中文译本）
+\section{第 1 课：内核初始化——裸机 “Hello, World!”}
+\label{sec:rpios-l1}
+
+\begin{note}
+  3.2～3.7 节译自 Sergey Matyukevich 的开源教程 \emph{raspberry-pi-os}（\url{https://github.com/s-matyukevich/raspberry-pi-os}，提交 \code{31fc148}）中 \code{docs/lesson01}～\code{lesson06} 的 \code{rpi-os.md}，代码取自同一仓库的 \code{src/lesson01}～\code{src/lesson06}。译文按源码逐一校对；原文与源码不一致之处，以源码为准并用“译注”标出。原教程以 MIT 许可发布，按其要求附上版权与许可声明：
+
+  \smallskip
+  {\footnotesize\ttfamily\raggedright
+  Copyright (c) 2018 Sergey Matyukevich\par
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\par
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\par}
+\end{note}
+
+我们从编写一个小小的裸机 “Hello, World” 程序开始操作系统开发之旅。这里假定你已经准备好了开发环境：交叉编译器 \code{aarch64-linux-gnu-gcc}、一块树莓派 3、一张 SD 卡，以及一根 USB 转 TTL 串口线。
+
+教程中有大量源码示例。讲解时通常先给出完整的代码块，再逐行说明。
+
+\subsection{项目结构}
+
+每一课的源码结构都相同（本课见 \code{src/lesson01}）：
+
+\begin{enumerate}
+  \item \textbf{Makefile}：用 \code{make} 构建内核。\code{make} 的行为由 Makefile 配置，其中写明了如何编译和链接源码；
+  \item \textbf{build.sh / build.bat}：用 Docker 构建内核时使用，这样宿主机上不必安装 \code{make} 和交叉工具链；
+  \item \textbf{src}：全部源代码；
+  \item \textbf{include}：全部头文件。
+\end{enumerate}
+
+\subsection{Makefile}
+
+\code{make} 的主要作用是自动判断程序的哪些部分需要重新编译，并发出重新编译的命令。第一课的 Makefile 全文如下：
+
+\begin{makecode}
+ARMGNU ?= aarch64-linux-gnu
+
+COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
+ASMOPS = -Iinclude
+
+BUILD_DIR = build
+SRC_DIR = src
+
+all : kernel8.img
+
+clean :
+	rm -rf $(BUILD_DIR) *.img
+
+$(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+	mkdir -p $(@D)
+	$(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
+
+$(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+	$(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
+
+C_FILES = $(wildcard $(SRC_DIR)/*.c)
+ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
+
+DEP_FILES = $(OBJ_FILES:%.o=%.d)
+-include $(DEP_FILES)
+
+kernel8.img: $(SRC_DIR)/linker.ld $(OBJ_FILES)
+	$(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o $(BUILD_DIR)/kernel8.elf  $(OBJ_FILES)
+	$(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
+\end{makecode}
+
+下面逐段说明。
+
+\begin{makecode}
+ARMGNU ?= aarch64-linux-gnu
+\end{makecode}
+
+Makefile 以一个变量定义开头。\code{ARMGNU} 是交叉编译器前缀：我们在 x86 机器上为 arm64 架构编译代码，所以必须使用交叉编译器，即用 \code{aarch64-linux-gnu-gcc} 代替 \code{gcc}。
+
+\begin{makecode}
+COPS = -Wall -nostdlib -nostartfiles -ffreestanding -Iinclude -mgeneral-regs-only
+ASMOPS = -Iinclude
+\end{makecode}
+
+\code{COPS} 和 \code{ASMOPS} 分别是编译 C 代码和汇编代码时传给编译器的选项：
+
+\begin{itemize}
+  \item \code{-Wall}：显示所有警告；
+  \item \code{-nostdlib}：不使用 C 标准库。标准库中的大多数调用最终都要与操作系统交互，而我们写的是裸机程序，下面没有任何操作系统，所以标准库本来就无法工作；
+  \item \code{-nostartfiles}：不使用标准启动文件。启动文件负责设置初始栈指针、初始化静态数据、跳转到入口点 \code{main}。这些事我们都要自己做；
+  \item \code{-ffreestanding}：独立（freestanding）环境是指标准库可能不存在、程序也不一定从 \code{main} 开始的环境。这个选项告诉编译器不要假设标准函数具有通常的定义；
+  \item \code{-Iinclude}：在 \code{include} 目录中查找头文件；
+  \item \code{-mgeneral-regs-only}：只使用通用寄存器。ARM 处理器还有 NEON 寄存器，我们不希望编译器用它们，因为那会增加复杂度（例如上下文切换时必须保存这些寄存器）。
+\end{itemize}
+
+\begin{makecode}
+BUILD_DIR = build
+SRC_DIR = src
+\end{makecode}
+
+\code{SRC\_DIR} 和 \code{BUILD\_DIR} 分别是存放源码和编译出的目标文件的目录。
+
+\begin{makecode}
+all : kernel8.img
+
+clean :
+	rm -rf $(BUILD_DIR) *.img
+\end{makecode}
+
+接下来定义 make 目标。前两个很简单：\code{all} 是默认目标，不带参数执行 \code{make} 时就会执行它（\code{make} 总是把第一个目标当作默认目标），它只是把工作转给另一个目标 \code{kernel8.img}；\code{clean} 删除所有编译产物和编译出的内核镜像。
+
+\begin{makecode}
+$(BUILD_DIR)/%_c.o: $(SRC_DIR)/%.c
+	mkdir -p $(@D)
+	$(ARMGNU)-gcc $(COPS) -MMD -c $< -o $@
+
+$(BUILD_DIR)/%_s.o: $(SRC_DIR)/%.S
+	$(ARMGNU)-gcc $(ASMOPS) -MMD -c $< -o $@
+\end{makecode}
+
+这两个目标负责编译 C 文件和汇编文件。例如 \code{src} 目录中有 \code{foo.c} 和 \code{foo.S}，它们会分别编译成 \code{build/foo\_c.o} 和 \code{build/foo\_s.o}。\code{\$<} 和 \code{\$@} 在运行时分别替换为输入和输出文件名。编译 C 文件之前，还会先创建 \code{build} 目录（以防它不存在）。
+
+\begin{makecode}
+C_FILES = $(wildcard $(SRC_DIR)/*.c)
+ASM_FILES = $(wildcard $(SRC_DIR)/*.S)
+OBJ_FILES = $(C_FILES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%_c.o)
+OBJ_FILES += $(ASM_FILES:$(SRC_DIR)/%.S=$(BUILD_DIR)/%_s.o)
+\end{makecode}
+
+这里用“替换引用”（substitution reference）构造出由全部 C 源文件和汇编源文件生成的目标文件数组 \code{OBJ\_FILES}。
+
+\begin{makecode}
+DEP_FILES = $(OBJ_FILES:%.o=%.d)
+-include $(DEP_FILES)
+\end{makecode}
+
+这两行稍微绕一点。前面的编译规则中都用了 \code{-MMD} 参数，它让 \code{gcc} 为每个目标文件生成一个依赖文件，其中列出了对应源文件的所有依赖——通常就是它包含的全部头文件。把这些依赖文件都包含进来，\code{make} 就知道某个头文件改变时究竟要重新编译哪些文件。
+
+\begin{makecode}
+$(ARMGNU)-ld -T $(SRC_DIR)/linker.ld -o $(BUILD_DIR)/kernel8.elf  $(OBJ_FILES)
+\end{makecode}
+
+用 \code{OBJ\_FILES} 链接出 \code{kernel8.elf}。链接脚本 \code{src/linker.ld} 定义了可执行镜像的基本布局（下一小节讨论）。
+
+\begin{makecode}
+$(ARMGNU)-objcopy $(BUILD_DIR)/kernel8.elf -O binary kernel8.img
+\end{makecode}
+
+\code{kernel8.elf} 是 ELF 格式。问题在于 ELF 文件是设计给操作系统去执行的；写裸机程序时，需要把 ELF 中所有可执行段和数据段提取出来，放进 \code{kernel8.img} 镜像。文件名末尾的 \code{8} 表示 ARMv8，即 64 位架构，固件看到这个文件名就会让处理器以 64 位模式启动。也可以在 \code{config.txt} 中写 \code{arm\_control=0x200} 达到同样效果（RPi OS 早期用过这种方法，部分习题答案中仍能见到），但这个参数没有文档，最好还是采用 \code{kernel8.img} 的命名约定。
+
+\subsection{链接脚本}
+
+链接脚本的主要作用是描述输入目标文件（\code{\_c.o} 和 \code{\_s.o}）中的各个段如何映射到输出文件（\code{.elf}）。RPi OS 的链接脚本如下：
+
+\begin{txtcode}
+SECTIONS
+{
+	.text.boot : { *(.text.boot) }
+	.text : { *(.text) }
+	.rodata : { *(.rodata) }
+	.data : { *(.data) }
+	. = ALIGN(0x8);
+	bss_begin = .;
+	.bss : { *(.bss*) }
+	bss_end = .;
+}
+\end{txtcode}
+
+树莓派启动后把 \code{kernel8.img} 装入内存，并从文件开头开始执行。所以 \code{.text.boot} 段必须排在最前面，操作系统的启动代码就放在这个段里。\code{.text}、\code{.rodata} 和 \code{.data} 分别存放编译出的指令、只读数据和普通数据，没什么特别之处。
+
+\code{.bss} 段存放应当初始化为 0 的数据。把这类数据放在单独的段里，ELF 文件就可以省下空间——ELF 头中只记录这个段的大小，段的内容本身被省略。镜像装入内存后，我们必须自己把 \code{.bss} 清零，所以要记下段的起止位置（即 \code{bss\_begin} 和 \code{bss\_end} 两个符号），并让段的起始地址按 8 字节对齐。如果不对齐，就不方便用 \code{str} 指令一次写入 8 字节 0 来清零了。
+
+\begin{remark}
+  译注：AArch64 的 \code{str} 本身允许非对齐访问到普通内存，但此时 MMU 关闭，所有数据访问都被当作 Device 内存处理，非对齐访问会触发对齐异常，所以这里的 8 字节对齐确实是必要的。
+\end{remark}
+
+\subsection{启动内核}
+
+再来看 \code{boot.S}，其中是内核的启动代码：
+
+\begin{asmcode}
+#include "mm.h"
+
+.section ".text.boot"
+
+.globl _start
+_start:
+	mrs	x0, mpidr_el1
+	and	x0, x0,#0xFF		// Check processor id
+	cbz	x0, master		// Hang for all non-primary CPU
+	b	proc_hang
+
+proc_hang:
+	b 	proc_hang
+
+master:
+	adr	x0, bss_begin
+	adr	x1, bss_end
+	sub	x1, x1, x0
+	bl 	memzero
+
+	mov	sp, #LOW_MEMORY
+	bl	kernel_main
+	b 	proc_hang		// should never come here
+\end{asmcode}
+
+逐段来看。
+
+\begin{asmcode}
+.section ".text.boot"
+\end{asmcode}
+
+首先声明 \code{boot.S} 中定义的一切都放进 \code{.text.boot} 段。前面看到，链接脚本把这个段放在内核镜像的最开头，所以内核启动时从 \code{\_start} 函数开始执行：
+
+\begin{asmcode}
+.globl _start
+_start:
+	mrs	x0, mpidr_el1
+	and	x0, x0,#0xFF		// Check processor id
+	cbz	x0, master		// Hang for all non-primary CPU
+	b	proc_hang
+\end{asmcode}
+
+这个函数做的第一件事是检查处理器编号。树莓派 3 有四个核，上电后每个核都开始执行同一段代码。但我们不想同时操作四个核，只想用第一个核，把其他核都放进死循环——这正是 \code{\_start} 的职责。它从系统寄存器 \reg{MPIDR\_EL1} 中取得处理器编号，如果是 0，就转到 \code{master}：
+
+\begin{asmcode}
+master:
+	adr	x0, bss_begin
+	adr	x1, bss_end
+	sub	x1, x1, x0
+	bl 	memzero
+\end{asmcode}
+
+这里调用 \code{memzero} 把 \code{.bss} 段清零（\code{memzero} 定义在 \code{mm.S} 中，后面会看到）。按照 ARMv8 的调用约定，函数的前几个参数通过寄存器 \code{x0}、\code{x1}……传递。\code{memzero} 只接受两个参数：起始地址（\code{bss\_begin}）和要清零的长度（\code{bss\_end - bss\_begin}）。
+
+\begin{asmcode}
+	mov	sp, #LOW_MEMORY
+	bl	kernel_main
+\end{asmcode}
+
+清零 \code{.bss} 之后，设置栈指针，然后把控制权交给 \code{kernel\_main}。树莓派把内核装载在地址 0（见后面的 \code{config.txt}），所以初始栈指针可以设在任何足够高的位置，只要栈增长时不会覆盖内核镜像就行。\code{LOW\_MEMORY} 定义在 \code{mm.h} 中：
+
+\begin{ccode}
+#define PAGE_SHIFT      12
+#define TABLE_SHIFT     9
+#define SECTION_SHIFT   (PAGE_SHIFT + TABLE_SHIFT)
+#define PAGE_SIZE       (1 << PAGE_SHIFT)
+#define SECTION_SIZE    (1 << SECTION_SHIFT)
+#define LOW_MEMORY      (2 * SECTION_SIZE)       // 2 × 2 MB = 4 MB
+\end{ccode}
+
+即 4\,MB。我们的内核栈不会长得很大，镜像本身也很小，4\,MB 绰绰有余。\code{kernel\_main} 正常不会返回；万一返回，最后一条 \code{b proc\_hang} 让处理器停在死循环里。
+
+如果你不熟悉 ARM 汇编，下面简单总结一下用到的指令：
+
+\begin{itemize}
+  \item \code{mrs}：把系统寄存器的值读到某个通用寄存器（\code{x0}～\code{x30}）中；
+  \item \code{and}：按位与。这里用它保留 \reg{MPIDR\_EL1} 值的最低一个字节；
+  \item \code{cbz}：如果寄存器的值为 0，就跳转（ARM 术语叫“分支”）到给定的标号；
+  \item \code{b}：无条件跳转到某个标号；
+  \item \code{adr}：把某个标号相对于 PC 的地址装入目标寄存器。这里用它得到 \code{.bss} 起止位置的指针；
+  \item \code{sub}：两个寄存器相减；
+  \item \code{bl}：“带链接的跳转”：无条件跳转，同时把返回地址存入 \code{x30}（链接寄存器）。子程序结束时用 \code{ret} 跳回这个地址；
+  \item \code{mov}：在寄存器之间传送数值，或把常数装入寄存器。
+\end{itemize}
+
+ARM 官方的《ARMv8-A Programmer's Guide》是熟悉 ARM 指令集的好资料，其中专门有一节说明 ABI 中各寄存器的用途约定。
+
+\subsection{\code{kernel\_main} 函数}
+
+启动代码最终把控制权交给 \code{kernel\_main}：
+
+\begin{ccode}
+#include "mini_uart.h"
+
+void kernel_main(void)
+{
+	uart_init();
+	uart_send_string("Hello, world!\r\n");
+
+	while (1) {
+		uart_send(uart_recv());
+	}
+}
+\end{ccode}
+
+这是内核里最简单的函数之一。它通过 Mini UART 设备向屏幕输出并读取用户输入：先打印 \code{Hello, world!}，然后进入死循环，把从用户那里读到的字符原样送回屏幕。
+
+\subsection{树莓派的设备}
+
+接下来要接触一些树莓派特有的东西。开始之前，建议先下载《BCM2837 ARM Peripherals》手册\cite{bcm2835}。BCM2837 是树莓派 3 Model B 和 B+ 使用的芯片；讨论中有时也会提到 BCM2835 和 BCM2836，它们是更早的树莓派所用芯片的名字。
+
+在进入实现细节之前，先讲讲如何操作内存映射的设备。BCM2837 是一颗简单的 SoC（片上系统），访问所有设备都通过内存映射的寄存器进行。树莓派 3 把 \code{0x3F000000} 以上的内存地址留给设备。要激活或配置某个设备，就向它的某个寄存器写入数据。设备寄存器不过是一块 32 位的内存区域，每一位的含义都在手册中有说明。至于为什么我们用 \code{0x3F000000} 作为基址（而手册中通篇用的是 \code{0x7E000000}），请参阅手册 1.2.3 节“ARM physical addresses”及其上下文——简单说，\code{0x7E} 开头的是 VideoCore 总线地址，ARM 一侧看到的物理地址是 \code{0x3F} 开头的（另见第~\ref{chap:mmu} 章）。
+
+从 \code{kernel\_main} 不难猜出，我们要操作的是 Mini UART。UART 是“通用异步收发器”（Universal Asynchronous Receiver-Transmitter）的缩写，它能把写进某个内存映射寄存器的值转换成一串高低电平，通过 TTL 转串口线传给你的电脑，再由终端仿真程序解释出来。我们就用 Mini UART 与树莓派通信。Mini UART 寄存器的说明在手册第 8 页。
+
+树莓派有两个 UART：Mini UART 和 PL011 UART。本教程只用前者，因为它更简单（原教程有一道可选习题演示如何使用 PL011）。两者的区别可以参考树莓派官方文档中关于 UART 的说明。
+
+另一个需要熟悉的设备是 GPIO（通用输入输出），它控制着板子上那排 GPIO 引脚。通过 GPIO 可以配置各个引脚的行为。例如，要使用 Mini UART，就必须激活 14 号和 15 号引脚，并把它们设置成由 Mini UART 使用。注意 GPIO 编号与 40 针排针的物理针脚号不是一回事：GPIO14 是排针第 8 脚，GPIO15 是第 10 脚，第 6 脚是地。
+
+\subsection{初始化 Mini UART}
+
+Mini UART 的初始化在 \code{mini\_uart.c} 中：
+
+\begin{ccode}
+void uart_init ( void )
+{
+	unsigned int selector;
+
+	selector = get32(GPFSEL1);
+	selector &= ~(7<<12);                   // clean gpio14
+	selector |= 2<<12;                      // set alt5 for gpio14
+	selector &= ~(7<<15);                   // clean gpio15
+	selector |= 2<<15;                      // set alt5 for gpio 15
+	put32(GPFSEL1,selector);
+
+	put32(GPPUD,0);
+	delay(150);
+	put32(GPPUDCLK0,(1<<14)|(1<<15));
+	delay(150);
+	put32(GPPUDCLK0,0);
+
+	put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
+	put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
+	put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
+	put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
+	put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
+	put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
+
+	put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
+}
+\end{ccode}
+
+这里用到了 \code{put32} 和 \code{get32} 两个函数，它们非常简单，就是读写一个 32 位寄存器。它们和 \code{delay} 一起实现在 \code{utils.S} 中：
+
+\begin{asmcode}
+.globl put32
+put32:
+	str w1,[x0]
+	ret
+
+.globl get32
+get32:
+	ldr w0,[x0]
+	ret
+
+.globl delay
+delay:
+	subs x0, x0, #1
+	bne delay
+	ret
+\end{asmcode}
+
+寄存器地址定义在 \code{include/peripherals/} 下的头文件中，都是 \code{PBASE}（\code{0x3F000000}）加上偏移：
+
+\begin{ccode}
+#define GPFSEL1         (PBASE+0x00200004)
+#define GPPUD           (PBASE+0x00200094)
+#define GPPUDCLK0       (PBASE+0x00200098)
+
+#define AUX_ENABLES     (PBASE+0x00215004)
+#define AUX_MU_IO_REG   (PBASE+0x00215040)
+#define AUX_MU_IER_REG  (PBASE+0x00215044)
+#define AUX_MU_LCR_REG  (PBASE+0x0021504C)
+#define AUX_MU_MCR_REG  (PBASE+0x00215050)
+#define AUX_MU_LSR_REG  (PBASE+0x00215054)
+#define AUX_MU_CNTL_REG (PBASE+0x00215060)
+#define AUX_MU_BAUD_REG (PBASE+0x00215068)
+\end{ccode}
+
+\code{uart\_init} 是本课最复杂、也最重要的函数，下面分三部分来看。
+
+\subsubsection{GPIO 复用功能选择}
+
+首先要激活 GPIO 引脚。大多数引脚可以连接不同的设备，所以使用某个引脚之前，要先选择它的“复用功能”（alternative function）。复用功能就是可以为每个引脚设置的一个 0～5 的编号，决定了哪个设备连接到这个引脚上。手册第 102 页的表格列出了所有引脚的复用功能，其中与本课有关的是：
+
+\begin{center}
+  \small
+  \begin{tabular}{@{}lcccccc@{}}
+    \toprule
+    引脚 & ALT0 & ALT1 & ALT2 & ALT3 & ALT4 & ALT5 \\
+    \midrule
+    GPIO14 & TXD0 & SD6 & — & — & — & \textbf{TXD1} \\
+    GPIO15 & RXD0 & SD7 & — & — & — & \textbf{RXD1} \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+可以看到，14、15 号引脚的复用功能中有 TXD1 和 RXD1。也就是说，如果给这两个引脚选择 5 号复用功能，它们就分别成为 Mini UART 的发送数据脚和接收数据脚。
+
+\code{GPFSEL1} 寄存器控制 10～19 号引脚的复用功能。每个引脚占 3 位（手册第 92 页）：
+
+\begin{center}
+  \small
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    位 & 字段 & 取值 \\
+    \midrule
+    29:27 & FSEL19 & \code{000} 输入，\code{001} 输出 \\
+    \ldots & \ldots & \code{100} ALT0，\code{101} ALT1 \\
+    17:15 & FSEL15 & \code{110} ALT2，\code{111} ALT3 \\
+    14:12 & FSEL14 & \code{011} ALT4，\code{010} ALT5 \\
+    \ldots & \ldots & \\
+    2:0 & FSEL10 & \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+有了这些知识，就能看懂下面这几行把 GPIO14、15 配置给 Mini UART 的代码了——先清掉 14:12 和 17:15 两个字段，再分别写入 \code{010}（ALT5）：
+
+\begin{ccode}
+	selector = get32(GPFSEL1);
+	selector &= ~(7<<12);                   // clean gpio14
+	selector |= 2<<12;                      // set alt5 for gpio14
+	selector &= ~(7<<15);                   // clean gpio15
+	selector |= 2<<15;                      // set alt5 for gpio 15
+	put32(GPFSEL1,selector);
+\end{ccode}
+
+\subsubsection{GPIO 上拉与下拉}
+
+使用 GPIO 引脚时，经常会遇到上拉（pull-up）和下拉（pull-down）这两个概念。简单地说：如果把一个引脚当作输入，而它上面什么也没接，你就无法确定它的值是 1 还是 0，设备会报告随机的值。上拉/下拉机制可以解决这个问题：把引脚设为上拉状态，它在悬空时始终读到 1；设为下拉状态则始终读到 0。在我们的场景里，两种状态都不需要，因为 14、15 号引脚一直接着线。引脚的上下拉状态在重启后依然保持，所以使用任何引脚之前都应该先初始化它的状态。可选的状态有三种：上拉、下拉和“都不要”（即撤销当前的上拉或下拉），我们需要的是第三种。
+
+切换引脚状态不是一件简单的事，因为它需要在物理上拨动电路中的一个开关。这个过程要用到 \code{GPPUD} 和 \code{GPPUDCLK} 寄存器，手册第 101 页是这样描述的：
+
+\begin{quote}
+  GPIO 上拉/下拉时钟寄存器控制相应 GPIO 引脚内部上下拉电阻的动作。这些寄存器必须与 GPPUD 寄存器配合使用才能改变上下拉状态，需要按以下顺序操作：
+  \begin{enumerate}
+    \item 写 GPPUD，设置所需的控制信号（上拉、下拉，或两者都不要以撤销当前的上下拉）；
+    \item 等待 150 个周期——为控制信号提供所需的建立时间；
+    \item 写 GPPUDCLK0/1，把控制信号打入希望修改的 GPIO 焊盘——注意只有收到时钟的焊盘才会被修改，其余焊盘保持原状态；
+    \item 等待 150 个周期——为控制信号提供所需的保持时间；
+    \item 写 GPPUD，撤除控制信号；
+    \item 写 GPPUDCLK0/1，撤除时钟。
+  \end{enumerate}
+\end{quote}
+
+这个流程说明了怎样撤销一个引脚的上拉和下拉，下面的代码正是对 14、15 号引脚这样做的：
+
+\begin{ccode}
+	put32(GPPUD,0);
+	delay(150);
+	put32(GPPUDCLK0,(1<<14)|(1<<15));
+	delay(150);
+	put32(GPPUDCLK0,0);
+\end{ccode}
+
+\subsubsection{初始化 Mini UART 本身}
+
+现在 Mini UART 已经连到了 GPIO 引脚上，引脚也配置好了。\code{uart\_init} 余下的部分用于初始化 Mini UART 本身：
+
+\begin{ccode}
+	put32(AUX_ENABLES,1);       // 使能 Mini UART（同时允许访问它的其他寄存器）
+\end{ccode}
+
+这一行使能 Mini UART。它必须最先做，因为它同时打开了对 Mini UART 其他所有寄存器的访问。
+
+\begin{ccode}
+	put32(AUX_MU_CNTL_REG,0);   // 关闭自动流控，暂时关闭接收器和发送器
+\end{ccode}
+
+在配置完成之前先关闭接收器和发送器。同时永久关闭自动流控，因为它需要用到额外的 GPIO 引脚，而 TTL 转串口线并不支持。
+
+\begin{ccode}
+	put32(AUX_MU_IER_REG,0);    // 关闭接收和发送中断
+\end{ccode}
+
+Mini UART 可以配置成每当有新数据时就产生一个处理器中断。中断要到第 3 课才开始使用，所以现在先关掉这个功能。
+
+\begin{ccode}
+	put32(AUX_MU_LCR_REG,3);    // 8 位模式
+\end{ccode}
+
+Mini UART 支持 7 位或 8 位数据，因为标准 ASCII 字符是 7 位，扩展字符集是 8 位。我们使用 8 位模式。
+
+\begin{remark}
+  译注：BCM2835 手册中 \code{AUX\_MU\_LCR\_REG} 只写明了 bit 0，把它写成 1 理应得到 8 位模式；但实际硬件需要 bit 0 和 bit 1 同时为 1（即值 3）才是 8 位，这是手册的一个已知勘误。
+\end{remark}
+
+\begin{ccode}
+	put32(AUX_MU_MCR_REG,0);    // RTS 线始终为高
+\end{ccode}
+
+RTS 线用于流控，我们用不到，让它一直保持高电平。
+
+\begin{ccode}
+	put32(AUX_MU_BAUD_REG,270); // 波特率 115200
+\end{ccode}
+
+波特率是通信信道中传输信息的速率。“115200 波特”表示串口每秒最多能传输 115200 位。树莓派 Mini UART 的波特率必须和终端仿真程序中设置的波特率一致。Mini UART 按下面的公式计算波特率：
+
+\[
+  \text{baudrate} = \frac{\text{system\_clock\_freq}}{8 \times (\text{baudrate\_reg} + 1)}
+\]
+
+\code{system\_clock\_freq} 为 250\,MHz，很容易算出 \code{baudrate\_reg} 应为 270。
+
+\begin{ccode}
+	put32(AUX_MU_CNTL_REG,3);   // 最后，打开发送器和接收器
+\end{ccode}
+
+这一行执行完，Mini UART 就可以工作了！
+
+\subsection{用 Mini UART 收发数据}
+
+Mini UART 准备好之后，就可以用它收发数据了。为此有下面两个函数：
+
+\begin{ccode}
+void uart_send ( char c )
+{
+	while(1) {
+		if(get32(AUX_MU_LSR_REG)&0x20)
+			break;
+	}
+	put32(AUX_MU_IO_REG,c);
+}
+
+char uart_recv ( void )
+{
+	while(1) {
+		if(get32(AUX_MU_LSR_REG)&0x01)
+			break;
+	}
+	return(get32(AUX_MU_IO_REG)&0xFF);
+}
+\end{ccode}
+
+两个函数都以一个无限循环开头，作用是检查设备是否已经准备好发送或接收数据。这要用到 \code{AUX\_MU\_LSR\_REG} 寄存器：第 0 位为 1 表示数据已就绪，可以从 UART 读取；第 5 位为 1 表示发送器空闲，可以向 UART 写入。随后用 \code{AUX\_MU\_IO\_REG} 写入要发送的字符，或读出收到的字符。
+
+还有一个很简单的函数，可以发送字符串而不只是单个字符：
+
+\begin{ccode}
+void uart_send_string(char* str)
+{
+	for (int i = 0; str[i] != '\0'; i ++) {
+		uart_send((char)str[i]);
+	}
+}
+\end{ccode}
+
+它只是逐个遍历字符串中的字符，一个一个地发送。
+
+\subsection{树莓派的配置}
+
+树莓派的启动过程（简化后）如下：
+
+\begin{enumerate}
+  \item 设备上电；
+  \item GPU 启动，从启动分区读取 \code{config.txt}。这个文件包含一些配置参数，GPU 用它们进一步调整启动过程；
+  \item \code{kernel8.img} 被装入内存并执行。
+\end{enumerate}
+
+要运行我们这个简单的操作系统，\code{config.txt} 应该是：
+
+\begin{txtcode}
+kernel_old=1
+disable_commandline_tags=1
+\end{txtcode}
+
+\begin{itemize}
+  \item \code{kernel\_old=1}：把内核镜像装载到地址 0；
+  \item \code{disable\_commandline\_tags}：GPU 不向被启动的镜像传递任何命令行参数。
+\end{itemize}
+
+\begin{remark}
+  译注：\code{kernel\_old=1} 还意味着固件不安装自己的 armstub，四个核都直接从地址 0 开始执行内核代码，并且停留在 EL3——这正是 \code{\_start} 要用 \reg{MPIDR\_EL1} 把副核挂起、第 2 课会读到 “Exception level: 3” 的原因。本项目（3.1 节）没有使用 \code{kernel\_old}，内核装载在 \code{0x80000}，由固件的 armstub 把副核停在 spin-table 上，并在 EL2 进入内核。
+\end{remark}
+
+\subsection{测试内核}
+
+源码已经全部看完，现在来看看它运行的效果。构建并测试内核需要以下步骤：
+
+\begin{enumerate}
+  \item 在 \code{src/lesson01} 中执行 \code{./build.sh} 或 \code{./build.bat} 构建内核（或直接 \code{make}）；
+  \item 把生成的 \code{kernel8.img} 拷到 SD 卡的 \code{boot} 分区，并删除 \code{kernel7.img} 以及卡上可能存在的其他 \code{kernel*.img} 文件。启动分区中的其他文件保持不动；
+  \item 按上一小节修改 \code{config.txt}；
+  \item 连接 USB 转 TTL 串口线；
+  \item 给树莓派上电；
+  \item 打开终端仿真程序，应当能看到 \code{Hello, world!}。
+\end{enumerate}
+
+以上步骤假定 SD 卡上已经装好了 Raspbian。也可以用一张空白 SD 卡运行 RPi OS：
+
+\begin{enumerate}
+  \item 准备 SD 卡：使用 MBR 分区表，启动分区格式化为 FAT32（与安装 Raspbian 时的要求完全相同）；
+  \item 把以下文件拷到卡上：
+  \begin{itemize}
+    \item \code{bootcode.bin}：GPU 引导程序，其中包含启动 GPU 并加载 GPU 固件的代码；
+    \item \code{start.elf}：GPU 固件，它读取 \code{config.txt}，并让 GPU 从 \code{kernel8.img} 装载和运行 ARM 用户代码；
+  \end{itemize}
+  \item 拷入 \code{kernel8.img} 和 \code{config.txt}；
+  \item 连接 USB 转 TTL 串口线；
+  \item 给树莓派上电；
+  \item 用终端仿真程序连接 RPi OS。
+\end{enumerate}
+
+遗憾的是，树莓派的所有固件文件都是闭源且没有文档的。想了解更多关于树莓派启动过程的信息，只能参考一些非官方资料，例如 Raspberry Pi StackExchange 上关于启动过程的问答。

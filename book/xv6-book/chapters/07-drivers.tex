@@ -1,0 +1,1209 @@
+\chapter{驱动架构}
+\label{chap:drivers}
+
+\begin{introduction}[本章内容]
+  \item Linux 2.6 风格的总线/设备/驱动模型
+  \item 中断上半部与 workqueue 下半部
+  \item 控制台、Mini UART 与 TTY
+  \item USB 与 HID 键盘：描述符、枚举、split 事务、URB、真机排错
+  \item I2C（BSC）
+  \item 网络协议栈
+  \item SDIO 无线网卡 BCM43430/43455
+  \item USB 无线网卡 MT7601U
+  \item CSI-2 摄像头 OV5647
+\end{introduction}
+
+\section{设备模型}
+
+\subsection{为什么不再只用 \code{devsw[]}}
+
+原版 xv6 只有一张字符设备函数表：\code{inode.major} 直接索引 \code{devsw[major].read/write}。它够用来驱动一个控制台，但表达不了“硬件设备”“驱动程序”“总线”以及“二者何时绑定”。随着驱动从一个变成十几个，项目引入了 Linux 2.6 设备模型的最小子集（\file{kernel/device.h}）：
+
+\begin{ccode}
+struct bus_type {
+  char *name;
+  int  (*match)(struct device *dev, struct device_driver *drv);
+  int  (*probe)(struct device *dev);
+  void (*remove)(struct device *dev);
+};
+struct device_driver {
+  char *name;  struct bus_type *bus;
+  int  (*probe)(struct device *dev);
+  void (*remove)(struct device *dev);
+};
+struct device {
+  char *name;  int id;  struct device *parent;  struct bus_type *bus;
+  struct resource resource[DEVICE_RES_MAX];  int nresource;  // MMIO、IRQ
+  struct device_driver *driver;  void *driver_data;
+};
+struct file_operations {
+  int  (*read)(int user_dst, uint64 dst, int n);
+  int  (*write)(int user_src, uint64 src, int n);
+  int  (*open)(struct file *f);                 // 可选：每次 open 的私有状态
+  void (*release)(struct file *f);
+  int  (*fread)(struct file *f, int user_dst, uint64 dst, int n);
+};
+\end{ccode}
+
+设备和驱动可以按任意顺序注册：先注册的一方等着，后注册的一方触发总线扫描，\code{match()} 成功就调用驱动的 \code{probe()}。驱动在 \code{probe()} 中初始化硬件，然后用 \code{register\_chrdev(major, name, fops)} 注册字符设备，或者 \code{register\_netdev()} 注册网卡。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=6mm and 10mm]
+    \node[box] (dev) {\code{device\_register()}\\板级代码 / 枚举};
+    \node[hbox, right=of dev, minimum width=26mm] (bus) {\code{bus\_type}\\\code{match()}};
+    \node[box, right=of bus] (drv) {\code{driver\_register()}\\驱动模块};
+    \node[box, below=of bus] (probe) {\code{driver->probe(dev)}};
+    \node[box, below left=6mm and -6mm of probe] (chr) {\code{register\_chrdev()}\\\code{/dev/*}};
+    \node[box, below right=6mm and -6mm of probe] (net) {\code{register\_netdev()}\\\code{wlan0}};
+    \draw[arr] (dev) -- (bus); \draw[arr] (drv) -- (bus);
+    \draw[arr] (bus) -- (probe); \draw[arr] (probe) -- (chr); \draw[arr] (probe) -- (net);
+  \end{tikzpicture}
+  \caption{设备与驱动的绑定}
+  \label{fig:devmodel}
+\end{figure}
+
+项目中有三条总线：
+
+\begin{itemize}
+  \item \textbf{platform}：SoC 内固定的设备（Mini UART、SDHOST、Arasan、DWC2），无法枚举，由板级代码静态描述，按名字匹配；
+  \item \textbf{usb}：DWC2 枚举出的 USB 设备，按 VID/PID 或接口类别匹配；
+  \item \textbf{sdio}：Arasan 枚举出的 SDIO function，按 vendor/device/function 匹配。
+\end{itemize}
+
+字符设备的主设备号见表~\ref{tab:majors}。xv6 没有 devtmpfs/udev，设备节点由 \code{init} 用 \code{mknod} 创建；\code{cat /proc/devices} 可以看到全部总线、设备、资源和已绑定的驱动。
+
+\begin{table}[htbp]
+  \centering
+  \caption{字符设备主设备号}
+  \label{tab:majors}
+  \small
+  \begin{tabular}{@{}cll@{}}
+    \toprule
+    major & 名称 & 节点 \\
+    \midrule
+    1 & console & \code{/dev/console} \\
+    2 & tty（当前进程的控制终端） & \code{/dev/tty} \\
+    3 & ttyS0（Mini UART） & \code{/dev/ttyS0} \\
+    4 & input（evdev） & \code{/dev/input/event0} \\
+    5 & camera & \code{/dev/video0} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{上半部与下半部}
+
+中断处理程序运行时，本 CPU 的中断是关着的，而且它打断的可能是任何代码，所以不能睡眠、不能长时间运行。真正耗时的工作——解析 USB 报告、执行几十次 SDIO 命令、处理一个 TCP 段——要推迟到可以调度、可以睡眠的上下文中去做。项目实现了与 Linux 同名的 workqueue（\file{kernel/workqueue.h}）：
+
+\begin{ccode}
+struct work_struct {
+  void (*func)(struct work_struct *work);
+  struct work_struct *next;
+  int pending, running, rerun;
+  struct workqueue *wq;
+};
+int  queue_work(struct workqueue *wq, struct work_struct *work);
+int  queue_delayed_work(struct workqueue *wq, struct delayed_work *dw, uint64 delay);
+void cancel_work_sync(struct work_struct *work);
+\end{ccode}
+
+每个 workqueue 有自己的内核线程（\code{kworker}），在 \code{ps} 中可以看到。几条原则贯穿所有驱动：
+
+\begin{itemize}
+  \item 上半部只做三件事：确认中断来源、屏蔽或清除该中断、\code{queue\_work()}；
+  \item 每个设备使用\emph{私有}的 work 和 workqueue，慢设备（如 SDIO 的 CMD53）不会阻塞别的下半部；
+  \item 同一个 work 在执行期间再次被排队，只记一个 \code{rerun} 标志，不会无限堆积；
+  \item 移除设备时先 \code{cancel\_work\_sync()}，等正在运行的 work 返回后才释放设备内存。
+\end{itemize}
+
+定时器中断每 10\,ms 推进一次 delayed-work 时钟，TCP 重传、Wi-Fi 连接超时等都用 delayed work 实现，而不是在定时器中断里直接运行协议代码。网络接收还在 workqueue 之上实现了 NAPI 式的预算轮询：中断只调度一次，下半部每轮最多处理 16 个报文，没处理完就重新排队，处理完才重新打开中断。
+
+\section{控制台、UART 与 TTY}
+
+\subsection{Mini UART}
+
+Mini UART 驱动（\file{kernel/uart.c}）在 \code{probe()} 中完成与早期汇编相同的初始化，再打开接收中断：
+
+\begin{ccode}
+REGS_AUX->enables |= 1U;               // 使能 AUX 中的 Mini UART
+REGS_AUX->mu_control = 0;              // 暂停收发
+REGS_AUX->mu_ier = 0;
+REGS_AUX->mu_lcr = 3;                  // 8 位数据
+REGS_AUX->mu_iir = 0xc6;               // 清空 FIFO
+REGS_AUX->mu_baud_rate = 270;          // 115200 @ core_freq 250 MHz
+REGS_AUX->mu_ier = MU_IER_RX_ENABLE;   // 接收中断
+REGS_AUX->mu_control = 3;              // 打开收发
+\end{ccode}
+
+发送使用一个 32 字节的软件环形缓冲区：\code{uartputc()} 把字符放进缓冲区，缓冲区满时睡眠；\code{uartstart()} 在发送 FIFO 有空位时搬字符过去，并打开“发送空”中断；\code{uartintr()} 读空接收 FIFO、把字符交给 \code{consoleintr()}，再继续发送。缓冲区空了就关掉发送中断，否则会一直触发。内核 \code{printf} 在 panic 等场合使用同步的 \code{uartputc\_sync()}，不依赖中断。
+
+\subsection{控制台与行规程}
+
+\code{consoleintr()} 实现了最基本的行规程：回显、退格、整行缓冲、\code{Ctrl-D} 结束输入、\code{Ctrl-P} 打印进程表、\code{Ctrl-C} 向前台进程组发送 SIGINT。读进程在 \code{consoleread()} 里睡眠，直到收到一整行。
+
+\subsection{TTY 层}
+
+\code{/dev/console}、\code{/dev/ttyS0}、\code{/dev/tty} 共用 Mini UART 这一个硬件后端，但含义不同：
+
+\begin{itemize}
+  \item \code{/dev/console} 是系统控制台，内核日志直接写 UART，不经过文件系统；
+  \item \code{/dev/ttyS0} 是具体的串口终端，\code{init} 在上面启动 \code{login}；
+  \item \code{/dev/tty} 是“当前进程的控制终端”，按调用者的 \code{ctty} 动态转发：串口会话转到 \code{ttyS0}，SSH 会话转到对应的 PTY 从端。
+\end{itemize}
+
+\code{login} 调用 \code{tty\_attach()} 成为新会话和进程组的组长，并把 \code{ttyS0} 设为控制终端；之后 fork 出的 shell 和命令继承会话、进程组和控制终端。shell 运行外部命令时把它设为前台进程组，\code{Ctrl-C} 产生的 SIGINT 只发给这个组，所以能终止 \code{ping}、\code{tftp} 或整条管道，而不会杀掉 shell 和 \code{login}。
+
+一个由此暴露的问题是：旧版 \code{ps} 通过系统调用让内核 \code{printf} 直接打印进程表，结果在 SSH 会话里执行 \code{ps}，输出却出现在串口上。内核 \code{printf} 写的是系统控制台，不看调用者的 fd 1。现在 \code{sys\_ps()} 把快照格式化到用户缓冲区，由 \code{ps} 自己 \code{write(1, ...)}。
+
+\section{USB 与 HID 键盘}
+\label{sec:usb}
+
+USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚。
+
+\subsection{三层软件与硬件路径}
+
+USB 驱动分三层：
+
+\begin{itemize}
+  \item \textbf{HCD}（\file{kernel/dwc2.c}）：复位 DWC2 控制器、强制主机模式、开 DMA；给根端口和 Hub 端口上电、复位；用 host channel 发起 control、bulk、interrupt 传输；
+  \item \textbf{USB core}（\file{kernel/usb.c}）：\code{struct usb\_device}、按 ID 或接口类别匹配驱动、Linux 风格的 URB 接口；
+  \item \textbf{类驱动}：HID 键盘（\file{usbkbd.c}）、CDC-ECM 网卡（\file{usbnet.c}，用于 QEMU）、MT7601U 无线网卡（\file{mt7601u.c}）。
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize,
+      data/.style={{Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}, line width=1.6pt, draw=orange!85!black},
+      ctl/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!70!black},
+      evt/.style={-{Stealth[length=2mm]}, thick, dashed, draw=red!70!black},
+      blk/.style={box, font=\footnotesize, minimum height=8mm}]
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (-2,-2) rectangle (70,74);
+    \node[lab, anchor=north west] at (-1,73.5) {BCM2837 SoC};
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (76,20) rectangle (112,74);
+    \node[lab, anchor=north west] at (77,73.5) {LAN9514（板载）};
+    % SoC
+    \node[hbox, minimum width=22mm, minimum height=36mm, text width=20mm] (cpu) at (11,52) {ARM\\Cortex-A53\\[2pt]\file{usbkbd.c}\\\file{usb.c}\\\file{dwc2.c}};
+    \node[gbox, minimum width=30mm, minimum height=9mm, text width=30mm] (ram) at (48,6) {SDRAM\\8 字节报告缓冲};
+    \node[hbox, text width=30mm, minimum height=44mm] (dwc) at (48,48) {};
+    \node[font=\small\bfseries, anchor=north] at (48,69.5) {DWC2 主机控制器};
+    \node[lab, anchor=north] at (48,65) {\code{0x3f980000}，IRQ 9};
+    \node[box, font=\scriptsize, text width=26mm, minimum height=6mm] (c0) at (48,58) {ch0：control（枚举）};
+    \node[box, font=\scriptsize, text width=26mm, minimum height=6mm, fill=orange!15] (c6) at (48,50) {ch6：interrupt-IN（键盘）};
+    \node[box, font=\scriptsize, text width=26mm, minimum height=6mm] (c4) at (48,42) {ch4：bulk-IN（MT7601U）};
+    \node[lab, align=center] at (48,32.5) {每个 channel：\code{HCCHAR HCSPLT}\\\code{HCTSIZ HCDMA HCINT}};
+    \node[blk, text width=20mm] (ic) at (11,14) {中断控制器\\IRQ 9};
+    % hub
+    \node[hbox, text width=30mm, minimum height=14mm] (hub) at (94,60) {根 Hub（高速）\\\code{0424:2514}};
+    \node[box, text width=30mm, minimum height=9mm, fill=orange!10] (tt) at (94,44) {事务转换器 TT\\高速 $\leftrightarrow$ 全速/低速};
+    \node[box, text width=30mm, minimum height=9mm] (h2) at (94,28) {port 1：子 Hub\\→ 以太网 \code{0424:7800}};
+    % keyboard
+    \node[hbox, text width=26mm, minimum height=12mm] (kb) at (132,44) {USB 键盘接收器\\\code{2a7a:8a47}\\低速 1.5\,Mb/s};
+    \node[lab] at (132,33) {hub port 3};
+    % edges
+    \draw[ctl] (cpu.east |- c0) -- node[lab, above]{MMIO} (c0.west -| 33,0);
+    \draw[data] (dwc.east |- hub) -- node[lab, above, text=orange!50!black]{480 Mb/s} (hub.west);
+    \draw[data] (hub) -- (tt);
+    \draw[data] (tt.east) -- node[lab, below, text=orange!50!black]{1.5 Mb/s} (kb.west);
+    \draw[gray!60, thick] (hub.west) ++(0,-3) -- ++(-1.5,0) |- (h2.west);
+    \draw[data] (dwc.south) -- node[lab, right, text=orange!50!black]{DMA：\code{0xC0000000|PA}} (ram.north);
+    \draw[evt] ([yshift=3mm]dwc.south west) -- node[lab, above]{HAINT} ++(-6,0) |- (ic.east);
+    \draw[evt] (ic.north) -- (cpu.south);
+  \end{tikzpicture}
+  \caption{USB 键盘的硬件路径。DWC2 用 host channel 发起事务、用 DMA 读写内存；树莓派 3 的 USB 口都在板载 LAN9514 Hub 后面，低速键盘与 Hub 之间靠事务转换器（TT）完成速率转换}
+  \label{fig:usb-hw}
+\end{figure}
+
+图~\ref{fig:usb-hw} 是硬件路径。有几个特点和前面的 Wi-Fi、摄像头都不一样：
+
+\paragraph{主机发起一切.} USB 是严格的主从结构，设备永远不能主动说话。即使是名为“interrupt”的传输类型，也只是“主机承诺每隔 \code{bInterval} 毫秒来问一次”：主机发 IN 令牌，设备有数据就回 DATA，没有就回 NAK。所谓“键盘中断”，其实是主机控制器替 CPU 轮询，问到数据后才用 IRQ 9 通知 CPU。
+
+\paragraph{host channel 与 DMA.} DWC2 有 8 个 host channel，每个 channel 是一组寄存器，描述“对哪个设备的哪个端点做一次什么传输”：\reg{HCCHAR}（设备地址、端点号、方向、传输类型、最大包长、是否低速）、\reg{HCSPLT}（split 事务参数）、\reg{HCTSIZ}（字节数、包数、DATA0/1）、\reg{HCDMA}（缓冲区的总线地址）、\reg{HCINT}（完成、ACK、NAK、NYET、错误等状态）。本项目固定分工：ch0 做枚举时的 control 传输，ch6 给键盘的 interrupt-IN，ch4 给 MT7601U 的 bulk-IN。和 Arasan 不同，DWC2 自己用 DMA 读写内存，所以缓冲区在提交前要 clean、完成后要 invalidate 缓存，地址也要换成 \code{0xC0000000|PA} 的总线地址。
+
+\paragraph{一切都在 Hub 后面.} 树莓派 3 的 SoC 只有一个 USB 口，直接接板载 LAN9514，它内部是一个高速 Hub 加一块 USB 以太网卡（在 3B+ 上还有第二层 Hub）。外面插的键盘一般是低速（1.5\,Mb/s）设备，而 DWC2 和 Hub 之间跑的是高速（480\,Mb/s）。两种速率之间靠 Hub 里的\emph{事务转换器}（TT）衔接，这就是后面 split transaction 的由来。
+
+\subsection{描述符：设备、配置、接口与端点}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      d/.style={draw=structurecolor!70!black, rounded corners=1.5pt, fill=structurecolor!8, align=left, anchor=north west, inner sep=2pt, text width=#1},
+      d/.default=50mm,
+      sel/.style={fill=orange!15, draw=orange!70!black},
+      tree/.style={gray!60!black, semithick}]
+    \node[d=50mm] (dev) at (0,84) {\textbf{设备描述符}（18 B，类型 1）\\{}
+      [4] \code{bDeviceClass}＝0（看接口）\\{}
+      [7] \code{bMaxPacketSize0}＝8\\{}
+      [8] \code{idVendor}＝\code{2a7a}\\{}[10] \code{idProduct}＝\code{8a47}};
+    \node[d=52mm] (cfg) at (10,60) {\textbf{配置描述符}（9 B，类型 2）\\{}
+      [2] \code{wTotalLength}：整串描述符的长度\\{}
+      [4] \code{bNumInterfaces}＝2\\{}[5] \code{bConfigurationValue}＝1};
+    \node[d=46mm, sel] (if0) at (20,39) {\textbf{接口 0}（9 B，类型 4）\\{}
+      [5] class＝3 HID\\{}[6] subclass＝1 Boot\\{}
+      [7] protocol＝1 键盘};
+    \node[d=46mm] (hid0) at (30,20) {HID 描述符（类型 \code{0x21}）\\报告描述符长度等};
+    \node[d=50mm, sel] (ep0) at (30,9) {\textbf{端点}（7 B，类型 5）\\{}
+      [2] \code{0x81}：IN，端点 1\\{}
+      [3] 属性＝3 interrupt\quad [4] MPS＝8\\{}[6] \code{bInterval}＝10（ms）};
+    \node[d=44mm] (if1) at (88,39) {\textbf{接口 1}（9 B）\\class＝3，protocol＝2（鼠标）\\或 0（多媒体键等）};
+    \node[d=40mm] (ep1) at (98,20) {端点 \code{0x82}：interrupt-IN};
+    \draw[tree] (dev.south west) ++(3,0) |- (cfg.west);
+    \draw[tree] (cfg.south west) ++(3,0) |- (if0.west);
+    \draw[tree] (cfg.east) -| (if1.north);
+    \draw[tree] (if0.south west) ++(3,0) |- (hid0.west);
+    \draw[tree] (if0.south west) ++(3,0) |- (ep0.west);
+    \draw[tree] (if1.south west) ++(3,0) |- (ep1.west);
+    % byte stream
+    \node[lab, anchor=west] at (0,-14) {\code{GET\_DESCRIPTOR(Configuration, wTotalLength)} 一次返回的字节串，逐项按 \code{bLength} 前进：};
+    \foreach \x/\w/\t/\c in {0/14/配置 9/structurecolor!10, 14/14/接口0 9/orange!20, 28/14/HID 9/structurecolor!5, 42/12/端点 7/orange!20, 54/14/接口1 9/gray!10, 68/14/HID 9/gray!5, 82/12/端点 7/gray!10}{
+      \draw[fill=\c, draw=gray!60] (\x,-23) rectangle ++(\w,6) node[midway]{\t};
+    }
+    \node[lab, anchor=west, align=left] at (96,-20) {只在接口 0 范围内\\挑 interrupt-IN 端点};
+  \end{tikzpicture}
+  \caption{一个 USB 键盘接收器的描述符层次（示意，方括号里是字节偏移；VID/PID 取自真机日志）。驱动按类别匹配，而不是按 VID/PID：先找 class/subclass/protocol＝3/1/1 的 Boot Keyboard 接口，再只在这个接口里找 interrupt-IN 端点}
+  \label{fig:usb-desc}
+\end{figure}
+
+USB 设备用一组\emph{描述符}介绍自己（图~\ref{fig:usb-desc}）。每个描述符的第 0 字节是长度 \code{bLength}，第 1 字节是类型。层次是：一个设备有若干\emph{配置}（几乎总是 1 个）；一个配置包含若干\emph{接口}，每个接口是一项独立的功能，有自己的 class/subclass/protocol；一个接口有若干\emph{端点}，端点是真正收发数据的地方，有编号、方向、传输类型、最大包长和轮询间隔。端点 0 是所有设备都有的默认控制端点，枚举全靠它。
+
+很多键盘接收器是复合设备：接口 0 是键盘，接口 1 是鼠标或多媒体键。所以驱动不能看设备描述符的 class（它通常是 0，意思是“看各个接口”），也不能凭 VID/PID 白名单，而要遍历配置描述符：
+
+\begin{ccode}
+// GET_DESCRIPTOR(Configuration) 先取 9 字节拿到 wTotalLength，再一次取全部
+for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
+  if(ctrl_buf[off + 1] == 4 &&                   // 接口描述符
+     ctrl_buf[off + 5] == 3 &&                   // class: HID
+     ctrl_buf[off + 6] == 1 &&                   // subclass: Boot Interface
+     ctrl_buf[off + 7] == 1){                    // protocol: Keyboard
+    sel->interface_number = ctrl_buf[off + 2];
+    return 1;
+  }
+}
+\end{ccode}
+
+\code{off += ctrl\_buf[off]} 按每个描述符自己的长度前进，所以中间夹着的 HID 描述符（类型 \code{0x21}）等不认识的类型会被自然跳过；\code{ctrl\_buf[off] >= 2} 防止一个长度为 0 的坏描述符造成死循环。找到键盘接口后，后面的端点只在这个接口的范围里挑（\code{current\_interface} 限定），否则复合设备里鼠标的端点会把键盘的覆盖掉。
+
+\subsection{枚举：control 传输与请求序列}
+
+端点 0 上的 control 传输分三个阶段：SETUP 阶段主机发出 8 字节的请求（\code{bmRequestType}、\code{bRequest}、\code{wValue}、\code{wIndex}、\code{wLength}），可选的 DATA 阶段按最大包长收发数据，STATUS 阶段反方向发一个空包确认。\code{control()} 就是在 ch0 上依次执行这三个阶段。表~\ref{tab:usb-enum} 是识别一个 Hub 后面的键盘所发出的请求。
+
+\begin{table}[htbp]
+  \centering
+  \caption{从 Hub 端口到可用键盘的请求序列}
+  \label{tab:usb-enum}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    对象 & 请求 & \code{bmRequestType} & 作用 \\
+    \midrule
+    Hub & \code{SET\_FEATURE(PORT\_POWER)} & \code{0x23} & 给下游端口上电，之后最多等 500\,ms 连接去抖 \\
+    Hub & \code{GET\_STATUS} & \code{0xa3} & 端口状态：bit 0 连接、bit 1 使能、bit 8 供电、bit 9 低速、bit 10 高速 \\
+    Hub & \code{SET\_FEATURE(PORT\_RESET)} & \code{0x23} & 复位端口，设备进入默认状态、地址为 0 \\
+    设备 0 & \code{GET\_DESCRIPTOR(Device, 8)} & \code{0x80} & 只取 8 字节，得到端点 0 的最大包长 \\
+    设备 0 & \code{GET\_DESCRIPTOR(Device, 18)} & \code{0x80} & 完整设备描述符：class、VID、PID \\
+    设备 0 & \code{SET\_ADDRESS(n)} & \code{0x00} & 分配唯一地址；把父 Hub、端口、速度记入 \code{usb\_route[n]} \\
+    设备 $n$ & \code{GET\_DESCRIPTOR(Config, 9)} & \code{0x80} & 得到 \code{wTotalLength} \\
+    设备 $n$ & \code{GET\_DESCRIPTOR(Config, total)} & \code{0x80} & 全部接口和端点，挑出 Boot Keyboard \\
+    设备 $n$ & \code{SET\_CONFIGURATION} & \code{0x00} & 激活配置，端点开始可用 \\
+    接口 & \code{SET\_PROTOCOL(boot)} & \code{0x21} & 让键盘用固定的 8 字节 Boot 报告格式 \\
+    接口 & \code{SET\_IDLE(0)} & \code{0x21} & 只在按键状态变化时才回报告 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+先取 8 字节再取 18 字节是 USB 枚举的惯例：在知道端点 0 的最大包长之前，只能假定它是最小的 8 字节，而设备描述符第 7 字节正好告诉我们真实值。端口状态的例子：真机日志里 Hub port 3 是 \code{0x301}（供电、低速、已连接），复位后变成 \code{0x303}（多了“使能”）。根 Hub 和嵌套的 Hub 用同一套请求递归扫描，深度限制为两层，防止一个异常的拓扑让启动无限递归。
+
+\code{SET\_PROTOCOL(boot)} 很关键。HID 设备本来用“报告描述符”描述自己的报告格式，解析它需要一个不小的解释器；而 Boot 协议是 BIOS 时代为了不解析报告描述符而规定的固定格式，所有键盘都必须支持。用它，驱动只需理解图~\ref{fig:hid-report} 这 8 个字节。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \foreach \i/\t/\c in {0/{修饰键}/orange!20, 1/{保留}/gray!10, 2/{键 1}/structurecolor!15, 3/{键 2}/structurecolor!15, 4/{键 3}/structurecolor!15, 5/{键 4}/structurecolor!15, 6/{键 5}/structurecolor!15, 7/{键 6}/structurecolor!15}{
+      \draw[fill=\c, draw=gray!60] (\i*16,10) rectangle ++(16,8) node[midway, align=center]{\t\\{}[\i]};
+    }
+    \foreach \b/\t in {0/{LCtrl},1/{LShift},2/{LAlt},3/{LGUI},4/{RCtrl},5/{RShift},6/{RAlt},7/{RGUI}}{
+      \draw[fill=orange!8, draw=gray!50] (\b*16,0) rectangle ++(16,6) node[midway]{bit\,\b\ \t};
+    }
+    \draw[gray!60, dashed] (0,10) -- (0,6); \draw[gray!60, dashed] (16,10) -- (128,6);
+    \node[lab, anchor=west, align=left] at (0,24) {例：\code{mod=0 keys=10,0,0,0,0,0} 表示只按着 HID usage \code{0x10}，即字母 \code{m}；\\同时按 Shift 时 byte 0 = \code{0x02}；按键超过 6 个时 6 个槽全是 \code{0x01}（rollover），驱动保持上一份状态。};
+  \end{tikzpicture}
+  \caption{HID Boot 键盘报告（8 字节）。byte 0 是 8 个修饰键的位图，byte 2～7 是当前按着的最多 6 个键的 usage 编号}
+  \label{fig:hid-report}
+\end{figure}
+
+最后，\code{usb\_device\_register()} 把设备交给 USB 总线，总线按 class/subclass/protocol 匹配到 \code{usbhid-keyboard} 驱动，调用 \code{usbkbd\_probe()}：发送上面两个 HID 请求，分配每设备的 \code{usbkbd\_state} 和 URB，注册 \code{input\_dev}，然后第一次提交 URB。
+
+\subsection{Split transaction：高速 Hub 后面的低速设备}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      msg/.style={-{Stealth[length=1.8mm]}, semithick},
+      hs/.style={msg, draw=structurecolor!80!black},
+      ls/.style={msg, draw=orange!85!black},
+      ev/.style={msg, dashed, draw=red!70!black},
+      t/.style={font=\scriptsize, inner sep=0.5pt}]
+    \foreach \i in {0,...,7}{
+      \draw[gray!25] (20+\i*16,4) -- (20+\i*16,56);
+      \node[lab] at (28+\i*16,58.5) {\i};
+    }
+    \draw[gray!25] (148,4) -- (148,56);
+    \node[lab, anchor=east] at (19,58.5) {微帧};
+    \node[lab, anchor=west] at (20,63) {一个 1\,ms 帧 = 8 个 125\,$\mu$s 微帧（\code{HFNUM} 低 3 位）；SSPLIT 发在微帧 0};
+    \foreach \y/\l in {50/{DWC2 ch6}, 36/{LAN9514 TT}, 24/{低速键盘}, 10/{CPU}}{
+      \node[lab, anchor=east] at (19,\y) {\l};
+      \draw[gray!55] (20,\y) -- (148,\y);
+    }
+    % uframe 0
+    \draw[hs] (22,50) -- (25,36); \node[t, text=structurecolor!80!black] at (23,52.5) {SSPLIT};
+    \draw[hs] (28,36) -- (31,50); \node[t] at (32,43) {ACK};
+    \draw[ev] (33,50) -- (33,10); \node[t, text=red!60!black, align=center, anchor=north] at (33,8) {\ding{172}\,记录 ACK\\所在微帧};
+    % low speed transaction
+    \fill[orange!12] (30,25) rectangle (64,35);
+    \draw[ls] (31,36) -- (34,24); \draw[ls] (60,24) -- (63,36);
+    \node[t, text=orange!50!black, align=center] at (47,30) {TT 在 1.5\,Mb/s 总线上\\替主机完成 IN / DATA / ACK};
+    % uframe 2
+    \draw[hs] (54,50) -- (56,36); \node[t, text=structurecolor!80!black] at (54,52.5) {CSPLIT};
+    \draw[hs] (58,36) -- (60,50); \node[t] at (63,43) {NYET};
+    \draw[ev] (61,50) -- (61,10); \node[t, text=red!60!black, align=center, anchor=north] at (61,8) {\ding{173}\,窗口内\\下一微帧重试};
+    % uframe 3
+    \draw[hs] (70,50) -- (72,36); \node[t, text=structurecolor!80!black] at (70,52.5) {CSPLIT};
+    \draw[hs] (74,36) -- (76,50); \node[t] at (80,43) {DATA 8\,B};
+    \draw[ev] (78,50) -- (78,10); \node[t, text=red!60!black, align=center, anchor=north] at (84,8) {\ding{174}\,\code{XFERCOMPL}\\交给 completion work};
+    \node[draw=gray!60, fill=gray!5, rounded corners=1pt, align=left, anchor=north west, text width=50mm, font=\scriptsize] at (96,48) {键盘没有新按键时回 NAK；或者整个帧里一直 NYET。这两种情况本轮都结束，等 \code{bInterval}（10\,ms）后从新的 SSPLIT 开始。};
+  \end{tikzpicture}
+  \caption{低速键盘在高速 Hub 后面的一次 interrupt-IN 轮询。主机先向 TT 发 start-split，TT 在低速总线上替主机完成 IN 事务，主机再在随后的微帧里发 complete-split 取回结果。\ding{172}、\ding{173} 两种中间事件必须在中断里当场处理，晚一个帧就错过了窗口}
+  \label{fig:usb-split}
+\end{figure}
+
+DWC2 不能直接对低速设备说话，它要先把事务交给 Hub 里的 TT（图~\ref{fig:usb-split}）：\emph{start-split}（SSPLIT）告诉 TT“请替我对 port 3 上地址 4 的端点 1 做一次 IN”，TT 回 ACK 表示接受；TT 随后在低速总线上完成真正的事务；主机在随后的微帧里发 \emph{complete-split}（CSPLIT）取结果，TT 要么回 NYET（还没完成），要么回数据，要么转达设备的 NAK。channel 寄存器里，这些信息体现为：
+
+\begin{table}[htbp]
+  \centering
+  \caption{真机日志中的寄存器样本解码}
+  \label{tab:usb-regs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    样本 & 含义 \\
+    \midrule
+    \reg{HCCHAR}$=$\code{0x010e8808} & 设备地址 4、端点 1、IN、interrupt 类型、低速（\code{LSPDDEV}）、最大包长 8 \\
+    \reg{HCSPLT}$=$\code{0x8001c083} & \code{SPLTENA}、\code{COMPSPLT}（当前是 CSPLIT）、XACTPOS$=$ALL、Hub 地址 1、端口 3 \\
+    \reg{HCINT}$=$\code{0x22} & \code{CHHLTD | ACK}：SSPLIT 已被 TT 接受 \\
+    \reg{HCINT}$=$\code{0x42} & \code{CHHLTD | NYET}：CSPLIT 暂时没有结果 \\
+    \reg{HCINT}$=$\code{0x03} & \code{CHHLTD | XFERCOMPL}：DMA 缓冲里已经是完整的报告 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+这里有三条规则，每一条都是在真机上踩过才写进代码的：低速设备的每一个事务都要在 \reg{HCCHAR} 里置 \code{LSPDDEV}；CSPLIT 收到 NAK 说明这次事务已经结束（设备没数据），必须从新的 SSPLIT 重来，而不是继续发 CSPLIT；CSPLIT 收到 NYET 只能在\emph{同一个帧}的窗口里重试，超出窗口就放弃本轮、等 \code{bInterval} 后重新开始。
+
+\subsection{URB 与中断驱动的接收}
+
+USB core 提供与 Linux 同名的异步接口：
+
+\begin{ccode}
+struct urb *usb_alloc_urb(void);
+void usb_fill_int_urb(struct urb *urb, struct usb_device *dev, int ep, void *buf,
+                      int len, void (*complete)(struct urb *), void *context, int interval);
+int  usb_submit_urb(struct urb *urb);       // 提交给 HCD，立即返回
+void usb_kill_urb(struct urb *urb);         // 同步取消
+\end{ccode}
+
+URB 的所有权在提交时交给 HCD，完成时由 \code{usb\_hcd\_giveback\_urb()} 交还类驱动并调用 \code{complete} 回调，回调通过 \code{urb->context} 找回所属的键盘。\code{dwc2\_submit\_urb()} 把 ch6 配好就返回：
+
+\begin{ccode}
+wr(HCINTMSK(6), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
+                 HCINT_ACK | HCINT_NYET | HCINT_ERRORS);
+if(usb_route[addr].hub)                        // 在 Hub 后面：split 事务
+  split = HCSPLT_SPLTENA | HCSPLT_XACTPOS_ALL |
+          HCSPLT_HUBADDR(usb_route[addr].hub) | HCSPLT_PRTADDR(usb_route[addr].port) |
+          (req->complete_split ? HCSPLT_COMPSPLT : 0);
+wr(HCSPLT(6), split);
+wr(HCDMA(6),  DWC2_DMA_BUS(urb->transfer_buffer));
+wr(HCTSIZ(6), HCTSIZ_XFERSIZE(8) | HCTSIZ_PKTCNT(1) | HCTSIZ_PID(pid));
+wr(HAINTMSK, rd(HAINTMSK) | (1U << 6));
+wr(HCCHAR(6), HCCHAR_DEVADDR(addr) | HCCHAR_EPNUM(ep) | HCCHAR_EPTYPE(EPTYPE_INTERRUPT) |
+              HCCHAR_MPS(8) | HCCHAR_EPDIR_IN |
+              (usb_route[addr].low_speed ? HCCHAR_LSPDDEV : 0) | HCCHAR_CHENA);
+req->last_issue_frame = rd(HFNUM) & 0x3fff;    // 记下发出时的微帧号
+\end{ccode}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      fn/.style={box, font=\scriptsize, minimum height=8mm, inner sep=2pt, text width=#1},
+      fn/.default=32mm,
+      flow/.style={-{Stealth[length=2mm]}, line width=1.1pt, draw=structurecolor!80!black},
+      loop/.style={-{Stealth[length=2mm]}, semithick, dashed, draw=orange!80!black}]
+    \foreach \x/\w/\t in {0/36/{硬件}, 38/36/{硬中断}, 76/36/{HCD 完成 work}, 114/36/{\code{usbkbd\_wq}（进程上下文）}}{
+      \fill[gray!5, rounded corners=2pt] (\x,0) rectangle ++(\w,62);
+      \node[lab, anchor=north] at (\x+\w/2,61.5) {\t};
+    }
+    \node[fn] (h1) at (18,50) {键盘按下 \code{m}\\TT 取回 8 字节报告};
+    \node[fn] (h2) at (18,32) {ch6 DMA 写入\\\code{kbd->report}};
+    \node[fn] (h3) at (18,14) {\code{HCINT.XFERCOMPL}\\\code{HAINT} bit 6 → IRQ 9};
+    \node[fn] (i1) at (56,50) {\code{dwc2\_irq()}};
+    \node[fn] (i2) at (56,32) {快速路径不处理\\（不是 ACK/NYET）};
+    \node[fn] (i3) at (56,14) {屏蔽 ch6\\\code{schedule\_work}};
+    \node[fn] (w1) at (94,50) {\code{dwc2\_interrupt\_urb\_work}\\cache invalidate};
+    \node[fn] (w2) at (94,32) {读 \code{HCTSIZ} 余量\\算出 \code{actual\_length}};
+    \node[fn] (w3) at (94,14) {\code{usb\_hcd\_giveback\_urb}\\→ \code{usbkbd\_irq\_complete}};
+    \node[fn] (k1) at (132,50) {\code{usbkbd\_rx\_work}\\与上一份报告比较};
+    \node[fn] (k2) at (132,32) {\code{input\_report\_key}\\\code{input\_sync}\\\code{consoleintr('m')}};
+    \node[fn] (k3) at (132,14) {\code{usb\_submit\_urb}\\重新 arm ch6};
+    \draw[flow] (h1) -- (h2); \draw[flow] (h2) -- (h3);
+    \draw[flow] (h3.east) -- ++(1,0) |- (i1.west);
+    \draw[flow] (i1) -- (i2); \draw[flow] (i2) -- (i3);
+    \draw[flow] (i3.east) -- ++(1,0) |- (w1.west);
+    \draw[flow] (w1) -- (w2); \draw[flow] (w2) -- (w3);
+    \draw[flow] (w3.east) -- ++(1,0) |- (k1.west);
+    \draw[flow] (k1) -- (k2); \draw[flow] (k2) -- (k3);
+    \draw[loop] (k3.south) -- ++(0,-8) -| node[lab, below, pos=0.25]{下一次 SSPLIT：回到硬件} (h3.south);
+  \end{tikzpicture}
+  \caption{一份键盘报告从硬件到 shell 的路径。每一列是一种执行上下文：硬中断只做与微帧时序有关的最少工作；HCD 的完成 work 负责缓存维护并把 URB 归还类驱动；HID 解析、输入事件和控制台都在键盘自己的 workqueue 里完成，最后重新提交 URB。键盘回 NAK（没有新按键）时，HCD 完成 work 等 \code{bInterval} 后自己重发，URB 不归还类驱动}
+  \label{fig:usb-rx}
+\end{figure}
+
+之后的事全由中断推动（图~\ref{fig:usb-rx}）。\code{dwc2\_irq()} 先交给快速路径 \code{dwc2\_interrupt\_rx\_irq\_fast()}：SSPLIT 的 ACK 和窗口内的 NYET 在这里当场处理——记下当前微帧，忙等到“发出后第 2 个微帧”（最多 500\,$\mu$s），立即重发 CSPLIT——因为它们有微帧级的截止时间，交给任何可调度的线程都来不及。只有最终结果（完成、无数据或错误）才屏蔽 ch6 并 \code{schedule\_work}。HCD 的完成 work 做缓存维护、算实际长度并归还 URB；键盘的完成回调只 \code{queue\_work(kbd->rx\_work)}；\code{usbkbd\_rx\_work()} 在进程上下文里比较新旧报告、上报输入事件、调用 \code{consoleintr()}，最后重新 \code{usb\_submit\_urb()}。三种上下文各做各的：硬中断只管时序，HCD work 只管控制器，类驱动只管 HID。
+
+拔出设备时顺序相反：\code{usbkbd\_remove()} 先标记断开，\code{usb\_kill\_urb()} 停止 ch6 并等正在运行的完成回调返回，\code{cancel\_work\_sync()} 等 \code{rx\_work} 返回，最后才释放 URB 和设备状态——保证不会有任何回调再碰到已释放的内存。
+
+\subsection{HID 报告与输入子系统}
+
+\code{usbkbd\_rx\_work()} 收到 8 字节报告后与上一份比较：修饰键位图里变化的位分别上报按下/松开；本次出现、上次没有的 usage 是新按下的键，查表转成字符；上次有、本次没有的是松开的键。每份报告最后 \code{input\_sync()}。按键多到键盘无法分辨时，6 个槽会全填错误码（rollover），这份报告不说明任何键的状态，驱动直接保留上一份，不能当成“全部松开”。
+
+之后的事由输入子系统（\file{kernel/input.c}）完成，它把事件分发给两个“处理者”：
+
+\begin{itemize}
+  \item \textbf{evdev}：\code{/dev/input/event0}。每次 \code{open} 都分配一个独立的客户端环形缓冲区（\code{fops.open} 设置 \code{f->private\_data}），读者在自己的缓冲区上睡眠；溢出时插入 \code{SYN\_DROPPED}；
+  \item \textbf{控制台}：把按键转成字符（处理 Shift、Caps Lock、Ctrl），送入 \code{consoleintr()}。所以 USB 键盘和串口一样可以登录、输入命令、按 \code{Ctrl-C}。
+\end{itemize}
+
+这正是 Linux 的分层：硬件驱动只关心“产生了什么事件”，不关心“谁在读”。
+
+\subsection{真机排错：从 STALL 到第一份报告}
+\label{sec:usb-debug}
+
+这个驱动在 QEMU 上很快就能工作，到了真机（低速无线键盘接收器 \code{2a7a:8a47} 插在 LAN9514 的 port 3）却经历了九个阶段才读到第一个按键。表~\ref{tab:usb-bugs} 按时间顺序列出每一步的现象、根因和修复；每一步只把串口日志实际证明的东西当作结论——ACK 不等于下游数据已经返回，“ready”也不等于收到了按键。
+
+\begin{table}[htbp]
+  \centering
+  \caption{USB 键盘真机排错的九个阶段}
+  \label{tab:usb-bugs}
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}p{2mm}>{\raggedright\arraybackslash}p{36mm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    & 现象 & 根因 & 修复 \\
+    \midrule
+    1 & port 3 状态 \code{0x301}，复位后 \code{0x303} & 低速设备在高速 Hub 后面 & 记录父 Hub、端口、速度，走 split 事务 \\
+    2 & \code{control setup failed req=6 addr=0}，\code{intr=0x0a} & SETUP 的 SSPLIT 没设 \code{LSPDDEV}，TT 回 STALL & 按 \code{usb\_route} 给所有低速事务置 \code{LSPDDEV} \\
+    3 & GET\_DESCRIPTOR 数据阶段返回 $-2$（超时） & CSPLIT 收到 NAK 后仍反复发 CSPLIT & NAK 时清 \code{complete\_split}，下一帧重发 SSPLIT；NYET 才继续 CSPLIT \\
+    4 & 设备描述符 \code{class=0 vid=0 pid=0} & 18 字节跨 3 个 8 字节包，被当成一个 split 请求，只收到前 8 字节 & 按最大包长分包，每包单独 SSPLIT/CSPLIT，完整收到一包后翻转 DATA0/1；检查长度、类型和 VID \\
+    5 & “not a boot keyboard” & 复合设备的后一个接口覆盖了键盘接口的属性 & 先定位 Boot Keyboard 接口，端点只在该接口内选 \\
+    6 & ready 之后又出现 \code{req=6 addr=4} STALL & 绑定键盘后仍继续 CDC-ECM 网卡探测，向键盘要配置描述符 & HID 交给 USB 总线后直接返回 \\
+    7 & 按键无响应，反复 \code{hcint=0x42} & 把每个 NYET 都当作“TT 还在忙”，永久重发 CSPLIT & 记录 SSPLIT ACK 的帧号，同帧内最多重试 3 次；跨帧则结束本轮，等 \code{bInterval} \\
+    8 & \code{ssack} 比 \code{issue} 晚几十个微帧 & ACK 交给 kworker 处理，调度延迟毫秒级，CSPLIT 窗口早过了 & SSPLIT ACK 和窗口内 NYET 改在 IRQ 快速路径里处理 \\
+    9 & 快速路径启用后仍偶尔跨帧 & 快速路径之前有一行 \code{printf}；115200 波特率下一行要几毫秒 & 中间状态不打印，只在本轮结束后限量打印 \code{ch6 final} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+其中几个阶段值得多说几句。
+
+\paragraph{阶段 4：“读到了”但其实没读全.} 低速设备端点 0 的最大包长只有 8 字节，18 字节的设备描述符要分 3 个数据包传。经过 split 事务时，每个包都要单独走一遍 SSPLIT/CSPLIT，而且收完一个完整的包后要把 DATA0/DATA1 翻转。旧代码把整个 18 字节当成一次 split 请求，只取回了第一个包，后面 10 字节还是缓冲区里的 0——于是日志说 \code{vid=0 pid=0}。现在 \code{channel\_xfer()} 对 split 请求按最大包长切片，\code{get\_device\_descriptor()} 还检查长度、类型和 VID 不为 0，宁可失败也不接受半截数据。
+
+\paragraph{阶段 7～8：时间窗口.} 周期性的 split 事务有严格的时序：CSPLIT 应在 SSPLIT 之后第 2 个微帧开始，并且只能在同一个帧内重试。早期代码对 NYET 无条件重试，永远等不到结果；改成按帧号判断窗口后，又发现记录下来的“ACK 帧号”比实际晚了几十个微帧——因为 ACK 是由 kworker 处理的，而 kworker 要等调度器给它 CPU，延迟是毫秒级的，比 125\,$\mu$s 的微帧粗了一个数量级。解决办法是把这两种有截止时间的中间事件移到中断上下文里（\code{dwc2\_interrupt\_rx\_irq\_fast()}），只把“这一轮已经结束”的结果交给线程。这是“上半部只做最少的事”这条原则的一个反例：对有硬实时要求的状态推进，上半部恰恰是唯一来得及的地方。
+
+\paragraph{阶段 9：观察者效应.} 快速路径加上以后，问题偶尔还在。原因是 \code{dwc2\_irq()} 开头还留着一行调试 \code{printf}：串口 115200 波特率下每个字符约 87\,$\mu$s，一行几十个字符就是好几个毫秒，足够错过整个窗口。这是典型的“加日志就改变时序”的 Heisenbug。最终版本在有截止时间的分支里一行都不打印，只在本轮结束之后限量打印 \code{dwc2 ch6 final}；如果确实需要跟踪中间事件，应该写进内存里的 trace 环形缓冲，事后由进程上下文打印。
+
+\paragraph{诊断顺序.} 整理下来，按键没反应时按这个顺序看日志：有没有 \code{ch6 armed}（channel 配置并启动了）；按键时有没有 \code{ch6 final}（host channel 产生了中断）；有没有 \code{usbkbd: channel 6 IRQ received}（URB 已归还、键盘 work 已排队）；有没有 \code{first HID report}（DMA 里读到了报告）；报告里的 usage 是否非 0（键盘真的报了键）；最后才看键码映射和控制台。真机第一次成功时打印的是 \code{usbkbd: first HID report mod=0 keys=10,0,0,0,0,0}——usage \code{0x10}，字母 \code{m}。
+
+\paragraph{从两层轮询到中断驱动.} 最早的实现其实有两层轮询：定时器每个 tick 唤醒一次键盘 work，work 里启动一次传输再忙等 \code{HCINT}。改成 URB 加中断以后，CPU 只在真的有报告（或本轮结束）时才参与，空闲键盘不再占用任何 CPU 时间。
+
+\section{I2C}
+
+BCM2837 的 I2C 控制器叫 BSC（Broadcom Serial Controller）。项目目前只用到 BSC0，用来配置摄像头传感器。在树莓派 3B+ 上，摄像头排线口的 I2C 走 GPIO44/45 的 ALT1 功能，而不是 40 针排针上的 GPIO0/1。
+
+一次传输的过程是：写从机地址寄存器 \code{A}、数据长度 \code{DLEN}，清 FIFO，向控制寄存器 \code{C} 写入 \code{I2CEN | ST}（读还要加 \code{READ}），然后轮询状态寄存器 \code{S}：\code{TXW} 表示可以继续写 FIFO，\code{RXD} 表示 FIFO 有数据可读，\code{DONE} 表示传输完成，\code{ERR} 表示从机没有应答，\code{CLKT} 表示时钟拉伸超时。分频寄存器 \code{DIV} $=$ 核心时钟 $/$ 100\,kHz。在真机上，BSC0 对摄像头传感器始终返回 NACK，驱动最后改用 GPIO44/45 上的软件 SCCB，排查过程见 \ref{sec:cam-probe} 小节。
+
+\begin{ccode}
+int i2c_write(int bus, uint8 addr, const uint8 *buf, int len);
+int i2c_read(int bus, uint8 addr, uint8 *buf, int len);
+int i2c_write_read(int bus, uint8 addr, const uint8 *wbuf, int wlen,
+                   uint8 *rbuf, int rlen);     // 先写寄存器地址，再读
+\end{ccode}
+
+摄像头寄存器的访问很短（写是 2 字节地址加 1 字节数据，读是 2 字节地址后读 1 字节），所以全部用轮询加超时，不用中断。为了在真机上区分“控制器没配好”和“线上没有设备”，驱动还带了一个用 GPIO 模拟 I2C 的诊断路径：直接把 GPIO44/45 当开漏输出，按位产生起始、地址、应答和停止条件。
+
+\section{网络协议栈}
+
+在讲两块无线网卡之前，先看看它们的上层。\file{kernel/net.c} 参考 MIT xv6 网络实验的分层，逐步扩展成了一个小而完整的协议栈：
+
+\begin{itemize}
+  \item \code{struct net\_device}：每块网卡一个，保存 MAC、IP、掩码、网关、DNS 和发送函数 \code{start\_xmit}；驱动收到帧后调用 \code{net\_rx\_dev(dev, frame, len)}；
+  \item Ethernet、ARP（表项以 \code{(ip, dev)} 为键，多网卡互不干扰）、IPv4、ICMP、UDP、DHCP；
+  \item 路由表：最长前缀匹配，同长度按 metric 选择，DHCP 成功后自动加直连路由和默认路由；
+  \item TCP：被动打开（\code{listen/accept}），每连接 8\,KiB 异步发送队列，单段停等式重传；
+  \item socket 文件描述符和 epoll：socket、PTY、管道都是 \code{struct file}，可以统一 \code{read/write/epoll}。
+\end{itemize}
+
+在这之上，用户态实现了 \code{ping}、\code{dhcp}、\code{tftp}、\code{netdns}，以及一个基于 TweetNaCl 的 SSH 服务器（第~\ref{chap:user} 章）。
+
+\section{SDIO 无线网卡：BCM43430/43455}
+
+\subsection{硬件路径}
+
+树莓派 3B 板载 BCM43430，3B+ 板载 BCM43455。它们通过 SDIO 接在 Arasan SDHCI 控制器（\code{0x3f300000}，GPIO34～39 ALT3，IRQ 62）上。这里有两个容易混淆的概念：Arasan 是 SDIO \emph{主机控制器}，负责产生 SDIO 命令和时钟、搬运数据；BCM43455 是 \emph{FullMAC} Wi-Fi 芯片，片内有一颗 Cortex-R4 运行厂商固件，处理大部分 802.11 MAC 工作。
+
+\subsection{硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}
+\label{sec:wifi-hw}
+
+和摄像头一样，先把参与的部件和它们之间的通路理清楚（图~\ref{fig:wifi-hw}）。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize,
+      data/.style={{Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}, line width=1.6pt, draw=orange!85!black},
+      ctl/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!70!black},
+      evt/.style={-{Stealth[length=2mm]}, thick, dashed, draw=red!70!black},
+      blk/.style={box, font=\footnotesize, minimum height=8mm}]
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (-2,-2) rectangle (66,82);
+    \node[lab, anchor=north west] at (-1,81.5) {BCM2837 SoC};
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (86,-2) rectangle (152,82);
+    \node[lab, anchor=north west] at (87,81.5) {BCM43455 Wi-Fi 芯片};
+
+    % SoC side
+    \node[hbox, minimum width=23mm, minimum height=62mm, text width=23mm, inner sep=1pt] (cpu) at (11,40) {ARM\\Cortex-A53\\[2pt]\file{brcmfmac.c}\\\file{sdio.c}\\\file{arasan\_sdio.c}};
+    \node[blk, text width=30mm] (mb) at (48,73) {mailbox → 固件\\查询 EMMC 时钟};
+    \node[hbox, text width=30mm, minimum height=22mm] (ar) at (48,48) {\textbf{Arasan SDHCI}\\\code{0x3f300000}\\\code{ARG1 CMDTM}\\\code{INTERRUPT DATA}};
+    \node[blk, text width=30mm] (ic) at (48,18) {legacy 中断控制器\\IRQ 62};
+
+    % SDIO device side
+    \draw[rounded corners=2pt, draw=structurecolor!60!black, fill=structurecolor!5] (89,26) rectangle (111,78);
+    \node[lab, anchor=south] at (100,26.5) {SDIO 设备接口};
+    \node[blk, text width=17mm, minimum height=9mm] (f0) at (100,71) {F0\\CCCR};
+    \node[blk, text width=17mm, minimum height=9mm] (f1) at (100,57) {F1\\背板窗口};
+    \node[blk, text width=17mm, minimum height=9mm, fill=orange!15] (f2) at (100,44) {F2 SDPCM\\FIFO};
+    \fill[gray!25] (115,4) rectangle (119,78);
+    \node[rotate=90, font=\scriptsize] at (117,16) {芯片内部背板（AXI）};
+    \node[blk, text width=26mm] (cc) at (135,70) {ChipCommon\\chip ID、EROM};
+    \node[hbox, text width=26mm, minimum height=16mm] (cr4) at (135,50) {ARM Cortex-R4\\TCM RAM：\\固件 + NVRAM};
+    \node[blk, text width=26mm] (d11) at (135,22) {D11 MAC + PHY\\射频};
+    \node[lab] (air) at (135,5) {802.11 无线 $\leftrightarrow$ AP};
+
+    % control
+    \draw[ctl] (cpu.east |- mb) -- (mb);
+    \draw[ctl] (cpu.east |- 0,57) -- (ar.west |- 0,57);
+    \draw[ctl] (ar.east |- 0,57) -- node[lab, above]{CMD 线} node[lab, below]{CMD52/53} (89,57) ;
+    \draw[ctl] (f1.east) -- (115,58);
+    \draw[ctl] (119,70) -- (cc.west);
+    \draw[ctl] (119,58) -- (cr4.west |- 0,58);
+    % data
+    \draw[data] (cpu.east |- 0,44) -- node[lab, below, text=orange!50!black]{PIO} (ar.west |- 0,44);
+    \draw[data] (ar.east |- 0,44) -- node[lab, above, text=orange!50!black]{DAT0–3} (89,44);
+    \draw[data] (f2.east) -- (cr4.west |- f2.east);
+    \draw[data] (cr4) -- node[lab, right]{802.3 $\leftrightarrow$ 802.11} (d11);
+    \draw[data] (d11) -- (air);
+    % events
+    \draw[evt] (125,41) |- (111,31);
+    \draw[evt] (89,31) -- node[lab, above]{DAT1 中断} (ar.east |- 0,31) -- (ar.south east);
+    \draw[evt] (ar.south) -- node[lab, right]{\code{CARD\_INT}} (ic.north);
+    \draw[evt] (ic.west) -- (cpu.east |- ic.west);
+    \node[lab, align=center] at (76,12) {SDIO 总线\\CLK、CMD、\\DAT0–3\\GPIO34–39};
+  \end{tikzpicture}
+  \caption{SDIO Wi-Fi 的硬件拓扑。细实线是控制面：CMD 线上的 CMD52/CMD53 经 F0 配置总线、经 F1 访问芯片内部背板（读 chip ID、下载固件、控制 CR4 复位）；粗线是数据面：CPU 以 PIO 方式经 Arasan 的 \code{DATA} 寄存器读写 F2 的 SDPCM FIFO，芯片固件再与 802.11 帧互转；虚线是事件：固件经 DAT1 发出卡中断，成为 BCM2837 的 IRQ 62}
+  \label{fig:wifi-hw}
+\end{figure}
+
+\paragraph{两颗处理器.} 这条链路两端各有一颗 CPU：一端是运行 xv6 的 Cortex-A53，另一端是 BCM43455 片内的 Cortex-R4。R4 执行主机下载进去的厂商固件，负责扫描、认证、关联、管理帧、ACK 与重传、用主机装入的密钥做 CCMP 加解密，以及 802.11 帧与以太网帧之间的转换——这就是 \emph{FullMAC} 的含义。主机看到的是一个“收发以太网帧、另外接受若干控制命令”的设备，802.11 的细节全藏在固件里。\ref{sec:mt7601u} 节的 MT7601U 恰好相反，是 SoftMAC：802.11 帧由主机驱动自己组装。
+
+\paragraph{SDIO 总线.} 两者之间是 SDIO 总线：一根时钟线 CLK、一根命令线 CMD、四根数据线 DAT0～3，在 3B+ 上走 GPIO34～39 的 ALT3。CMD52 只用命令线，命令里带地址和一个字节，响应里带回一个字节，用来读写寄存器；CMD53 在命令线上发出地址和长度，数据走四根 DAT 线，用来搬运固件和网络帧。DAT1 还有第二个用途：总线空闲时，卡可以把它拉低来请求中断，所以 Wi-Fi 芯片不需要单独的中断引脚。
+
+\paragraph{一个 SDIO 设备，三个 function.} SDIO 卡在协议上分成若干 function，各有独立的 17 位寄存器地址空间：
+\begin{itemize}
+  \item \textbf{F0} 是公共寄存器区 CCCR，设置总线宽度、使能其他 function、打开中断；
+  \item \textbf{F1} 是进入芯片内部的“窗口”。BCM43455 内部的 ChipCommon、SDIO 核、R4 和 TCM RAM 挂在一条背板总线上，地址空间远大于 17 位，所以 F1 只开一个 32\,KiB 的窗口：先把目标地址的高位写进窗口寄存器，再用低 15 位访问。读 chip ID、解析 EROM、让 R4 停机、下载固件和 NVRAM、写复位向量，全都经过这个窗口；
+  \item \textbf{F2} 是固件启动之后才就绪的 FIFO，运行时所有控制命令、事件和网络帧都从这里进出。
+\end{itemize}
+
+\paragraph{Arasan 是主机控制器，而且工作在 PIO 模式.} Arasan SDHCI 负责产生 SDIO 时钟、把命令编码到 CMD 线上、按 4 位总线收发数据。驱动发一条命令的方式是写 \code{ARG1}（参数）和 \code{CMDTM}（命令号与传输方式），然后等 \code{INTERRUPT} 里的完成位。有数据阶段时，本项目没有使用控制器的 DMA，而是 CPU 等 \code{READ\_RDY}/\code{WRITE\_RDY}，再一个 32 位字一个 32 位字地读写 \code{DATA} 寄存器。这和摄像头形成鲜明对比：Unicam 的数据完全不经过 CPU，而这里每个字都要 CPU 亲手搬运。这样实现简单，也没有缓存一致性问题，代价是吞吐受 CPU 和单次传输长度限制——实机曾在 512、256、128 字节的 CMD53 上出现数据 CRC 错误，驱动逐级减半，最后稳定在 64 字节。这个上限是运行时探测出来的，完成多块传输和时序调优之后应当重新评估。
+
+\paragraph{中断要过三道闸门.} 固件有帧要交给主机时，DAT1 上的卡中断要穿过三层开关才能变成 CPU 的 IRQ：芯片内部 SDIO 核的 \code{HOSTINTMASK} 决定哪些事件送到 DAT1；F0 的 CCCR 里的 \code{INT\_ENABLE} 打开 master 位和 F1 位（\code{sdio\_claim\_irq()}）；Arasan 的 \code{IRPT\_EN} 打开 \code{CARD\_INT}，BCM2837 的 legacy 控制器再打开 IRQ 62。任何一层没开，接收都只能靠轮询。
+
+\paragraph{固件从哪里来.} 芯片每次上电都是空的，固件、NVRAM、CLM 三个文件放在 SD 卡的 FAT32 启动分区里，由另一个控制器 SDHOST（\code{0x3f202000}）读出。两个 SD 控制器各管一条总线：SDHOST 接外置 SD 卡，Arasan 接板载 Wi-Fi，混用会造成 GPIO 和时钟的所有权冲突。
+
+
+\subsection{SDIO 枚举}
+
+Arasan 驱动 probe 后创建 \code{mmc\_host}，SDIO core 依次发送 CMD0（复位）、CMD5（协商 I/O 电压，等待就绪）、CMD3（取 RCA）、CMD7（选中），再用 CMD52 读 CCCR、FBR 和 CIS，切换到 4 位总线，最后把三个 function 注册到 \code{sdio} 总线。\code{brcmfmac} 驱动按 vendor \code{0x02d0}、device \code{0xa9a6}/\code{0xa9bf}、function 1 匹配。三条 SDIO 命令的分工是：CMD5 识别和上电；CMD52 单字节读写寄存器；CMD53 批量传输。
+
+\subsection{固件装载}
+
+FullMAC 芯片每次上电都要由主机下载固件。驱动从 FAT32 启动分区读取三个文件（所以必须排在 \code{fat32init()} 之后）：
+
+\begin{itemize}
+  \item \code{BCM43455.BIN}：芯片 CR4 的执行代码；
+  \item \code{BCM43455.TXT}：板级 NVRAM 参数（天线、校准）；
+  \item \code{BCM43455.CLM}：各国信道和功率的法规数据库。
+\end{itemize}
+
+Function 1 是“背板窗口”：设置窗口寄存器后，可以用 CMD52/CMD53 访问芯片内部的 ChipCommon、SDIO core、CR4 和片内 RAM。驱动读 chip ID、解析 EROM 找到各个核和 RAM，让 CR4 停机，用 CMD53 把固件和 NVRAM 写进 RAM，写入复位向量后放开 CR4，等待固件就绪的 mailbox 中断，最后才打开 Function 2。Function 2 是运行时的数据 FIFO。
+
+\subsection{SDPCM 与 BCDC}
+
+运行时的每一次 F2 传输都是分层封装的（图~\ref{fig:wifi-frame}）。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
+    \tikzset{fld/.style={draw=structurecolor!70!black, minimum height=8mm, inner sep=1pt, align=center}}
+    % data frame
+    \node[lab, anchor=east] at (-1,24) {数据通道};
+    \node[fld, fill=structurecolor!25, minimum width=36mm, anchor=west] (sd) at (0,24) {SDPCM 头 12\,B\\长度 | \textasciitilde 长度 | 序号 | 通道 2 | … | 偏移};
+    \node[fld, fill=structurecolor!12, minimum width=16mm, anchor=west] (bc) at (sd.east) {BCDC 头\\4\,B};
+    \node[fld, fill=orange!20, minimum width=30mm, anchor=west] (eh) at (bc.east) {以太网头 14\,B\\目的 | 源 | 类型};
+    \node[fld, fill=orange!8, minimum width=40mm, anchor=west] (pl) at (eh.east) {载荷\\IPv4 / ARP / EAPOL（\code{0x888e}）};
+    \node[fld, fill=gray!10, minimum width=10mm, anchor=west] (pd) at (pl.east) {填充\\到 4\,B};
+    % control frame
+    \node[lab, anchor=east] at (-1,4) {控制通道};
+    \node[fld, fill=structurecolor!25, minimum width=36mm, anchor=west] (sd2) at (0,4) {SDPCM 头 12\,B\\… | 通道 0 | …};
+    \node[fld, fill=structurecolor!12, minimum width=46mm, anchor=west] (dc) at (sd2.east) {BCDC 命令头 16\,B\\\code{cmd} | \code{len} | \code{flags}（含请求号） | \code{status}};
+    \node[fld, fill=gray!6, minimum width=50mm, anchor=west] (iv) at (dc.east) {参数\\如 \code{"bsscfg:wpa\_auth\textbackslash0"} + 索引 + 值};
+    % braces
+    \draw[decorate, decoration={brace, amplitude=4pt}] (0,29) -- node[lab, above=4pt]{\code{brcmf\_f2\_transfer} 一次写出，再按传输上限（实测 64\,B）拆成多次 CMD53} (132,29);
+    \draw[decorate, decoration={brace, amplitude=4pt, mirror}] (bc.south east) ++(0,-1.5) -- node[lab, below=4pt]{交给 \code{net\_rx\_dev} 的部分} ([yshift=-1.5mm]pl.south east);
+  \end{tikzpicture}
+  \caption{F2 上一帧的封装。SDPCM 是总线一层的帧格式，用通道号区分控制、事件和数据；控制通道里是 BCDC 命令（ioctl/iovar），数据通道里是 BCDC 数据头加一个完整的以太网帧}
+  \label{fig:wifi-frame}
+\end{figure}
+
+发送控制命令后，下一个到达的帧不一定就是响应——事件和数据帧可能插在前面。接收分发函数必须按通道分流，只有请求号相同的控制帧才是对应的响应。
+
+\subsection{WPA2 四次握手}
+
+这版固件不处理 WPA2 握手，所以主机自己完成四次握手（\file{kernel/wpa\_crypto.c}）：用 PBKDF2 从口令和 SSID 算出 PMK；收到 M1 后生成 SNonce，派生 PTK，计算 MIC，发 M2；收到 M3 后验证 MIC，用 AES key unwrap 解出组密钥 GTK；把成对密钥和组密钥装进芯片，发 M4。握手完成后才放行普通数据帧，随后执行 DHCP。
+
+\subsection{数据流与并发}
+\label{sec:wifi-flow}
+
+图~\ref{fig:wifi-flow} 把一帧数据在两个方向上经过的函数排成了层。两个方向的触发方式不同：
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      fn/.style={box, font=\scriptsize, minimum height=8mm, inner sep=2pt, text width=40mm},
+      tx/.style={-{Stealth[length=2mm]}, line width=1.2pt, draw=orange!85!black},
+      rx/.style={-{Stealth[length=2mm]}, line width=1.2pt, draw=structurecolor!80!black},
+      evt/.style={-{Stealth[length=1.8mm]}, semithick, dashed, draw=red!70!black},
+      call/.style={-{Stealth[length=1.8mm]}, semithick, draw=gray!60!black}]
+    % layer bands
+    \foreach \y/\h/\t in {84/{协议栈}, 70/{网卡接口}, 56/{\file{brcmfmac}\\封装/分流}, 42/{\file{brcmfmac}\\F2 收发}, 28/{SDIO core}, 14/{Arasan host}, 1/{芯片}}{
+      \fill[gray!5] (0,\y-6) rectangle (150,\y+6);
+      \node[lab, align=center, text width=14mm] at (7,\y) {\h};
+    }
+    \node[font=\footnotesize\bfseries, text=orange!60!black] at (38,93) {发送（TX）};
+    \node[font=\footnotesize\bfseries, text=structurecolor!70!black] at (85,93) {接收（RX）};
+    \node[font=\footnotesize\bfseries, text=red!60!black] at (131,93) {接收的触发};
+    % TX
+    \node[fn] (t1) at (38,84) {UDP/TCP/ICMP → IPv4\\路由 → ARP 解析下一跳 MAC};
+    \node[fn] (t2) at (38,70) {\code{start\_xmit = brcmfmac\_xmit}\\握手未完成则拒绝；持 \code{bus->lock}};
+    \node[fn] (t3) at (38,56) {\code{brcmf\_send\_ether\_locked}\\加 BCDC 头 + SDPCM 头（通道 2）};
+    \node[fn] (t4) at (38,42) {\code{brcmf\_f2\_transfer(write)}\\按 \code{brcmf\_transfer\_limit} 分块};
+    \node[fn] (t5) at (38,28) {\code{sdio\_cmd53(F2)}\\\code{mmc\_request\_sync}：持 \code{request\_lock}};
+    \node[fn] (t6) at (38,14) {\code{arasan\_request}\\写 \code{ARG1/CMDTM}，逐字写 \code{DATA}};
+    \node[gbox, font=\scriptsize, text width=40mm, minimum height=6mm] (t7) at (38,1) {F2 FIFO → 固件 → 802.11 发出};
+    \foreach \a/\b in {t1/t2,t2/t3,t3/t4,t4/t5,t5/t6,t6/t7}{\draw[tx] (\a) -- (\b);}
+    % RX
+    \node[gbox, font=\scriptsize, text width=40mm, minimum height=6mm] (r7) at (85,1) {802.11 收到 → 固件 → F2 FIFO};
+    \node[fn] (r6) at (85,14) {\code{arasan\_request}\\逐字读 \code{DATA}};
+    \node[fn] (r5) at (85,28) {\code{sdio\_cmd53(F2)}\\\code{mmc\_request\_sync}};
+    \node[fn] (r4) at (85,42) {\code{brcmf\_rx\_frame\_locked}\\经 F1 读 \code{INTSTATUS}；读 64\,B 头，再读余下};
+    \node[fn] (r3) at (85,56) {\code{brcmf\_rx\_dispatch\_locked}\\控制 → \code{ctl} 缓冲；事件 → 打印\\数据：EAPOL → WPA；其余 ↑};
+    \node[fn] (r2) at (85,70) {\code{net\_rx\_dev(wlan0, frame)}};
+    \node[fn] (r1) at (85,84) {Ethernet → ARP / IPv4 →\\ICMP / UDP / TCP};
+    \foreach \a/\b in {r7/r6,r6/r5,r5/r4,r4/r3}{\draw[rx] (\a) -- (\b);}
+    \draw[rx] (r3) -- node[lab, right]{数据（握手后）} (r2);
+    \draw[rx] (r2) -- (r1);
+    % trigger column
+    \node[fn, text width=26mm, draw=red!60!black] (i1) at (131,1) {DAT1 卡中断};
+    \node[fn, text width=26mm, draw=red!60!black] (i2) at (131,14) {\code{arasan\_sdio\_irq}\\屏蔽 \code{CARD\_INT}};
+    \node[fn, text width=26mm, draw=red!60!black] (i3) at (131,28) {\code{napi\_schedule}\\唤醒 \code{brcmf0\_wq}};
+    \node[fn, text width=26mm] (i4) at (131,42) {kworker：\\\code{brcmf\_napi\_poll(16)}};
+    \draw[evt] (i1) -- node[lab, right]{IRQ 62} (i2);
+    \draw[evt] (i2) -- node[lab, right]{上半部} (i3);
+    \draw[evt] (i3) -- node[lab, right]{下半部} (i4);
+    \draw[call] (i4.north) |- node[lab, above, pos=0.75]{每轮至多 16 帧} (r3.east);
+    \node[fn, text width=33mm] (i5) at (130,70) {读空：\code{napi\_complete\_done}\\\code{arasan\_sdio\_irq\_complete}};
+    \draw[call] (i4.east) -- ++(2.5,0) |- (i5.east);
+  \end{tikzpicture}
+  \caption{SDIO Wi-Fi 的数据流。发送在调用者的上下文里一路同步向下；接收由 DAT1 卡中断触发，上半部只屏蔽中断并调度 NAPI，真正的 CMD53 读取和分流在 \code{brcmf0\_wq} 内核线程里完成，读空后才重新打开卡中断。两个方向都要经过 \code{mmc\_request\_sync()} 的 host 锁，且每个字都由 CPU 经 \code{DATA} 寄存器搬运}
+  \label{fig:wifi-flow}
+\end{figure}
+
+\paragraph{发送是同步的.} 协议栈选好路由、解析出下一跳 MAC 以后，调用 \code{wlan0} 的发送函数 \code{brcmfmac\_xmit()}。握手完成之前它直接拒绝普通数据。之后在调用者自己的上下文里（可能是系统调用，也可能是 TCP 重传 work）持 \code{bus->lock} 加上 BCDC 头和 SDPCM 头，经 \code{brcmf\_f2\_transfer()} 拆成若干次 CMD53 写进 F2，函数返回时数据已经交给了芯片。
+
+\paragraph{接收是中断触发、线程执行的.} DAT1 卡中断到来时，上半部 \code{arasan\_sdio\_irq()} 只做三件事：在 Arasan 上屏蔽 \code{CARD\_INT}、清掉状态位、调用 \code{napi\_schedule()} 唤醒设备私有的 \code{brcmf0\_wq} 内核线程。CMD53 要等总线、可能睡眠，绝不能在中断里做。下半部 \code{brcmf\_napi\_poll()} 在 kworker 里循环：经 F1 读 SDIO 核的 \code{INTSTATUS}，看到“有帧”就从 F2 读 64 字节的头、校验 SDPCM 长度和它的反码、再读剩余部分，然后按通道分流。每轮最多处理 16 帧；没读空就让 NAPI 重新排队，读空了才 \code{napi\_complete\_done()} 并重新打开 \code{CARD\_INT}。卡中断是电平触发的，在芯片里的帧被取走之前一直有效，所以必须先屏蔽、读空再打开，否则 CPU 会被同一个中断反复打断。
+
+\paragraph{同步的控制命令.} 控制面是请求/应答式的：\code{brcmf\_dcmd()} 发出一个带递增请求号的 BCDC 命令，然后反复调用分流函数，直到读到请求号相同的控制帧。事件和数据帧可能插在应答前面，所以分流函数不能假定“下一帧就是回复”，必须按通道放到各自的去处：控制帧存进 \code{ctl} 缓冲，事件帧打印出来，数据帧中的 EAPOL 交给 WPA2 握手逻辑，其余在握手完成后交给 \code{net\_rx\_dev()}。
+
+\paragraph{两把锁，两个粒度.} \code{bus->lock} 以\emph{设备}为粒度，保证同一块网卡的 SDPCM 序号、收发缓冲和连接状态不会被发送路径、NAPI 和连接 watchdog 同时改动。\code{host->request\_lock} 以\emph{控制器}为粒度，保证 Arasan 那一套 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器在一条 CMD52/CMD53 完成之前不被另一条覆盖。\ref{sec:cam-bugs} 小节的 \code{CMD52 failed status=df0001} 就是缺了后一把锁造成的。两把都是睡眠锁或在进程上下文中持有，因为一次 SDIO 事务可能要等上毫秒级的超时。
+
+\paragraph{从轮询到中断的演进.} 这条接收路径经历过三个版本：最早 CPU0 在每次定时器中断里直接轮询 F2，完整的接收和协议处理都跑在中断上下文里；后来有了 DAT1 中断，但仍等下一次定时器才去读；现在中断直接调度 NAPI，定时器只负责推进 delayed-work 的时钟（连接 watchdog、TCP 重传）。早期每 100\,ms 轮询一次时，SSH 输入一个字符要等 100～300\,ms 才回显；改成中断驱动后，这个延迟基本消失。
+
+\section{USB 无线网卡：MT7601U}
+\label{sec:mt7601u}
+
+MT7601U 是一块常见的 USB 无线网卡（VID \code{148f}，PID \code{7601}）。与 BCM43455 最大的不同在于它是 \emph{SoftMAC}：芯片只负责射频、基带和收发帧，扫描、认证、关联、加密握手等 802.11 逻辑都要由主机驱动完成（表~\ref{tab:fullsoft}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{两块无线网卡的对比}
+  \label{tab:fullsoft}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    & BCM43430/43455 & MT7601U \\
+    \midrule
+    总线 & SDIO（Arasan） & USB（DWC2 + LAN951x 集线器） \\
+    类型 & FullMAC：固件完成扫描、关联 & SoftMAC：主机构造 802.11 帧 \\
+    固件 & BIN + NVRAM + CLM，经背板写入 RAM & \code{MT7601U.BIN}，经 Bulk OUT 写入 MCU 的 ILM/DLM \\
+    控制 & BCDC 命令 & MCU 命令（EP8 发、EP5 收）和寄存器读写 \\
+    数据 & SDPCM 数据通道里的以太网帧 & TXWI 描述符 + 802.11 帧，EP8 发、EP4 收 \\
+    网卡名 & \code{wlan0} & \code{wlan1} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+驱动初始化的主要步骤是：
+
+\begin{enumerate}
+  \item 解析固件头，把 IVB、ILM、DLM 三段通过 Bulk OUT 写入 MCU，等待 \code{MT\_MCU\_COM\_REG0} 变成 1；
+  \item 读 eFuse 得到永久 MAC 地址、频偏、RSSI 和温度校准参数；
+  \item 初始化 MAC、BBP（数字基带）、RF（模拟射频）三组寄存器表，执行各项校准；
+  \item 扫描信道，解析 beacon/probe response，选择目标 BSSID；
+  \item 发送 Open System 认证帧和带 RSN IE 的关联请求；
+  \item 完成 WPA2 四次握手，安装密钥，注册 \code{wlan1}。
+\end{enumerate}
+
+发送一个 IP 包要经过：以太网帧 → LLC/SNAP 封装 → 802.11 数据帧头 → TXWI → USB DMA 头和填充 → EP8 Bulk OUT。接收端在 EP4 上长期挂着一个 Bulk IN 请求，DWC2 用 DMA 把数据写到缓冲区（总线地址要加 \code{0xC0000000} 别名，见第~\ref{chap:mmu} 章），完成中断后由下半部解析。网络层的路由表决定一个包从 \code{wlan0} 还是 \code{wlan1} 发出，两块网卡可以同时工作。
+
+\section{CSI-2 摄像头：OV5647}
+
+\subsection{路线选择}
+
+树莓派官方的摄像头栈运行在 GPU 固件里（\code{start\_x.elf} + MMAL），ARM 端只是发命令。本项目选择与 Linux 主线相同的“ARM 直接驱动”路线：内核自己通过 I2C 配置传感器，打开电源域和时钟，用 Unicam 接收 MIPI CSI-2 数据并 DMA 到内存。硬件是 Camera Module v1.3（OmniVision OV5647），接在 3B+ 的 CSI1 口。
+
+\subsection{硬件结构：I2C、CSI-2、Unicam 与 DMA}
+\label{sec:cam-hw}
+
+摄像头驱动之所以涉及这么多部件，是因为一帧图像从产生到进入内存要经过几条性质完全不同的通路（图~\ref{fig:cam-hw}）。弄清楚每条通路传什么、由谁发起，后面的代码就很好读了。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize,
+      data/.style={-{Stealth[length=2.6mm]}, line width=1.8pt, draw=orange!85!black},
+      ctl/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!70!black},
+      evt/.style={-{Stealth[length=2mm]}, thick, dashed, draw=red!70!black},
+      blk/.style={box, font=\footnotesize, minimum height=9mm, text width=24mm}]
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (-2,-3) rectangle (106,80);
+    \node[lab, anchor=north west] at (-1,79.5) {BCM2837 SoC};
+    \draw[rounded corners=3pt, draw=gray!60, fill=gray!4] (113,16) rectangle (147,80);
+    \node[lab, anchor=north west] at (114,79.5) {Camera v1.3 模块};
+
+    % column 1
+    \node[hbox, minimum width=22mm, minimum height=56mm, text width=20mm] (cpu) at (11,46) {ARM\\Cortex-A53\\[2pt]xv6 内核\\[2pt]\file{unicam.c}\\\file{ov5647.c}\\\file{i2c.c}\\\file{mbox.c}};
+    \node[gbox, minimum width=56mm, minimum height=10mm, text width=54mm] (ram) at (28,5) {SDRAM：\code{CAMDMA}，物理 \code{0x07200000}，非缓存映射};
+    % column 2
+    \node[blk] (mbox) at (44,70) {mailbox\\属性标签};
+    \node[blk] (bsc)  at (44,54) {BSC0 或 GPIO44/45\\软件 SCCB};
+    \node[blk] (cm)   at (44,36) {\code{CM\_CAM1}\\lp 时钟 100\,MHz};
+    \node[blk] (ic)   at (44,20) {legacy 中断控制器\\GPU IRQ 39};
+    % column 3
+    \node[blk, fill=gray!8, draw=gray!70] (vc) at (88,70) {VideoCore 固件};
+    \node[hbox, minimum width=30mm, minimum height=40mm] (uni) at (88,27) {};
+    \node[font=\small\bfseries, anchor=north] at (88,46.5) {Unicam CSI1};
+    \node[box, font=\footnotesize, text width=24mm, minimum height=7mm] (phy) at (88,36) {D-PHY\\CLK + DAT0/1};
+    \node[box, font=\footnotesize, text width=24mm, minimum height=7mm] (idi) at (88,26) {包过滤 \code{IDI0}\\VC 0、DT \code{0x2B}};
+    \node[box, font=\footnotesize, text width=24mm, minimum height=7mm] (dma) at (88,15.5) {DMA \code{IBSA0/IBEA0}};
+    % column 4
+    \node[gbox, text width=27mm, minimum height=9mm] (reg) at (130,70) {稳压器使能\\\code{CAM\_GPIO0}};
+    \node[hbox, text width=24mm, minimum height=12mm] (sen) at (130,50) {OV5647\\SCCB 地址 \code{0x36}};
+    \node[gbox, text width=24mm, minimum height=7mm] (osc) at (130,24) {25\,MHz 晶振};
+    \draw[gray!70] (reg) -- node[lab, right]{供电} (sen);
+    \draw[gray!70] (osc) -- node[lab, right]{XCLK} (sen);
+
+    % control plane
+    \draw[ctl] (cpu.east |- mbox) -- (mbox);
+    \draw[ctl] (cpu.east |- bsc) -- (bsc);
+    \draw[ctl] (cpu.east |- cm) -- (cm);
+    \draw[ctl] (mbox) -- (vc);
+    \draw[ctl] (vc) -- node[lab, above]{GPIO 133} (reg);
+    \draw[ctl] ([xshift=-6mm]vc.south) -- node[lab, left, pos=0.35, align=right]{电源域\\UNICAM1} ([xshift=-6mm]uni.north);
+    \draw[ctl] (bsc.east) -- node[lab, above, pos=0.88]{SCCB} (sen.west |- bsc.east);
+    \draw[ctl] (cm) -- (uni.west |- cm);
+    % data plane
+    \draw[data] (sen.west |- 0,47) -- (109,47) |- (uni.east |- phy);
+    \node[lab, text=orange!50!black, anchor=west, align=left] at (110,36) {MIPI CSI-2\\2 lane};
+    \draw[data] (phy) -- (idi);
+    \draw[data] (idi) -- (dma);
+    \draw[data] (dma.south) |- node[lab, below, pos=0.7, text=orange!50!black]{AXI 写，总线地址 \code{0xC0000000|PA}} (ram.east);
+    \draw[data] ([xshift=-6mm]ram.north) -- node[lab, left]{拷给用户} ([xshift=-6mm]ram.north |- cpu.south);
+    % events
+    \draw[evt] (uni.west |- ic) -- node[lab, above]{FS/FE} (ic);
+    \draw[evt] (ic) -- (cpu.east |- ic);
+  \end{tikzpicture}
+  \caption{摄像头的硬件拓扑。细实线是控制面：mailbox 上电和电源域、SCCB 写传感器寄存器、lp 时钟；粗线是数据面：CSI-2 → Unicam → DMA → 内存；虚线是事件：Unicam 的帧开始/结束中断，目前屏蔽，由 CPU 轮询 \code{STA}/\code{ISTA}}
+  \label{fig:cam-hw}
+\end{figure}
+
+\paragraph{传感器有两个接口.} OV5647 对外有两个互不相干的接口。一个是低速的 \emph{SCCB} 控制口（OmniVision 对 I2C 的兼容实现，两根线 SDA/SCL，约 100\,kHz），CPU 通过它读芯片 ID、写一百来个配置寄存器：分辨率、binning、帧长、曝光、增益、MIPI 输出方式、测试图案，最后写“退出待机”让传感器开始出图。另一个是高速的 \emph{MIPI CSI-2} 输出口：一对时钟线加两对数据线（lane），每对都是差分的 D-PHY 链路，空闲时处于低功耗的 LP-11 状态，传数据时切换到高速模式。图像只走 CSI-2，配置只走 SCCB——I2C 再慢也不影响帧率，它只决定“开机配置”要花多久，这也是驱动后来能退到软件 SCCB 的原因。
+
+\paragraph{CSI-2 链路上传的是包.} 传感器把每一帧编码成一串 CSI-2 包：帧开始（FS）和帧结束（FE）是不带数据的短包；中间每一行像素是一个长包，包头里有虚拟通道号（VC）和数据类型（DT，RAW10 是 \code{0x2B}），包尾有 CRC。接收方据此知道一帧何时开始、何时结束、每个包该放到哪里，CRC 和 ECC 错误也是在这一层被发现的（\code{STA} 里的 CRCE、PBE 等位）。
+
+\paragraph{Unicam 是接收器，也是 DMA 主设备.} SoC 一侧的 Unicam CSI1 把上面的事情全做了，它内部可以分成三段：
+\begin{itemize}
+  \item \textbf{D-PHY 前端}：接收差分信号，完成低功耗态和高速态之间的切换。判断“稳定进入高速态”要等若干个 lp 时钟周期（\code{CLT}/\code{DLT} 里的 settle 和终端使能计数），所以它需要时钟管理器 \code{CM\_CAM1} 提供的 100\,MHz lp 时钟——时钟频率不对，settle 时间就跟着错，表现为链路误码；
+  \item \textbf{包处理}：解析包头、校验 CRC，FS/FE 短包变成 \code{ISTA} 里的帧开始/结束事件；长包经 \code{IDI0} 按 VC 和 DT 过滤，只有 VC 0、RAW10 的行数据才往下走。本项目不让 Unicam 解包（\code{IPIPE}$=0$），行数据保持 CSI-2 原样的 10 位打包格式；
+  \item \textbf{DMA 写入}：Unicam 自己就是 AXI 总线上的主设备，把每行按 \code{IBLS} 的行跨度写到 \code{IBSA0}～\code{IBEA0} 之间的内存，写到哪里由 \code{IBWP} 指示。这里的“DMA”不是 BCM2837 通用的 DMA 控制器，而是 Unicam 内置的写引擎；它看到的是 VideoCore 总线地址，所以内核写进去的是 \code{0xC0000000 | PA}（第~\ref{chap:mmu} 章“三种地址视图”）。
+\end{itemize}
+
+\paragraph{内存一侧的约束.} Unicam 只认一段起止地址，所以缓冲区必须物理连续，不能用 \code{kalloc()} 逐页拼；它放在 \code{PHYSTOP} 以上的 \code{CAMDMA} 区，分配器永远碰不到。这段内存映射成非缓存的普通内存：DMA 写进 DRAM 的数据，CPU 直接读就是最新的，不需要在每帧前后作废缓存行。
+
+\paragraph{电源和时钟由谁管.} 摄像头模块上的稳压器由 \code{CAM\_GPIO0} 使能，这根线接在 VideoCore 管理的 GPIO 扩展器上，Unicam 所在的电源域也归固件管，ARM 只能通过 mailbox 发属性标签请固件代办。\code{CM\_CAM1} 时钟则是普通的时钟管理器寄存器，内核直接写。传感器自己的像素时钟来自模块上的 25\,MHz 晶振，不需要 SoC 提供。
+
+\paragraph{CPU 只在两头出现.} 把这些放在一起看，CPU 的角色就清楚了：开始时它是\emph{配置者}——经 mailbox 上电、写时钟、经 SCCB 配传感器、经 MMIO 配 Unicam；数据开始流动以后，传感器 → Unicam → 内存这条路完全不经过 CPU；CPU 只需要对 FS/FE 事件作出反应，在恰当的帧开始前换掉 DMA 地址（图~\ref{fig:cam-fsm}），最后把整帧拷给用户。事件本可以用中断（GPU IRQ 39）通知，目前为了安全改成 CPU 每 1\,ms 读一次 \code{STA}/\code{ISTA}。
+
+\paragraph{顺序约束.} 几条通路之间有严格的先后关系，驱动的步骤顺序就是由它们决定的：先上电，SCCB 才可能应答；传感器先停在 LP-11，Unicam 才能在干净的空闲态上完成模拟复位和校准；接收器先使能、传感器后出流，否则第一个 FS 可能丢失；停止时反过来，先停传感器再停接收器，避免接收器在一帧中间被关掉。表~\ref{tab:cam-board} 列出了这些部件在 Pi 3B+ 上的具体资源。
+
+
+\subsection{\code{sensor\_ops}：仿照 V4L2 子设备}
+
+桥接驱动 \file{unicam.c} 不认识任何具体传感器，传感器驱动也不碰 Unicam。两者之间只有一层接口，对应 Linux 的 \code{v4l2\_subdev\_ops}：
+
+\begin{ccode}
+struct sensor_ops {
+  int  (*power_on)(struct camsensor *s);             // 供电、读芯片 ID、进入 LP-11
+  void (*power_off)(struct camsensor *s);
+  int  (*stream_on)(struct camsensor *s, const struct cam_mode *mode);
+  int  (*stream_off)(struct camsensor *s);
+  int  (*set_ctrl)(struct camsensor *s, int id, int value);   // 如测试图案
+};
+struct camsensor {
+  char *name;  const struct sensor_ops *ops;
+  const struct cam_mode *modes;  int nmodes;          // 宽、高、行字节数、CSI-2 数据类型
+  struct camsensor_bus bus;                           // lane 数、是否非连续时钟、虚拟通道
+  int warmup_frames;                                  // 开流后丢弃的帧数
+};
+\end{ccode}
+
+启动时 \code{ov5647\_init()} 调用 \code{camsensor\_register()}，\code{camera\_init()} 按注册顺序逐个调用 \code{power\_on}，第一个读到正确芯片 ID 的传感器被绑定到 \code{/dev/video0}。要支持 Camera v2（IMX219），只需新写一个实现了 \code{sensor\_ops} 的文件。
+
+\subsection{板级资源}
+
+表~\ref{tab:cam-board} 列出了从 Raspberry Pi 设备树和 Linux 驱动中查到的资源。
+
+\begin{table}[htbp]
+  \centering
+  \caption{摄像头相关的板级资源（Pi 3B+）}
+  \label{tab:cam-board}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    项目 & 值 \\
+    \midrule
+    传感器 I2C & BSC0 走 GPIO44/45（ALT1），从机地址 \code{0x36}，芯片 ID \code{0x5647} \\
+    传感器供电 & 固件扩展 GPIO 5，mailbox 编号 $128+5=133$ \\
+    传感器时钟 & 摄像头板上自带 25\,MHz 晶振 \\
+    接收器 & Unicam CSI1，寄存器 \code{0x7e801000}，lane 时钟门控 \code{0x7e802004} \\
+    中断 & GPU IRQ 39 \\
+    电源域 & UNICAM1：设备树编号 13，发给固件时要加 1，即 14 \\
+    lp 时钟 & 时钟管理器 \code{CM\_CAM1}，100\,MHz \\
+    VPU 时钟 & Unicam 要求至少 250\,MHz，\file{config.txt} 中 \code{core\_freq=250} \\
+    CSI-2 链路 & 2 条数据 lane，非连续时钟，RAW10（数据类型 \code{0x2B}） \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+供电和电源域都要通过 VideoCore 固件的 property mailbox：内核在一块 16 字节对齐的缓冲区里写好“标签”（如 \code{0x00038041} 设置扩展 GPIO、\code{0x00038030} 设置电源域），把地址写入 mailbox 寄存器，等固件把结果写回同一块缓冲区。项目把原来分散在 SD、USB 驱动里的私有 mailbox 代码收拢成了带锁的 \file{kernel/mbox.c}。电源域编号是一个容易出错的地方：设备树里的 UNICAM1 是 13，发给固件时要加 1。
+
+\subsection{上电与探测}
+\label{sec:cam-probe}
+
+启动时 \code{main()} 先调用 \code{ov5647\_init()} 登记传感器驱动（此时不碰硬件），再由 \code{camera\_init()} 注册字符设备 \code{CAMERA}（主设备号 5，\code{/dev/video0}），然后对每个登记过的传感器先检查其默认模式 Unicam 能否接收，再调用 \code{power\_on}。OV5647 的做法是：经 mailbox 把固件扩展 GPIO 5 先拉低 20\,ms、再置 1，等 100\,ms，把 GPIO44/45 交给传感器的控制总线，读寄存器 \code{0x300a/0x300b}，应得 \code{0x56 0x47}。下面几段讲这条控制总线是怎样从硬件 I2C 一步步退到 25\,kHz 软件 SCCB 的。成功时打印：
+
+\begin{txtcode}
+camera: OV5647 on CSI1 (2 lanes) -> /dev/video0, 640x480 RAW10
+\end{txtcode}
+
+\paragraph{mailbox.} 供电走的是固件 property mailbox。电源控制现在与 Linux \file{gpio-raspberrypi-exp.c} 一致：先用 \code{GET\_GPIO\_CONFIG} 读出并保留 CAM\_GPIO0 的极性，再设置方向和电平，最后用 \code{GET\_GPIO\_STATE} 回读，标准 Pi 3 应显示 \code{direction=output polarity=normal state=1}。消息本身按 Linux \code{rpi\_firmware\_property()} 的约定组织：标签的请求/应答长度字填 0；发送前清空 FIFO 里其他驱动超时后遗留的旧回复（日志里的 \code{stale replies K}）；只接受地址与本次请求相同的回复；判断成败时不看单个标签的 response 位，而看整条消息成功后返回结构的第一个字。早先那次“标签不支持”的日志，很可能就是读到了别人的旧回复。
+
+\paragraph{为什么硬件 I2C 读不到芯片 ID.} 读 16 位寄存器地址需要“写地址、不发 STOP、repeated START、读数据”的组合事务。BSC 的状态机有个硬件限制：写 FIFO 不能预填，驱动要先启动一个空写事务，等 \code{TXW} 置位后再填数据，并在最后一个写字节之后立即切换到读阶段——\code{i2c\_write\_read()} 照 Linux \file{i2c-bcm2835.c} 实现了这条路径；失败时再试 SCCB 常见的“STOP 后再 START”分离读法。真机上的现象却是：BSC0 在每一种读法下都返回 \code{ERR}（NACK）。诊断行把能看的状态都打了出来：
+
+\begin{txtcode}
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=90000131 flags=131 \
+        now=... div=2500 fsel=55 levels=3
+\end{txtcode}
+
+\code{flags} 的 \code{0x100} 是 NACK、\code{0x200} 是时钟拉伸超时；\code{fsel=55} 表示两个引脚都是 ALT1；\code{levels=3} 表示 SDA、SCL 都是高电平，总线空闲。还有一个真机与 QEMU 的区别：出错后若在 \code{TA}（transfer active）仍为 1 时就关掉 \code{I2CEN}，真 BCM2837 的状态机可能被冻结，所以驱动先保持使能、清 FIFO、等 NACK+STOP 让 \code{TA} 归零，再关控制器。顺带发现内核 \code{printf} 的 \code{\%x} 把最高位为 1 的值当有符号数打印（\code{0x90000131} 显示成 \code{-6ffffecf}），已改成无符号。
+
+\paragraph{用 bit-bang 把问题切成两半.} 三个常见地址（\code{0x36} OV5647、\code{0x10} IMX219、\code{0x1a} IMX477 等）在 BSC 上都 NACK 时，驱动临时把 GPIO44/45 改成开漏 GPIO，用约 100\,kHz 的软件时序只发一个地址字节、读第九个时钟上的 ACK，然后恢复 ALT1。这个测试不读写任何传感器寄存器，却能把故障一分为二：bit-bang 也 NACK，问题在控制器之外（排线、插座、供电或模块）；bit-bang ACK 而 BSC NACK，传感器、地址、供电、上拉、排线都已被证明没问题，故障只在 BSC0 的复用或时序。三个地址都 NACK 时还会扫描全部合法地址 \code{0x08}～\code{0x77}。
+
+诊断代码自己也出过错：第九个时钟最初调用的是通用的 \code{bb\_release()}，它释放 SDA 后会等 SDA 回到高电平——可 ACK 的定义恰恰是从设备把 SDA 拉低，于是每次都白等 100\,µs，同一个模块时而 ACK、时而 NACK。现在 ACK 周期只把 SDA 切成输入，在 SCL 高电平中间直接采样。
+
+\paragraph{BSC 恢复扫描.} 出现“bit-bang ACK、BSC NACK”时，驱动依次用 100、50、25、10\,kHz 重新读芯片 ID。每档都按 Linux 的比例同时更新 \code{BSC\_DIV} 和边沿采样延迟 \code{BSC\_DEL}（不继承固件留下的 FEDL/REDL），并在写完地址、长度、FIFO 之后加 \code{dsb sy}，保证这些配置在 START 之前已经到达控制器。第一个成功的速率留给后面整张寄存器表。
+
+\paragraph{软件 SCCB：从后备路径到首选路径.} 在本书使用的那块板子上，四档全部失败，而修正后的 bit-bang 稳定 ACK。于是驱动改用完整的软件 SCCB 事务（STOP/START 分离读法）读 \code{0x300a/0x300b}，此后 OV5647 的所有读写都走 GPIO44/45。软件路径比硬件慢，但只用来写一百来个短寄存器，图像本身走 CSI-2 和 DMA，不受影响。它又经历了两轮加固（驱动版本串 \code{gpio-sccb-v7}、\code{v8}）：
+
+\begin{itemize}
+  \item \textbf{偶发错误 ID}：v6 曾在地址 ACK 之后读出 \code{chip-id=3631}，接着全地址扫描报告 BUS-STUCK。\code{0x3631} 不是任何有效 ID，说明事务本身被应答了、但数据位采样不稳。v7 把软件时钟降到约 25\,kHz（半周期约 20\,µs）；任何不是 \code{0x5647} 的完整读数都被拒绝重读；只要 \code{0x36} 已经完成过寄存器事务，就不再做全地址扫描，而是直接断电重来——扫描本身就是对一个状态不稳的模块的额外扰动；
+  \item \textbf{恢复脉冲只在需要时发}：旧版每次软件事务前都无条件送 9 个 SCL 恢复脉冲；现在只有发现 SDA 被拉低（从设备卡在一个字节中间）才送，最多 9 个，然后统一发 STOP；
+  \item \textbf{更干净的电源沿}：上电前先把 CAM\_GPIO0 拉低 20\,ms 让模块放电，置高后等 100\,ms 再访问（Linux 设备树只要求 20\,ms，克隆模块需要更多）；
+  \item \textbf{不再先碰 BSC0}（v8）：v7 在真机上仍会出现“\code{0x36} ACK，但三次 ID 读取都失败”。原因是每次上电仍先跑几次注定失败的 BSC0 事务，再切到 GPIO，而 BSC 的半截事务会让传感器进入不稳定状态。v8 从第一次读 ID 起就直接用 25\,kHz 软件 SCCB，日志第一行就是 \code{probing with 25 kHz GPIO SCCB; BSC0 bypassed}；
+  \item 开始软件事务前直接关闭 BSC、清 FIFO 和粘滞状态位再切 GPIO，不等 BSC 的 \code{TA}；寄存器表里的 \code{0x0103=1} 会让传感器软件复位，写完这一项明确等 10\,ms；普通寄存器写最多重试三次。
+\end{itemize}
+
+\paragraph{延迟探测.} \code{/dev/video0} 在探测之前就已注册，所以 \code{open} 成功不代表绑定了传感器。启动时只探测一次，避免没有摄像头时拖慢开机；如果启动探测偶然失败，第一次 \code{read()} 或 \code{pattern=N} 写入会在拍照睡眠锁 \code{cam.busy} 下重新探测，最多三个完整的断电/上电周期，每次失败等 100\,ms。
+
+\subsection{拍一帧}
+
+用户每 \code{read()} 一次 \code{/dev/video0} 就拍一帧，返回 40 字节的帧头（magic、宽、高、行字节数、格式、长度、序号、时间戳）加打包的 RAW10 数据。帧头里的 \code{format} 同时给出 Bayer 顺序（OV5647 是 BGGR，IMX219 是 RGGB），用户程序据此去马赛克。\code{cam\_capture()} 的顺序与 Linux 相同——开始时先启动接收器再让传感器出流，结束时先停传感器再停接收器；整条调用链见图~\ref{fig:cam-calls}：
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize,
+      fn/.style={box, font=\footnotesize, minimum height=6mm, inner sep=2pt},
+      st/.style={fn, text width=40mm, align=left},
+      call/.style={-{Stealth[length=1.8mm]}, semithick, draw=structurecolor!70!black},
+      irq/.style={call, dashed, draw=red!70!black}]
+    % column backgrounds
+    \foreach \x/\w/\t in {0/24/{用户态与 VFS}, 27/46/{\file{unicam.c}（桥接驱动）}, 76/30/{\file{ov5647.c}（\code{sensor\_ops}）}, 109/41/{\file{ov5647.c} 内部 → \file{i2c.c}/\file{mbox.c}}}{
+      \fill[gray!5, rounded corners=2pt] (\x,2) rectangle ++(\w,84);
+      \node[lab, anchor=north] at (\x+\w/2,85.5) {\t};
+    }
+    % user / vfs chain
+    \node[fn, text width=22mm] (u)  at (12,72) {\code{camshot}\\\code{read(fd,buf,n)}};
+    \node[fn, text width=20mm] (sr) at (12,60) {\code{sys\_read}\\\code{fileread}};
+    \node[fn, text width=20mm] (cr) at (12,48) {\code{camread}\\持 \code{cam.busy}};
+    \node[fn, text width=20mm] (cb) at (12,34) {\code{camera\_bind}\\（未绑定时）};
+    \node[fn, text width=20mm] (co) at (12,10) {\code{copyout}\\帧头 + RAW10};
+    \draw[call] (u) -- (sr); \draw[call] (sr) -- node[lab, right]{\code{devsw[5]}} (cr);
+    \draw[call] (cr) -- (cb); \draw[call] (cb) -- (co);
+    % cam_capture steps
+    \node[font=\footnotesize\bfseries] at (50,76) {\code{cam\_capture()}};
+    \foreach \i/\y/\t in {1/71/{\code{mbox\_set\_domain(14,1)}},
+                         2/64/{\code{cam1\_clock\_on()}：\code{CM\_CAM1}},
+                         3/57/{\code{ops->power\_on}},
+                         4/50/{\code{unicam\_start(bus,mode)}},
+                         5/43/{\code{ops->stream\_on(mode)}},
+                         6/36/{\code{unicam\_service(0)} $\times N$},
+                         7/29/{\code{ops->stream\_off}},
+                         8/22/{\code{unicam\_stop()}},
+                         9/15/{\code{cam\_power\_off()}}}{
+      \node[st] (s\i) at (50,\y) {\textbf{\i}\enspace\t};
+    }
+    \draw[call] (cr.east) -- ++(2,0) |- (s1.west);
+    \foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7,7/8,8/9}{ \draw[call] (s\a) -- (s\b); }
+    \draw[call] (s9.south) |- (co.east);
+    \node[fn, text width=20mm, draw=red!60!black] (irqn) at (12,22) {\code{devintr}\\→ \code{unicam\_irq}};
+    \draw[irq] (irqn.east) -- ++(4,0) |- node[lab, above, pos=0.75, text=red!60!black]{屏蔽} (s6.west);
+    % ov5647 ops
+    \node[fn, text width=28mm] (pon) at (91,57) {\code{ov5647\_power\_on}};
+    \node[fn, text width=28mm] (son) at (91,43) {\code{ov5647\_stream\_on}};
+    \node[fn, text width=28mm] (sof) at (91,29) {\code{ov5647\_stream\_off}};
+    \node[fn, text width=28mm] (pof) at (91,15) {\code{ov5647\_power\_off}};
+    \draw[call] (s3) -- (pon); \draw[call] (s5) -- (son); \draw[call] (s7) -- (sof); \draw[call] (s9) -- (pof);
+    % bus layer
+    \node[fn, text width=37mm] (mb) at (129.5,68) {\code{mbox\_set\_expgpio(5,·)}\\\code{mbox\_set\_domain}\\→ \code{mbox\_property}};
+    \node[fn, text width=37mm] (rw) at (129.5,50) {\code{ov5647\_read}/\code{ov5647\_write}\\\code{ov5647\_write\_array}（重试 3 次）};
+    \node[fn, text width=37mm] (bsc) at (129.5,34) {\code{i2c\_write\_read}/\code{i2c\_write}\\硬件 BSC0};
+    \node[fn, text width=37mm] (bb) at (129.5,18) {\code{i2c0\_bitbang\_write\_read}\\GPIO44/45 软件 SCCB};
+    \draw[call] (pon.north east) -- ([yshift=-3mm]mb.west);
+    \draw[call] (s1.east) -- (s1.east -| mb.west);
+    \draw[call] (pon.east) -- (rw.west);
+    \draw[call] (son.east) -- (rw.west);
+    \draw[call] (sof.east) -- (rw.west);
+    \draw[call] (rw) -- node[lab, right]{默认} (bsc);
+    \draw[call] (rw.east) -- ++(2.5,0) |- node[lab, right, pos=0.25, align=left]{BSC\\失败后} (bb.east);
+  \end{tikzpicture}
+  \caption{一次 \code{read("/dev/video0")} 的调用关系。\code{unicam.c} 只通过 \code{sensor\_ops} 调用传感器驱动；传感器驱动再经 mailbox 上电、经 BSC0 或软件 SCCB 写寄存器。第 6 步每 1\,ms 轮询一次 Unicam 状态，直到 \textsc{done} 或 4\,s 超时，是目前采集帧的唯一路径，中断入口已屏蔽；第 9 步的 \code{ov5647\_power\_off} 同样经 mailbox 断电}
+  \label{fig:cam-calls}
+\end{figure}
+
+
+\begin{enumerate}
+  \item \code{mbox\_set\_domain(14, on)} 打开 UNICAM1 电源域；
+  \item \code{CM\_CAM1} 时钟：PLLD\_PER（500\,MHz）$\div 5 = 100$\,MHz；若 BUSY 位不置起，就退回 19.2\,MHz 晶振并打印提示；
+  \item \code{power\_on}：上电、校验 ID、进入 LP-11；
+  \item 按传感器的总线参数配置 Unicam（照 Linux \code{unicam\_start\_rx()}）：lane 数、虚拟通道、数据类型、行字节数（16 的倍数），DMA 先指向一块大小为 0 的“假缓冲区”；
+  \item \code{stream\_on}：依次写公共寄存器表、640$\times$480 模式表、HTS/VTS/曝光/增益、缓存的测试图案，退出软件待机，开始发送；
+  \item 帧状态机：\textsc{warmup} 丢弃前 30 帧（约 0.5\,s）让传感器自带的 AEC/AGC 收敛；\textsc{armed} 在下一个帧开始时把 DMA 地址换成真缓冲区；\textsc{capture} 一开始就写回假缓冲区；帧结束后进入 \textsc{done}；
+  \item \code{stream\_off} → 停 Unicam → \code{power\_off} → 关时钟和电源域，把数据从 \code{CAMDMA}（非缓存映射，物理 \code{0x07200000}）拷给用户。
+\end{enumerate}
+
+第 6 步的关键（图~\ref{fig:cam-fsm}）是：写进 \code{IBSA0/IBEA0} 的新地址\emph{要到下一个帧开始才生效}。所以真缓冲那一帧刚开始就把假缓冲写回去，这一帧会继续完整地写进真缓冲，之后的帧则落进假缓冲，缓冲区里恰好留下一整帧。假缓冲的大小编程为 0，是照搬 Linux 绕开循环缓冲模式越界写缺陷的做法。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize]
+    \def\fw{22}\def\gap{5}
+    % row labels
+    \node[lab, anchor=east] at (14,40) {传感器输出};
+    \node[lab, anchor=east] at (14,30) {DMA 实际写入};
+    \node[lab, anchor=east] at (14,20) {\code{IBSA0} 寄存器};
+    \node[lab, anchor=east] at (14,10) {\code{cam.state}};
+    \foreach \i/\n in {0/29,1/30,2/31,3/32}{
+      \pgfmathsetmacro{\xs}{16+\i*(\fw+\gap)}
+      \draw[fill=structurecolor!15, draw=structurecolor!70!black] (\xs,36.5) rectangle ++(\fw,7) node[midway]{第 \n 帧};
+      \draw[red!70!black, thick] (\xs,34) -- (\xs,46) node[above, font=\scriptsize]{FS};
+      \draw[gray!70!black, thick] (\xs+\fw,34) -- (\xs+\fw,46) node[above, font=\scriptsize]{FE};
+      \draw[gray!40, dashed] (\xs,4) -- (\xs,34);
+    }
+    % DMA target row
+    \foreach \i/\t/\c in {0/假缓冲/gray!12, 1/假缓冲/gray!12, 2/真缓冲 \code{FRAME\_PA}/orange!30, 3/假缓冲/gray!12}{
+      \pgfmathsetmacro{\xs}{16+\i*(\fw+\gap)}
+      \draw[fill=\c, draw=gray!60] (\xs,26.5) rectangle ++(\fw,7) node[midway]{\t};
+    }
+    % IBSA row
+    \draw[fill=gray!8, draw=gray!60] (16,16.5) rectangle (43,23.5) node[midway]{\code{DUMMY\_PA}};
+    \draw[fill=orange!20, draw=gray!60] (43,16.5) rectangle (70,23.5) node[midway]{\code{FRAME\_PA}};
+    \draw[fill=gray!8, draw=gray!60] (70,16.5) rectangle (119,23.5) node[midway]{\code{DUMMY\_PA}};
+    % state row
+    \foreach \a/\b/\t in {16/43/{\textsc{warmup}}, 43/70/{\textsc{armed}}, 70/92/{\textsc{capture}}, 92/119/{\textsc{done} → 停流}}{
+      \draw[fill=structurecolor!8, draw=structurecolor!60!black] (\a,6.5) rectangle (\b,13.5) node[midway]{\t};
+    }
+    % annotations
+    \node[lab, align=left, anchor=north west, text width=44mm] (n1) at (2,-1) {\textbf{A} 第 30 个 FS（或 1.5\,s 期限）：写入 \code{FRAME\_PA}，进入 \textsc{armed}；本帧仍写假缓冲};
+    \node[lab, align=left, anchor=north west, text width=44mm] (n2) at (50,-1) {\textbf{B} 下一个 FS：新地址生效，第 31 帧写进真缓冲；处理程序立刻写回 \code{DUMMY\_PA}，进入 \textsc{capture}};
+    \node[lab, align=left, anchor=north west, text width=40mm] (n3) at (98,-1) {\textbf{C} 第 31 帧的 FE：真缓冲里正好一整帧，进入 \textsc{done}；第 32 帧落进假缓冲};
+    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (43,54) {A};
+    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (70,54) {B};
+    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (92,54) {C};
+  \end{tikzpicture}
+  \caption{帧状态机的时序。\code{IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS}
+  \label{fig:cam-fsm}
+\end{figure}
+
+\paragraph{为什么用轮询而不是中断.} 设备树说 CSI1 是 GPU IRQ 39，但这个编号没有在真机上验证过。第一次真机出流时打开了这个中断，CPU0 随即陷入一个清不掉的电平中断：连更新 \code{ticks} 的通用定时器中断都得不到执行，而原来的 4 秒超时恰恰是按 \code{ticks} 计的，于是永远不会到期。bring-up 版本因此屏蔽 IRQ 39，用 \reg{CNTVCT\_EL0} 计一个与中断无关的 4 秒期限，每 1\,ms 轮询一次 Unicam 状态；无论成败都能返回，失败时打印 FS/FE 计数、\code{STA}、\code{IBWP} 等诊断。之后若要重新打开中断，也只在拍照期间打开，连续 100 次没有发现 Unicam 状态就自动关掉，并始终保留这个有界轮询作兜底。现在真机上的日志是：
+
+\begin{txtcode}
+unicam: frame captured by polling; CSI1 IRQ 39 intentionally masked
+\end{txtcode}
+
+它表示 sensor → CSI-2 → Unicam → DMA 的整条路径已经打通，只是 IRQ 路由还留待单独验证。
+
+\subsection{用户程序 \code{camshot}}
+
+\code{camshot} 用纯整数运算完成图像处理（用户程序以 \code{-mcpu=cortex-a53+nofp} 编译）：解包 RAW10（每 4 个像素占 5 字节），减黑电平 16，BGGR 双线性去马赛克，灰度世界白平衡（增益限制在 0.5～4），把绿色通道的第 99 百分位拉到满幅，查表做 gamma 2.2 校正，写成 24 位 BMP。\code{-t N} 让传感器输出内部测试图案（1 彩条、2 色块、3 随机），这时改用固定的 1.0 白平衡和固定电平，不做统计——测试图案本身是校准过的，正好单独验证传感器、CSI-2、DMA、转换和写盘；\code{-s} 输出 320$\times$240 半尺寸。
+
+640$\times$480 的 BMP 有 900\,KB，超过原生 xv6 文件系统单文件 268\,KB 的上限（\code{MAXFILE}$=12+256$ 块），所以默认写到以读写方式挂载的 FAT32 启动分区 \code{/boot/camera.bmp}，关机后把 SD 卡插到电脑上就能看到。为了让慢速写盘不被误判成“卡死”，\code{camshot} 在每个阶段打印一行（收到帧、解包、统计、打开输出、写头、转换），BMP 按 16 行一批写入（半尺寸图从 240 次 FAT32 写降到 15 次），启动时打印的版本串 \code{converter fixed-pattern-v2 fat-progress batch16} 用来确认 SD 卡上的程序确实已经更新。
+
+\subsection{一次成功拍照的日志解读}
+\label{sec:cam-log}
+
+下面是 v8 驱动在真机上一次成功拍照的完整串口输出（\code{camshot -t 1 -s -o /boot/cam02.bmp}：传感器彩条、半尺寸、写到启动分区）。左边的 (1)～(6) 是为了讲解加的阶段编号，与下文 \ding{172}～\ding{177} 一一对应：
+
+\begin{txtcode}
+(1) camera: driver gpio-sccb-v8 unicam-poll-v2
+    ov5647: CAM_GPIO0 direction=output polarity=normal state=1
+    i2c0: GPIO44/45 ALT1, 100000 Hz (core 250000000), BCM2837 two-stage abort
+    ov5647: probing with 25 kHz GPIO SCCB; BSC0 bypassed
+    ov5647: software SCCB power-on chip-id=5647
+    ov5647: sensor outputs enabled
+    ov5647: power-on complete, lanes in LP-11
+    camera: OV5647 on CSI1 (2 lanes) -> /dev/video0, 640x480 RAW10
+$ /bin/camshot -t 1 -s -o /boot/cam02.bmp
+(2) camshot: converter fixed-pattern-v2 fat-progress batch16
+    camshot: capturing...
+    ov5647: CAM_GPIO0 direction=output polarity=normal state=1
+    ...（与 (1) 相同的上电五行）
+    ov5647: power-on complete, lanes in LP-11
+(3) unicam: sensor powered, receiver setup begins
+    unicam: receiver enabled, starting sensor stream
+    ov5647: programming common registers (51)
+    ov5647: programming mode registers (29)
+    ov5647: programming controls (11)
+    ov5647: streaming started
+    unicam: sensor streaming, waiting for frame
+(4) unicam: frame captured by polling; CSI1 IRQ 39 intentionally masked
+(5) camshot: frame received 640x480, 384040 bytes
+    camshot: unpacking RAW10...
+    camshot: sensor test pattern; fixed WB/level
+(6) camshot: preparing output /bovfs: boot create begin path=/boot/cam02.bmp sub=/cam02.bmp mode=601
+    ot/cam02.bmp (230454 bytes)...
+    vfs: boot create stat complete exists=0
+    vfs: boot create directory-entry begin
+    fat32: create lookup begin path=/cam02.bmp
+    fat32: create lookup complete exists=0
+    fat32: create reserve begin slots=2
+    fat32: create reserve complete
+    vfs: boot create directory-entry complete
+    vfs: boot create truncate begin / complete
+    vfs: boot create verify-stat begin / complete
+    vfs: boot create openwrite begin / complete
+    camshot: output opened; writing BMP header...
+    camshot: converting and writing /boot/cam02.bmp (230454 bytes)...
+    camshot: 320x240 frame 31, WB R x1.0 B x1.0, level x1.0 -> /boot/cam02.bmp
+\end{txtcode}
+
+\paragraph{\ding{172} 启动时的探测与绑定.} 这是 \code{main()} → \code{camera\_init()} → \code{camera\_bind()} → \code{ov5647\_power\_on()} 的输出。第一行是驱动版本串，用来确认 SD 卡上跑的确实是新内核。第二行来自 mailbox 的回读：CAM\_GPIO0 是输出、极性正常、电平为 1，模块的稳压器已经打开。第三行由 \code{i2c0\_init\_camera\_pins()} 打印：BSC0 仍按 100\,kHz 初始化（分频 $250\,\text{MHz}/100\,\text{kHz}=2500$），出错时采用“两段式中止”——先保持 \code{I2CEN} 清 FIFO 等 \code{TA} 归零，再关控制器（\ref{sec:cam-probe} 小节）。但紧接着的一行说明这次根本不用它：v8 直接用 25\,kHz 软件 SCCB。读到 \code{5647} 之后，驱动写一小段寄存器打开传感器的输出引脚，再写停流序列让 MIPI 链路停在 LP-11 空闲态——Unicam 稍后要在这个干净的空闲态上做模拟复位和校准。最后一行表示绑定成功；绑定之后 \code{camera\_bind()} 立即 \code{power\_off()}，模块在两次拍照之间是断电的。
+
+\paragraph{\ding{173} 每次拍照都重新上电.} 用户 \code{read()} 进入 \code{camread()}，持 \code{cam.busy} 调 \code{cam\_capture()}，后者再次 \code{ops->power\_on()}，所以上电五行原样再出现一次。这是“每次拍照完整上电、预热、断电”这个设计的直接体现，也是一次拍照要一秒左右的主要原因。
+
+\paragraph{\ding{174} 先接收器、后出流.} \code{unicam: receiver enabled} 在 \code{starting sensor stream} 之前，顺序与 Linux 一致。随后 \code{ov5647\_stream\_on()} 写三张表：公共寄存器 51 项、640$\times$480 模式 29 项、曝光增益等控制 11 项，再加上虚拟通道、测试图案、退出待机、MIPI 控制等几次读改写。它们全部经 25\,kHz 软件 SCCB：一次 16 位地址的写是 4 个字节、约 36 个时钟，约 1.5\,ms，九十多次写加起来约 0.15 秒——慢，但只在开流时发生一次。
+
+\paragraph{\ding{175} 一帧到手.} \code{cam\_capture()} 每 1\,ms 调一次 \code{unicam\_service(0)}，状态机经过 \textsc{warmup}（丢 30 帧）、\textsc{armed}、\textsc{capture}，在帧结束时进入 \textsc{done}（图~\ref{fig:cam-fsm}）。“\code{intentionally masked}”说明 IRQ 39 是有意屏蔽的，不是丢了中断。
+
+\paragraph{\ding{176} 数字对得上.} \code{read()} 返回 \code{384040} 字节：40 字节帧头加 $640\times480\times10/8=384000$ 字节 RAW10。测试图案模式下 \code{camshot} 用固定的 1.0 白平衡和电平，所以下一行直接是 \code{fixed WB/level}。
+
+\paragraph{\ding{177} 创建输出文件.} 这一段同时有用户态和内核两个来源的输出，所以第一行被“切开”了：\code{camshot} 的 \code{printf} 在用户态逐字符 \code{write(1, \&c, 1)}，打到 \code{"/bo"} 时进程陷入 \code{open()}，VFS 的内核 \code{printf} 插了一整行进来，返回用户态后才接着打出 \code{"ot/cam02.bmp (230454 bytes)..."}。传给内核的路径并没有坏，\code{path=/boot/cam02.bmp} 写得清清楚楚。之后各行对应 \code{vfsopen()} 的创建流程：
+
+\begin{itemize}
+  \item \code{mode=601}：$\code{0x001}\,|\,\code{0x200}\,|\,\code{0x400}$，即 \code{O\_WRONLY|O\_CREATE|O\_TRUNC}；
+  \item \code{stat complete exists=0}：\code{fat32statpath()} 正常返回，文件还不存在；
+  \item \code{fat32: create lookup}：\code{fat32createfile()} 内部再查一次，确认不重名；
+  \item \code{reserve begin slots=2}：\code{cam02.bmp} 本身就是合法的 8.3 名字，不需要 LFN，所以只要 2 个目录项——一个短名项，加一个全 0 的结束标记；根目录尾部空位够用，不必扩展目录簇；
+  \item \code{truncate}：对刚建的空文件截断，首簇为 0，什么都不用释放；
+  \item \code{verify-stat}、\code{openwrite}：重新确认目录项，并把首簇、大小装进 vnode 的 \code{fat32\_file}，供之后的追加写使用。
+\end{itemize}
+
+最后一行的 \code{230454} 是 54 字节 BMP 头加 $320\times240\times3=230400$ 字节像素；\code{frame 31} 是帧头里的序号，即帧结束计数——30 帧预热之后的第 31 帧。输出是 320$\times$240，是因为 \code{-s} 把每个 2$\times$2 Bayer 块合成一个像素，不是 Unicam 丢了一半分辨率。
+
+\paragraph{这份日志证明了什么.} 对照 \ref{sec:cam-hw} 小节的四条通路：mailbox 供电（CAM\_GPIO0 回读）、SCCB 控制（读到 \code{5647}、三张表写完）、CSI-2 数据面与 DMA（\code{frame captured}、长度正确）、事件（轮询完成，IRQ 有意屏蔽）全部打通；用户态转换和 FAT32 写盘也都完成。它同时也是下一小节两个问题——\code{directory-entry begin} 之后停住、以及 \code{chip-id=3631}——修好之后的验证记录。
+
+\subsection{摄像头暴露的四个系统问题}
+\label{sec:cam-bugs}
+
+摄像头是第一个同时用到大块 DMA、长时间用户态计算、FAT32 大文件写和 Wi-Fi 并发的程序，它把四个与摄像头本身无关的缺陷逼了出来。
+
+\paragraph{SDIO 事务重叠.} 转换进行到白平衡统计时，串口偶发 \code{arasan-sdio: request CMD52 failed status=df0001 irq=100}。两行日志挨在一起，很容易得出“用户程序抢占了 Wi-Fi 工作线程”的结论，但这站不住：\code{camshot} 和 \code{brcmf0\_wq} 都是 \code{SCHED\_OTHER}、nice 0，用户态并不自动低于内核线程，而且 SDIO 中断上半部随时能打断用户程序。真正的线索是 \code{status} 的 bit~0 \code{CMD\_INHIBIT} 和只有卡中断、没有本次 \code{CMD\_DONE} 的 \code{irq}：上一个事务还没结束，另一个就开始写寄存器了。原来 \code{sdio\_cmd52()}/\code{sdio\_cmd53()} 直接调用 Arasan 的 \code{request()}，而 Wi-Fi 的状态工作、NAPI 收发和 BCDC 控制请求可能在不同核上同时运行，共用同一组 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器。修复是给 \code{struct mmc\_host} 加一把睡眠锁 \code{request\_lock}，所有 CMD52/CMD53 都经 \code{mmc\_request\_sync()} 串行化——锁的粒度是物理控制器，对应 Linux MMC core 的 host claim；用睡眠锁是因为一次请求可能要等命令、数据和超时（第~\ref{chap:process} 章）。
+
+\paragraph{另一个核上的旧指令.} 更新 \code{/bin/camshot} 后，程序偶尔在第一行输出之前就以 \code{esr=0x92000004} 退出，\code{ELR} 指向 \code{strncpy()} 里一条纯寄存器的 \code{sub}，\code{FAR} 是个随机指针。一条不访存的指令不可能产生数据中止，说明 CPU 实际执行的并不是磁盘上这个 ELF 的指令。原因是 \code{uvmsync\_icache()} 末尾的 \code{ic iallu} 只作废\emph{本核}的指令缓存：\code{exec()} 在一个核上装入新程序，进程随后迁移到另一个核，那里的 I-cache 仍命中同一低地址上旧程序的指令。改成广播版本 \code{ic ialluis} 后问题消失（第~\ref{chap:mmu} 章故障二）。
+
+\paragraph{\code{O\_TRUNC} 释放 FAT 链太慢.} 测试图案模式下日志停在 \code{fixed WB/level} 之后很久不动，看起来像转换死循环。实际上转换还没开始：程序正以 \code{O\_TRUNC} 打开已有的 \code{/boot/camera.bmp}，旧的 \code{fat\_free\_chain()} 对每个簇分别读 FAT、再读改写两份 FAT 副本，覆盖一个 320$\times$240 的 BMP 就要五百多次 SD 扇区事务。现在它缓存当前 FAT 扇区，批量清除其中属于旧文件的链项，再把整个扇区写到各个 FAT 副本（第~\ref{chap:fs} 章）。
+
+\paragraph{创建文件时内核栈溢出.} 写新文件 \code{/boot/cam02.bmp} 时，日志曾停在 \code{vfs: boot create directory-entry begin}，再无下文。前一行 \code{exists=0} 说明 \code{stat} 已经正常返回，所以问题在 \code{fat32createfile()} 里。第一个猜测是“根目录要扩展、簇分配器扫描太慢”，于是先给分配器加了按扇区缓存（\ref{sec:fat32} 节），但真机上仍停在同一行，连新加的 \code{fat32: extending root directory} 都没打印——说明根本没走到分配器。
+
+真正的原因是内核栈。每个进程的内核栈只有一页 4\,KiB。旧的 \code{fat32createfile()} 在栈上放了一个路径匹配结构、22 个目录槽和一个 256 字节的文件名缓冲，又嵌套调用 \code{fat\_find\_path()}，后者在栈上再放 256 字节文件名、520 字节的 LFN 字符数组和 20 个目录槽。光这些数组就接近 3.5\,KiB，加上 VFS、系统调用的栈帧和保存的寄存器，越过了 4\,KiB。\code{stat} 没事，是因为它只用到其中一层；只有 create 把两层大数组叠在一起。
+
+栈越界为什么表现为“停住”而不是一条 \code{kerneltrap} 报错？内核栈之间隔着不映射的保护页（第~\ref{chap:mmu} 章），越界首先落进保护页，触发 EL1 数据中止；可 EL1 的异常入口要在\emph{同一个} \code{SP\_EL1} 上压 272 字节保存现场（\ref{sec:irq} 节），这一压又落在保护页里，于是异常入口自己再次中止，CPU 在异常向量里反复进出，串口上什么也不会出现。
+
+修复是把这些大数组移出栈，放进 FAT32 私有的静态工作区 \code{fat\_work}。所有 FAT32 操作本来就持 \code{fat32\_lock} 串行执行，所以一个工作区就够，也不用把每个进程的内核栈都加大。反汇编确认两个函数的栈帧降到 \code{fat32createfile} 464 字节、\code{fat\_find\_path} 176 字节。同时在 create 路径上加了更细的阶段日志（\code{create lookup}、\code{create reserve}），以后再出问题，可以直接区分是查找、保留目录项还是分配簇。\ref{sec:cam-log} 小节的日志就是修复后的样子。
+
+这个问题和前一段的 \code{O\_TRUNC} 截然不同，判断依据就是停在哪一行：\code{exists=1} 且停在 \code{truncate begin}，是释放旧簇链慢；\code{exists=0} 且停在 \code{directory-entry begin}，是创建目录项这一路——这次是栈溢出，也可能是根目录需要扩展时的簇分配。
+
+\subsection{当前状态}
+
+真机（Pi 3B+，Camera v1.3）上，v8 驱动从第一次访问起就用 25\,kHz 软件 SCCB，稳定读到芯片 ID \code{0x5647} 并绑定到 \code{/dev/video0}；Unicam 以轮询方式拿到完整帧，\code{camshot -t 1 -s -o /boot/cam02.bmp} 能把彩条写成 BMP（\ref{sec:cam-log} 小节）。还没有完成的工作有：
+
+\begin{itemize}
+  \item 验证 CSI1 中断号并打开中断路径（保留轮询兜底）；
+  \item 查清 BSC0 硬件读不到芯片 ID 的原因（控制器路由还是固件占用），以便退回硬件 I2C；
+  \item 更多模式：Linux 的 1296$\times$972 等模式每帧超过 1.5\,MB，需要扩大 \code{CAMDMA}，桥接驱动不用改；目前也还没有选择模式的接口；
+  \item 每次拍照都完整地上电和预热（约 1 秒），没有连续取流和 \code{poll()}，也没有手动曝光；
+  \item \code{arasan\_sdio.c}、\code{dwc2.c}、\code{sd.c} 里仍各有一份私有 mailbox 代码，应统一到 \file{mbox.c}；
+  \item \file{config.txt} 不能打开固件的摄像头支持（\code{start\_x=1}、\code{camera\_auto\_detect=1}），否则固件会占用同一个传感器和 I2C。
+\end{itemize}
+
+\begin{remark}
+  摄像头驱动是全书最能体现“分层”价值的例子：mailbox、I2C、时钟、电源域、CSI-2 接收器、DMA、帧状态机、字符设备、用户态图像处理，每一层都可以单独验证。真机调试也正是这样一层层推进的：先看 mailbox 回读，再用 bit-bang 判断 I2C 故障在控制器内外，再用传感器内部彩条（\code{camshot -t 1}）验证 CSI-2 和 DMA，最后才看真实画面。
+\end{remark}

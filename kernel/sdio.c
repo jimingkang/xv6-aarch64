@@ -119,6 +119,28 @@ sdio_bus_exit(void)
 }
 
 static int
+mmc_request_sync(struct mmc_host *host, struct mmc_request *mrq)
+{
+  int result;
+
+  if(host == 0 || host->ops == 0 || host->ops->request == 0)
+    return -1;
+  // Initial enumeration runs on the boot CPU before userinit(), when there
+  // is no current proc and no other CPU can submit an MMC request.  xv6's
+  // sleeplock records myproc()->pid, so use it only once process context
+  // exists.  Runtime control/NAPI/workqueue requests always take the lock.
+  if(myproc() == 0)
+    return host->ops->request(host, mrq);
+  // The command, argument, interrupt-status and data registers belong to the
+  // host, not to an SDIO function.  Serialize the whole transaction just as
+  // Linux's MMC core serializes access while a caller owns the host.
+  acquiresleep(&host->request_lock);
+  result = host->ops->request(host, mrq);
+  releasesleep(&host->request_lock);
+  return result;
+}
+
+static int
 mmc_command(struct mmc_host *host, uint32 opcode, uint32 arg,
             int response_type, uint32 *response)
 {
@@ -127,8 +149,7 @@ mmc_command(struct mmc_host *host, uint32 opcode, uint32 arg,
   mrq.cmd.opcode = opcode;
   mrq.cmd.arg = arg;
   mrq.cmd.response_type = response_type;
-  if(host == 0 || host->ops == 0 || host->ops->request == 0 ||
-     host->ops->request(host, &mrq) < 0)
+  if(mmc_request_sync(host, &mrq) < 0)
     return -1;
   if(response)
     *response = mrq.cmd.response[0];
@@ -182,7 +203,7 @@ sdio_cmd53(struct sdio_func *func, int write, uint32 addr,
   data.blocks = 1;
   data.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
   mrq.data = &data;
-  if(func->host->ops->request(func->host, &mrq) < 0 ||
+  if(mmc_request_sync(func->host, &mrq) < 0 ||
      (mrq.cmd.response[0] & 0xcb00))
     return -1;
   return 0;
@@ -402,6 +423,7 @@ mmc_add_host(struct mmc_host *host)
   if(host == 0 || host->ops == 0 || host->ops->request == 0 ||
      nhost >= MMC_MAX_HOSTS)
     return -1;
+  initsleeplock(&host->request_lock, "mmc-request");
   index = nhost;
   make_mmc_name(host_names[index], index, 0);
   host->dev.name = host_names[index];

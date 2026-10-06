@@ -1,0 +1,51 @@
+% 3.8 raspberry-pi-os 与 xv6-aarch64 的对照（本书原创内容）
+\section{对照：从 raspberry-pi-os 到 xv6-aarch64}
+\label{sec:rpios-compare}
+
+读完 RPi OS 的几课之后再回头看 \ref{sec:xv6-startup} 节和标为“xv6”的小节，就会发现本项目的启动与异常代码只是把同样的几件事做得更“周全”。表~\ref{tab:rpios-vs-xv6} 逐项对照两者的做法。
+
+\begin{table}[htbp]
+  \centering
+  \caption{raspberry-pi-os（第 1～6 课）与 xv6-aarch64 的对照}
+  \label{tab:rpios-vs-xv6}
+  \small
+  \begin{tabularx}{\linewidth}{@{}p{2.3cm}XX@{}}
+    \toprule
+    主题 & raspberry-pi-os & xv6-aarch64 \\
+    \midrule
+    装载 & \code{kernel\_old=1}，装在 0，无固件 armstub & 装在 \code{0x80000}，使用固件 armstub \\
+    入口异常级别 & 假定 EL3，直接写 \code{*\_el3} & 检查 \reg{CurrentEL}，兼容 EL3、EL2 \\
+    副核 & 死循环 \code{b proc\_hang} & \code{wfe} 等待，之后经 spin-table 唤醒，四核运行 \\
+    早期输出 & 无，\code{kernel\_main} 中才初始化 UART & 汇编版 Mini UART 与启动标记字符 \\
+    \code{SPSR} 屏蔽 & \code{7<<6}：A、I、F & \code{0x3c5}：D、A、I、F \\
+    向量表 & 16 项，非法项打印 ESR/ELR 后停机 & 16 项，未用项 \code{b .} \\
+    现场 & \code{kernel\_entry el}，272 字节 \code{pt\_regs} & \code{savereg}/\code{usavereg}，272 字节 \code{trapframe} \\
+    定时器 & BCM System Timer C1，绝对比较值，200\,ms & ARM 通用虚拟定时器，相对倒计时，10\,ms \\
+    中断控制 & 只用 legacy \code{IRQ\_PENDING\_1} & legacy + ARM-local 两级，含 mailbox IPI \\
+    开关中断 & \code{daifset/clr \#2}，只动 I & \code{\#0xf}，四位一起 \\
+    任务结构 & \code{task\_struct} 在栈页底部，\code{task[64]} & \code{struct proc} 链表，栈页单独映射且有保护页 \\
+    上下文 & \code{cpu\_context}：x19～x30、sp & \code{context}：x18～x30、sp \\
+    调度 & Linux 0.01：counter/priority & 优先级 + FIFO/RR + 亲和性 + IPI \\
+    新任务入口 & \code{ret\_from\_fork} $\to$ \code{schedule\_tail} & \code{forkret} $\to$ \code{usertrapret} \\
+    系统调用号 & \code{x8} & \code{x7} \\
+    第一个用户进程 & 内核线程 \code{move\_to\_user\_mode} & \code{userinit} 装入 \code{initcode}，\code{exec("/init")} \\
+    装载程序 & 链接进内核的 \code{user\_*} 段 & 从文件系统读 ELF \\
+    页表 & 48 位 VA，四级，内核用 2\,MB 段 & 39 位 VA，三级，全部 4\,KB 页 \\
+    内存属性 & Device + Normal NC，缓存关闭 & Device + Normal WB（Inner Shareable）+ NC，缓存打开 \\
+    启动映射 & 只有 TTBR1 & TTBR0 恒等映射 + TTBR1 高地址 \\
+    缺页 & 按需分配（最多两页） & 不支持，直接终止进程；\code{sbrk} 时预先分配 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+几处差异值得单独说明。
+
+\paragraph{缓存.} raspberry-pi-os 自始至终关闭数据缓存和指令缓存，所有普通内存都是 Normal Non-cacheable。这让它完全不必考虑缓存一致性，代价是性能很低，而且如第~\ref{chap:mmu} 章所述，在 Cortex-A53 上，独占访问指令（\code{ldaxr}/\code{stxr}）在这种内存上可能永远失败——单核、没有锁的 raspberry-pi-os 碰不到这个问题，多核 xv6 则必须打开缓存，随之而来的是 D/I-cache 同步和 TLB 维护的一整套规则。
+
+\paragraph{任务结构的位置.} raspberry-pi-os 把 \code{task\_struct} 放在任务栈页的底部，栈从页顶向下长。这和早期 Linux 的 \code{thread\_info} 一样省事：知道栈指针就能找到任务结构。但栈一旦溢出，首先被覆盖的就是任务结构本身。xv6-aarch64 把内核栈放在内核页表高端的独立槽位中，相邻栈之间隔一页不映射的保护页，溢出会立即触发异常。
+
+\paragraph{\code{fork} 的返回路径.} 两者的思路完全一致：子任务的 \code{cpu\_context.pc}（或 \code{context.x30}）指向一段“从未被调用过的返回代码”，调度器第一次 \code{ret} 到这里；它解除调度器留下的状态（raspberry-pi-os 重新打开抢占，xv6 释放 \code{p->lock}），然后从拷贝来的 \code{pt\_regs}/\code{trapframe} 执行 \code{eret}，子任务在用户态看到 \code{fork()} 返回 0。第~\ref{sec:sched-trace} 小节逐步跟踪了一次时间片轮转，把那几步和 \code{forkret} 对照着看，\code{fork()} 的返回路径就一目了然了。
+
+\paragraph{地址宽度.} raspberry-pi-os 用 48 位地址、四级页表，内核基址 \code{0xffff000000000000}；xv6-aarch64 用 39 位地址、三级页表，内核基址 \code{0xffffff8000000000}。三级页表少一次内存访问，512\,GB 的用户空间对 xv6 也绰绰有余。两者的 TTBR0/TTBR1 分工完全相同。
+
+建议的阅读顺序是：先把 RPi OS 六课的代码（\url{https://github.com/s-matyukevich/raspberry-pi-os}）在树莓派上逐个跑一遍，再读本书第~\ref{chap:boot}、\ref{chap:mmu}、\ref{chap:process}、\ref{chap:user} 章中对应的小节；遇到“为什么要多做这一步”的地方，回到表~\ref{tab:rpios-vs-xv6} 找对应的一行。

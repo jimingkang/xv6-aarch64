@@ -1,0 +1,4 @@
+# 使用 XeLaTeX + Biber 编译（ElegantBook 中文模式需要 XeLaTeX）
+$pdf_mode = 5;          # xelatex -> xdvipdfmx
+$xelatex = 'xelatex -synctex=1 -interaction=nonstopmode -file-line-error %O %S';
+$bibtex_use = 2;

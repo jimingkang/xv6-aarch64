@@ -1,0 +1,223 @@
+% 3.1 xv6-aarch64 的启动代码（融入 raspberry-pi-os 第 1、2 课的原理）
+\subsection{上电之后发生了什么}
+
+树莓派的启动与 PC 不同：最先运行的不是 ARM 核，而是 VideoCore GPU。
+
+\begin{enumerate}
+  \item GPU 内部 ROM 从 SD 卡的 FAT32 分区读取 \code{bootcode.bin}，再加载 \code{start.elf}（GPU 固件）；
+  \item \code{start.elf} 读取 \code{config.txt}，初始化 SDRAM 和时钟，把内核镜像 \code{kernel8-xv6\_wifi.img} 拷到物理地址 \code{0x80000}；
+  \item 固件还在物理地址 0 处放一段很小的 \emph{armstub}。它让四个 Cortex-A53 核一起开始执行：CPU0 跳到 \code{0x80000}，CPU1～3 在 \emph{spin-table} 上循环等待——各自读取 \code{0xe0}、\code{0xe8}、\code{0xf0} 处的 64 位地址，非零就跳过去；
+  \item 固件自带的 64 位 armstub 会先把核从 EL3 降到 EL2，因此内核通常在 EL2 拿到控制权；QEMU 也是如此。
+\end{enumerate}
+
+项目早期曾使用自制的极简 armstub（\file{kernel/armstub.S}），它只做一次跳转、保留在 EL3。后来发现这样做会让固件的 property mailbox 在真机上完全没有响应——而 SD 时钟查询、USB 上电、摄像头供电都依赖 mailbox。所以现在直接使用固件自带的 armstub，内核启动代码则要能同时处理 EL3、EL2 两种入口。
+
+\paragraph{固件、\code{config.txt} 与镜像文件名.} 树莓派的固件是闭源的，ARM 一侧能控制它的只有启动分区里的 \code{config.txt}。从一张空白 SD 卡启动一个裸机内核，至少需要四个文件：GPU 引导程序 \code{bootcode.bin}、GPU 固件 \code{start.elf}、\code{config.txt} 和内核镜像。固件根据镜像文件名决定 CPU 的执行状态：以 \code{8} 结尾的 \code{kernel8.img} 表示 ARMv8，固件会让四个核以 AArch64 状态启动；本项目用 \code{kernel=} 指定了自己的文件名，同时写了 \code{arm\_64bit=1}。
+
+\paragraph{另一种启动方式：\code{kernel\_old}.} 最简单的裸机教程（如 raspberry-pi-os\cite{rpios}）在 \code{config.txt} 中写 \code{kernel\_old=1}。这时固件把镜像装在物理地址 0，并且不安装 armstub：四个核都从地址 0 开始执行同一段内核代码，而且停留在 EL3。内核必须自己读 \reg{MPIDR\_EL1} 的低 8 位区分核号，把非 0 号核挂进死循环，再自己从 EL3 降到 EL1。这种方式的好处是“什么都由自己掌控”，代价是失去了固件 armstub 提供的 spin-table 多核唤醒协议，也失去了 armstub 对 EL3 安全状态的初始化。本项目选择相反的路线：让固件做它擅长的事，内核只在 \code{\_entry} 中兼容两种入口级别。
+
+\subsection{链接地址与装载地址}
+
+内核在高地址 \code{0xffffff8000080000} 链接，却被装到物理地址 \code{0x80000}。\file{kernel/memlayout.h} 用两个宏描述这种对应关系：
+
+\begin{ccode}
+#define KERNBASE  0xffffff8000000000L     // 内核虚拟地址空间起点
+#define KERNLINK  (KERNBASE + KERNPA)     // 内核链接地址
+#define V2P(a) (((uint64)(a)) - KERNBASE)
+#define P2V(a) ((void *)(((char *)(a)) + KERNBASE))
+\end{ccode}
+
+\code{KERNBASE} 选在 39 位地址空间的高半部分起点：当 \reg{TCR\_EL1.T1SZ}$=25$ 时，\reg{TTBR1\_EL1} 负责的范围恰好是 \code{0xffffff8000000000}～\code{0xffffffffffffffff}。内核把全部物理内存线性映射到 \code{KERNBASE + PA}，所以物理地址与内核虚拟地址之间只差一个常数。
+
+MMU 打开之前，CPU 用物理地址取指。此时如果执行 \code{ldr x0, =symbol} 得到的是高虚拟地址，访问它会立即出错；只有 PC 相对寻址的 \code{adr}/\code{adrp} 能得到正确的物理地址。这一限制决定了 \file{entry.S} 前半部分的写法。
+
+\paragraph{独立环境下的编译.} 内核不能依赖任何运行时环境，编译时要明确告诉编译器这一点：不链接 C 标准库（库中的大多数函数最终都要调用操作系统，而这里下面已经没有操作系统了）；不使用标准启动文件（设置栈、初始化静态数据、调用 \code{main} 这些事都由启动汇编自己完成）；声明为独立（freestanding）环境，使编译器不对 \code{memcpy} 之类的函数做任何假设；只使用通用寄存器，不让编译器生成 NEON/浮点指令，否则上下文切换就必须额外保存这些寄存器。本项目对应的选项是 \code{-ffreestanding -nostdlib -fno-common} 和 \code{-mcpu=cortex-a53+nofp}（第~\ref{chap:organization} 章）。
+
+\paragraph{为什么要把 ELF 变成裸镜像.} 链接器输出的是 ELF 文件，它需要一个“装载器”去解析段表、把各段放到指定地址。固件不做这件事，它只是把文件按字节原样拷到内存，然后从第一个字节开始执行。所以要用 \code{objcopy -O binary} 抽出所有代码段和数据段，拼成一个裸镜像，并且保证启动代码位于镜像的最开头：常见的做法是把启动代码放进单独的 \code{.text.boot} 段并在链接脚本中排在第一位；本项目则让 \file{entry.o} 成为 \code{OBJS} 的第一个目标文件，\code{\_entry} 自然落在 \code{.text} 的起点。
+
+\subsection{统一异常级别}
+\label{sec:xv6-el}
+
+AArch64 有四个异常级别：EL0 运行用户程序，EL1 运行操作系统内核，EL2 运行虚拟机监控器，EL3 运行安全监控固件。xv6 只需要 EL0 和 EL1。
+
+\paragraph{为什么需要异常级别.} 异常级别可以看成处理器的几种执行模式，每种模式只能使用一部分指令和寄存器。操作系统要实现进程隔离，就必须让用户程序运行在特权最低的 EL0：在这一级只能使用通用寄存器、栈指针和普通的访存指令，不能修改页表基址等系统寄存器，因此一个进程既看不到也改不了别的进程的内存。操作系统本身运行在 EL1，可以配置虚拟内存和大多数系统寄存器。EL2 留给虚拟机监控器：宿主系统在 EL2 隔离各个运行在 EL1 的客户系统，就像操作系统隔离用户进程一样。EL3 负责在“安全世界”和“非安全世界”之间切换，两边的隔离由硬件保证，非安全世界的软件无论如何都访问不到安全世界的指令和数据。
+
+\paragraph{ARM9 时代：七种处理器模式.} 四个异常级别是 ARMv8 才有的说法。在 ARM9（ARM920T、ARM926EJ-S 等 ARMv4T/v5 内核，S3C2440、AT91 这类板子上最常见）时代，处理器用的是\emph{处理器模式}（processor mode），当前模式记在 \reg{CPSR} 的低 5 位 M[4:0] 里，一共七种（表~\ref{tab:arm-modes}）：用户模式（User）运行应用程序；系统模式（System）是“有特权的用户模式”；其余五种各对应一类异常——复位和 \code{swi} 指令进入管理模式（Supervisor，SVC），未定义指令进入未定义模式（Undefined），取指或数据访问出错进入中止模式（Abort），普通中断和快速中断分别进入 IRQ 模式和 FIQ 模式。
+
+\paragraph{模式不等于特权级.} 七种模式里只有 User 是非特权的，其余六种的特权完全相同，都能改 \reg{CPSR}、访问 CP15 协处理器（MMU、缓存的控制寄存器都在这里）。所以 ARM9 实际上只有两个特权级，模式之间的区别不在于“能做什么”，而在于\emph{用哪一组寄存器}：每个异常模式有自己私有（banked）的 \code{r13}（SP）、\code{r14}（LR）和 \reg{SPSR}，FIQ 还额外私有 \code{r8}～\code{r12}，这样快速中断处理程序不用保存任何通用寄存器就能开工。异常的类型直接决定进入哪个模式；向量表固定在地址 \code{0x00000000}（或 CP15 选择的高端 \code{0xffff0000}），每类异常占一个 4 字节的槽，只放得下一条跳转指令。
+
+这种设计给操作系统带来不少麻烦。内核必须在启动时依次切进 IRQ、Abort、Undefined 各模式，为每个模式单独设置栈指针；而内核真正想在一个统一的上下文里处理所有陷入，所以 Linux 的 ARM 移植在每个异常入口只往该模式的小栈里存三个字（\code{r0}、\code{lr}、\code{spsr}），随即切换到 SVC 模式，在进程的内核栈上继续处理——七种模式在软件里又被折回成“用户态”和“内核态”两种。另外，特权代码可以直接用 \code{msr cpsr\_c, \#0xd3} 改写 \reg{CPSR} 进入任意模式，模式切换并不一定经过异常。
+
+\paragraph{TrustZone 与虚拟化：再加两种模式.} ARMv6K 和 ARMv7 引入安全扩展（TrustZone），处理器多了一个“安全/非安全”状态位，以及负责在两个世界之间切换的监控模式（Monitor），由 \code{smc} 指令进入。ARMv7 的虚拟化扩展（Cortex-A15 起）又加了一个 Hyp 模式，供虚拟机监控器使用，由 \code{hvc} 进入。为了说清楚这些模式之间的高低，ARMv7 手册开始使用\emph{特权级}（PL0：User；PL1：六种原有特权模式加 Monitor；PL2：Hyp）。到这时已经有九种模式，而“特权高低”和“用哪组寄存器”这两件事仍然搅在一起。
+
+\paragraph{AArch64：把模式折叠成异常级别.} ARMv8 的 AArch64 状态把这两件事拆开了。\emph{异常级别}只表示特权的高低：EL0 对应原来的 User，EL1 一次吸收了 SVC、IRQ、FIQ、Abort、Undefined、System 六种模式，EL2 对应 Hyp，EL3 对应 Monitor。异常的\emph{类型}不再决定模式，而由两样东西表达：
+
+\begin{itemize}
+  \item 异常发生时跳到目标级别向量表里的哪一项。\reg{VBAR\_ELx} 指向的表有 16 项，按“来自哪一级、用哪个栈 $\times$ 同步/IRQ/FIQ/SError”排列，每项 128 字节，能直接放下一段保存现场的代码（\ref{sec:irq} 节）；
+  \item 同步异常的具体原因写进 \reg{ESR\_ELx} 的 EC 字段：\code{svc} 是 \code{0x15}，来自 EL0 的数据中止是 \code{0x24}，未定义指令是 \code{0x00}……原来要靠“当前处于 Abort 模式还是 Undefined 模式”来区分的事情，现在读一个寄存器就知道。
+\end{itemize}
+
+私有寄存器也大大精简：31 个通用寄存器不再分组，每一级只保留自己的栈指针 \reg{SP\_ELx}、返回地址 \reg{ELR\_ELx} 和保存状态 \reg{SPSR\_ELx}，FIQ 的快速寄存器组被取消。原来的 System 模式（特权级、但用 User 的寄存器）也有对应物：EL1t 在 EL1 下借用 \reg{SP\_EL0}，EL1h 使用自己的 \reg{SP\_EL1}（见下文 \code{SPSR} 的模式字段）。最重要的一点是：AArch64 里没有任何指令能直接改写当前级别，升级只能靠异常，降级只能靠 \code{eret}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{ARM9/ARMv7 处理器模式与 AArch64 异常级别}
+  \label{tab:arm-modes}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llllX@{}}
+    \toprule
+    模式 & \reg{CPSR}.M & 出现于 & AArch64 & 何时进入（旧架构） \\
+    \midrule
+    User (usr)       & \code{10000} & ARMv4 & EL0 & 应用程序运行 \\
+    FIQ (fiq)        & \code{10001} & ARMv4 & EL1 & 快速中断；私有 \code{r8}～\code{r14} \\
+    IRQ (irq)        & \code{10010} & ARMv4 & EL1 & 普通中断 \\
+    Supervisor (svc) & \code{10011} & ARMv4 & EL1 & 复位、\code{swi}/\code{svc} 系统调用 \\
+    Abort (abt)      & \code{10111} & ARMv4 & EL1 & 预取中止、数据中止 \\
+    Undefined (und)  & \code{11011} & ARMv4 & EL1 & 未定义指令 \\
+    System (sys)     & \code{11111} & ARMv4 & EL1 & 无对应异常，由特权代码直接切入 \\
+    Monitor (mon)    & \code{10110} & ARMv6K/v7 & EL3 & \code{smc}，安全/非安全世界切换 \\
+    Hyp (hyp)        & \code{11010} & ARMv7VE & EL2 & \code{hvc}、虚拟化陷入 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+这张对应关系并不只是类比。ARMv8 处理器仍能在 EL0、EL1 上运行 32 位代码（AArch32 状态），这时旧的模式依旧存在，而且严格按表~\ref{tab:arm-modes} 落在对应的异常级别上；那些私有寄存器也被映射到 64 位通用寄存器上（例如 IRQ 模式的 \code{r13}/\code{r14} 就是 \code{X17}/\code{X16}），所以 64 位内核切换到 32 位进程时不需要另外保存它们。对比早期面向树莓派 1（ARMv6）的 xv6 移植：它要在启动时为 IRQ、Abort、Undefined 各设一个栈，并在每个入口切回 SVC 模式；本项目在 AArch64 上只需要每个核一个 \reg{SP\_EL1}，所有异常都在同一个 EL1 里处理。
+
+\paragraph{异常级别只能靠异常来改变.} 没有更高特权软件的参与，程序无法提升自己的级别——否则隔离就形同虚设。级别只在异常发生和返回时改变。发生异常（非法访存、\code{svc} 指令、硬件中断等）并由 EL$n$ 处理时，硬件依次做三件事：把返回地址存入 \reg{ELR\_ELn}，把当时的处理器状态存入 \reg{SPSR\_ELn}，跳到异常向量；处理程序结束时执行 \code{eret}，硬件再从这两个寄存器恢复状态和地址。关键在于这两个寄存器都是可写的，处理程序不一定要“回到原处”。启动时降级正是利用这一点。
+
+调试启动代码时，一个简单而有用的手段是读出 \reg{CurrentEL}：当前级别保存在它的第 [3:2] 位，右移 2 位即得 0～3。用不同的固件或 \code{config.txt} 启动时，读到的值可能是 3 或 2，下面的代码对两者都要处理：
+
+\file{kernel/entry.S} 的第一件事就是读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进入，都降到 EL1：
+
+\begin{asmcode}
+_entry:
+        mrs x15, mpidr_el1
+        and x15, x15, #0xff          // 记下核号，后面区分主核与副核
+        mrs x0, CurrentEL
+        cmp x0, #0xc                 // CurrentEL[3:2] == 3 ?
+        b.ne 2f
+        mov x0, #(1 << 31)           // HCR_EL2.RW：EL1 使用 AArch64
+        msr hcr_el2, x0
+        msr cntvoff_el2, xzr         // 虚拟计数器偏移清零
+        mov x0, #3
+        msr cnthctl_el2, x0          // 允许 EL1 访问物理计数器/定时器
+        mov x0, #0x431               // SCR_EL3：RES1 | RW | NS
+        msr scr_el3, x0
+        mov x0, #0x3c5               // 目标 EL1h，屏蔽 D/A/I/F
+        msr spsr_el3, x0
+        adr x0, 3f
+        msr elr_el3, x0
+        eret
+2:      cmp x0, #0x8                 // EL2 路径与上面相同，只是写 *_el2
+        ...
+        eret
+3:      ldr x0, =((3 << 28) | (3 << 22) | (1 << 20) | (1 << 11))
+        msr sctlr_el1, x0            // 只保留 RES1 位：MMU、缓存先全部关闭
+        isb
+        cbnz x15, secondary_wait     // 副核去等待
+        bl early_mini_uart           // 主核点亮串口
+        b entry
+\end{asmcode}
+
+“降级”的方式很有意思：处理器没有一条“切换到 EL1”的指令，只能伪造一次异常返回。把目标状态写进 \reg{SPSR\_ELx}、把返回地址写进 \reg{ELR\_ELx}，然后执行 \code{eret}，CPU 就会“返回”到 EL1 的标号 \code{3} 处。表~\ref{tab:el-regs} 列出了涉及的寄存器。
+
+\begin{table}[htbp]
+  \centering
+  \caption{降级到 EL1 时设置的系统寄存器}
+  \label{tab:el-regs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    寄存器 & 值 & 含义 \\
+    \midrule
+    \reg{HCR\_EL2} & bit 31 & RW=1：下一级 EL1 以 AArch64 运行，否则会掉进 AArch32 \\
+    \reg{CNTVOFF\_EL2} & 0 & 虚拟计数器 = 物理计数器，内核用的是虚拟定时器 \\
+    \reg{CNTHCTL\_EL2} & 3 & EL1/EL0 可以访问物理计数器和物理定时器 \\
+    \reg{SCR\_EL3} & \code{0x431} & 非安全状态，下一级为 AArch64 \\
+    \reg{SPSR\_ELx} & \code{0x3c5} & M[3:0]=\code{0101} 即 EL1h（使用 \reg{SP\_EL1}）；DAIF 四位全部置 1 \\
+    \reg{SCTLR\_EL1} & RES1 位 & 不继承固件留下的 MMU/缓存状态 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{SPSR} 中的 D、A、I、F 四位分别屏蔽调试异常、SError、IRQ 和 FIQ。启动期间必须全部屏蔽：此时既没有异常向量表，也没有栈，任何一个中断都会让 CPU 跳到不可预知的地方。
+
+\paragraph{\code{SPSR} 里保存的处理器状态.} 写入 \reg{SPSR\_ELx} 的值就是 \code{eret} 之后的 PSTATE，它由三部分组成：条件标志 N、Z、C、V（上一次运算结果是否为负、为零、无符号溢出、有符号溢出，条件分支指令据此跳转）；中断屏蔽位 D、A、I、F；以及模式字段 M[3:0]，它决定返回到哪一级、使用哪个栈指针。EL1 有两种栈模式：EL1h 使用 EL1 自己的 \reg{SP\_EL1}，EL1t 借用 EL0 的 \reg{SP\_EL0}。内核总是使用 EL1h，这样陷入内核时自动换到内核栈，用户栈指针原样留在 \reg{SP\_EL0} 中。有的教学内核只屏蔽 A、I、F 三位（值 \code{7<<6}），本项目连同调试异常 D 一起屏蔽（\code{0xf<<6}）。
+
+\paragraph{\code{SCTLR\_EL1} 的初值.} \reg{SCTLR\_EL1} 控制 EL1 下的 MMU、数据缓存、指令缓存和字节序。手册把其中若干位标为 RES1（保留，必须写 1），即上面那个 \code{(3<<28)|(3<<22)|(1<<20)|(1<<11)}；其余位全写 0，含义是：EL1 和 EL0 的数据访问都是小端，指令缓存、数据缓存和 MMU 全部关闭。不继承固件留下的任何状态，后面的代码才有确定的起点。
+
+\paragraph{\code{HCR\_EL2} 与 \code{SCR\_EL3}.} 即使不实现虚拟机监控器，也必须设置 \reg{HCR\_EL2} 的 RW 位，因为它决定 EL1 运行在 AArch64 还是 AArch32；同理，\reg{SCR\_EL3} 的 RW 位决定 EL2 的执行状态，NS 位让所有更低的级别处于非安全状态。漏掉 RW 位，\code{eret} 之后处理器会以 32 位状态执行 64 位指令，表现为“毫无输出地死掉”。
+
+\subsection{不依赖任何环境的早期串口}
+\label{sec:early-uart}
+
+普通的 \code{printf} 依赖一长串设施：有效的栈、清零的 BSS、页表、内存分配器、自旋锁和控制台驱动。如果内核在这些设施就绪之前挂掉，串口上什么也看不到，连“死在哪一步”都无从判断。项目在真机上调通的第一个关键是：用纯汇编写一个不需要栈、不需要内存、不需要 C 运行环境的串口输出。
+
+\paragraph{内存映射的设备寄存器.} BCM2837 上所有外设都通过内存映射寄存器访问：树莓派 3 把 \code{0x3F000000} 以上的一段物理地址留给外设，每个寄存器是 32 位，读写某一位就是配置或启动设备的某项功能。Broadcom 手册中的地址以 \code{0x7E} 开头，那是 VideoCore 总线上的地址，ARM 一侧对应的物理地址要换成 \code{0x3F} 开头（第~\ref{chap:mmu} 章）。
+
+树莓派 3 的 GPIO14/15 可以连到 PL011 UART0 或 AUX Mini UART。本内核使用 Mini UART，即 GPIO14/15 的 ALT5 功能。树莓派有两个 UART：PL011 功能完整，但在树莓派 3 上默认被板载蓝牙占用；Mini UART 结构简单，只需几个寄存器就能工作，代价是它的波特率依赖 VPU 核心时钟。初始化分三步：
+
+\paragraph{第一步：选择 GPIO 复用功能.} 大多数 GPIO 引脚可以连接不同的外设，每个引脚有 0～5 共六种“复用功能”，用 3 位编码，十个引脚共用一个 \code{GPFSELn} 寄存器。GPIO14、15 由 \code{GPFSEL1} 的第 14:12 位和 17:15 位控制；它们的 ALT5 分别是 Mini UART 的 TXD1 和 RXD1，ALT5 的编码是 \code{010}。所以要先把这两个 3 位字段清零，再各写入 2。注意 GPIO 编号与排针针脚号不同：GPIO14 是第 8 脚，GPIO15 是第 10 脚，第 6 脚是地。
+
+\paragraph{第二步：关闭内部上下拉.} 一个悬空的输入引脚读到的值是随机的；上拉或下拉电阻让它在悬空时稳定地读到 1 或 0。串口两根线始终接着对端，不需要上下拉，而且上下拉状态在重启后仍然保持，所以使用前要显式撤销。BCM2837 改变上下拉状态需要一个带时钟的握手过程：先在 \code{GPPUD} 中写入目标状态（0 表示都不要），等待约 150 个周期让控制信号建立；再在 \code{GPPUDCLK0} 中把要修改的引脚对应位写 1，把控制信号“打”进这些引脚，再等 150 个周期保持；最后清除 \code{GPPUD} 和 \code{GPPUDCLK0}。只有收到时钟的引脚会改变，其余引脚保持原状。
+
+\paragraph{第三步：配置 Mini UART.} 顺序很重要：先在 AUX 使能寄存器中打开 Mini UART，因为在此之前它的其他寄存器都不可访问；配置期间先关闭收发器，并永久关闭自动流控（它需要额外的 RTS/CTS 引脚，普通 USB-TTL 线不支持）；关闭收发中断（早期阶段没有中断处理）；把数据位设为 8 位——手册写的是第 0 位，实际硬件要第 0、1 两位都置 1，即写 3；RTS 置为常高；写波特率除数；最后打开收发器。
+
+\code{early\_mini\_uart} 依次完成：
+
+\begin{asmcode}
+early_mini_uart:
+        mov x13, x30                 // 没有栈，用寄存器保存返回地址
+        ldr x9, =0x3f200004          // GPFSEL1：GPIO14/15 = ALT5（功能码 2）
+        ldr w10, [x9]
+        ldr w11, =0x0003f000
+        bic w10, w10, w11
+        ldr w11, =0x00012000
+        orr w10, w10, w11
+        str w10, [x9]
+        ...                          // GPPUD/GPPUDCLK0 时序：关闭内部上下拉
+        ldr x9, =0x3f215000          // AUX 基址
+        ...                          // 使能 AUX、8N1、清 FIFO
+        mov w10, #270
+        str w10, [x9, #0x68]         // AUX_MU_BAUD：115200 @ 250 MHz
+        mov w10, #3
+        str w10, [x9, #0x60]         // 打开收发
+        mov w12, #'E'
+        bl early_mini_uart_putc
+        ...
+\end{asmcode}
+
+这里用的都是物理地址，因为 MMU 还没打开。Mini UART 的波特率公式是
+\[
+  \text{baud} = \frac{f_\text{core}}{8\,(\text{divisor}+1)}, \qquad
+  \text{divisor} = \frac{250\,000\,000}{8 \times 115\,200} - 1 \approx 270.
+\]
+它依赖 VPU 核心频率，所以 \file{config.txt} 必须固定 \code{core\_freq=250}。
+
+收发都用轮询：\code{AUX\_MU\_LSR} 的第 5 位为 1 表示发送器空闲，可以向 \code{AUX\_MU\_IO} 写一个字符；第 0 位为 1 表示收到数据，可以从 \code{AUX\_MU\_IO} 读出。早期汇编版只需要发送，所以 \code{early\_mini\_uart\_putc} 只有三条指令：读 LSR、测第 5 位、写 IO。
+
+在没有调试器的裸机上，串口输出几乎是了解程序内部状态的唯一途径。所以一个裸机项目通常要做的第二件事，就是在串口之上移植一个小型 \code{printf}——只需要提供一个发送单个字符的函数。本项目把这件事分成两级：汇编阶段只能输出单个标记字符，C 环境就绪后才由控制台驱动提供完整的 \code{printf}。
+
+此后，启动代码在每个关键节点输出一个字符，形成一串“启动指纹”（表~\ref{tab:boot-marks}）。真机串口上看到的最后一个字符，就指明了内核停在哪一步。
+
+\begin{table}[htbp]
+  \centering
+  \caption{启动标记字符}
+  \label{tab:boot-marks}
+  \small
+  \begin{tabular}{@{}cl@{\hspace{2em}}cl@{}}
+    \toprule
+    标记 & 含义 & 标记 & 含义 \\
+    \midrule
+    \code{E} & 进入 EL1，物理地址串口可用 & \code{1} & \code{kinit1()} 完成 \\
+    \code{B} & BSS 清零完成 & \code{2} & 最终内核页表建立 \\
+    \code{P} & 启动页表与系统寄存器就绪 & \code{3} & 切换到最终页表 \\
+    \code{H} & MMU 已开，跳到高地址并建好栈 & \code{4} & \code{kinit2()} 完成 \\
+    \code{0} & 进入 \code{main()} & \code{a}～\code{f} & \code{kalloc.c} 内部细分 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+正常启动时串口先打出 \code{E}，然后是 \code{BPH0abdefc1234}，接着才是 \code{printf} 的第一行 “xv6 kernel is booting”。第~\ref{chap:mmu} 章会讲到一次停在 \code{BPH0abde} 的故障：它说明第一次 \code{kfree()} 已经完成 \code{memset}，却没能拿到 \code{kmem.lock}。
+
+MMU 打开之后，物理地址 \code{0x3f215000} 不再可用。\code{boot\_uart\_mark()} 改用高地址 \code{KERNBASE + 0x3f215000}，所以启动页表里专门为 Mini UART 所在的 2\,MiB 块加了一个设备映射。

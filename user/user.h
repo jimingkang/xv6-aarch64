@@ -1,3 +1,6 @@
+#ifndef XV6_USER_H
+#define XV6_USER_H
+
 struct stat;
 struct rtcdate;
 struct ext2_user_dirent;
@@ -109,3 +112,5 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+
+#endif

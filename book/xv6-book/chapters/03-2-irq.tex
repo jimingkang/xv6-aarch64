@@ -1,0 +1,599 @@
+% 3.2 异常和中断（全部以 xv6-aarch64 源码讲解）
+\section{异常与中断}
+\label{sec:irq}
+
+与设备打交道的大多数场合都是异步的：内核向设备发出一条命令，设备并不立即完成，而是在工作结束后“通知”处理器。这种通知打断了正在执行的指令流，迫使处理器转去执行一段处理程序，所以叫“中断”。对操作系统来说，最重要的中断源是定时器：调度器靠周期性的定时器中断度量每个进程运行了多久，并在时间片用完时把 CPU 交给别人。
+
+本节沿着一次中断从发生到返回的路径，依次讲解 xv6-aarch64 的实现：\file{kernel/trapasm.S}（向量表与现场保存）、\file{kernel/trap.c}（分发）、\file{kernel/bcm2837.c}（中断控制器）、\file{kernel/timer.c}（定时器）和 \file{kernel/spinlock.c}（中断屏蔽的嵌套）。
+
+\subsection{异常与中断区别}
+
+在 ARMv8 中，中断只是“异常”的一种。异常分为四类，表~\ref{tab:exc-kinds} 列出了它们在 xv6-aarch64 中的用途。
+
+\begin{table}[htbp]
+  \centering
+  \caption{四类异常在 xv6-aarch64 中的用途}
+  \label{tab:exc-kinds}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    类型 & 性质 & 在 xv6-aarch64 中 \\
+    \midrule
+    同步异常 & 由当前指令引起 & 用户态 \code{svc \#0} 即系统调用；用户态访存错误时打印诊断并杀死进程；内核态同步异常直接 \code{panic} \\
+    IRQ & 外部硬件产生，与当前指令无关 & 通用定时器、Mini UART、DWC2 USB、Arasan SDIO、Unicam CSI、核间中断（IPI） \\
+    FIQ & 高优先级的“快速中断” & 不使用 \\
+    SError & 外部产生的系统错误 & 不处理，进入即停机 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+同步异常的具体原因记录在 \reg{ESR\_EL1}（异常综合征寄存器）中：高 6 位 [31:26] 是异常类别 EC，低 25 位 ISS 是该类别下的细节；出错的指令地址在 \reg{ELR\_EL1}，出错的数据地址在 \reg{FAR\_EL1}。xv6 只识别一种“正常”的同步异常——EC $=$ \code{0x15}（21），即来自 AArch64 EL0 的 \code{svc}；其余同步异常都按错误处理。内核态的同步异常不尝试恢复：
+
+\begin{ccode}
+void kerneltrap()
+{
+  uint64 esr = r_esr_el1();
+  w_esr_el1(0);
+  if(intr_get() != 0)
+    panic("kerneltrap: interrupts enabled");
+  uint64 ec = (esr >> 26) & 0x3f;
+  uint64 iss = esr & 0x1ffffff;
+  printf("esr %p %p %p\n", esr, ec, iss);
+  printf("elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+  panic("kerneltrap");
+}
+\end{ccode}
+
+\subsection{异常向量}
+
+每类异常都要有自己的处理入口；而且同一类异常，从不同的执行状态进入时也要用不同的入口。以运行在 EL1 的内核为视角，进入异常时的执行状态有四种：EL1t（EL1 使用 \reg{SP\_EL0}）、EL1h（EL1 使用自己的 \reg{SP\_EL1}，内核正是这种模式）、来自 64 位 EL0、来自 32 位 EL0。四类异常乘以四种状态，共 16 个入口，它们排成一张\emph{异常向量表}：表必须 2\,KiB 对齐，每个入口占 \code{0x80} 字节（表~\ref{tab:vectors}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\reg{VBAR\_EL1} 向量表布局}
+  \label{tab:vectors}
+  \small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    偏移 & 来源 & 同步 & IRQ & 本内核 \\
+    \midrule
+    \code{0x000} & 当前 EL，使用 \reg{SP\_EL0} & \code{+0x000} & \code{+0x080} & 未用（\code{b .}） \\
+    \code{0x200} & 当前 EL，使用 \reg{SP\_ELx} & \code{el1sync} & \code{el1irq} & 内核态异常/中断 \\
+    \code{0x400} & 低 EL，AArch64 & \code{el0sync} & \code{el0irq} & 系统调用、用户异常/中断 \\
+    \code{0x600} & 低 EL，AArch32 & \code{+0x600} & \code{+0x680} & 未用 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+每组的第三、四个入口是 FIQ 和 SError。\file{kernel/trapasm.S} 用 \code{.balign} 保证对齐，每个入口只放一条跳转指令，真正的处理放在表外（\code{0x80} 字节只够放 32 条指令）：
+
+\begin{asmcode}
+.global alltraps
+.balign 0x800
+alltraps:
+// Current EL with sp0
+  b .
+.balign 0x80
+  b .
+.balign 0x80
+  b .
+.balign 0x80
+  b .
+
+// Current EL with spx
+.balign 0x80
+  b el1sync
+.balign 0x80
+  b el1irq
+.balign 0x80
+  b .
+.balign 0x80
+  b .
+
+// Lower EL using aarch64
+.balign 0x80
+  b el0sync
+.balign 0x80
+  b el0irq
+.balign 0x80
+  b .
+.balign 0x80
+  b .
+
+// Lower EL using aarch32
+  ...                       // 四个 b .
+\end{asmcode}
+
+只有四个入口真正被使用。其余 12 个入口是 \code{b .}，一旦进入就原地停住。这在调试初期足够了，但也有缺点：FIQ 或 SError 发生时，现象只是“毫无输出地死机”。更好的做法是让这些入口也保存现场，然后打印入口编号、\reg{ESR\_EL1} 和 \reg{ELR\_EL1} 再停机。
+
+\subsection{保存寄存器状态}
+
+处理完异常回到原来的代码时，所有通用寄存器必须和异常发生前一模一样，否则一个与当前代码毫不相干的中断就会悄悄改变它的行为。进入异常时，硬件只做三件事：把返回地址存入 \reg{ELR\_EL1}，把原来的 PSTATE 存入 \reg{SPSR\_EL1}，换到 \reg{SP\_EL1}。通用寄存器要由软件自己保存。
+
+\file{trapasm.S} 为两种来源准备了两对宏。来自内核的异常用 \code{savereg}/\code{restorereg}，现场压在当前内核栈上：
+
+\begin{asmcode}
+.macro savereg
+        sub sp, sp, #272              // 17 组 × 16 字节
+        stp x0, x1, [sp, #16 * 0]
+        stp x2, x3, [sp, #16 * 1]
+        ...
+        stp x28, x29, [sp, #16 * 14]
+        mrs x9, elr_el1
+        mrs x10, spsr_el1
+        add x11, sp, #272             // 异常发生前的内核 sp
+        stp x30, x9, [sp, #16 * 15]
+        stp x10, x11, [sp, #16 * 16]
+.endm
+\end{asmcode}
+
+来自用户态的异常用 \code{usavereg}/\code{urestorereg}，区别是最后一个字保存的是用户栈指针 \reg{SP\_EL0}，返回时也要写回：
+
+\begin{asmcode}
+.macro usavereg
+        sub sp, sp, #272
+        stp x0, x1, [sp, #16 * 0]
+        ...
+        stp x28, x29, [sp, #16 * 14]
+        mrs x9, elr_el1
+        mrs x10, spsr_el1
+        mrs x11, sp_el0               // 用户栈指针
+        stp x30, x9, [sp, #16 * 15]
+        stp x10, x11, [sp, #16 * 16]
+.endm
+
+.macro urestorereg
+        ldp x30, x9, [sp, #16 * 15]
+        ldp x10, x11, [sp, #16 * 16]
+        msr elr_el1, x9
+        msr spsr_el1, x10
+        msr sp_el0, x11
+        ldp x0, x1, [sp, #16 * 0]
+        ...
+        ldp x28, x29, [sp, #16 * 14]
+        add sp, sp, #272
+.endm
+\end{asmcode}
+
+这 272 字节的布局与 \code{struct trapframe}（\code{x0}～\code{x30}、\code{elr}、\code{spsr}、\code{sp}）完全一致。\code{allocproc()} 把每个进程的 trapframe 放在它内核栈的最顶端，而用户态陷入时内核栈恰好是空的，所以 \code{usavereg} 压栈的位置正好就是 \code{p->trapframe}。\file{trap.c} 开头的注释画出了两种现场同时存在时一个内核栈的样子：
+
+\begin{txtcode}
+低地址   p->kstack
+           |  普通内核栈空间
+           |  +---------------------------+  <- 内核态中断后 sp = S - 272
+           |  | el1irq savereg 临时现场   |
+           |  | x0..x30, elr, spsr, sp    |
+           |  +---------------------------+  <- 中断前 sp = S
+           |  函数调用帧、局部变量……
+           +------------------------------
+           |  struct trapframe            |  <- p->trapframe（usavereg 的位置）
+           |  x0..x30, elr, spsr, 用户 sp |
+高地址   p->kstack + PGSIZE
+\end{txtcode}
+
+也就是说：进程在内核里执行系统调用时又被中断，会在同一个内核栈上再压一层 \code{savereg} 现场；如果中断发生在调度器中，用的则是这个 CPU 自己的调度器栈（\code{stack0}）。
+
+有了调度器之后，“以一个进程的身份进入中断、以另一个进程的身份离开”是完全合法的：\code{eret} 依赖的 \code{elr} 和 \code{spsr} 都保存在当前进程自己的内核栈上，所以 \reg{ELR\_EL1}、\reg{SPSR\_EL1} 必须和通用寄存器一起保存和恢复。新进程第一次回到用户态走的是 \code{usertrapret}，它直接把 \code{sp} 指向 trapframe，借用 \code{el0irq} 的后半段返回：
+
+\begin{asmcode}
+el0irq:
+        usavereg
+        mov x0, sp
+        bl userirq
+trapret:
+        urestorereg
+        eret
+
+.global usertrapret
+usertrapret:                    // void usertrapret(struct trapframe *tf)
+        mov sp, x0
+        b trapret
+\end{asmcode}
+
+\subsection{设置向量表}
+
+向量表准备好了，还要告诉处理器它在哪里：把地址写入 \reg{VBAR\_EL1}（向量基址寄存器）。这是每个核各自的系统寄存器，所以每个 CPU 都要执行一次：
+
+\begin{ccode}
+void trapinithart(void)
+{
+  w_vbar_el1((uint64)alltraps);
+}
+
+static inline void w_vbar_el1(uint64 x)     // kernel/aarch64.h
+{
+  asm volatile("msr vbar_el1, %0" : : "r" (x) );
+}
+\end{ccode}
+
+\code{alltraps} 是链接时确定的高虚拟地址，所以这一步必须在 MMU 打开、跳到高地址之后进行。主核在 \code{main()} 中依次调用 \code{trapinit()}（只初始化 \code{tickslock}）和 \code{trapinithart()}；副核被唤醒后只调用 \code{trapinithart()}。
+
+\subsection{屏蔽与解除屏蔽中断}
+
+有些代码绝不能被中断打断。例如 \code{usavereg} 执行到一半时若又来一个中断，现场就会被覆盖。所以硬件在进入任何异常时都会自动屏蔽中断；保存好现场之后再解除屏蔽、允许嵌套，也是完全合法的。
+
+PSTATE 中有四个屏蔽位：D（调试异常）、A（SError，也叫异步中止）、I（IRQ）、F（FIQ），用 \code{msr daifset/daifclr, \#imm} 设置或清除，立即数是一个 4 位掩码，从高到低对应 D、A、I、F。xv6 的封装在 \file{kernel/aarch64.h} 中：
+
+\begin{ccode}
+static inline void intr_on()  { asm volatile("msr daifclr, #0xf" ::: "memory"); }
+static inline void intr_off() { asm volatile("msr daifset, #0xf" ::: "memory"); }
+
+static inline int intr_get()          // IRQ 是否打开？
+{
+  uint64 x = daif();
+  return ((x >> 6) & 0x2) == 0;       // DAIF 寄存器中 I 在 bit 7
+}
+\end{ccode}
+
+注意这里用的是 \code{\#0xf}，一次改变全部四位，而不只是 I 位（\code{\#2}）。对 xv6 来说效果相同，因为它只用 IRQ；更精确的写法应只操作 I 位，以免意外打开调试异常或 SError。
+
+\subsubsection{自旋锁与中断的嵌套}
+
+
+如果一个 CPU 持有某把自旋锁时被中断，而中断处理程序又去获取同一把锁，这个 CPU 就会永远自旋下去。所以 xv6 规定：持有任何自旋锁期间，本 CPU 的中断都是关闭的。\code{acquire()} 调用 \code{push\_off()}，\code{release()} 调用 \code{pop\_off()}，二者成对嵌套计数：
+
+\begin{ccode}
+void push_off(void)
+{
+  int old = intr_get();
+  intr_off();
+  if(mycpu()->noff == 0)
+    mycpu()->intena = old;          // 只记录最外层进入前的状态
+  mycpu()->noff += 1;
+}
+
+void pop_off(void)
+{
+  struct cpu *c = mycpu();
+  if(intr_get())
+    panic("pop_off - interruptible");
+  if(c->noff < 1)
+    panic("pop_off");
+  c->noff -= 1;
+  if(c->noff == 0 && c->intena)     // 最外层释放、且原来是开着的，才重新打开
+    intr_on();
+}
+\end{ccode}
+
+\subsubsection{中断在哪里被打开}
+
+
+\begin{itemize}
+  \item 启动时，\file{entry.S} 通过 \code{SPSR = 0x3c5} 进入 EL1，四位全部屏蔽；
+  \item 每个 CPU 第一次真正接收中断，是在 \code{scheduler()} 循环中调用 \code{intr\_on()}；
+  \item 用户态陷入后，\code{usertrap()} 识别出系统调用，在调用 \code{syscall()} 之前打开中断，让长时间的系统调用也能被设备中断和定时器打断；返回用户态前再 \code{intr\_off()}，因为 \code{urestorereg} 期间不能被打断；
+  \item \code{kerneltrap()} 进入时检查 \code{intr\_get()}，若中断是开着的就说明某处逻辑出错，直接 \code{panic}。
+\end{itemize}
+
+\subsection{配置中断控制器}
+
+设备一般不直接中断 CPU，而是经过中断控制器：控制器负责打开或关闭各个中断源，并告诉 CPU 当前是谁在请求中断。BCM2837 没有 ARM 标准的 GIC，而是两个级联的模块（图~\ref{fig:irq}）：
+
+\begin{itemize}
+  \item \textbf{legacy 中断控制器}（\code{0x3f00b000}）管理 SoC 共享外设：Mini UART（IRQ 29）、DWC2 USB（IRQ 9）、Arasan SDIO（IRQ 62）、Unicam CSI1（IRQ 39）等。中断号 0～31 由 \code{ENABLE\_IRQS\_1}/\code{IRQ\_PENDING\_1} 管理，32～63 由 \code{ENABLE\_IRQS\_2}/\code{IRQ\_PENDING\_2} 管理。所有外设中断汇总成一根 “GPU IRQ”；
+  \item \textbf{ARM-local 中断路由}（\code{0x40000000}）位于 CPU 簇旁，管理每个核私有的中断源：通用定时器、核间 mailbox、PMU，以及从 legacy 控制器汇总来的 GPU IRQ，最终连到四个核的 IRQ/FIQ 输入。
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=5mm and 12mm]
+    \node[box, minimum width=28mm] (uart) {Mini UART (29)};
+    \node[box, minimum width=28mm, below=2mm of uart] (usb) {DWC2 USB (9)};
+    \node[box, minimum width=28mm, below=2mm of usb] (sdio) {Arasan SDIO (62)};
+    \node[box, minimum width=28mm, below=2mm of sdio] (csi) {Unicam CSI1 (39)};
+    \node[hbox, right=of usb, yshift=-3mm, minimum height=22mm, text width=24mm] (legacy) {legacy\\中断控制器\\\code{0x3f00b000}};
+    \foreach \n in {uart,usb,sdio,csi} \draw[arr] (\n.east) -- (legacy.west |- \n.east);
+    \node[box, above=12mm of legacy, minimum width=26mm] (timer) {通用定时器 CNTV};
+    \node[box, above=2mm of timer, minimum width=26mm] (mbox) {mailbox 0（IPI）};
+    \node[hbox, right=of legacy, minimum height=40mm, text width=26mm, yshift=12mm] (local) {ARM-local\\中断路由\\\code{0x40000000}\\[2mm]\footnotesize bit 3：虚拟定时器\\bit 4：mailbox 0\\bit 8：GPU IRQ};
+    \draw[arr] (legacy.east) -- node[lab, below]{GPU IRQ} (legacy.east -| local.west);
+    \draw[arr] (timer.east) -- (timer.east -| local.west);
+    \draw[arr] (mbox.east) -- (mbox.east -| local.west);
+    \node[box, right=of local, text width=16mm] (cpus) {CPU0～3\\IRQ 输入};
+    \draw[arr] (local) -- (cpus);
+  \end{tikzpicture}
+  \caption{BCM2837 的两级中断结构}
+  \label{fig:irq}
+\end{figure}
+
+为了少改 \file{trap.c}，项目保留了原 GIC 版本的函数名 \code{gicv3init()}、\code{gicv3inithart()}、\code{gic\_iar()}、\code{gic\_eoi()}，实现换成了 \file{kernel/bcm2837.c}。全局初始化先关掉 legacy 控制器的全部中断，再只打开已经有驱动的几个：
+
+\begin{ccode}
+void gicv3init(void)
+{
+  irqwrite(DISABLE_IRQS_1, ~0U);
+  irqwrite(DISABLE_IRQS_2, ~0U);
+  irqwrite(DISABLE_BASIC_IRQS, ~0U);
+  irqwrite(ENABLE_IRQS_1, (1U << UART0_IRQ) | (1U << DWC2_IRQ));
+  irqwrite(ENABLE_IRQS_2, 1U << (SDIO_IRQ - 32));
+}
+\end{ccode}
+
+后来加入的驱动（如摄像头）在 probe 成功后调用 \code{bcm2837\_enable\_irq(irq)} 打开对应位，按中断号小于还是大于 32 选择 \code{ENABLE\_IRQS\_1} 或 \code{\_2}。
+
+每个核还要各自配置 ARM-local 路由：把本核的虚拟定时器接到 IRQ，并打开 mailbox 0 作为“重新调度”核间中断：
+
+\begin{ccode}
+#define CORE_TIMER_CONTROL(c) (0x40 + 4 * (c))
+#define CORE_MBOX_CONTROL(c)  (0x50 + 4 * (c))
+#define CORE_IRQ_SOURCE(c)    (0x60 + 4 * (c))
+#define CORE_MBOX0_SET(c)     (0x80 + 0x10 * (c))   // 写 1 发出
+#define CORE_MBOX0_CLR(c)     (0xc0 + 0x10 * (c))   // 写 1 清除
+#define CORE_VIRTUAL_TIMER    (1 << 3)
+#define CORE_MBOX0            (1 << 4)
+
+void gicv3inithart(void)
+{
+  int cpu = cpuid();
+  localwrite(CORE_TIMER_CONTROL(cpu), CORE_VIRTUAL_TIMER);
+  localwrite(CORE_MBOX0_CLR(cpu), ~0U);     // 先清掉遗留的 mailbox 位
+  localwrite(CORE_MBOX_CONTROL(cpu), 1);
+}
+
+void send_resched_ipi(int cpu)              // 让 cpu 尽快重新调度
+{
+  asm volatile("dsb sy" ::: "memory");      // 先让 need_resched 的写入可见
+  localwrite(CORE_MBOX0_SET(cpu), 1);
+}
+\end{ccode}
+
+一个外设中断要真正到达 CPU，三道开关缺一不可：设备自己的中断使能位（例如 Mini UART 的 \code{MU\_IER}）、legacy 控制器的 \code{ENABLE\_IRQS} 位，以及 CPU 的 PSTATE.I $=0$。
+
+\subsection{通用 IRQ 处理程序}
+
+所有 IRQ 都进入同一个入口，按来源分为两条路径：
+
+\begin{asmcode}
+el1irq:                    // 内核执行时来的 IRQ
+        savereg
+        mov x0, sp
+        bl kernelirq
+        restorereg
+        eret
+
+el0irq:                    // 用户执行时来的 IRQ
+        usavereg
+        mov x0, sp
+        bl userirq
+trapret:
+        urestorereg
+        eret
+\end{asmcode}
+
+两个 C 处理函数都先调用 \code{devintr()} 找出并服务中断源，再决定是否让出 CPU：
+
+\begin{ccode}
+void userirq(void)
+{
+  struct proc *p = myproc();
+  devintr();
+  if(resched_pending())      // 时间片用完，或更高优先级进程就绪（定时器或 IPI）
+    yield();
+  if(p->killed)
+    exit(-1);
+  intr_off();
+}
+
+void kernelirq()
+{
+  devintr();
+  // 内核态也可以被抢占：只有不持任何自旋锁时中断才是开着的
+  if(myproc() != 0 && myproc()->state == RUNNING && resched_pending())
+    yield();
+}
+\end{ccode}
+
+\code{devintr()} 先问中断控制器“是谁”，再调用对应设备的处理函数，返回 2 表示定时器、1 表示其他设备、0 表示无法识别：
+
+\begin{ccode}
+int devintr()
+{
+  uint32 iar = gic_iar();
+  uint32 irq = gic_iar_irq(iar);
+  int dev = 0;
+
+  if(irq == UART0_IRQ){         uartintr();        dev = 1; }
+  else if(irq == DWC2_IRQ){     dwc2_irq();        dev = 1; }
+  else if(irq == SDIO_IRQ){     arasan_sdio_irq(); dev = 1; }
+  else if(irq == CSI1_IRQ){     unicam_irq();      dev = 1; }
+  else if(irq == TIMER0_IRQ){
+    int logical_tick = timerintr();
+    if(cpuid() == 0 && logical_tick)
+      clockintr();
+    sched_tick();
+    dev = 2;
+  } else if(irq == IPI_RESCHED_IRQ){
+    resched_ipi_ack();          // need_resched 已由发送方设置
+    dev = 1;
+  } else if(irq == 1023){
+    // 没有可处理的中断
+  } else if(irq){
+    printf("unexpected interrupt irq=%d\n", irq);
+  }
+  if(dev)
+    gic_eoi(iar);
+  return dev;
+}
+\end{ccode}
+
+“是谁”的判断在 \code{gic\_iar()} 中。它先查本核的 ARM-local 源寄存器（定时器和 IPI 是每核私有的），再查 legacy 控制器的挂起寄存器，把两套硬件的状态翻译成一个类似 GIC 的中断号：
+
+\begin{ccode}
+uint32 gic_iar(void)
+{
+  int cpu = cpuid();
+  uint32 local = localread(CORE_IRQ_SOURCE(cpu));
+  if(local & CORE_VIRTUAL_TIMER)  return TIMER0_IRQ;        // 27
+  if(local & CORE_MBOX0)          return IPI_RESCHED_IRQ;   // 伪中断号 1000
+  if(irqread(IRQ_PENDING_1) & (1U << UART0_IRQ))       return UART0_IRQ;
+  if(irqread(IRQ_PENDING_1) & (1U << DWC2_IRQ))        return DWC2_IRQ;
+  if(irqread(IRQ_PENDING_2) & (1U << (SDIO_IRQ - 32))) return SDIO_IRQ;
+  if(irqread(IRQ_PENDING_2) & (1U << (CSI1_IRQ - 32))) return CSI1_IRQ;
+  return 1023;
+}
+\end{ccode}
+
+BCM2837 没有 GIC 那样的 EOI 握手，\code{gic\_eoi()} 是空函数：中断要在\emph{源设备}处清除——定时器靠重新装载，UART 靠读空接收 FIFO，USB 靠写 \code{HCINT}，IPI 靠写 mailbox 清除寄存器。设备的挂起位清除之后，legacy 控制器中对应的位才会消失。多个中断可能同时挂起，\code{devintr()} 每次只处理优先级最高的一个；其余的会在 \code{eret} 之后立即再次触发中断，所以不会丢失。
+
+\subsubsection{同步异常：系统调用路径}
+
+
+同步异常走 \code{el0sync}/\code{el1sync} 入口，保存现场的方式与 IRQ 相同，只是调用的 C 函数不同。用户程序执行 \code{svc \#0} 时，系统调用号放在 \code{x7}，参数在 \code{x0}～\code{x5}：
+
+\begin{txtcode}
+user:  mov x7, #SYS_write ; svc #0
+  -> VBAR_EL1 + 0x400 -> el0sync -> usavereg（现场 = trapframe）
+  -> usertrap(): ESR_EL1.EC == 0x15
+       -> intr_on(); syscall(): syscalls[x7]()，返回值写回 trapframe->x0
+       -> 若唤醒了更高优先级进程：yield()
+  -> intr_off(); urestorereg -> eret -> 回到 svc 的下一条指令
+\end{txtcode}
+
+\begin{ccode}
+void usertrap(void)
+{
+  struct proc *p = myproc();
+  uint64 esr = r_esr_el1();
+  uint64 ec = (esr >> 26) & 0x3f;
+  w_esr_el1(0);
+  if(ec == 21){                         // SVC from AArch64
+    if(p->killed) exit(-1);
+    intr_on();
+    syscall();
+    if(resched_pending()) yield();
+  } else {
+    printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
+    printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+    ...
+    uvmdump(p->vm->pagetable, p->pid, p->name, "usertrap");
+    p->killed = 1;
+  }
+  if(p->killed) exit(-1);
+  intr_off();
+}
+\end{ccode}
+
+硬件保存在 \reg{ELR\_EL1} 中的已经是 \code{svc} 的下一条指令地址，所以不需要像 RISC-V 那样手工给 PC 加 4。
+
+\begin{note}
+  早期版本的 \code{usertrap()} 先读出 EC 再清零 \reg{ESR\_EL1}，打印错误信息时又重新读一次寄存器，结果永远显示 \code{ec=0}。现在的代码先把完整的 ESR 存进局部变量 \code{esr}。调试信息本身的正确性，同样需要检查。
+\end{note}
+
+\subsection{初始化定时器}
+
+xv6-aarch64 没有使用 BCM 自己的 System Timer，而是使用 ARM 架构定义的通用定时器（Generic Timer）。它的好处是：每个核都有自己的比较器，中断经 ARM-local 的 bit 3 直接送到本核，不经过 legacy 控制器；寄存器是系统寄存器，用 \code{mrs}/\code{msr} 访问，不需要 MMIO 映射。内核使用虚拟定时器那一组：
+
+\begin{itemize}
+  \item \reg{CNTFRQ\_EL0}：计数器频率（由固件设置）；
+  \item \reg{CNTVCT\_EL0}：当前虚拟计数值，所有核共享，可用来测量时间（\code{clock\_us()}、\code{delay()} 都基于它）；
+  \item \reg{CNTV\_TVAL\_EL0}：距离触发还剩多少个计数，写入即开始倒计时；
+  \item \reg{CNTV\_CTL\_EL0}：bit 0 ENABLE、bit 1 IMASK、bit 2 ISTATUS。
+\end{itemize}
+
+\code{timerinit()} 的顺序是“关闭—装载—打开”，避免改写比较值的过程中产生一个中间中断：
+
+\begin{ccode}
+#define CNTV_CTL_ENABLE   (1<<0)
+#define CNTV_CTL_IMASK    (1<<1)
+
+void timerinit()
+{
+  disable_timer();
+  reload_timer();
+  enable_timer();
+}
+
+static void disable_timer()
+{
+  uint64 c = r_cntv_ctl_el0();
+  c &= ~CNTV_CTL_ENABLE;
+  c |= CNTV_CTL_IMASK;
+  w_cntv_ctl_el0(c);
+}
+
+static void reload_timer()
+{
+  uint64 interval = 10000;                                   // 微秒，即 10 ms
+  uint64 interval_clk = interval * (r_cntfrq_el0() / 1000000);
+  w_cntv_tval_el0(interval_clk);
+}
+
+static void enable_timer()
+{
+  uint64 c = r_cntv_ctl_el0();
+  c |= CNTV_CTL_ENABLE;
+  c &= ~CNTV_CTL_IMASK;
+  w_cntv_ctl_el0(c);
+}
+\end{ccode}
+
+\code{timerinit()} 由每个核各自调用。执行完之后定时器已经开始倒计时，但 PSTATE.I 仍然屏蔽着 IRQ，要等进入 \code{scheduler()} 调用 \code{intr\_on()} 时 CPU 才会真正接收它。
+
+\subsection{处理定时器中断}
+
+定时器到期后，中断经 ARM-local 路由到本核，\code{gic\_iar()} 返回 \code{TIMER0\_IRQ}，\code{devintr()} 调用 \code{timerintr()}：
+
+\begin{ccode}
+int timerintr()
+{
+  int cpu = cpuid();
+  int logical_tick;
+
+  disable_timer();
+  reload_timer();                       // 重新装载即清除了中断条件
+  timer_divider[cpu]++;
+  logical_tick = timer_divider[cpu] == 10;
+  if(logical_tick)
+    timer_divider[cpu] = 0;
+  if(cpu == 0)
+    workqueue_timer_tick();             // 推进 delayed-work 时钟
+  enable_timer();
+  return logical_tick;                  // 每 10 次（100 ms）返回 1
+}
+\end{ccode}
+
+一次 10\,ms 的硬件中断在 \code{devintr()} 中引出三件事：
+
+\begin{enumerate}
+  \item \textbf{系统时间}：每 10 次中断构成一个 xv6 逻辑 tick。只有 CPU0 调用 \code{clockintr()} 把全局 \code{ticks} 加一并 \code{wakeup(\&ticks)}，避免四个核把时间推进四倍。\code{sleep()}、\code{uptime()} 因此保持 xv6 原来 100\,ms 一个 tick 的语义：
+\begin{ccode}
+void clockintr()
+{
+  acquire(&tickslock);
+  ticks++;
+  wakeup(&ticks);
+  release(&tickslock);
+  net_udp_timeout_tick();       // 检查带超时的 UDP 接收是否到期
+}
+\end{ccode}
+  \item \textbf{下半部时钟}：CPU0 推进 workqueue 的 delayed-work 时钟，TCP 重传、Wi-Fi 连接超时等到期的工作被放进各自的工作队列，由内核线程执行，而不是在中断里直接运行；
+  \item \textbf{调度节拍}：每次中断都调用 \code{sched\_tick()}，扣减当前进程的时间片、累计实时任务的运行时间，必要时设置 \code{need\_resched}（第~\ref{chap:process} 章）。随后 \code{userirq()}/\code{kernelirq()} 检查 \code{resched\_pending()}，决定是否 \code{yield()}。
+\end{enumerate}
+
+\code{reload\_timer()} 写的是相对倒计时，所以下一次中断发生在“本次处理程序重新装载的时刻 $+$ 10\,ms”，处理程序的延迟会累积成时钟漂移。若要更稳定的时基，可以改写绝对比较值 \reg{CNTV\_CVAL\_EL0}，每次在上一个截止时间上加固定间隔。
+
+\subsection{小结}
+
+把本节的代码按 \code{main()} 中的调用顺序串起来：
+
+\begin{ccode}
+trapinit();        // 初始化 tickslock
+trapinithart();    // VBAR_EL1 = alltraps                   （每个核）
+gicv3init();       // legacy 控制器：全关，再打开 UART/USB/SDIO
+gicv3inithart();   // ARM-local：本核虚拟定时器 + mailbox 0  （每个核）
+timerinit();       // 10 ms 虚拟定时器开始倒计时            （每个核）
+...
+scheduler();       // intr_on()：第一次真正接收中断
+\end{ccode}
+
+顺序不能随意交换：先安装向量表，保证中断来了有入口；再配置控制器和路由；再启动定时器；最后才解除 PSTATE 的屏蔽。要收到第一个定时器中断，下面这些条件必须同时满足：
+
+\begin{itemize}
+  \item 处于 EL1h，且 EL2 已允许 EL1 访问计数器和定时器（\reg{CNTHCTL\_EL2}）；
+  \item \reg{VBAR\_EL1} 指向 2\,KiB 对齐的 \code{alltraps}；
+  \item \code{CORE\_TIMER\_CONTROL(cpu)} 打开了虚拟定时器路由；
+  \item \reg{CNTV\_TVAL\_EL0} 装入了非零值，\reg{CNTV\_CTL\_EL0} 的 ENABLE $=1$、IMASK $=0$；
+  \item PSTATE.I $=0$，且当前内核栈有效，有空间保存 272 字节的现场。
+\end{itemize}
+
+调试中断问题时，可以在启动阶段打印 \reg{CurrentEL}、\reg{VBAR\_EL1}、\reg{DAIF}、\reg{CNTFRQ\_EL0} 和 \reg{CNTV\_CTL\_EL0}；对未知中断打印 \code{IRQ\_PENDING\_1/2} 和 \code{CORE\_IRQ\_SOURCE}。但不要在定时器中断里持续 \code{printf}：串口远比中断慢，会改变调度时序，甚至带来新的锁问题。

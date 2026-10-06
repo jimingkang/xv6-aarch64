@@ -1,0 +1,235 @@
+% 3.3 raspberry-pi-os 第 2 课（docs/lesson02/rpi-os.md 的中文译本）
+\section{第 2 课：处理器初始化}
+\label{sec:rpios-l2}
+
+这一课要更深入地使用 ARM 处理器。它有一些操作系统可以利用的重要特性，第一个就是“异常级别”。
+
+\subsection{异常级别}
+
+每个支持 ARMv8 架构的 ARM 处理器都有 4 个异常级别（Exception Level，简称 EL）。可以把异常级别理解为处理器的一种执行模式，在这种模式下只能使用全部指令和寄存器中的一个子集。特权最低的是 EL0。处理器在这一级运行时，基本上只能使用通用寄存器（\code{X0}～\code{X30}）和栈指针寄存器（\code{SP}）；EL0 也允许用 \code{STR}、\code{LDR} 读写内存，以及使用其他一些用户程序常用的指令。
+
+操作系统必须处理异常级别，因为它要实现进程隔离：一个用户进程不应该能够访问另一个进程的数据。为此，操作系统总是让用户进程运行在 EL0。在这一级，进程只能使用自己的虚拟内存，也无法执行任何会改变虚拟内存设置的指令。所以，为了保证进程隔离，操作系统要为每个进程准备独立的虚拟内存映射，并在把控制权交给用户进程之前让处理器进入 EL0。
+
+操作系统本身通常运行在 EL1。在这一级，处理器可以访问配置虚拟内存的寄存器以及其他一些系统寄存器。树莓派 OS 也将运行在 EL1。
+
+EL2 和 EL3 我们不会用太多，这里只简单介绍一下，让你知道它们为什么存在：
+
+\begin{itemize}
+  \item EL2 用于虚拟机监控器（hypervisor）的场景。此时宿主操作系统运行在 EL2，客户操作系统只能使用 EL1。这让宿主系统可以像操作系统隔离用户进程那样隔离各个客户系统；
+  \item EL3 用于在 ARM 的“安全世界”与“非安全世界”之间切换。这一抽象为运行在两个“世界”中的软件提供完全的硬件隔离：“非安全世界”中的程序无论如何都不能访问或修改属于“安全世界”的信息（指令和数据），这一限制由硬件保证。
+\end{itemize}
+
+\subsection{调试内核}
+
+接下来我想弄清楚当前处于哪个异常级别。但真动手时才发现，内核只会在屏幕上打印固定的字符串，而我需要的是类似 \code{printf} 的函数。有了 \code{printf}，就能方便地显示各种寄存器和变量的值。对内核开发来说这至关重要，因为这时没有任何调试器支持，\code{printf} 几乎是了解程序内部情况的唯一手段。
+
+我决定不重新发明轮子，而是采用现成的 \code{printf} 实现（tinyprintf）。这个函数主要由字符串操作构成，从内核开发者的角度看并不有趣。它很小，没有外部依赖，很容易集成进内核。唯一要做的是定义一个能向屏幕发送单个字符的 \code{putc} 函数——它定义在 \code{mini\_uart.c} 中，只是调用已有的 \code{uart\_send}。此外还要初始化 \code{printf} 库，告诉它 \code{putc} 在哪里，这在 \code{kernel\_main} 中只需一行代码（见下文的 \code{init\_printf(0, putc)}）。
+
+\subsection{查看当前异常级别}
+
+有了 \code{printf}，就可以完成最初的任务：弄清操作系统是在哪个异常级别启动的。\code{utils.S} 中有一个小函数可以回答这个问题：
+
+\begin{asmcode}
+.globl get_el
+get_el:
+	mrs x0, CurrentEL
+	lsr x0, x0, #2
+	ret
+\end{asmcode}
+
+这里用 \code{mrs} 把系统寄存器 \reg{CurrentEL} 的值读进 \code{x0}，然后右移 2 位（\reg{CurrentEL} 的最低 2 位是保留位，总是 0），于是 \code{x0} 中就是表示当前异常级别的整数。剩下的就是把它显示出来，\code{kernel\_main} 如下：
+
+\begin{ccode}
+#include "printf.h"
+#include "utils.h"
+#include "mini_uart.h"
+
+void kernel_main(void)
+{
+	uart_init();
+	init_printf(0, putc);
+	int el = get_el();
+	printf("Exception level: %d \r\n", el);
+
+	while (1) {
+		uart_send(uart_recv());
+	}
+}
+\end{ccode}
+
+如果你重现这个实验，屏幕上应该显示 \code{Exception level: 3}。
+
+\subsection{改变当前异常级别}
+
+在 ARM 架构中，如果没有已经运行在更高级别的软件参与，程序无法提升自己的异常级别。这完全合理：否则任何程序都能逃出分配给它的级别，访问其他程序的数据。只有产生异常时，当前异常级别才可能改变。程序执行了非法指令（例如访问不存在的内存地址、除以 0）会产生异常；应用程序也可以执行 \code{svc} 指令故意产生异常；硬件产生的中断也被当作一种特殊的异常来处理。每当产生异常，都会依次发生以下步骤（假设异常在 EL$n$ 处理，$n$ 可以是 1、2 或 3）：
+
+\begin{enumerate}
+  \item 当前指令的地址保存到 \reg{ELR\_ELn} 寄存器（Exception Link Register，异常链接寄存器）；
+  \item 当前处理器状态保存到 \reg{SPSR\_ELn} 寄存器（Saved Program Status Register，保存的程序状态寄存器）；
+  \item 执行异常处理程序，完成它需要做的工作；
+  \item 异常处理程序执行 \code{eret} 指令。这条指令从 \reg{SPSR\_ELn} 恢复处理器状态，并从 \reg{ELR\_ELn} 中保存的地址继续执行。
+\end{enumerate}
+
+实际过程要复杂一点，因为异常处理程序还需要保存所有通用寄存器的状态并在之后恢复，这些下一课再详细讨论。现在只需理解整体流程，记住 \reg{ELR\_ELn} 和 \reg{SPSR\_ELn} 的含义。
+
+重要的一点是：异常处理程序不一定要返回到产生异常的位置。\reg{ELR\_ELn} 和 \reg{SPSR\_ELn} 都是可写的，处理程序可以随意修改它们。下面从 EL3 切换到 EL1 时，就要利用这一点。
+
+\subsection{切换到 EL1}
+
+严格地说，我们的操作系统并非必须切换到 EL1，但 EL1 是很自然的选择，因为这一级的特权恰好够完成所有常见的操作系统任务。看看切换异常级别如何实际运作，也是一个有意思的练习。完成这件事的代码在 \code{boot.S} 中：
+
+\begin{asmcode}
+master:
+	ldr	x0, =SCTLR_VALUE_MMU_DISABLED
+	msr	sctlr_el1, x0
+
+	ldr	x0, =HCR_VALUE
+	msr	hcr_el2, x0
+
+	ldr	x0, =SCR_VALUE
+	msr	scr_el3, x0
+
+	ldr	x0, =SPSR_VALUE
+	msr	spsr_el3, x0
+
+	adr	x0, el1_entry
+	msr	elr_el3, x0
+
+	eret
+
+el1_entry:
+	adr	x0, bss_begin
+	adr	x1, bss_end
+	sub	x1, x1, x0
+	bl 	memzero
+
+	mov	sp, #LOW_MEMORY
+	bl	kernel_main
+	b 	proc_hang		// should never come here
+\end{asmcode}
+
+可以看到，代码主要就是配置几个系统寄存器。下面逐个来看。这需要用到《ARM Architecture Reference Manual ARMv8, for ARMv8-A architecture profile》\cite{armarm}，其中有 ARMv8 架构的详细规范。所有常量定义在 \code{include/arm/sysregs.h} 中。
+
+\subsubsection{\reg{SCTLR\_EL1}，系统控制寄存器（EL1）}
+
+\begin{asmcode}
+	ldr	x0, =SCTLR_VALUE_MMU_DISABLED
+	msr	sctlr_el1, x0
+\end{asmcode}
+
+这里设置系统寄存器 \reg{SCTLR\_EL1}。它负责配置处理器在 EL1 运行时的各种参数，例如是否打开缓存，以及——对我们最重要的——是否打开 MMU（内存管理单元）。所有不低于 EL1 的异常级别都能访问 \reg{SCTLR\_EL1}（从后缀 \code{\_el1} 就能看出来）。
+
+\code{SCTLR\_VALUE\_MMU\_DISABLED} 由以下各位组成：
+
+\begin{ccode}
+#define SCTLR_RESERVED          (3 << 28) | (3 << 22) | (1 << 20) | (1 << 11)
+#define SCTLR_EE_LITTLE_ENDIAN  (0 << 25)
+#define SCTLR_EOE_LITTLE_ENDIAN (0 << 24)
+#define SCTLR_I_CACHE_DISABLED  (0 << 12)
+#define SCTLR_D_CACHE_DISABLED  (0 << 2)
+#define SCTLR_MMU_DISABLED      (0 << 0)
+#define SCTLR_MMU_ENABLED       (1 << 0)
+
+#define SCTLR_VALUE_MMU_DISABLED (SCTLR_RESERVED | SCTLR_EE_LITTLE_ENDIAN | \
+        SCTLR_I_CACHE_DISABLED | SCTLR_D_CACHE_DISABLED | SCTLR_MMU_DISABLED)
+\end{ccode}
+
+\begin{itemize}
+  \item \code{SCTLR\_RESERVED}：\reg{SCTLR\_EL1} 说明中有些位标为 \code{RES1}，它们保留给将来使用，应当初始化为 1；
+  \item \code{SCTLR\_EE\_LITTLE\_ENDIAN}：异常时的字节序（Endianness）。这个字段控制 EL1 显式数据访问的字节序。我们只让处理器使用小端格式；
+  \item \code{SCTLR\_EOE\_LITTLE\_ENDIAN}：与上一项类似，但控制的是 EL0 显式数据访问的字节序；
+  \item \code{SCTLR\_I\_CACHE\_DISABLED}：关闭指令缓存。为了简单，我们关闭所有缓存；
+  \item \code{SCTLR\_D\_CACHE\_DISABLED}：关闭数据缓存；
+  \item \code{SCTLR\_MMU\_DISABLED}：关闭 MMU。在第 6 课准备好页表、开始使用虚拟内存之前，MMU 必须保持关闭。
+\end{itemize}
+
+\begin{remark}
+  译注：本项目（3.1 节）在 \code{\_entry} 一开始写入 \reg{SCTLR\_EL1} 的正是同一个 \code{RES1} 组合 \code{(3<<28)|(3<<22)|(1<<20)|(1<<11)}。
+\end{remark}
+
+\subsubsection{\reg{HCR\_EL2}，虚拟机监控器配置寄存器（EL2）}
+
+\begin{asmcode}
+	ldr	x0, =HCR_VALUE
+	msr	hcr_el2, x0
+\end{asmcode}
+
+我们不打算实现自己的虚拟机监控器，但仍然需要设置这个寄存器，因为它（在众多设置之中）控制着 EL1 的执行状态。EL1 的执行状态必须是 AArch64 而不是 AArch32：
+
+\begin{ccode}
+#define HCR_RW      (1 << 31)
+#define HCR_VALUE   HCR_RW
+\end{ccode}
+
+\subsubsection{\reg{SCR\_EL3}，安全配置寄存器（EL3）}
+
+\begin{asmcode}
+	ldr	x0, =SCR_VALUE
+	msr	scr_el3, x0
+\end{asmcode}
+
+这个寄存器负责安全相关的配置。例如它控制所有较低的级别以“安全”还是“非安全”状态运行，也控制 EL2 的执行状态。这里设置 EL2 以 AArch64 运行，所有较低的异常级别都处于“非安全”状态：
+
+\begin{ccode}
+#define SCR_RESERVED    (3 << 4)
+#define SCR_RW          (1 << 10)
+#define SCR_NS          (1 << 0)
+#define SCR_VALUE       (SCR_RESERVED | SCR_RW | SCR_NS)
+\end{ccode}
+
+\subsubsection{\reg{SPSR\_EL3}，保存的程序状态寄存器（EL3）}
+
+\begin{asmcode}
+	ldr	x0, =SPSR_VALUE
+	msr	spsr_el3, x0
+\end{asmcode}
+
+这个寄存器你应该已经熟悉了——讨论切换异常级别的过程时提到过它。\reg{SPSR\_EL3} 保存的是执行 \code{eret} 之后要恢复的处理器状态。
+
+有必要说说“处理器状态”包括什么：
+
+\begin{itemize}
+  \item \textbf{条件标志}：记录上一次运算的信息：结果是否为负（N 标志）、是否为零（Z 标志）、是否发生无符号溢出（C 标志）、是否发生有符号溢出（V 标志）。条件分支指令会用到这些标志。例如 \code{b.eq} 只在上一次比较的结果为 0 时才跳转，处理器通过检查 Z 标志是否为 1 来判断；
+  \item \textbf{中断屏蔽位}：用于打开或关闭各类中断；
+  \item 其他一些在异常处理完毕后完整恢复处理器执行状态所需的信息。
+\end{itemize}
+
+\begin{remark}
+  译注：原文此处把 Z 标志误写成了 “A flag”，已更正。
+\end{remark}
+
+通常，异常进入 EL3 时 \reg{SPSR\_EL3} 会被自动保存。但这个寄存器是可写的，我们利用这一点手工准备处理器状态。\code{SPSR\_VALUE} 设置了以下字段：
+
+\begin{ccode}
+#define SPSR_MASK_ALL   (7 << 6)
+#define SPSR_EL1h       (5 << 0)
+#define SPSR_VALUE      (SPSR_MASK_ALL | SPSR_EL1h)
+\end{ccode}
+
+\begin{itemize}
+  \item \code{SPSR\_MASK\_ALL}：切换到 EL1 之后，所有类型的中断都被屏蔽（禁止）；
+  \item \code{SPSR\_EL1h}：在 EL1 可以使用自己专用的栈指针，也可以使用 EL0 的栈指针。\code{EL1h} 模式表示使用 EL1 专用的栈指针。
+\end{itemize}
+
+\begin{remark}
+  译注：\code{7 << 6} 设置的是 PSTATE 的 A、I、F 三位（SError、IRQ、FIQ），D 位（bit 9，调试异常）没有设置。3.1 节中本项目用的 \code{0x3c5} 则是 \code{(0xf << 6) | 5}，四位全部屏蔽。
+\end{remark}
+
+\subsubsection{\reg{ELR\_EL3}，异常链接寄存器（EL3）}
+
+\begin{asmcode}
+	adr	x0, el1_entry
+	msr	elr_el3, x0
+
+	eret
+\end{asmcode}
+
+\reg{ELR\_EL3} 保存执行 \code{eret} 之后要返回的地址。这里把它设成标号 \code{el1\_entry} 的位置。
+
+\subsection{小结}
+
+基本上就是这些：进入 \code{el1\_entry} 时，处理器应该已经处于 EL1 了。动手试试吧！
+
+\begin{remark}
+  译注：从 \code{el1\_entry} 开始的代码和第 1 课的 \code{master} 完全相同——清 \code{.bss}、设栈、调用 \code{kernel\_main}。本课最终的源码中，\code{kernel\_main} 是在切换之后才运行的，所以运行它时屏幕显示 \code{Exception level: 1}；前文说的 \code{Exception level: 3}，是加入切换代码之前做的实验结果。
+\end{remark}

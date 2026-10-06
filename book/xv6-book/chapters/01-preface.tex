@@ -1,0 +1,86 @@
+\chapter{序言}
+
+\begin{introduction}[本章内容]
+  \item 为什么要从裸机写起
+  \item 为什么选 xv6、AArch64 和 Raspberry Pi 3
+  \item 这个项目走过的路
+  \item 本书的结构与阅读方法
+  \item 开发环境与约定
+\end{introduction}
+
+\section{从一条指令开始}
+
+一台树莓派插上电源后，GPU 固件把一段二进制文件拷到物理地址 \code{0x80000}，然后让 CPU0 从那里开始取指。此时没有栈，没有堆，没有 \code{printf}，没有页表，甚至不知道自己处于哪个异常级别。本书要回答的问题是：从这条指令出发，要依次搭起哪些东西，才能得到一个可以多核调度、读写 SD 卡、通过 Wi-Fi 被 SSH 远程登录、还能驱动摄像头的操作系统？
+
+教科书通常按“进程、内存、文件、设备”分章讲操作系统原理，每一章都假设别的部分已经存在。真正动手时顺序恰好相反：要先让串口吐出一个字符，才能知道代码跑到了哪里；要先建好页表，内存分配器才有地方放空闲链表；要先有块设备驱动，文件系统才能读到 superblock。本书沿着这条“依赖链”组织内容，每一章都只依赖前面已经建好的东西。
+
+\section{为什么是 xv6、AArch64 和树莓派}
+
+\paragraph{xv6.} xv6 是 MIT 为操作系统课程 6.S081/6.1810 编写的教学内核\cite{xv6book}，用 C 重写了第六版 Unix 的核心思想。它只有一万行左右，却完整包含了进程、虚拟内存、系统调用、日志文件系统、管道和 shell。代码短，意味着每一个机制都能读到底；结构清楚，意味着加新功能时知道该放在哪一层。
+
+\paragraph{AArch64.} 原版 xv6 运行在 RISC-V 上。本项目的起点是一个面向 QEMU \code{virt} 机器的 AArch64 移植。ARMv8-A 的异常级别（EL0～EL3）、两套页表基址寄存器（\reg{TTBR0\_EL1}/\reg{TTBR1\_EL1}）、内存属性间接表（\reg{MAIR\_EL1}）以及显式的缓存维护指令，都比 RISC-V 更接近手机和服务器上真实运行的系统，也更容易踩到“QEMU 正常、真机失败”的坑——而这些坑恰恰最有教学价值。
+
+\paragraph{Raspberry Pi 3.} 树莓派 3B/3B+ 使用 BCM2837 SoC（四核 Cortex-A53），价格低、资料多，Linux 驱动全部开源，可以对照阅读。它的外设足够丰富：Mini UART、SD 卡控制器、DWC2 USB 主机、板载 SDIO Wi-Fi、I2C、CSI-2 摄像头接口……几乎每一类典型驱动都能在这块板子上找到一个真实的例子。同时 QEMU 提供了 \code{raspi3b} 机器模型，可以先在模拟器里调通流程，再上真机验证。
+
+\section{这个项目走过的路}
+
+项目的提交记录大致反映了“从裸机到操作系统”的顺序（表~\ref{tab:history}）。最早的一个月只做了一件事：把 QEMU \code{virt} 上的 xv6 搬到 \code{raspi3b}；此后两周里，几乎每天都在真机上解决一个新问题。
+
+\begin{table}[htbp]
+  \centering
+  \caption{主要里程碑（取自 git 提交记录）}
+  \label{tab:history}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    日期 & 内容 \\
+    \midrule
+    05-27 & 初始提交：QEMU \code{virt} 上的 xv6-aarch64 \\
+    09-23 & 从 \code{virt} 转到 Raspberry Pi 3；SD 卡与 FAT32 分区 \\
+    09-24 & 真机串口与内存属性问题；D/I-cache 一致性；SD 命令超时重试 \\
+    09-27 & 进程间同步原语（mutex、semaphore、event）；网络协议栈与 \code{ping} \\
+    09-28 & TTY 中间层；Linux 风格的总线/设备/驱动模型；SDIO Wi-Fi \\
+    09-30 & \code{sshd} 远程登录；SDIO 中断；workqueue 下半部 \\
+    10-01 & 每设备私有 work、delayed work、NAPI；FAT32 启动分区挂载到 \code{/boot}；epoll；TFTP；信号；USB 键盘 \\
+    10-02 & USB URB 接口；input 子系统与 evdev \\
+    10-03 & 多核软实时调度；用户线程 \\
+    10-04 & POSIX 源码兼容层 \\
+    10-05 & CSI-2 摄像头（OV5647 + Unicam） \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+这些功能都附有一篇专题文档（\file{readme/} 目录），记录了实现思路和调试过程。本书就是把这些文档按依赖顺序重新组织、补全前因后果之后得到的。
+
+\section{本书的结构}
+
+\begin{itemize}
+  \item \textbf{第 2 章 项目组织}：目录结构、构建流程、镜像如何生成，以及内核初始化顺序。这一章是全书的地图。
+  \item \textbf{第 3 章 基于汇编的启动代码}：固件把控制权交给内核之后，\file{entry.S} 如何统一异常级别、点亮早期串口、建立临时页表、打开 MMU，并唤醒其余三个核；异常向量表和中断控制器也在这一章。
+  \item \textbf{第 4 章 MMU}：39 位虚拟地址、三级页表、内存属性；内核页表与用户页表；MMIO 与 DMA 地址；以及三个与缓存和 TLB 有关的真机故障。
+  \item \textbf{第 5 章 进程创建}：\code{struct proc}、第一个用户进程、\code{fork()} 的每一步、上下文切换和调度器，以及在此基础上加入的同步原语和软实时调度。
+  \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，SD 卡驱动，根文件系统的三种存放方式，VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
+  \item \textbf{第 7 章 驱动架构}：设备模型与上下半部；控制台、UART 与 TTY；USB 与输入子系统；I2C；SDIO 与 USB 两种无线网卡；CSI-2 摄像头。
+  \item \textbf{第 8 章 用户进程、线程与 libc}：系统调用桩、\code{init} 与 shell、用户线程、POSIX 兼容层和一个能在 xv6 里运行的小型 C 编译器。
+\end{itemize}
+
+\section{阅读方法与约定}
+
+本书以源码为准。正文中的文件路径都相对于仓库根目录，例如 \file{kernel/entry.S}。代码片段尽量保持原样，只删去与讨论无关的行。描述某个函数时，一般按“它解决什么问题 → 调用路径 → 关键代码 → 容易出错的地方”的顺序展开。
+
+\begin{note}
+  QEMU 的 \code{raspi3b} 模型与真机有不少差别：QEMU 对内存属性和缓存一致性非常宽容，不模拟 SDIO Wi-Fi、摄像头和板载 USB 网卡，固件 mailbox 也只实现了一部分。本书凡是只在 QEMU 上验证过的结论都会注明。一条经验贯穿全书：\textbf{QEMU 能跑通不代表真机正确}，原子操作、缓存维护和设备时序必须在 Cortex-A53 上验证。
+\end{note}
+
+开发环境如下：
+
+\begin{itemize}
+  \item 交叉工具链：\code{aarch64-linux-gnu-}、\code{aarch64-elf-} 或 \code{aarch64-unknown-elf-} 均可，Makefile 会自动探测；
+  \item 模拟器：\code{qemu-system-aarch64 -machine raspi3b}；
+  \item 真机：Raspberry Pi 3B 或 3B+，一张 microSD 卡，一根 3.3\,V 的 USB-TTL 串口线（GPIO14/15，115200 8N1）；
+  \item 宿主机：macOS（文中的 \code{diskutil}、\code{/dev/rdiskN} 等命令以 macOS 为例，Linux 下换成 \code{fdisk}/\code{dd} 的等价写法即可）。
+\end{itemize}
+
+\section{致谢}
+
+本项目从以下工作中获益良多：MIT 的 xv6\cite{xv6book}；Sergey Matyukevich 的 \emph{raspberry-pi-os}\cite{rpios}，它对树莓派裸机异常与中断的讲解非常清楚；rockytriton 的 LLD 裸机教程\cite{lld}，其中的 EMMC 驱动是本项目 SD 驱动的参考；Circle 裸机框架\cite{circle}；以及 Raspberry Pi Linux 内核中的 \code{brcmfmac}、\code{mt7601u}、\code{bcm2835-unicam}、\code{ov5647} 等驱动\cite{rpilinux}。

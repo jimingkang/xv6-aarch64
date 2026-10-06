@@ -1,0 +1,404 @@
+% 3.6 raspberry-pi-os 第 5 课（docs/lesson05/rpi-os.md 的中文译本）
+\section{第 5 课：用户进程与系统调用}
+\label{sec:rpios-l5}
+
+我们已经给 RPi OS 加了很多功能，让它看起来像一个真正的操作系统，而不只是一个裸机程序。RPi OS 现在能够管理进程了，但这项功能还有一个重大缺陷：完全没有进程隔离。这一课就来解决这个问题。首先，我们把所有用户进程移到 EL0，限制它们执行特权处理器操作。没有这一步，其他任何隔离手段都毫无意义，因为任何用户程序都能改写我们的安全设置，从而打破隔离。
+
+如果禁止用户程序直接访问内核函数，又会带来另一个问题：用户程序需要向用户打印点东西该怎么办？我们当然不希望它直接操作 UART 设备。更好的办法是由操作系统为每个程序提供一组 API。这样的 API 不能实现成普通的函数集合，因为用户程序每次调用其中的函数时，都必须把当前异常级别提升到 EL1。这类 API 中的单个函数称为“系统调用”，这一课就给 RPi OS 加上一组系统调用。
+
+进程隔离还有第三个方面：每个进程都应该拥有自己独立的内存视图——这个问题留到第 6 课解决。
+
+\subsection{实现系统调用}
+
+系统调用（简称 syscall）背后的思想非常简单：每个系统调用实际上都是一次同步异常。用户程序要执行系统调用时，先准备好所有必需的参数，然后执行 \code{svc} 指令。这条指令产生一个同步异常，由操作系统在 EL1 处理。操作系统检查所有参数、执行所请求的操作，然后执行普通的异常返回，保证执行从 EL0 中 \code{svc} 的下一条指令处继续。RPi OS 定义了 4 个简单的系统调用：
+
+\begin{enumerate}
+  \item \code{write}：通过 UART 设备在屏幕上输出内容。第一个参数是存放待打印文本的缓冲区；
+  \item \code{clone}：创建一个新的用户线程。新线程栈的位置作为第一个参数传入；
+  \item \code{malloc}：为用户进程分配一个内存页。Linux（我想其他任何操作系统也一样）中没有类似的系统调用。我们需要它，只是因为 RPi OS 还没有实现虚拟内存，所有用户进程都直接使用物理内存，所以每个进程都需要一种办法找出哪些内存页还没被占用、可以使用。\code{malloc} 返回新分配页的指针，出错时返回 $-1$；
+  \item \code{exit}：每个进程执行完毕后都必须调用这个系统调用，由它做所有必要的清理工作。
+\end{enumerate}
+
+所有系统调用都定义在 \code{sys.c} 中，其中还有一个数组 \code{sys\_call\_table}，存放所有系统调用处理函数的指针：
+
+\begin{ccode}
+void sys_write(char * buf){
+	printf(buf);
+}
+
+int sys_clone(unsigned long stack){
+	return copy_process(0, 0, 0, stack);
+}
+
+unsigned long sys_malloc(){
+	unsigned long addr = get_free_page();
+	if (!addr) {
+		return -1;
+	}
+	return addr;
+}
+
+void sys_exit(){
+	exit_process();
+}
+
+void * const sys_call_table[] = {sys_write, sys_malloc, sys_clone, sys_exit};
+\end{ccode}
+
+每个系统调用都有一个“系统调用号”——它就是 \code{sys\_call\_table} 数组的下标。所有系统调用号定义在 \code{include/sys.h} 中，汇编代码用它们来指明要调用哪个系统调用：
+
+\begin{ccode}
+#define __NR_syscalls	    4
+#define SYS_WRITE_NUMBER    0
+#define SYS_MALLOC_NUMBER   1
+#define SYS_CLONE_NUMBER    2
+#define SYS_EXIT_NUMBER     3
+\end{ccode}
+
+以 \code{write} 为例，看看系统调用的包装函数（\code{sys.S}）：
+
+\begin{asmcode}
+.globl call_sys_write
+call_sys_write:
+	mov w8, #SYS_WRITE_NUMBER
+	svc #0
+	ret
+\end{asmcode}
+
+这个函数非常简单：把系统调用号放进 \code{w8} 寄存器，然后执行 \code{svc} 指令产生同步异常。用 \code{w8} 存放系统调用号是一种约定：\code{x0}～\code{x7} 用于系统调用参数，\code{x8} 用于系统调用号，这样一个系统调用最多可以有 8 个参数。
+
+这样的包装函数通常不包含在内核本身中——更常见的是在各种语言的标准库里，例如 glibc。
+
+\subsection{处理同步异常}
+
+同步异常产生后，就会调用异常向量表中登记的处理程序 \code{el0\_sync}，它的开头是：
+
+\begin{asmcode}
+el0_sync:
+	kernel_entry 0
+	mrs	x25, esr_el1				// read the syndrome register
+	lsr	x24, x25, #ESR_ELx_EC_SHIFT		// exception class
+	cmp	x24, #ESR_ELx_EC_SVC64			// SVC in 64-bit state
+	b.eq	el0_svc
+	handle_invalid_entry 0, SYNC_ERROR
+\end{asmcode}
+
+首先，和所有异常处理程序一样，调用 \code{kernel\_entry} 宏。然后检查 \reg{ESR\_EL1}（异常综合征寄存器）。这个寄存器在偏移 \code{ESR\_ELx\_EC\_SHIFT}（26）处有一个“异常类别”字段。如果异常类别等于 \code{ESR\_ELx\_EC\_SVC64}（\code{0x15}），说明当前异常是由 \code{svc} 指令引起的，是一次系统调用，于是跳到 \code{el0\_svc}；否则显示一条错误信息。
+
+\begin{asmcode}
+sc_nr	.req	x25					// number of system calls
+scno	.req	x26					// syscall number
+stbl	.req	x27					// syscall table pointer
+
+el0_svc:
+	adr	stbl, sys_call_table			// load syscall table pointer
+	uxtw	scno, w8				// syscall number in w8
+	mov	sc_nr, #__NR_syscalls
+	bl	enable_irq
+	cmp     scno, sc_nr                     	// check upper syscall limit
+	b.hs	ni_sys
+
+	ldr	x16, [stbl, scno, lsl #3]		// address in the syscall table
+	blr	x16					// call sys_* routine
+	b	ret_from_syscall
+ni_sys:
+	handle_invalid_entry 0, SYSCALL_ERROR
+\end{asmcode}
+
+\code{el0\_svc} 先把系统调用表的地址装入 \code{stbl}（它只是 \code{x27} 寄存器的别名），把系统调用号装入 \code{scno}。然后打开中断，把系统调用号与系统中系统调用的总数比较——如果大于或等于总数，就显示错误信息。如果系统调用号在合法范围内，就用它作为系统调用表的下标，取得处理函数的指针，然后执行处理函数，执行完调用 \code{ret\_from\_syscall}。注意，这里完全没有动 \code{x0}～\code{x7}，它们被原样传给了处理函数。
+
+\begin{asmcode}
+ret_from_syscall:
+	bl	disable_irq
+	str	x0, [sp, #S_X0]				// returned x0
+	kernel_exit 0
+\end{asmcode}
+
+\code{ret\_from\_syscall} 先关闭中断，然后把 \code{x0} 的值存到栈上。这是必需的，因为 \code{kernel\_exit} 会从保存的值中恢复所有通用寄存器，而 \code{x0} 现在是系统调用处理函数的返回值，我们希望把这个值传回用户代码。最后调用 \code{kernel\_exit} 返回用户代码。
+
+\subsection{在 EL0 与 EL1 之间切换}
+
+如果你仔细读过前面几课，可能注意到 \code{kernel\_entry} 和 \code{kernel\_exit} 宏有了变化：两者现在都多了一个参数，表示异常来自哪个异常级别。正确保存和恢复栈指针需要这个信息。下面是两个宏中相关的部分：
+
+\begin{asmcode}
+	.if	\el == 0
+	mrs	x21, sp_el0
+	.else
+	add	x21, sp, #S_FRAME_SIZE
+	.endif /* \el == 0 */
+\end{asmcode}
+
+\begin{asmcode}
+	.if	\el == 0
+	msr	sp_el0, x21
+	.endif /* \el == 0 */
+\end{asmcode}
+
+EL0 和 EL1 使用两个不同的栈指针，所以从 EL0 进入异常后，\code{sp} 立刻就换成了 EL1 的栈指针，原来的栈指针保存在 \reg{SP\_EL0} 寄存器中。即使异常处理程序根本不碰 \reg{SP\_EL0}，在进入和退出异常时也必须保存和恢复它的值。不这样做的话，一次上下文切换之后 \code{sp} 中就会是错误的值。
+
+你也许还会问：异常来自 EL1 时，为什么不恢复 \code{sp} 的值？因为我们在异常处理程序中重用同一个内核栈。即使在处理异常的过程中发生了上下文切换，到 \code{kernel\_exit} 的时候，\code{sp} 也已经被 \code{cpu\_switch\_to} 切换好了。（顺便说一句，Linux 的行为与此不同，因为 Linux 为中断处理程序使用单独的栈。）
+
+还值得注意的是，在 \code{eret} 之前，我们无需显式指定要返回到哪个异常级别。这个信息编码在 \reg{SPSR\_EL1} 中，所以总是返回到产生异常的那一级。
+
+完整的 \code{kernel\_entry} 现在保存 \code{x0}～\code{x29}、\code{x30}、原 \code{sp}、\reg{ELR\_EL1} 和 \reg{SPSR\_EL1}，正好 34 个 8 字节，即 272 字节。这个布局由 \code{struct pt\_regs} 描述：
+
+\begin{ccode}
+struct pt_regs {
+	unsigned long regs[31];
+	unsigned long sp;
+	unsigned long pc;
+	unsigned long pstate;
+};
+\end{ccode}
+
+\subsection{把任务移到用户态}
+
+在任何系统调用发生之前，显然要先有一个在用户态运行的任务。创建新的用户任务有两种途径：把一个内核线程移到用户态，或者由一个用户任务复制（fork）自己。这一节探讨第一种途径。
+
+真正干活的函数叫 \code{move\_to\_user\_mode}。在看它之前，先看看它是怎么被使用的。打开 \code{kernel.c}，相关的几行如下：
+
+\begin{ccode}
+	int res = copy_process(PF_KTHREAD, (unsigned long)&kernel_process, 0, 0);
+	if (res < 0) {
+		printf("error while starting kernel process");
+		return;
+	}
+\end{ccode}
+
+首先，\code{kernel\_main} 创建一个新的内核线程，方式与上一课相同。调度器运行这个新任务后，\code{kernel\_process} 函数将在内核态执行：
+
+\begin{ccode}
+void kernel_process(){
+	printf("Kernel process started. EL %d\r\n", get_el());
+	int err = move_to_user_mode((unsigned long)&user_process);
+	if (err < 0){
+		printf("Error while moving process to user mode\n\r");
+	}
+}
+\end{ccode}
+
+\code{kernel\_process} 打印一条状态信息，然后调用 \code{move\_to\_user\_mode}，把 \code{user\_process} 的指针作为第一个参数传进去。来看 \code{move\_to\_user\_mode} 做了什么：
+
+\begin{ccode}
+int move_to_user_mode(unsigned long pc)
+{
+	struct pt_regs *regs = task_pt_regs(current);
+	memzero((unsigned long)regs, sizeof(*regs));
+	regs->pc = pc;
+	regs->pstate = PSR_MODE_EL0t;
+	unsigned long stack = get_free_page(); //allocate new user stack
+	if (!stack) {
+		return -1;
+	}
+	regs->sp = stack + PAGE_SIZE;
+	current->stack = stack;
+	return 0;
+}
+\end{ccode}
+
+此刻我们正处在一个内核线程的执行过程中，这个线程是从初始任务 fork 出来的。上一课讨论 fork 时我们看到，新任务的栈顶预留了一小块区域（\code{pt\_regs} 区）。现在第一次用到这块区域：我们把手工准备好的处理器状态存在这里。这个状态的格式正是 \code{kernel\_exit} 宏所期望的，其结构由 \code{struct pt\_regs} 描述。
+
+\code{move\_to\_user\_mode} 初始化了 \code{pt\_regs} 的以下字段：
+
+\begin{itemize}
+  \item \code{pc}：现在指向要在用户态执行的函数。\code{kernel\_exit} 会把 \code{pc} 拷到 \reg{ELR\_EL1}，从而保证异常返回后回到 \code{pc} 指定的地址；
+  \item \code{pstate}：\code{kernel\_exit} 会把这个字段拷到 \reg{SPSR\_EL1}，异常返回完成后它就成为处理器状态。拷进 \code{pstate} 的常量 \code{PSR\_MODE\_EL0t}（值为 0）使得异常返回到 EL0。第 2 课从 EL3 切到 EL1 时，我们已经用过同样的技巧；
+  \item \code{sp}：\code{move\_to\_user\_mode} 为用户栈分配一个新页，并让 \code{sp} 指向这一页的顶端。
+\end{itemize}
+
+\code{task\_pt\_regs} 用来计算 \code{pt\_regs} 区域的位置：
+
+\begin{ccode}
+struct pt_regs * task_pt_regs(struct task_struct *tsk){
+	unsigned long p = (unsigned long)tsk + THREAD_SIZE - sizeof(struct pt_regs);
+	return (struct pt_regs *)p;
+}
+\end{ccode}
+
+由于我们初始化当前内核线程的方式，可以确定它结束时 \code{sp} 恰好指向 \code{pt\_regs} 区域之前。这发生在 \code{ret\_from\_fork} 的中间：
+
+\begin{asmcode}
+.globl ret_from_fork
+ret_from_fork:
+	bl	schedule_tail
+	cbz	x19, ret_to_user			// not a kernel thread
+	mov	x0, x20
+	blr	x19
+ret_to_user:
+	bl disable_irq
+	kernel_exit 0
+\end{asmcode}
+
+你可能注意到 \code{ret\_from\_fork} 已经更新了。现在，内核线程执行完毕后，执行流来到 \code{ret\_to\_user} 标号：在这里关闭中断，然后利用事先准备好的处理器状态执行普通的异常返回。
+
+\begin{remark}
+  译注：\code{copy\_process} 把新任务的 \code{cpu\_context.sp} 设为 \code{childregs}（即 \code{pt\_regs} 的起始地址），所以 \code{kernel\_process} 从 \code{blr x19} 返回时，\code{sp} 正好回到 \code{pt\_regs} 区的底部，\code{kernel\_exit 0} 从这里恢复出 \code{move\_to\_user\_mode} 准备好的状态。\code{cbz x19, ret\_to\_user} 则让 \code{clone} 出来的用户线程（\code{x19}=0）跳过内核函数调用，直接返回用户态。
+\end{remark}
+
+\subsection{复制用户进程}
+
+回到 \code{kernel.c}。上一节看到，\code{kernel\_process} 结束后，\code{user\_process} 将在用户态执行。它调用两次 \code{clone} 系统调用，在两个并行的线程中执行 \code{user\_process1}。\code{clone} 系统调用要求传入新用户栈的位置，所以还需要调用 \code{malloc} 系统调用分配两个新的内存页：
+
+\begin{ccode}
+void user_process1(char *array)
+{
+	char buf[2] = {0};
+	while (1){
+		for (int i = 0; i < 5; i++){
+			buf[0] = array[i];
+			call_sys_write(buf);
+			delay(100000);
+		}
+	}
+}
+
+void user_process(){
+	char buf[30] = {0};
+	tfp_sprintf(buf, "User process started\n\r");
+	call_sys_write(buf);
+	unsigned long stack = call_sys_malloc();
+	...
+	int err = call_sys_clone((unsigned long)&user_process1, (unsigned long)"12345", stack);
+	...
+	stack = call_sys_malloc();
+	...
+	err = call_sys_clone((unsigned long)&user_process1, (unsigned long)"abcd", stack);
+	...
+	call_sys_exit();
+}
+\end{ccode}
+
+来看 \code{clone} 系统调用的包装函数：
+
+\begin{asmcode}
+.globl call_sys_clone
+call_sys_clone:
+	/* Save args for the child.  */
+	mov	x10, x0					/*fn*/
+	mov	x11, x1					/*arg*/
+	mov	x12, x2					/*stack*/
+
+	/* Do the system call.  */
+	mov 	x0, x2					/* stack  */
+	mov	x8, #SYS_CLONE_NUMBER
+	svc	0x0
+
+	cmp	x0, #0
+	beq	thread_start
+	ret
+
+thread_start:
+	mov	x29, 0
+
+	/* Pick the function arg and execute.  */
+	mov	x0, x11
+	blr	x10
+
+	/* We are done, pass the return value through x0.  */
+	mov	x8, #SYS_EXIT_NUMBER
+	svc	0x0
+\end{asmcode}
+
+设计这个包装函数时，我尽量模仿了 glibc 中对应函数（\code{sysdeps/unix/sysv/linux/aarch64/clone.S}）的行为。它做了以下几件事：
+
+\begin{enumerate}
+  \item 保存 \code{x0}～\code{x2}。这些寄存器存放系统调用的参数，之后会被系统调用处理程序覆盖；
+  \item 调用系统调用处理程序；
+  \item 检查系统调用的返回值：如果是 0，说明我们正在新创建的线程中执行，此时转到 \code{thread\_start} 标号；
+  \item 如果返回值非零，那就是新任务的 PID。这说明系统调用结束后回到了这里，而我们是在原来的线程中执行——此时直接返回调用者；
+  \item 在新线程中调用最初作为第一个参数传入的函数；
+  \item 函数结束后执行 \code{exit} 系统调用——它永远不会返回。
+\end{enumerate}
+
+\begin{remark}
+  译注：原文说保存 “\code{x0}～\code{x3}”，源码实际只保存了 \code{x0}～\code{x2}（分别存入 \code{x10}～\code{x12}），因为这个包装函数只有三个参数。新线程之所以还能读到 \code{x10}、\code{x11}，是因为子任务的 \code{pt\_regs} 是从父任务陷入时保存的现场整体拷贝过来的。
+\end{remark}
+
+可以看到，\code{clone} 包装函数与 \code{clone} 系统调用的语义不同：前者接受一个要执行的函数指针作为参数，后者则会“返回两次”——一次在原任务中，一次在复制出的任务中。
+
+\code{clone} 的系统调用处理函数很简单，就是调用我们熟悉的 \code{copy\_process}。不过这个函数自上一课以来已经修改过——现在它既能复制内核线程，也能复制用户线程：
+
+\begin{ccode}
+int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg, unsigned long stack)
+{
+	preempt_disable();
+	struct task_struct *p;
+
+	p = (struct task_struct *) get_free_page();
+	if (!p) {
+		return -1;
+	}
+
+	struct pt_regs *childregs = task_pt_regs(p);
+	memzero((unsigned long)childregs, sizeof(struct pt_regs));
+	memzero((unsigned long)&p->cpu_context, sizeof(struct cpu_context));
+
+	if (clone_flags & PF_KTHREAD) {
+		p->cpu_context.x19 = fn;
+		p->cpu_context.x20 = arg;
+	} else {
+		struct pt_regs * cur_regs = task_pt_regs(current);
+		*childregs = *cur_regs;
+		childregs->regs[0] = 0;
+		childregs->sp = stack + PAGE_SIZE;
+		p->stack = stack;
+	}
+	p->flags = clone_flags;
+	p->priority = current->priority;
+	p->state = TASK_RUNNING;
+	p->counter = p->priority;
+	p->preempt_count = 1; //disable preemtion until schedule_tail
+
+	p->cpu_context.pc = (unsigned long)ret_from_fork;
+	p->cpu_context.sp = (unsigned long)childregs;
+	int pid = nr_tasks++;
+	task[pid] = p;
+	preempt_enable();
+	return pid;
+}
+\end{ccode}
+
+创建新的内核线程时，这个函数的行为与上一课描述的完全相同。复制用户线程时，则执行下面这段：
+
+\begin{ccode}
+		struct pt_regs * cur_regs = task_pt_regs(current);
+		*childregs = *cur_regs;
+		childregs->regs[0] = 0;
+		childregs->sp = stack + PAGE_SIZE;
+		p->stack = stack;
+\end{ccode}
+
+首先取得 \code{kernel\_entry} 宏保存的处理器状态。可是为什么同样可以用 \code{task\_pt\_regs}——它只是返回内核栈顶端的 \code{pt\_regs} 区域——来取得这个状态，并不显然：难道 \code{pt\_regs} 不可能存在栈上的别处吗？答案是，这段代码只能在 \code{clone} 系统调用之后执行。触发系统调用时，当前的内核栈是空的（移到用户态之后我们让它保持为空），所以 \code{pt\_regs} 一定存放在内核栈的顶端。这条规则对之后所有的系统调用都成立，因为每个系统调用在返回用户态之前都会让内核栈恢复为空。
+
+第二行把当前处理器状态拷贝给新任务。新状态中的 \code{x0} 设为 0，因为调用者会把 \code{x0} 解释为系统调用的返回值。我们刚才已经看到，\code{clone} 包装函数正是用这个值判断自己是在原线程中还是在新线程中。
+
+接着把新任务的 \code{sp} 设为新用户栈页的顶端。我们还保存了栈页的指针，以便任务结束后做清理。
+
+\subsection{结束一个任务}
+
+每个用户任务结束后都应该调用 \code{exit} 系统调用（在当前实现中，\code{exit} 由 \code{clone} 包装函数隐式调用）。\code{exit} 随后调用 \code{exit\_process}，由它停用这个任务：
+
+\begin{ccode}
+void exit_process(){
+	preempt_disable();
+	for (int i = 0; i < NR_TASKS; i++){
+		if (task[i] == current) {
+			task[i]->state = TASK_ZOMBIE;
+			break;
+		}
+	}
+	if (current->stack) {
+		free_page(current->stack);
+	}
+	preempt_enable();
+	schedule();
+}
+\end{ccode}
+
+按照 Linux 的惯例，我们并不立即删除任务，而是把它的状态设为 \code{TASK\_ZOMBIE}。这样调度器就不会再选中并执行它。Linux 采用这种做法，是为了让父进程在子进程结束之后仍能查询子进程的信息。
+
+\code{exit\_process} 还释放了不再需要的用户栈，然后调用 \code{schedule}。调用 \code{schedule} 之后会选中一个新任务，所以这个系统调用永远不会返回。
+
+\subsection{小结}
+
+RPi OS 现在能管理用户任务了，我们离完整的进程隔离又近了一步。但还缺一个重要环节：所有用户任务共享同一块物理内存，彼此可以轻易读取对方的数据。下一课将引入虚拟内存来解决这个问题。

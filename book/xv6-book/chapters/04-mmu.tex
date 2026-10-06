@@ -1,0 +1,639 @@
+\chapter{MMU}
+\label{chap:mmu}
+
+\begin{introduction}[本章内容]
+  \item 39 位虚拟地址与三级页表
+  \item 硬件如何遍历页表、块映射
+  \item 描述符格式与内存属性（MAIR）
+  \item 清 BSS、启动页表（恒等映射加高地址映射）、TCR/MAIR/SCTLR、跳到高地址
+  \item 多核启动：两道闸门
+  \item 两阶段的物理内存初始化
+  \item 最终内核页表与用户页表
+  \item 第一个进程、\code{fork} 与地址空间切换；TLB；缺页与按需分配
+  \item MMIO、总线地址与 DMA
+  \item 三个缓存与 TLB 故障
+\end{introduction}
+
+\section{AArch64 的地址翻译}
+
+\subsection{地址空间划分}
+
+本内核使用 4\,KiB 页、39 位虚拟地址。\reg{TCR\_EL1} 中 \code{T0SZ}$=$\code{T1SZ}$=25$，即每个地址空间有 $2^{64-25}=2^{39}$ 字节（512\,GiB）。AArch64 用虚拟地址的高位选择页表基址寄存器：
+
+\begin{itemize}
+  \item 高位全 0：\code{0x0000000000000000}～\code{0x0000007fffffffff}，由 \reg{TTBR0\_EL1} 翻译，用于\textbf{用户空间}，每个进程一张；
+  \item 高位全 1：\code{0xffffff8000000000}～\code{0xffffffffffffffff}，由 \reg{TTBR1\_EL1} 翻译，用于\textbf{内核空间}，所有进程共享一张；
+  \item 中间的地址不合法，访问即产生翻译错误。
+\end{itemize}
+
+两个基址寄存器分开带来一个很大的好处：进程切换时只需改写 \reg{TTBR0\_EL1}，内核映射保持不变，也不用像 xv6-riscv 那样在每个用户页表里复制一份内核映射和 trampoline 页。
+
+\subsection{三级页表}
+
+39 位地址用 4\,KiB 粒度时，从第 1 级开始遍历，共三级（没有第 0 级）。每级页表占一页，含 512 个 8 字节表项，用虚拟地址中的 9 位索引（图~\ref{fig:va}）：
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=3.3mm,y=8mm]
+    \foreach \x/\w/\t/\c in {0/6/{高位: 全0或全1}/gray!15, 6/9/{L1 索引 VA[38:30]}/structurecolor!15,
+        15/9/{L2 索引 VA[29:21]}/structurecolor!25, 24/9/{L3 索引 VA[20:12]}/structurecolor!35,
+        33/12/{页内偏移 VA[11:0]}/gray!10}{
+      \draw[fill=\c] (\x,0) rectangle ++(\w,1);
+      \node[font=\scriptsize, text width=\w*3.1mm, align=center] at (\x+\w/2,0.5) {\t};
+    }
+    \node[lab, below, text width=140mm, align=center] at (22.5,-0.1) {每级 9 位 = 512 项；L1 一项管 1\,GiB，L2 一项管 2\,MiB，L3 一项管 4\,KiB};
+  \end{tikzpicture}
+  \caption{39 位虚拟地址的划分}
+  \label{fig:va}
+\end{figure}
+
+\file{kernel/aarch64.h} 用两个宏取出各级索引：
+
+\begin{ccode}
+#define PXMASK          0x1FF                    // 9 位
+#define PXSHIFT(level)  (39-(level)*9)           // L1: 30, L2: 21, L3: 12
+#define PX(level, va)   ((((uint64)(va)) >> PXSHIFT(level)) & PXMASK)
+\end{ccode}
+
+第 1、2 级表项可以是\emph{表描述符}（指向下一级页表）或\emph{块描述符}（直接映射 1\,GiB/2\,MiB 的连续物理内存）；第 3 级表项是\emph{页描述符}。启动页表用 2\,MiB 块，最终页表全部用 4\,KiB 页。
+
+\subsection{硬件如何遍历页表}
+\label{sec:hw-walk}
+
+虚拟内存给每个进程一个错觉：整个地址空间都归它一个人用。进程发出的每个地址都是虚拟地址，由 MMU（内存管理单元）在访存的路上翻译成物理地址，进程本身完全察觉不到。这样做同时解决了两个问题：一是\emph{隔离}，进程只能访问自己页表里映射了的内存，碰不到别人的数据，也碰不到内核；二是\emph{分配简单}，每个进程的程序都可以从地址 0 开始链接，不必关心物理内存里哪些地方已经被别人占了。
+
+MMU 翻译一个地址的过程叫\emph{页表遍历}（table walk），完全由硬件完成，软件只负责事先把页表在内存里摆好、再把根页表的物理地址写进 \reg{TTBR0\_EL1} 或 \reg{TTBR1\_EL1}。以用户地址为例：
+
+\begin{enumerate}
+  \item 从 \reg{TTBR0\_EL1} 取出 L1 页表的\textbf{物理}地址；
+  \item 用 VA[38:30] 作下标读出 L1 表项。若它是表描述符，其中 [47:12] 位就是 L2 页表的物理地址；
+  \item 用 VA[29:21] 在 L2 页表中读出表项，同理得到 L3 页表的物理地址；
+  \item 用 VA[20:12] 在 L3 页表中读出页描述符，得到物理页框号；
+  \item 物理页框号拼上 VA[11:0] 的页内偏移，就是最终的物理地址。
+\end{enumerate}
+
+每一步读到的地址都是物理地址——MMU 遍历页表时不可能再去翻译页表自己的地址。这就是为什么 \code{walk()} 往表项里写的是 \code{V2P(pagetable)}，读出来以后又要 \code{P2V()} 才能被内核软件访问（\ref{sec:walk-mappages} 节）。途中任何一级遇到无效表项（bit~0 为 0），遍历就停下来，CPU 产生一个\emph{翻译错误}（translation fault），并把出错的级别记在 \reg{ESR\_EL1} 里、出错的虚拟地址记在 \reg{FAR\_EL1} 里。
+
+\paragraph{块映射.} 有时候要映射一大片连续的物理内存，例如启动时的整个内核镜像。这时可以让 L2 表项直接是一个\emph{块描述符}，指向一个 2\,MiB 对齐的物理块，遍历在第 3 步就结束：省去一级页表，页内偏移变成 VA[20:0] 共 21 位（$2^{21}=2$\,MiB）。同理，L1 块描述符映射 1\,GiB。描述符最低两位区分这几种情况：在 L1/L2 上 \code{01} 是块、\code{11} 是表；在 L3 上只有 \code{11} 合法，表示一个 4\,KiB 页——同样是 \code{11}，含义随所在的级别而变。xv6-aarch64 只在启动页表里用块映射（\ref{sec:bootpgt} 节）。
+
+\subsection{描述符的属性位}
+
+表~\ref{tab:pte-bits} 是项目中用到的属性位。
+
+\begin{table}[htbp]
+  \centering
+  \caption{页表项属性位（\file{kernel/aarch64.h}）}
+  \label{tab:pte-bits}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    宏 & 位 & 含义 \\
+    \midrule
+    \code{PTE\_VALID} / \code{PTE\_TABLE} & [1:0] & L1/L2：\code{01} 块，\code{11} 表；L3：\code{11} 页（\code{PTE\_V}） \\
+    \code{PTE\_INDX(i)} & [4:2] & AttrIndx：选择 \reg{MAIR\_EL1} 中的第 $i$ 个内存类型 \\
+    \code{PTE\_U}、\code{PTE\_RO} & [7:6] & AP：EL0 是否可访问、是否只读 \\
+    \code{PTE\_SH\_INNER} & [9:8] & 共享属性：\code{11} 为 Inner Shareable \\
+    \code{PTE\_AF} & [10] & Access Flag：必须置 1，否则首次访问触发 Access Fault \\
+    \code{PTE\_PXN}、\code{PTE\_UXN} & 53、54 & 内核态 / 用户态禁止执行 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{内存属性间接表}
+
+页表项里并不直接写“可缓存”“设备内存”之类的属性，而是写一个 3 位的索引，真正的属性放在 \reg{MAIR\_EL1} 的 8 个字节里。项目定义了三种类型：
+
+\begin{ccode}
+#define AI_DEVICE_nGnRnE_IDX  0x0
+#define AI_NORMAL_NC_IDX      0x1
+#define AI_NORMAL_IDX         0x2
+#define MT_DEVICE_nGnRnE  0x00    // 设备内存：不聚合、不重排、无提前写确认
+#define MT_NORMAL_NC      0x44    // 普通内存，不可缓存
+#define MT_NORMAL         0xff    // 普通内存，Inner/Outer Write-Back
+
+#define PTE_DEVICE    PTE_INDX(AI_DEVICE_nGnRnE_IDX)
+#define PTE_NORMAL_NC PTE_INDX(AI_NORMAL_NC_IDX)
+#define PTE_NORMAL   (PTE_INDX(AI_NORMAL_IDX) | PTE_SH_INNER)
+\end{ccode}
+
+用途划分很简单：RAM、内核、用户页面和页表本身用 \code{PTE\_NORMAL}；UART、GPIO、SD 控制器等外设寄存器用 \code{PTE\_DEVICE}；摄像头 DMA 缓冲区用 \code{PTE\_NORMAL\_NC}，这样就不必在每帧前后做缓存维护（第~\ref{chap:drivers} 章）。
+
+\section{启动页表}
+\label{sec:bootpgt}
+
+第~\ref{chap:boot} 章的启动代码把处理器降到 EL1、点亮串口之后，内核还运行在物理地址上，MMU 和缓存都是关着的。本节接着讲从这里到跳进高地址的三步：清 BSS、建临时页表、打开 MMU。
+
+\subsection{清 BSS 与早期栈}
+
+C 语言假定未初始化的全局变量为 0，这些变量位于 \code{.bss} 段。镜像文件里并不包含 BSS 的内容，所以要先清零。链接脚本导出了 \code{bss\_start} 和以 8 字节为单位的 \code{bss\_size}：
+
+\begin{asmcode}
+entry:
+        adrp x1, bss_start          // PC 相对：MMU 未开时得到物理地址
+        ldr w2, =bss_size
+1:      cbz w2, 2f
+        str xzr, [x1], #8
+        sub w2, w2, #1
+        b 1b
+2:      ...                         // 输出 'B'
+\end{asmcode}
+
+把需要清零的数据单独放在 \code{.bss} 段，是为了节省镜像空间：ELF 只记录这个段的大小，不存它的内容。代价是装载之后必须由启动代码自己清零，所以链接脚本要导出段的起止位置，并让起点按 8 字节对齐。对齐在这里不只是为了效率：MMU 关闭时所有数据访问都按 Device 内存处理，非对齐访问会直接触发对齐异常，因此一次写 8 字节的 \code{str xzr} 要求地址必须是 8 的倍数。
+
+栈也是同样的道理：C 代码需要一个可用的栈指针。最简单的做法是把 \code{sp} 设到内核镜像上方一个“足够远”的固定地址（例如内核装在 0 时设为 4\,MiB），栈向下增长也碰不到内核。本项目要支持四个核同时运行，所以在 BSS 中定义了 \code{stack0[4096 * NCPU]}，每个核按核号取其中一页（见 \ref{sec:mmu-on} 节末尾的 \code{\_start}）。
+
+\subsection{两棵临时页表}
+
+
+\file{entry.S} 在 MMU 打开前用汇编构建两棵只有两级的小页表，四张页表页（\code{l1entrypgt}、\code{l2entrypgt}、\code{l1kpgt}、\code{l2kpgt}）静态定义在 \file{start.c} 中、按页对齐。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=4mm and 10mm]
+    \node[box, text width=36mm] (lo) {低地址 VA\\\code{0x0}～\code{end}};
+    \node[box, text width=36mm, below=8mm of lo] (hi) {高地址 VA\\\code{KERNBASE}～\code{KERNBASE+end}};
+    \node[box, text width=36mm, below=4mm of hi] (hu) {\code{KERNBASE+0x3f200000}};
+    \node[hbox, right=22mm of lo, yshift=-7mm, text width=34mm] (pa) {物理内存\\\code{0x0}～\code{end}（2\,MiB 块）};
+    \node[gbox, right=22mm of hu, text width=34mm] (mmio) {GPIO/Mini UART\\\code{0x3f200000} 2\,MiB 块};
+    \draw[arr] (lo) -- node[lab, above, sloped]{TTBR0 恒等} (pa);
+    \draw[arr] (hi) -- node[lab, below, sloped]{TTBR1} (pa);
+    \draw[arr] (hu) -- node[lab, above]{Device} (mmio);
+  \end{tikzpicture}
+  \caption{启动页表：同一段物理内存同时映射到低地址和高地址}
+  \label{fig:bootpgt}
+\end{figure}
+
+如图~\ref{fig:bootpgt}，恒等映射保证“打开 MMU 的那条指令之后还能取到下一条指令”，高地址映射保证“跳到链接地址之后一切照常”。两者都用 2\,MiB 块描述符，所以每棵树只要一张 L1 和一张 L2：
+
+\begin{asmcode}
+        adrp x0, l2entrypgt
+        mov  x1, #0                       // 起始 PA
+        ldr  x2, =V2P_WO(end)-1           // 结束 PA
+        lsr  x3, x1, #PXSHIFT(2)
+        and  x3, x3, #PXMASK              // 起始 L2 索引
+        lsr  x4, x2, #PXSHIFT(2)
+        and  x4, x4, #PXMASK              // 结束 L2 索引
+        mov  x5, #(PTE_AF | PTE_NORMAL | PTE_VALID)
+        orr  x6, x1, x5                   // 第一个块描述符
+l2epgt_loop:
+        str  x6, [x0, x3, lsl #3]         // l2entrypgt[idx] = 块描述符
+        add  x3, x3, #1
+        add  x6, x6, #0x200000            // 下一个 2 MiB
+        cmp  x3, x4
+        b.ls l2epgt_loop
+\end{asmcode}
+
+启动页表只覆盖内核镜像所在的前 2\,MiB（\code{EARLYTOP}$=$\code{0x200000}）。\code{main()} 一开始就检查内核镜像连同 BSS 没有越过这个边界——否则后面的分配器会把内核自己的内存当成空闲页发出去：
+
+\begin{ccode}
+if(V2P(end) > EARLYTOP){
+  for(char *m = "\nkernel image extends past EARLYTOP\n"; *m; m++)
+    boot_uart_mark(*m);
+  for(;;) asm volatile("wfe");
+}
+\end{ccode}
+
+\subsection{打开 MMU：TCR、MAIR 与 SCTLR}
+\label{sec:mmu-on}
+
+页表摆好以后，还要告诉 MMU 怎样解释它们。主核在 \code{\_entry}、副核在 \code{entryothers} 里执行的是同一段代码：
+
+\begin{asmcode}
+        adrp x0, l1entrypgt
+        adrp x1, l1kpgt
+        msr  ttbr0_el1, x0        // 低地址：恒等映射
+        msr  ttbr1_el1, x1        // 高地址：内核
+        ldr  x0, =(TCR_T0SZ(25)|TCR_IRGN0(1)|TCR_ORGN0(1)|TCR_SH0(3)|TCR_TG0(0)| \
+                   TCR_T1SZ(25)|TCR_IRGN1(1)|TCR_ORGN1(1)|TCR_SH1(3)|TCR_TG1(2)|TCR_IPS(0))
+        msr  tcr_el1, x0
+        ldr  x1, =((MT_DEVICE_nGnRnE<<(8*AI_DEVICE_nGnRnE_IDX)) | \
+                   (MT_NORMAL_NC<<(8*AI_NORMAL_NC_IDX)) | (MT_NORMAL<<(8*AI_NORMAL_IDX)))
+        msr  mair_el1, x1
+        isb
+        ldr  x1, =_start          // 链接地址（高地址）
+        dsb  ish
+        tlbi vmalle1              // 丢掉固件可能留下的翻译
+        dsb  ish
+        isb
+        ic   iallu
+        dsb  sy
+        isb
+        mrs  x0, sctlr_el1
+        orr  x0, x0, #1           // M：打开 MMU
+        orr  x0, x0, #(1 << 2)    // C：数据缓存
+        orr  x0, x0, #(1 << 12)   // I：指令缓存
+        msr  sctlr_el1, x0
+        isb
+        br   x1                   // 跳到高地址
+\end{asmcode}
+
+\reg{TCR\_EL1}（Translation Control Register）的各个字段决定了前面所有的“规则”：
+
+\begin{itemize}
+  \item \code{T0SZ}$=$\code{T1SZ}$=25$：两个地址空间都是 39 位，于是遍历从 L1 开始、一共三级；
+  \item \code{TG0}$=0$、\code{TG1}$=2$：两边都是 4\,KiB 粒度。两个字段的编码不一样（TG0 中 \code{00} 是 4\,KiB，TG1 中 \code{10} 才是 4\,KiB），抄错一个数字，高地址的页表就会被按 64\,KiB 或 16\,KiB 粒度解释；
+  \item \code{IRGN}/\code{ORGN}$=1$、\code{SH}$=3$：MMU 遍历页表时本身也要读内存，这几位规定这些读取走 Write-Back 缓存、属于 Inner Shareable 域。它们必须和页表页本身的映射属性（\code{PTE\_NORMAL}）一致，否则 CPU 写进缓存的新表项，MMU 可能看不到（第~\ref{sec:fault1} 节的故障与此同源）；
+  \item \code{IPS}$=0$：物理地址 32 位（4\,GiB），对 BCM2837 足够。
+\end{itemize}
+
+\reg{MAIR\_EL1} 把三种内存类型写进第 0、1、2 字节，页表项的 AttrIndx 就是这里的下标。\reg{SCTLR\_EL1} 是总开关：M 位打开地址翻译，C、I 位打开数据和指令缓存。打开前的 \code{tlbi vmalle1} 和 \code{ic iallu} 清掉固件阶段可能残留的 TLB 和指令缓存；写 \reg{SCTLR\_EL1} 之后的 \code{isb} 保证后续取指都已经按新的翻译进行。此时 PC 仍是低地址，靠 \reg{TTBR0} 的恒等映射继续执行，直到 \code{br x1} 跳进高地址——这就是启动页表要同时建两棵树的原因。
+
+\subsection{跳到高地址}
+
+\code{ldr x1, =\_start} 从文字池中取出链接时确定的高虚拟地址；这里不能写 \code{b \_start}：打开 MMU 并不会改变 PC，而 \code{b} 和 \code{adr} 都是相对当前 PC 计算目标的，会落到“没开 MMU 时 \code{\_start} 所在的低地址”。必须事先用 \code{ldr} 从文字池取出链接器算好的高地址绝对值；这条 \code{ldr} 本身也是 PC 相对的，所以要在打开 MMU 之前执行。\code{br x1} 之后，CPU 就运行在 \reg{TTBR1\_EL1} 映射的高地址上了。\code{\_start} 为每个核在 \code{stack0} 中划出 4\,KiB 栈，然后跳进 C 函数 \code{main()}：
+
+\begin{asmcode}
+_start:
+        ldr x0, =stack0
+        mov x1, #1024*4
+        mrs x2, mpidr_el1
+        and x2, x2, #0x3
+        add x2, x2, #1
+        mul x1, x1, x2
+        add x0, x0, x1               // sp = stack0 + (cpuid + 1) * 4096
+        mov sp, x0
+        mov w0, #'H'
+        bl boot_uart_mark
+        b main
+\end{asmcode}
+
+\section{多核启动}
+\label{sec:smp-boot}
+
+四个核在上电后都会执行 \code{\_entry}——CPU0 由 armstub 直接跳入，CPU1～3 则要等主核在 spin-table 里写入地址。如果像 \code{kernel\_old=1} 那样没有 armstub，四个核会同时从同一个入口开始执行，内核要立刻用 \reg{MPIDR\_EL1} 的低 8 位区分核号，把除 0 号核以外的所有核挂进死循环——这是单核教学内核的标准做法，但被挂起的核就再也没有机会醒来了。本项目需要四核同时调度，所以副核不能死循环，而要在一个可以被唤醒的地方等待。整个过程有两道“闸门”：
+
+\paragraph{第一道闸门：启动页表。} 副核到达 \code{\_entry} 后，统一好异常级别（\ref{sec:xv6-el} 节）就进入 \code{secondary\_wait}，用 \code{ldar}（带 acquire 语义的加载）读取标志 \code{secondary\_release}，为 0 就 \code{wfe} 休眠。主核建好启动页表后，用 \code{stlr}（带 release 语义的存储）把标志置 1，再执行 \code{sev} 唤醒所有在 \code{wfe} 上休眠的核：
+
+\begin{asmcode}
+        adrp x10, secondary_release            // 主核
+        add x10, x10, :lo12:secondary_release
+        mov w11, #1
+        stlr w11, [x10]
+        sev
+
+secondary_wait:                                // 副核
+        adrp x10, secondary_release
+        add x10, x10, :lo12:secondary_release
+4:      ldar w11, [x10]
+        cbnz w11, entryothers
+        wfe
+        b 4b
+\end{asmcode}
+
+acquire/release 配对保证：副核看到标志为 1 时，主核在此之前写入的页表内容也一定可见。
+
+\paragraph{第二道闸门：内核初始化。} 主核在 \code{main()} 的最后调用 \code{start\_secondary\_cpus()}，把 \code{\_entry} 的物理地址写进三个 spin-table 槽，用 \code{dc cvac} 把这几行缓存写回内存（此时副核的 MMU 和缓存都没打开，只能看到内存里的值），再 \code{sev}：
+
+\begin{ccode}
+static void start_secondary_cpus(void) {
+  volatile uint64 *spin = (volatile uint64*)P2V(0xe0);
+  uint64 entry = V2P((uint64)_entry);
+  for(int cpu = 1; cpu < NCPU; cpu++){
+    spin[cpu - 1] = entry;
+    asm volatile("dc cvac, %0" :: "r"(&spin[cpu - 1]) : "memory");
+  }
+  asm volatile("dsb sy\n\tsev" ::: "memory");
+}
+\end{ccode}
+
+副核进入 \code{main()} 后在 \code{while(started == 0)} 处等待主核完成全部初始化，然后只做每核相关的部分：切换到最终页表、安装异常向量、打开本核的定时器中断路由，最后进入调度器。真机串口上会看到：
+
+\begin{txtcode}
+PH0hart 3 starting
+hart 2 starting
+hart 1 starting
+\end{txtcode}
+
+三个副核几乎同时出发，谁先抢到 \code{printf} 的锁谁先打印，所以顺序不固定；\code{PH0} 是不经过锁的早期标记，会与其他输出交错。
+
+\section{两阶段的物理内存初始化}
+
+建立最终页表需要分配页表页，分配页表页又需要物理页分配器——这是一个“先有鸡还是先有蛋”的问题。xv6 的解决办法是把分配器分两次喂：
+
+\begin{ccode}
+kinit1(end, P2V(EARLYTOP));          // 阶段一：内核末尾到 2 MiB，启动页表已覆盖
+kvminit();                           // 用这些页建最终内核页表
+kvminithart();                       // 切换 TTBR1，作废 TLB
+kinit2(P2V(EARLYTOP), P2V(PHYSTOP)); // 阶段二：2 MiB 到 112 MiB，最终页表已覆盖
+\end{ccode}
+
+分配器本身就是 xv6 的空闲链表：每个空闲页的前 8 字节存放下一页的地址，\code{kalloc()} 从表头取，\code{kfree()} 往表头放，全程由 \code{kmem.lock} 保护。为了尽早暴露“使用已释放内存”的错误，\code{kfree()} 把页填成 \code{0x01}，\code{kalloc()} 把页填成 \code{0x05}——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。
+
+\code{PHYSTOP} 设为 \code{0x07000000}（112\,MiB）。上面保留给 QEMU 时代的 ramdisk（\code{0x07000000}）和摄像头 DMA 区（\code{0x07200000}），分配器永远不会把它们发出去。
+
+\section{最终内核页表}
+
+\subsection{\code{kvmmake()}}
+
+\begin{ccode}
+pagetable_t kvmmake(void) {
+  pagetable_t kpgtbl = (pagetable_t) kalloc();
+  memset(kpgtbl, 0, PGSIZE);
+  // BCM2837 外设窗口 16 MiB，以及 ARM-local 外设一页：设备内存，不可执行
+  kvmmap(kpgtbl, PERIPHERAL_BASE, PERIPHERAL_BASE_PA, 0x01000000, PTE_DEVICE | PTE_XN);
+  kvmmap(kpgtbl, LOCAL_BASE, LOCAL_BASE_PA, PGSIZE, PTE_DEVICE | PTE_XN);
+  kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE, PTE_NORMAL | PTE_XN);
+  // 摄像头 DMA：不可缓存的普通内存
+  kvmmap(kpgtbl, CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
+  // 物理第 0 页：spin-table 槽 0xe0..0xf0，唤醒副核时要写
+  kvmmap(kpgtbl, KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
+  // 内核代码：只读、可执行
+  kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
+  // 内核数据和全部可用 RAM：可读写、不可执行
+  kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(PHYSTOP)-(uint64)etext,
+         PTE_NORMAL | PTE_XN);
+  return kpgtbl;
+}
+\end{ccode}
+
+代码段只读可执行，数据段可写不可执行（W\^{}X），这样即使内核出现缓冲区溢出，也很难把数据当指令执行。
+
+\subsection{\code{walk()} 与 \code{mappages()}}
+\label{sec:walk-mappages}
+
+所有映射最终都落到这两个函数上。\code{walk()} 从 L1 走到 L3，遇到缺失的中间页表就（按需）分配一页：
+
+\begin{ccode}
+pte_t *walk(pagetable_t pagetable, uint64 va, int alloc) {
+  if(va >= MAXVA) panic("walk");
+  for(int level = 1; level < 3; level++) {
+    pte_t *pte = &pagetable[PX(level, va)];
+    if((*pte & PTE_VALID) && (*pte & PTE_TABLE)) {
+      pagetable = (pagetable_t)P2V(PTE2PA(*pte));
+    } else {
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+        return 0;
+      memset(pagetable, 0, PGSIZE);
+      *pte = PA2PTE(V2P(pagetable)) | PTE_TABLE | PTE_VALID;
+    }
+  }
+  return &pagetable[PX(3, va)];
+}
+
+int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, uint64 perm) {
+  uint64 a = PGROUNDDOWN(va), last = PGROUNDDOWN(va + size - 1);
+  for(;;){
+    pte_t *pte = walk(pagetable, a, 1);
+    if(pte == 0) return -1;
+    if(*pte & PTE_AF) panic("mappages: remap");
+    *pte = PA2PTE(pa) | perm | PTE_AF | PTE_V;
+    if(a == last) break;
+    a += PGSIZE; pa += PGSIZE;
+  }
+  return 0;
+}
+\end{ccode}
+
+注意页表项里存的是\textbf{物理地址}（硬件遍历页表时用物理地址），而内核软件读写页表时要先 \code{P2V()} 转成虚拟地址。页表页本身也位于被直接映射的 RAM 中，所以内核总能通过 \code{KERNBASE + PA} 访问任何一张页表——这不是递归页表技巧，只是直接映射的自然结果。
+
+\subsection{页表的规模}
+
+用户命令 \code{vmmap} 会调用 \code{kvmdump()} 打印内核页表，每个 2\,MiB 窗口汇总一行，再逐个打印各进程的用户页表。表~\ref{tab:kpgt} 是一次快照的统计（当时还保留着 ramdisk 映射）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{最终内核页表的组成（一次运行时快照）}
+  \label{tab:kpgt}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    L1 项 & 虚拟地址 & L2 有效项 & 内容 \\
+    \midrule
+    \code{L1[0]} & \code{KERNBASE}$+$0～1\,GiB & 65 & 内核和 RAM（56 项）、ramdisk（1 项）、BCM2837 MMIO（8 项） \\
+    \code{L1[1]} & \code{KERNBASE}$+$1～2\,GiB & 1 & ARM-local 外设 \code{0x40000000} \\
+    \code{L1[255]} & 接近 \code{MAXVA} & 1 & 进程内核栈及其间的保护页 \\
+    \midrule
+    \multicolumn{4}{@{}l}{合计：L1 一张、L2 三张、L3 67 张，共 71 页 $=$ 284\,KiB；有效 L3 叶子 32\,961 个} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+如果改用 2\,MiB 块映射 RAM，L3 表可以省掉绝大部分。项目选择全部用 4\,KiB 页，是为了让内核栈的保护页、代码段只读等细粒度属性能用同一套 \code{mappages()} 实现。
+
+\section{用户地址空间}
+\label{sec:uvm}
+
+\subsection{内核空间与用户空间}
+
+每个进程有自己的 L1 页表，进程切换时写入 \reg{TTBR0\_EL1}：
+
+\begin{ccode}
+void switchuvm(struct proc *p) {
+  w_ttbr0_el1(V2P(p->vm->pagetable));
+  flush_tlb();
+}
+\end{ccode}
+
+\subsection{\code{exec()} 之后的布局}
+
+\code{exec()} 建立的用户地址空间从虚拟地址 0 开始（图~\ref{fig:uas}）：先是 ELF 的代码和数据，然后是一页不可访问的保护页和 4 页（16\,KiB）用户栈，栈之上是 \code{sbrk()} 扩展的堆。用户页面的属性是 \code{PTE\_NORMAL | PTE\_U}，代码页可执行。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1cm,y=6mm]
+    \foreach \y/\h/\t/\c in {0/1.4/{text / data / bss}/structurecolor!15, 1.4/0.8/{保护页（\code{uvmclear} 清除 U 位）}/gray!25,
+        2.2/1.6/{用户栈 16\,KiB（\code{USTACKPAGES}=4）}/structurecolor!25, 3.8/1.2/{堆（\code{sbrk}）}/structurecolor!8}{
+      \draw[fill=\c] (0,\y) rectangle (6,\y+\h);
+      \node[font=\small] at (3,\y+\h/2) {\t};
+    }
+    \node[lab, left] at (0,0) {VA 0};
+    \node[lab, left] at (0,5) {\code{p->vm->sz}};
+    \draw[arr] (6.3,3.8) -- (6.3,2.4) node[midway, right, lab]{栈向下增长};
+  \end{tikzpicture}
+  \caption{\code{exec()} 之后的用户地址空间}
+  \label{fig:uas}
+\end{figure}
+
+进程的内核栈不在用户页表里，而在内核页表高端的 \code{KSTACK(slot)} 处，每个栈一页，相邻栈之间隔一页不映射的保护页。内核栈溢出会立刻触发翻译错误，而不是悄悄覆盖相邻进程的栈。第~\ref{chap:process} 章会介绍内核栈的动态分配。
+
+\subsection{第一个用户进程的页表}
+
+所有用户地址空间都由同一组函数建立。\code{uvmcreate()} 分配一页并清零，作为空的 L1 页表——全 0 意味着全部表项无效，这一点很重要：任何从 \code{kalloc()} 拿来做页表的页都必须先清零，否则 \code{0x05} 填充的垃圾会被 MMU 当成有效描述符。第一个进程没有 ELF 文件可读，内核把一小段编进内核镜像的 \code{initcode} 直接拷进一页：
+
+\begin{ccode}
+void uvminit(pagetable_t pagetable, uchar *src, uint sz) {
+  if(sz >= PGSIZE) panic("inituvm: more than a page");
+  char *mem = kalloc();
+  memset(mem, 0, PGSIZE);
+  mappages(pagetable, 0, PGSIZE, V2P(mem), PTE_NORMAL|PTE_U);
+  memmove(mem, src, sz);              // 通过内核直接映射写入
+  uvmsync_icache(pagetable, sz);      // 写入的是指令，要同步 I-cache
+}
+\end{ccode}
+
+\code{userinit()} 再把 \code{trapframe} 的 \code{elr} 设为 0、\code{sp} 设为 \code{PGSIZE}：进程第一次“返回”用户态时，从虚拟地址 0 取第一条指令，栈从这一页的顶部向下长。同一个物理页此时有两个虚拟地址：内核通过 \code{KERNBASE+PA} 写它，用户通过 VA 0 执行它。拷贝时用的是前者，所以内核根本不需要先切换到这个进程的页表。
+
+\subsection{\code{fork} 时复制地址空间}
+
+\code{fork()} 要给子进程一份与父进程内容相同、但物理上独立的内存。\code{uvmcopy()} 逐页遍历父进程的页表，为每个已映射的页分配新物理页、拷贝内容、以相同的属性映射进子进程的页表：
+
+\begin{ccode}
+for(i = 0; i < sz; i += PGSIZE){
+  if((pte = walk(old, i, 0)) == 0) panic("uvmcopy: pte should exist");
+  if((*pte & PTE_AF) == 0)         panic("uvmcopy: page not present");
+  pa = PTE2PA(*pte);
+  flags = PTE_FLAGS(*pte);                     // 连同 U、RO、XN 一起复制
+  if((mem = kalloc()) == 0) goto err;
+  memmove(mem, (char*)P2V(pa), PGSIZE);        // 经内核直接映射读父进程的页
+  if(mappages(new, i, PGSIZE, V2P(mem), flags) != 0){ kfree(mem); goto err; }
+}
+uvmsync_icache(new, sz);
+\end{ccode}
+
+源地址用的是 \code{P2V(pa)} 而不是用户地址 \code{i}。用户地址只有在 \reg{TTBR0} 恰好装着父进程页表时才有意义；走内核直接映射则与当前装的是谁的页表无关，在多核上也更不容易出错。失败时 \code{uvmunmap()} 把已经复制的页全部释放，子进程的页表保持“要么全有、要么全无”。
+
+\subsection{TLB 与地址空间切换}
+
+如果每次访存都要走三级页表，一次 \code{ldr} 就会变成四次内存访问。MMU 因此把最近用过的翻译结果缓存在 TLB（Translation Lookaside Buffer）里，命中时不再遍历页表。代价是：一旦软件改了页表，TLB 里可能还留着旧的翻译，必须由软件显式作废。
+
+进程切换正是最大的一次“改页表”——\reg{TTBR0} 换成另一棵树，之前缓存的低地址翻译全都过期了：
+
+\begin{ccode}
+void switchuvm(struct proc *p) {
+  if(p->vm == 0 || p->vm->pagetable == 0) panic("switchuvm: no pagetable");
+  w_ttbr0_el1(V2P(p->vm->pagetable));
+  flush_tlb();                 // dsb ishst; tlbi vmalle1is; dsb ish; isb
+}
+\end{ccode}
+
+\code{flush\_tlb()} 作废全部 EL1 翻译，连内核的也一起丢掉了。ARMv8 提供了 ASID（地址空间标识）：把一个 8 或 16 位的进程编号写进 \reg{TTBR0} 的高位，TLB 表项会带上这个标签，切换时就不必全部作废。xv6-aarch64 没有使用 ASID，每次切换都整体作废，换来的是实现简单、不必管理 ASID 的回收；对于这个规模的系统，多出来的 TLB 缺失是可以接受的。注意内核页表（\reg{TTBR1}）在整个运行期间只装一次（\code{kvminithart()}），这也是把两个地址空间分开的好处。
+
+\subsection{缺页与按需分配}
+
+如果用户进程访问了一个没有映射的地址，页表遍历在某一级遇到无效项，CPU 产生同步异常进入 \code{usertrap()}。此时 \reg{ESR\_EL1} 的 EC 字段是 \code{0x24}（来自 EL0 的数据中止）或 \code{0x20}（来自 EL0 的指令中止）；ISS 的低 6 位 DFSC 说明原因，\code{0b0001xx} 是第 \code{xx} 级的翻译错误，\code{0b0011xx} 是权限错误；出错的虚拟地址在 \reg{FAR\_EL1} 里。
+
+很多内核利用这个异常实现\emph{按需分配}（demand paging）：\code{sbrk} 只增大进程的 \code{sz}，并不真正分配物理页；进程第一次碰到新页时触发翻译错误，内核检查 \reg{FAR\_EL1} 落在 \code{[0, sz)} 之内，就当场 \code{kalloc()} 一页、\code{mappages()} 映射上去，然后 \code{eret} 重新执行那条出错的指令。进程看到的只是一条稍微慢一点的 \code{ldr}。
+
+xv6-aarch64 目前走的是另一条路：\code{growproc()} 调用 \code{uvmalloc()} 立即分配并清零所有新页，所以合法的访问永远不会缺页。\code{usertrap()} 只处理 EC $=21$（\code{svc}），其余异常一律打印 \code{esr}、\code{elr}、\code{far}，调用 \code{uvmdump()} 打印这个进程的整张页表，然后杀掉进程：
+
+\begin{ccode}
+} else {
+  printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
+  printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+  uvmdump(p->vm->pagetable, p->pid, p->name, "usertrap");
+  p->killed = 1;
+}
+\end{ccode}
+
+这份输出正是 \ref{sec:caches} 节分析真机故障时用的线索。若要加上按需分配，只需在这个分支里先判断 \code{ec == 0x24 \&\& (esr \& 0x3c) == 0x04 \&\& r\_far\_el1() < p->vm->sz}，然后分配、映射，再像故障三那样广播作废 TLB 后返回；\code{growproc()} 则改为只增大 \code{sz}。
+
+\section{MMIO、总线地址与 DMA}
+
+\subsection{MMIO}
+
+SoC 把外设寄存器和 RAM 放进同一个物理地址空间，CPU 用普通的 \code{ldr}/\code{str} 访问它们，由片内地址译码器决定一次访问是去 DDR 控制器还是去某个外设（表~\ref{tab:physmap}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{Raspberry Pi 3 的物理地址布局（本内核使用的部分）}
+  \label{tab:physmap}
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    物理地址 & 用途 \\
+    \midrule
+    \code{0x00000000}～\code{0x06ffffff} & 内核管理的 RAM（\code{PHYSTOP} = 112\,MiB） \\
+    \code{0x00080000} & 内核镜像装载地址 \\
+    \code{0x07200000}～\code{0x072fffff} & 摄像头 DMA 区（\code{CAMDMA}） \\
+    \code{0x3f003000} & BCM System Timer \\
+    \code{0x3f00b000} & legacy 中断控制器；\code{+0x880} 处为 property mailbox \\
+    \code{0x3f101000} & 时钟管理器（摄像头 \code{CM\_CAM1}） \\
+    \code{0x3f200000} & GPIO \\
+    \code{0x3f202000} & SDHOST（外置 SD 卡） \\
+    \code{0x3f205000} & BSC0（I2C） \\
+    \code{0x3f215000} & AUX / Mini UART \\
+    \code{0x3f300000} & Arasan SDHCI（板载 Wi-Fi） \\
+    \code{0x3f801000} & Unicam CSI1 \\
+    \code{0x3f980000} & DWC2 USB 主机 \\
+    \code{0x40000000} & ARM-local 中断与定时器路由 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+外设寄存器必须映射为 Device 内存。若映射成可缓存的普通内存，写操作可能停留在缓存里迟迟不到达设备，读操作可能拿到旧值，两次写还可能被合并或重排——而对设备来说，“写 FIFO”这个动作本身就有副作用。运行时可以用 \code{cat /proc/iomem} 查看内核登记的全部外设地址区间。
+
+\subsection{三种地址视图}
+
+Broadcom 的文档用 VideoCore 总线地址描述外设，例如 Mini UART 在 \code{0x7e215000}。同一组寄存器在不同观察者眼里地址不同：
+
+\begin{txtcode}
+VideoCore 总线地址   0x7e215000     (文档、设备树里的写法)
+ARM 物理地址         0x3f215000     (CPU 发出的地址)
+内核虚拟地址         0xffffff803f215000  (经 TTBR1 翻译)
+\end{txtcode}
+
+DMA 方向的地址转换更容易出错。DWC2 USB、Unicam 这些\emph{总线主设备}自己访问内存时，看到的是 VideoCore 总线地址，必须把 ARM 物理地址加上别名前缀：
+
+\begin{ccode}
+#define DWC2_DMA_BUS(a) (0xc0000000U | (uint32)V2P(a))
+\end{ccode}
+
+\code{0xC0000000} 别名表示“绕过 VideoCore 的 L2 缓存直接访问 SDRAM”。这不是新的内存，也不是 CPU 虚拟地址，而是同一片 RAM 在 GPU 总线上的另一种编址。
+
+\section{缓存与 TLB：三个真机故障}
+\label{sec:caches}
+
+QEMU 不模拟缓存，也几乎不检查内存属性，下面三个问题都只在真机上出现。它们说明：页表不只是“虚拟地址到物理地址”的映射，还决定了 CPU 怎样访问这块内存。
+
+\subsection{故障一：停在 \code{BPH0abde}}
+\label{sec:fault1}
+
+真机串口输出 \code{BPH0abde} 后不再有动静。对照表~\ref{tab:boot-marks}，\code{d} 表示进入了第一次 \code{kfree()}，\code{e} 表示 \code{memset} 已完成，缺少的 \code{f} 表示 \code{acquire(\&kmem.lock)} 没有返回。
+
+当时只有 CPU0 在运行，不可能有别的核持锁。真正的原因在于 \code{acquire()} 的实现：
+
+\begin{asmcode}
+retry:  ldaxr w1, [x0]      // 独占加载，建立“独占监视”
+        cbnz  w1, retry
+        stxr  w2, w3, [x0]  // 独占存储，失败时 w2 != 0
+        cbnz  w2, retry
+\end{asmcode}
+
+\code{ldaxr} 读到锁为 0，但 \code{stxr} 一直返回失败——这是活锁，不是死锁。当时普通 RAM 被映射成 \emph{Normal Non-cacheable}，也没有 Inner Shareable 属性，数据缓存也没有打开。在 Cortex-A53 上，独占监视器依赖缓存一致性机制工作，对这种属性的内存，独占存储可能永远不成功。
+
+修复包括四处：增加 \code{MT\_NORMAL}（Write-Back）类型并让 RAM 使用它；页表项加 \code{PTE\_SH\_INNER}；\reg{TCR\_EL1} 的页表遍历属性设为 Write-Back、Inner Shareable；\reg{SCTLR\_EL1} 打开 C 和 I 位。之后串口变成 \code{BPH0abdefc1234}，系统顺利进入 shell。
+
+\subsection{故障二：\code{ls} 跳到了不属于它的代码}
+
+打开缓存之后，在 shell 里执行 \code{ls} 出现用户异常：
+
+\begin{txtcode}
+usertrap(): unexpected esr=0x92000047 ec=0x24 pid=3
+            elr=0x13dc far=0x13f48
+\end{txtcode}
+
+EC$=$\code{0x24} 是来自 EL0 的数据中止，ISS 表示 L3 翻译错误、写访问。奇怪的是 \code{ls} 的代码只到 \code{0xbd7}，PC 却在 \code{0x13dc}。
+
+原因在于 D-cache 与 I-cache 不一致。\code{exec()} 通过内核高地址把新程序的指令写进物理页，新指令此时还在 D-cache 里；用户态从低地址取指，走的是 I-cache，里面可能还留着同一虚拟地址上一个程序（\code{sh}）的指令。AArch64 不保证数据写入对取指自动可见，必须显式维护：
+
+\begin{ccode}
+void uvmsync_icache(pagetable_t pagetable, uint64 sz) {
+  for(uint64 va = 0; va < PGROUNDUP(sz); va += PGSIZE){
+    uint64 kva = uva2ka(pagetable, va);
+    if(kva == 0) continue;
+    for(uint64 p = kva; p < kva + PGSIZE; p += 64)
+      asm volatile("dc cvau, %0" :: "r"(p) : "memory");   // 数据清到统一点
+  }
+  asm volatile("dsb ish" ::: "memory");
+  asm volatile("ic ialluis\n\tdsb ish\n\tisb" ::: "memory"); // 广播作废所有核的 I-cache
+}
+\end{ccode}
+
+第一版用 \code{ic ivau} 按内核高地址作废 I-cache，仍然失败：同一物理页有内核高地址和用户低地址两个别名，按其中一个别名维护不能保证覆盖另一个。改用 \code{ic iallu} 作废整个 I-cache 后问题消失。但打开四核以后它又以另一种形式回来了：\code{ic iallu} 只作废\emph{执行它的那个核}的 I-cache，\code{exec()} 在一个核上装好新程序，进程迁移到另一个核后，那里仍能命中旧程序的指令——表现为 \code{ELR} 指向一条根本不访存的指令却报数据中止（第~\ref{chap:drivers} 章摄像头一节）。最终版本用广播到 Inner Shareable 域的 \code{ic ialluis}。代价是每次 \code{exec()}/\code{fork()} 清一次 I-cache，对 xv6 的规模完全可以接受。\code{exec()}、\code{uvminit()}（第一个进程）、\code{uvmcopy()}（\code{fork}）三处都会调用它。
+
+\subsection{故障三：\code{sbrk} 之后的旧 TLB}
+
+进一步的日志显示，上面那次异常还有另一层原因：\code{sh} 通过 \code{sbrk()} 新增了 \code{0x13000} 这一页，但 \code{growproc()} 修改页表后没有作废 TLB，CPU 继续使用之前缓存的“该地址无效”的翻译结果。修复是在页表扩展或收缩后执行广播式 TLB 失效：
+
+\begin{asmcode}
+        dsb  ishst          // 确保页表写入完成
+        tlbi vmalle1is      // 作废 Inner Shareable 域内所有核的 EL1 TLB
+        dsb  ish
+        isb
+\end{asmcode}
+
+\code{vmalle1is} 中的 \code{is} 很关键：多核以后，同一进程的线程可能正在别的核上运行，只作废本核 TLB 是不够的。收缩地址空间时顺序必须是“清页表项 → 广播作废 TLB → 释放物理页”，否则别的核可能通过陈旧的 TLB 访问一页已经被重新分配的内存。
+
+\begin{note}
+  经验：在 AArch64 上，改了“将要执行的内存”要做 D/I-cache 同步，改了“页表”要做 TLB 失效，两者不能互相替代。QEMU 两件事都不检查，所以必须上真机验证。
+\end{note}

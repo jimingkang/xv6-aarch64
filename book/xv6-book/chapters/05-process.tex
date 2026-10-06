@@ -1,0 +1,455 @@
+\chapter{进程调度}
+\label{chap:process}
+
+\begin{introduction}[本章内容]
+  \item 进程的数据结构
+  \item 动态进程表与按需分配的内核栈
+  \item 第一个用户进程
+  \item \code{fork()} 逐行解析
+  \item 上下文切换与调度器
+  \item \code{exec}、\code{exit} 与 \code{wait}
+  \item 睡眠、唤醒与同步原语
+  \item 多核软实时调度
+\end{introduction}
+
+\section{进程由什么组成}
+
+在 xv6 里，一个进程就是一个 \code{struct proc}，加上它引用的几样东西：一张用户页表、一个内核栈、一个 trapframe、一组打开的文件。图~\ref{fig:proc} 画出了它们的关系。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=5mm and 10mm]
+    \node[hbox, text width=30mm, minimum height=34mm] (p) {\code{struct proc}\\[1mm]\footnotesize state、pid、tgid\\chan、killed\\policy、cpumask\\context\\ofile[]、cwd};
+    \node[box, right=of p, yshift=12mm, text width=34mm] (vm) {\code{struct vmspace}\\\footnotesize TTBR0 页表、sz、引用计数};
+    \node[box, right=of p, yshift=-2mm, text width=34mm] (ks) {内核栈（一页）\\\footnotesize 顶部放 trapframe};
+    \node[box, right=of p, yshift=-15mm, text width=34mm] (f) {\code{struct file}…\\\footnotesize 管道、inode、设备、socket};
+    \node[gbox, right=of vm, text width=22mm] (pg) {用户物理页};
+    \draw[arr] (p.east) ++(0,12mm) -- (vm.west);
+    \draw[arr] (p.east) ++(0,-2mm) -- (ks.west);
+    \draw[arr] (p.east) ++(0,-15mm) -- (f.west);
+    \draw[arr] (vm) -- (pg);
+  \end{tikzpicture}
+  \caption{一个进程的组成}
+  \label{fig:proc}
+\end{figure}
+
+\subsection{\code{struct proc}}
+
+\begin{ccode}
+enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+
+struct proc {
+  struct spinlock lock;
+  // 以下字段需持有 p->lock
+  enum procstate state;
+  void *chan;                  // 非 0 表示睡在这个“通道”上
+  int killed, xstate;
+  int pid, tgid, is_thread;    // tid、线程组 id
+  int sid, pgid, ctty;         // 会话、进程组、控制终端
+  int policy, rt_priority, nice;
+  uint cpumask;                // CPU 亲和性
+  int slice; uint64 rq_seq;    // 时间片、入队序号
+  // 以下字段需持有 wait_lock
+  struct proc *parent;
+  // 以下字段只由进程自己访问
+  uint64 kstack, kstack_pa, kstack_slot;
+  struct proc *next;           // 动态进程表链表
+  struct vmspace *vm;          // 用户地址空间（线程间共享）
+  struct trapframe *trapframe; // 用户态现场，位于内核栈顶
+  struct context context;      // 内核态现场，swtch() 用
+  struct file *ofile[NOFILE];
+  struct inode *cwd;
+  char name[16];
+};
+\end{ccode}
+
+字段按“谁在什么锁下访问”分组，这是 xv6 的一贯风格。与原版相比，这里多了会话和进程组（TTY 作业控制要用）、调度属性（软实时调度）、线程组 id，并且用户地址空间被抽成了可共享的 \code{struct vmspace}，为第~\ref{chap:user} 章的用户线程做准备。
+
+\subsection{两种现场}
+
+进程有两份寄存器现场，初学时很容易混淆：
+
+\begin{itemize}
+  \item \textbf{trapframe}：用户态被打断时（系统调用、中断、异常）由 \code{usavereg} 保存，包含全部 31 个通用寄存器、\code{elr}、\code{spsr} 和用户 \code{sp}。它描述“回到用户态时从哪里继续”。
+  \item \textbf{context}：内核态主动让出 CPU 时由 \code{swtch()} 保存，只包含被调用者保存寄存器 \code{x18}～\code{x30} 和 \code{sp}。它描述“这个进程的内核线程停在了哪里”。
+\end{itemize}
+
+AArch64 的调用约定规定 \code{x19}～\code{x28}、\code{x29}（帧指针）和 \code{sp} 由被调用者保存，\code{x30} 是返回地址。\code{swtch()} 是一次普通的函数调用，调用者保存寄存器已经由编译器在调用前存好，所以 context 只需要这 14 个值。
+
+\section{动态进程表与内核栈}
+
+原版 xv6 用静态数组 \code{proc[NPROC]}，并在启动时为 64 个槽位全部分配内核栈。本项目改成了按需增长的链表：
+
+\begin{ccode}
+static struct proc* allocproc(void) {
+  acquire(&proc_table_lock);
+  for(p = proc_head; p; p = p->next) {        // 先找一个 UNUSED 节点复用
+    acquire(&p->lock);
+    if(p->state == UNUSED) {
+      if(p->kstack_pa == 0 && alloc_kstack(p) < 0) { ... return 0; }
+      goto found;
+    }
+    release(&p->lock);
+  }
+  p = newprocslot();                           // 没有就新建一个节点
+  acquire(&p->lock);
+found:
+  release(&proc_table_lock);
+  p->pid = allocpid();  p->tgid = p->pid;
+  sched_defaults(p);
+  p->state = USED;
+  sp = (char*)p->kstack + PGSIZE;
+  sp -= sizeof(*p->trapframe);                 // trapframe 放在内核栈顶
+  p->trapframe = (struct trapframe*)sp;
+  p->vm = vmspace_alloc();                     // 空的用户地址空间
+  memset(&p->context, 0, sizeof(p->context));
+  p->context.x30 = (uint64)forkret;            // 第一次被调度时“返回”到 forkret
+  p->context.sp  = (uint64)sp;
+  return p;                                    // 持有 p->lock 返回
+}
+\end{ccode}
+
+几个设计要点：
+
+\begin{itemize}
+  \item 每个节点分到一个永不改变的 \code{kstack\_slot}，内核栈虚拟地址为 \code{KSTACK(slot)}，相邻栈之间隔一页保护页；
+  \item 节点空闲时释放内核栈的\emph{物理页}，但节点本身永远留在链表里。调度器、\code{wait()}、\code{wakeup()} 都无锁遍历这个链表，保留节点就不会出现悬空的 \code{next} 指针，省去了 RCU 一类的复杂机制；
+  \item 释放内核栈时先清页表项，再广播作废 TLB，最后才 \code{kfree} 物理页（第~\ref{chap:mmu} 章的规则）。
+\end{itemize}
+
+\code{forktest} 同时创建并回收 128 个子进程，验证已经越过了旧的 64 个槽位上限。
+
+\section{第一个用户进程}
+
+所有用户进程都是 \code{fork()} 出来的，但第一个进程只能由内核手工构造。\code{userinit()} 分配一个进程，把一段内置的机器码 \code{initcode} 拷到它的第 0 页：
+
+\begin{ccode}
+void userinit(void) {
+  struct proc *p = allocproc();
+  initproc = p;
+  uvminit(p->vm->pagetable, initcode, sizeof(initcode));  // 拷贝并同步 I-cache
+  p->vm->sz = PGSIZE;
+  p->trapframe->elr  = 0;          // 用户态 PC
+  p->trapframe->spsr = 0;          // M[3:0]=0：EL0t
+  p->trapframe->sp   = PGSIZE;     // 用户栈顶
+  safestrcpy(p->name, "initcode", sizeof(p->name));
+  p->cwd = namei("/");
+  make_runnable(p, 0);
+  release(&p->lock);
+}
+\end{ccode}
+
+\code{initcode} 由 \file{user/initcode.S} 汇编而来，只做一件事：调用 \code{exec("/init")}。
+
+\begin{asmcode}
+start:  ldr x0, =init          // 路径
+        ldr x1, =argv          // 参数表
+        mov x7, #SYS_exec
+        svc #0
+exit:   mov x7, #SYS_exit      // exec 失败才会到这里
+        svc #0
+        b exit
+init:   .ascii "/init\0"
+\end{asmcode}
+
+这个进程第一次被调度时，\code{swtch()} 恢复的 \code{x30} 是 \code{forkret}，于是“返回”到 \code{forkret()}。它释放调度器替它拿着的 \code{p->lock}；如果是系统中第一个进程，还要在进程上下文中初始化文件系统（\code{fsinit} 读 superblock、恢复日志，期间可能睡眠，所以不能放在 \code{main()} 里）。然后调用 \code{usertrapret(trapframe)}，从 trapframe 恢复寄存器，\code{eret} 到 EL0 的地址 0 开始执行用户代码。
+
+\section{\code{fork()} 逐行解析}
+
+\begin{ccode}
+int fork(void) {
+  struct proc *np, *p = myproc();
+  if((np = allocproc()) == 0)                               // (1)
+    return -1;
+
+  acquire(&p->vm->lock);                                    // (2)
+  if(uvmcopy(p->vm->pagetable, np->vm->pagetable, p->vm->sz) < 0){
+    release(&p->vm->lock);
+    freeproc(np); release(&np->lock);
+    return -1;
+  }
+  np->vm->sz = p->vm->sz;
+  release(&p->vm->lock);
+
+  *(np->trapframe) = *(p->trapframe);                       // (3)
+  np->trapframe->x0 = 0;                                    // (4)
+
+  for(int i = 0; i < NOFILE; i++)                           // (5)
+    if(p->ofile[i]) np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
+  np->sid = p->sid;  np->pgid = p->pgid;  np->ctty = p->ctty;
+  safestrcpy(np->name, p->name, sizeof(p->name));
+
+  acquire(&p->lock);                                        // (6)
+  np->policy = p->policy;  np->rt_priority = p->rt_priority;
+  np->nice = p->nice;      np->cpumask = p->cpumask;
+  release(&p->lock);
+  np->slice = timeslice(np);
+
+  int pid = np->pid;
+  release(&np->lock);
+  acquire(&wait_lock);  np->parent = p;  release(&wait_lock);   // (7)
+  acquire(&np->lock);   make_runnable(np, 0);  release(&np->lock); // (8)
+  return pid;                                               // (9)
+}
+\end{ccode}
+
+\begin{enumerate}
+  \item 分配进程描述符、内核栈和空的地址空间，context 设为“从 \code{forkret} 开始”；
+  \item 逐页复制父进程的用户内存：为每一页新分配物理页，拷贝内容，用相同的权限映射到子进程页表。复制完调用 \code{uvmsync\_icache()}，避免子进程的新物理页命中旧的指令缓存；
+  \item 复制整个 trapframe——子进程回到用户态时，PC、栈指针、全部寄存器都和父进程在 \code{svc} 之后一模一样；
+  \item 唯一的区别：子进程的 \code{x0}（系统调用返回值）改成 0；
+  \item 复制文件描述符表。注意复制的是 \code{struct file} 的\emph{引用}，父子共享同一个文件偏移，这正是 \code{sh} 实现重定向和管道的基础；
+  \item 像 Linux 一样，子进程继承调度策略、优先级、nice 和 CPU 亲和性；
+  \item 设置父进程指针，受 \code{wait\_lock} 保护，与 \code{wait()}、\code{exit()} 同步；
+  \item 把子进程放入运行队列，从这一刻起别的 CPU 就可能开始运行它；
+  \item 父进程返回子进程的 pid。
+\end{enumerate}
+
+图~\ref{fig:fork} 对比了父子两条返回路径。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=4mm and 6mm]
+    \node[box] (svc) {用户态 \code{svc \#0}\\\code{x7=SYS\_fork}};
+    \node[box, below=of svc] (ut) {\code{el0sync} → \code{usertrap()}\\→ \code{sys\_fork()} → \code{fork()}};
+    \node[hbox, below left=8mm and -6mm of ut, text width=34mm] (par) {父进程：\code{fork()} 返回 pid\\写入 \code{trapframe->x0}\\\code{urestorereg}; \code{eret}};
+    \node[hbox, below right=8mm and -6mm of ut, text width=40mm] (ch) {子进程：被调度\\\code{swtch} 恢复 \code{x30=forkret}\\\code{forkret()} → \code{usertrapret()}\\\code{eret}，\code{x0 = 0}};
+    \node[box, below=of par] (pu) {父：\code{fork()} 返回 $>0$};
+    \node[box, below=of ch] (cu) {子：\code{fork()} 返回 0};
+    \draw[arr] (svc) -- (ut);
+    \draw[arr] (ut) -- (par);
+    \draw[darr] (ut) -- node[lab, right]{\code{make\_runnable}} (ch);
+    \draw[arr] (par) -- (pu);
+    \draw[arr] (ch) -- (cu);
+  \end{tikzpicture}
+  \caption{\code{fork()} 的两条返回路径}
+  \label{fig:fork}
+\end{figure}
+
+子进程从来没有执行过 \code{fork()} 的前半段，它的内核栈上只有一个 trapframe。调度器第一次运行它时，\code{swtch()} 恢复的返回地址是 \code{forkret}，\code{forkret()} 再调用 \code{usertrapret()}，从复制来的 trapframe “返回”到用户态——在用户程序看来，就好像子进程也刚刚从 \code{fork()} 返回，只是返回值为 0。
+
+\subsection{新进程的第一次运行}
+
+\code{allocproc()} 为新进程伪造了一个“刚刚调用过 \code{swtch()}”的上下文：\code{context.sp} 指向内核栈上 trapframe 的下方，\code{context.x30}（返回地址）指向 \code{forkret}。调度器第一次 \code{swtch()} 到它时，\code{ret} 指令就跳进了一个从未被调用过的函数。这是所有操作系统创建新任务的共同技巧：教学内核里常见的写法是把返回地址设成一段叫 \code{ret\_from\_fork} 的汇编，Linux 也是如此。
+
+这里有一个细节容易忽略：调度器在 \code{swtch()} 之前持有新进程的 \code{p->lock}，而持锁期间本 CPU 的中断是关闭的，所以新进程从 \code{forkret} 开始执行的那一刻不会被抢占。\code{forkret()} 的第一件事就是释放这把锁，相当于“完成交接、重新允许抢占”。若这时被定时器打断，也只是正常的抢占。然后它调用 \code{usertrapret()}，把父进程复制来的 trapframe 装回寄存器，\code{eret} 到用户态：
+
+\begin{ccode}
+void forkret(void)
+{
+  static int first = 1;
+  struct proc *p = myproc();
+  struct trapframe *tf = p->trapframe;
+
+  release(&p->lock);            // 调度器替我们拿着的锁
+  if (first) {                  // 第一个进程：在进程上下文中初始化文件系统
+    first = 0;
+    fsinit(ROOTDEV);
+  }
+  usertrapret(tf);              // 从 trapframe 返回用户态
+}
+\end{ccode}
+
+\section{上下文切换与调度器}
+
+\subsection{\code{swtch()}}
+
+\begin{asmcode}
+swtch:                          // void swtch(struct context *old, struct context *new)
+        mov x9, x0
+        mov x10, sp
+        stp x10, x18, [x9, #16 * 0]   // 保存 sp 和 x18..x30
+        stp x19, x20, [x9, #16 * 1]
+        ...
+        stp x29, x30, [x9, #16 * 6]
+        mov x9, x1
+        ldp x10, x18, [x9, #16 * 0]   // 恢复新的 sp 和 x18..x30
+        ...
+        ldp x29, x30, [x9, #16 * 6]
+        mov sp, x10
+        ret                           // 跳到新上下文的 x30
+\end{asmcode}
+
+\code{ret} 跳到恢复出来的 \code{x30}：对于一个曾经让出过 CPU 的进程，那是它当年调用 \code{swtch()} 的下一条指令（在 \code{sched()} 里）；对于新进程，就是 \code{forkret}。
+
+\subsection{调度循环}
+
+每个 CPU 都有一个调度器线程，使用启动时的 \code{stack0} 栈：
+
+\begin{ccode}
+void scheduler(void) {
+  struct cpu *c = mycpu();
+  int id = cpuid();
+  c->proc = 0;  c->online = 1;
+  for(;;){
+    intr_on();                                  // 让设备有机会中断
+    if((p = pick_next(c, id)) == 0) continue;   // 选优先级最高的可运行进程
+    acquire(&p->lock);
+    if(p->state == RUNNABLE && (p->cpumask & (1U << id))){
+      p->state = RUNNING;  p->last_cpu = id;
+      c->proc = p;  c->cur_prio = effective_prio(p, c);
+      switchuvm(p);                             // TTBR0 = 进程页表
+      swtch(&c->context, &p->context);          // 运行进程，直到它 sched()
+      switchkvm();                              // TTBR0 = 0
+      c->proc = 0;  c->cur_prio = PRIO_IDLE;
+    }
+    release(&p->lock);
+  }
+}
+\end{ccode}
+
+进程让出 CPU 的唯一入口是 \code{sched()}：调用者必须持有且只持有 \code{p->lock}，并已把状态改成非 RUNNING。锁在两次 \code{swtch()} 之间“传递”——进程持锁切到调度器，调度器在 \code{swtch()} 返回后释放；反方向同理，新进程在 \code{forkret()} 或 \code{sched()} 返回后释放。这保证了“设置状态”和“切换上下文”之间不会有别的 CPU 插进来运行同一个进程。
+
+\subsection{调度对进程是透明的}
+
+调度的目标是让多个进程分享 CPU 时间，而每个进程都以为自己独占 CPU。能做到这一点，靠的正是上面两份现场：被中断的那一刻，用户寄存器全部存在 trapframe 里；让出 CPU 的那一刻，内核寄存器存在 context 里。从进程自己的角度看，它只是调用了一次 \code{swtch()}，过了一段（也许很长的）时间后函数返回了，期间别的进程运行过这件事它察觉不到。也正因为切换只发生在一次函数调用之内，按调用约定可以被调用者破坏的 \code{x0}～\code{x17} 不需要保存。
+
+\subsection{谁触发调度}
+
+进程让出 CPU 有两种情形：
+
+\begin{itemize}
+  \item \textbf{主动让出}：进程在内核中没事可做了，例如 \code{sleep()} 等待磁盘、管道或网络，\code{wait()} 等待子进程，\code{exit()} 结束自己。它们把状态改成 SLEEPING 或 ZOMBIE，然后调用 \code{sched()}；
+  \item \textbf{被动抢占}：每次 10\,ms 定时器中断，\code{sched\_tick()} 给当前进程的时间片减一，减到 0 就设置本 CPU 的 \code{need\_resched}；另一个 CPU 唤醒了更高优先级的进程时，会通过核间中断（IPI）设置这个标志。中断返回前，\code{userirq()}/\code{kernelirq()} 检查 \code{resched\_pending()}，若为真就调用 \code{yield()}，把自己放回运行队列再 \code{sched()}。
+\end{itemize}
+
+\begin{ccode}
+void sched_tick(void)                   // 每个 CPU 每 10 ms 调用一次
+{
+  struct cpu *c = mycpu();
+  struct proc *p = c->proc;
+  if(p){
+    acquire(&p->lock);
+    p->run_ticks++;
+    if(p->policy != SCHED_FIFO && --p->slice <= 0)
+      c->need_resched = 1;              // 时间片用完：下次中断返回时让出
+    release(&p->lock);
+  }
+  ...                                   // 实时任务节流计数
+}
+\end{ccode}
+
+\subsection{关中断与禁止抢占}
+
+教学内核里常见一个计数器 \code{preempt\_count}：它不为 0 时，定时器中断不会触发重新调度。xv6 没有单独的计数器，但效果相同：调度相关的代码总是持有 \code{p->lock}，而持有任何自旋锁时本 CPU 的中断都是关着的（\code{push\_off}），也就不可能被定时器抢占。\code{sched()} 开头的检查把这个约定写成了断言：必须持有 \code{p->lock}、只持这一把锁、状态已不是 RUNNING、中断是关着的。
+
+“关中断”与“禁止抢占”并不总是一回事。调度器循环在每一轮开头都要 \code{intr\_on()}：如果此时没有任何可运行的进程，CPU 就在循环里空转，而让某个进程重新变成 RUNNABLE 的，往往正是一个设备中断（磁盘读完、网络包到达）。如果调度器关着中断空转，就永远等不到这个中断。早期 Linux 的调度函数也有同样的要求：它在运行期间禁止嵌套调度，但必须允许中断发生。
+
+\subsection{如何选择下一个进程}
+
+最早的 Linux（0.01 版）用一个很巧妙的计数器算法：每个任务有优先级 \code{priority} 和剩余时间 \code{counter}，每个定时器节拍当前任务的 \code{counter} 减一；调度时选 \code{counter} 最大的可运行任务；若所有可运行任务的 \code{counter} 都为 0，就给\emph{所有}任务（包括在睡眠的）执行 $\text{counter} \leftarrow \text{counter}/2 + \text{priority}$。睡得越久的任务累积得越多，但不会超过 $2\times\text{priority}$（这是迭代的不动点），所以交互式任务醒来后能优先得到 CPU。
+
+xv6-aarch64 的 \code{pick\_next()} 把“剩余时间”和“谁先运行”分开：时间片只决定什么时候让出，选择则按有效优先级，同优先级按入队先后（\code{rq\_seq}）：
+
+\begin{ccode}
+static struct proc* pick_next(struct cpu *c, int id)
+{
+  struct proc *best = 0;
+  int best_prio = 0;
+  uint64 best_seq = 0;
+
+  for(struct proc *p = proc_head; p; p = p->next){
+    acquire(&p->lock);
+    if(p->state == RUNNABLE && (p->cpumask & (1U << id))){
+      int prio = effective_prio(p, c);
+      if(best == 0 || prio > best_prio ||
+         (prio == best_prio && p->rq_seq < best_seq)){
+        best = p;
+        best_prio = prio;
+        best_seq = p->rq_seq;
+      }
+    }
+    release(&p->lock);
+  }
+  return best;
+}
+\end{ccode}
+
+时间片用完的进程在 \code{yield()} 中重新入队、拿到更大的 \code{rq\_seq}，于是排到同优先级的末尾——这就是轮转（round robin）。完整的优先级规则见第~\ref{sec:sched-rt} 节。
+
+\subsection{跟踪一次时间片轮转}
+\label{sec:sched-trace}
+
+调度代码里有大量异步交互，单看函数很难想清楚整个系统的状态如何随时间变化。下面跟踪进程 A 在用户态运行时被定时器抢占、换成进程 B、之后又换回 A 的全过程，注意每一步发生在哪个栈上：
+
+\begin{enumerate}
+  \item A 在 EL0 运行，使用自己的用户栈（\reg{SP\_EL0}）；
+  \item 定时器中断到来。硬件切到 \reg{SP\_EL1}，此时它指向 A 内核栈的顶端；\code{el0irq} 的 \code{usavereg} 把 A 的全部用户寄存器存进 A 的 trapframe；
+  \item \code{userirq()} $\to$ \code{devintr()} $\to$ \code{sched\_tick()}：A 的时间片用完，设置 \code{need\_resched}；
+  \item \code{userirq()} 发现 \code{resched\_pending()}，调用 \code{yield()}：拿 \code{A->lock}，状态改为 RUNNABLE，\code{sched()} $\to$ \code{swtch(\&A->context, \&cpu->context)}。A 的内核寄存器存进 \code{A->context}，\code{sp} 换成本 CPU 的调度器栈；
+  \item 调度器从上次的 \code{swtch()} 之后继续：\code{switchkvm()}，释放 \code{A->lock}，下一轮 \code{pick\_next()} 选中 B；
+  \item 调度器拿 \code{B->lock}，状态改为 RUNNING，\code{switchuvm(B)} 把 B 的页表装进 \reg{TTBR0\_EL1}，\code{swtch(\&cpu->context, \&B->context)}；
+  \item B 从它自己上次的 \code{swtch()} 之后继续——如果 B 当初也是被定时器抢占的，那就是它的 \code{sched()} 返回到 \code{yield()}，释放 \code{B->lock}，再一路返回到 \code{userirq()}、\code{el0irq}，\code{urestorereg} 从 B 的 trapframe 恢复寄存器，\code{eret} 回到 B 的用户态；如果 B 是新进程，则 \code{ret} 进入 \code{forkret}；
+  \item 若干时间片之后，B 以同样的方式让出，调度器再次选中 A，\code{swtch()} 恢复 \code{A->context}：A 回到第 4 步的 \code{sched()} 里面，沿 \code{yield()} $\to$ \code{userirq()} $\to$ \code{el0irq} 返回，\code{eret} 之后 A 从被打断的那条指令继续执行。
+\end{enumerate}
+
+这一过程中，A 在内核里的调用链 \code{el0irq} $\to$ \code{userirq} $\to$ \code{yield} $\to$ \code{sched} $\to$ \code{swtch} 一直“冻结”在 A 自己的内核栈上：
+
+\begin{txtcode}
+A 的内核栈（高地址在下）            调度器栈（stack0）
++-----------------------------+    +---------------------------+
+| swtch/sched/yield 的栈帧    |    | scheduler() 的栈帧        |
+| userirq 的栈帧              |    | （每个 CPU 一个）         |
++-----------------------------+    +---------------------------+
+| trapframe：A 的用户寄存器   |
++-----------------------------+ <- p->kstack + PGSIZE
+\end{txtcode}
+
+这就是“以 A 的身份进入中断、以 B 的身份离开中断”之所以合法的原因：每个进程的中断现场（trapframe 中的 \code{elr}、\code{spsr}）和内核调用链都保存在它自己的内核栈上，\code{eret} 使用的永远是当前进程自己的那一份。与把任务结构放在栈页底部的教学内核相比，xv6 的每个进程在调度器之外还多了一个独立的调度器上下文，切换总是“进程 $\to$ 调度器 $\to$ 进程”两步，而不是进程之间直接切换；代价是多一次 \code{swtch()}，好处是调度器有自己干净的栈，进程退出时也不必在自己的栈上释放自己。
+
+\section{\code{exec}、\code{exit} 与 \code{wait}}
+
+\code{exec(path, argv)} 读取 ELF 文件头，为每个 \code{PT\_LOAD} 段分配并装入内存，然后在其上方分配一页保护页和 4 页用户栈，把参数字符串和 \code{argv[]} 指针数组压栈。全部就绪后才替换旧的地址空间——任何一步失败，原进程都不受影响。新页表生效前调用 \code{uvmsync\_icache()}。
+
+\code{exit()} 关闭所有文件，把子进程过继给 \code{init}，把自己设为 ZOMBIE 并唤醒父进程，然后 \code{sched()}，再也不会回来。进程的内存和内核栈此时还不能释放（它正在这个内核栈上运行），要等父进程在 \code{wait()} 中找到 ZOMBIE 子进程后调用 \code{freeproc()} 回收。\code{init} 进程在一个循环里不停地 \code{wait()}，负责回收所有孤儿。
+
+\section{睡眠、唤醒与同步原语}
+
+\subsection{\code{sleep}/\code{wakeup}}
+
+xv6 的阻塞机制只有两个函数。\code{sleep(chan, lk)} 原子地释放条件锁 \code{lk} 并在 \code{chan} 上睡眠；\code{wakeup(chan)} 把所有睡在 \code{chan} 上的进程置为 RUNNABLE。“通道”只是一个地址，通常就是被等待对象的地址。
+
+关键是“原子”二字：\code{sleep()} 先拿到 \code{p->lock} 才释放 \code{lk}，而 \code{wakeup()} 必须拿到 \code{p->lock} 才能修改进程状态，所以唤醒不可能落在“检查完条件、还没睡着”的间隙里，不会丢失唤醒。被唤醒的进程总要在 \code{while} 循环中重新检查条件，因为 \code{wakeup} 会唤醒同一通道上的所有进程。
+
+\subsection{用户态同步原语}
+
+在 \code{sleep}/\code{wakeup} 之上，\file{kernel/sync.c} 提供了 64 个内核同步对象槽，用户通过带代数（generation）的整数句柄访问：
+
+\begin{itemize}
+  \item \code{mutex}：记录持有者 pid，只有持有者能解锁；
+  \item \code{semaphore}：计数信号量，\code{sem\_wait} 在计数为 0 时阻塞；
+  \item \code{event}：手动复位事件，\code{notify} 唤醒全部等待者并保持触发状态；
+  \item \code{katomic}：跨进程的原子整数，支持 load/store/fetch\_add/compare\_exchange。
+\end{itemize}
+
+对象在 \code{fork()} 之前创建，父子进程就持有相同的句柄，可以跨越独立的地址空间同步。句柄中的代数防止对象销毁、重新分配之后旧句柄误用新对象。\code{prodcons} 示例用两个信号量（空槽、满槽）加一个互斥锁实现了容量为 4 的有界缓冲区。
+
+\section{多核软实时调度}
+\label{sec:sched-rt}
+
+原版 xv6 的调度器按数组下标轮询，找到第一个 RUNNABLE 的进程就运行。为了让高优先级任务被唤醒后能尽快抢占，项目加入了与 Linux 语义一致的三种策略（表~\ref{tab:policy}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{调度策略}
+  \label{tab:policy}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    策略 & 优先级 & 行为 \\
+    \midrule
+    \code{SCHED\_OTHER} & nice $-20$～$19$ & 分时；时间片 $=(20-\text{nice})/2$ 个节拍（10\,ms～200\,ms） \\
+    \code{SCHED\_FIFO} & 1～99 & 一直运行到阻塞、主动让出或被更高优先级抢占，没有时间片 \\
+    \code{SCHED\_RR} & 1～99 & 同 FIFO，但同优先级之间每 100\,ms 轮转 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{选择.} \code{pick\_next()} 在允许当前 CPU 运行的 RUNNABLE 进程中选\emph{有效优先级}最高的；同优先级选 \code{rq\_seq} 最小的（最早入队）。实时任务的有效优先级是 $100+\text{rt\_priority}$，普通任务是 0，所以任何实时任务都排在普通任务前面。被更高优先级抢占、时间片还有剩余的实时任务保留原来的 \code{rq\_seq}，回到队首。
+
+\paragraph{抢占.} 进程变成 RUNNABLE 时，\code{resched\_hint()} 检查它允许运行的各个 CPU：如果有空闲 CPU，什么都不用做；否则找到当前优先级最低的 CPU，若新进程优先级更高，就设置该 CPU 的 \code{need\_resched}，并通过 ARM-local mailbox 0 向它发送核间中断（IPI）。目标 CPU 在中断返回、系统调用返回或内核态中断返回三处检查 \code{need\_resched}，调用 \code{yield()}。
+
+\paragraph{节流.} 为防止失控的 FIFO 任务卡死整个系统，每个 CPU 每秒最多给实时任务 950\,ms；用完后实时任务的有效优先级降到 $-1$，让 shell 和内核工作线程在剩下的 50\,ms 里运行——与 Linux 默认的 \code{sched\_rt\_runtime\_us} 相同。
+
+用户可以用与 Linux 同名的 \code{chrt}、\code{taskset}、\code{nice}、\code{renice} 命令设置这些属性，用 \code{rtlat} 测量唤醒延迟（第~\ref{chap:user} 章）。

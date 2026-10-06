@@ -100,6 +100,8 @@ gic_iar(void)
     return DWC2_IRQ;
   if(irqread(IRQ_PENDING_2) & (1U << (SDIO_IRQ - 32)))
     return SDIO_IRQ;
+  if(irqread(IRQ_PENDING_2) & (1U << (CSI1_IRQ - 32)))
+    return CSI1_IRQ;
   if(irqread(IRQ_PENDING_1))
     return 1023;
   return 1023;
@@ -121,9 +123,29 @@ gic_eoi(uint32 iar)
 int
 gic_int_enabled(uint32 intid)
 {
-  if(intid == UART0_IRQ || intid == DWC2_IRQ || intid == SDIO_IRQ)
+  if(intid == UART0_IRQ || intid == DWC2_IRQ || intid == SDIO_IRQ ||
+     intid == CSI1_IRQ)
     return 1;
   if(intid == TIMER0_IRQ || intid == IPI_RESCHED_IRQ)
     return 1;
   return 0;
+}
+
+// Enable one more legacy GPU interrupt after its driver has probed.
+void
+bcm2837_enable_irq(int irq)
+{
+  if(irq < 32)
+    irqwrite(ENABLE_IRQS_1, 1U << irq);
+  else if(irq < 64)
+    irqwrite(ENABLE_IRQS_2, 1U << (irq - 32));
+}
+
+void
+bcm2837_disable_irq(int irq)
+{
+  if(irq < 32)
+    irqwrite(DISABLE_IRQS_1, 1U << irq);
+  else if(irq < 64)
+    irqwrite(DISABLE_IRQS_2, 1U << (irq - 32));
 }

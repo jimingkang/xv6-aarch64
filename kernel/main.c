@@ -36,6 +36,15 @@ main()
   boot_uart_mark('0');
   if(cpuid() == 0){
     // QEMU's Pi firmware parks secondary cores. This first port runs core 0.
+    // kinit2() hands out RAM from EARLYTOP upward: the kernel image and its
+    // BSS must end below it, or the allocator would reuse kernel memory.
+    // printf is not ready yet, so report through the early boot UART.
+    if(V2P(end) > EARLYTOP){
+      for(char *m = "\nkernel image extends past EARLYTOP\n"; *m; m++)
+        boot_uart_mark(*m);
+      for(;;)
+        asm volatile("wfe");
+    }
     kinit1(end, P2V(EARLYTOP));  // memory covered by the bootstrap map
     boot_uart_mark('1');
     kvminit();       // create kernel page table
@@ -76,6 +85,8 @@ main()
     fat32init();      // locate FS.IMG in a FAT32 boot partition
     brcmfmac_driver_init(); // firmware source is available after FAT32 init
     mt7601u_driver_init(); // bind enumerated USB MT7601U after firmware source
+    ov5647_init();    // register camera sensor drivers (camsensor.h) ...
+    camera_init();    // ... then the Unicam bridge probes them -> /dev/video0
     ext2init();       // optional read-only Linux ext2 partition
     vfsinit();        // mount non-native filesystems behind vnode operations
     userinit();      // first user process

@@ -1,0 +1,2059 @@
+
+Merging object attributes
+
+
+Discarded input sections
+
+ .text          0x00000000        0x0 build/t113/kernel/string.o
+ .ARM.exidx.text.memset
+                0x00000000        0x8 build/t113/kernel/string.o
+ .text.memcmp   0x00000000       0x48 build/t113/kernel/string.o
+ .ARM.exidx.text.memcmp
+                0x00000000        0x8 build/t113/kernel/string.o
+ .ARM.exidx.text.memmove
+                0x00000000        0x8 build/t113/kernel/string.o
+ .text.memcpy   0x00000000       0x58 build/t113/kernel/string.o
+ .ARM.exidx.text.memcpy
+                0x00000000        0x8 build/t113/kernel/string.o
+ .ARM.exidx.text.strncmp
+                0x00000000        0x8 build/t113/kernel/string.o
+ .ARM.exidx.text.strncpy
+                0x00000000        0x8 build/t113/kernel/string.o
+ .ARM.exidx.text.safestrcpy
+                0x00000000        0x8 build/t113/kernel/string.o
+ .ARM.exidx.text.strlen
+                0x00000000        0x8 build/t113/kernel/string.o
+ .comment       0x00000000       0x31 build/t113/kernel/string.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/string.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/string.o
+ .text          0x00000000        0x0 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.kinit1
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.freerange
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .text.kinit2   0x00000000       0x10 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.kinit2
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.kfree
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.kalloc
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .text.kfreepages
+                0x00000000       0x58 build/t113/kernel/kalloc.o
+ .ARM.exidx.text.kfreepages
+                0x00000000        0x8 build/t113/kernel/kalloc.o
+ .comment       0x00000000       0x31 build/t113/kernel/kalloc.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/kalloc.o
+ .llvm_addrsig  0x00000000        0x2 build/t113/kernel/kalloc.o
+ .text          0x00000000        0x0 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.initlock
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.acquire
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.push_off
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.holding
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.release
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .ARM.exidx.text.pop_off
+                0x00000000        0x8 build/t113/kernel/spinlock.o
+ .comment       0x00000000       0x31 build/t113/kernel/spinlock.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/spinlock.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/spinlock.o
+ .text          0x00000000        0x0 build/t113/kernel/sleeplock.o
+ .ARM.exidx.text.initsleeplock
+                0x00000000        0x8 build/t113/kernel/sleeplock.o
+ .ARM.exidx.text.acquiresleep
+                0x00000000        0x8 build/t113/kernel/sleeplock.o
+ .ARM.exidx.text.releasesleep
+                0x00000000        0x8 build/t113/kernel/sleeplock.o
+ .ARM.exidx.text.holdingsleep
+                0x00000000        0x8 build/t113/kernel/sleeplock.o
+ .comment       0x00000000       0x31 build/t113/kernel/sleeplock.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/sleeplock.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/sleeplock.o
+ .text          0x00000000        0x0 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_tick
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.mycpu
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.resched_pending
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.procinit
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.myproc
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.allocpid
+                0x00000000       0x3c build/t113/kernel/proc.o
+ .ARM.exidx.text.allocpid
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.kthread_create
+                0x00000000       0x88 build/t113/kernel/proc.o
+ .ARM.exidx.text.kthread_create
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.allocproc
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.kthread_entry
+                0x00000000       0x30 build/t113/kernel/proc.o
+ .ARM.exidx.text.kthread_entry
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.make_runnable
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.userinit
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.growproc
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.fork
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.freeproc
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.threadclone
+                0x00000000      0x27c build/t113/kernel/proc.o
+ .ARM.exidx.text.threadclone
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.vmspace_put
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.threadjoin
+                0x00000000      0x164 build/t113/kernel/proc.o
+ .ARM.exidx.text.threadjoin
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.sleep
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.exit
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.threadexit
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.reparent
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.wakeup
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.wait
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.scheduler
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.yield
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_yield_now
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.forkret
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.kill
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.signal_pgrp
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.sched_setscheduler
+                0x00000000      0x108 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_setscheduler
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.lock_proc_by_pid
+                0x00000000       0x88 build/t113/kernel/proc.o
+ .ARM.exidx.text.lock_proc_by_pid
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.sched_setnice
+                0x00000000       0x68 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_setnice
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.sched_setaffinity
+                0x00000000       0x8c build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_setaffinity
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.resched_hint
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .text.sched_getinfo
+                0x00000000       0x74 build/t113/kernel/proc.o
+ .ARM.exidx.text.sched_getinfo
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.either_copyout
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.either_copyin
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.procdump
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.proclist
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.procputint
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.procputpad
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .ARM.exidx.text.procvmdump
+                0x00000000        0x8 build/t113/kernel/proc.o
+ .comment       0x00000000       0x31 build/t113/kernel/proc.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/proc.o
+ .llvm_addrsig  0x00000000       0x10 build/t113/kernel/proc.o
+ .text          0x00000000        0x0 build/t113/kernel/exec.o
+ .ARM.exidx.text.exec
+                0x00000000        0x8 build/t113/kernel/exec.o
+ .ARM.exidx.text.loadseg
+                0x00000000        0x8 build/t113/kernel/exec.o
+ .comment       0x00000000       0x31 build/t113/kernel/exec.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/exec.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/exec.o
+ .text          0x00000000        0x0 build/t113/kernel/bio.o
+ .ARM.exidx.text.binit
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .ARM.exidx.text.bread
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .ARM.exidx.text.bwrite
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .ARM.exidx.text.brelse
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .ARM.exidx.text.bpin
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .ARM.exidx.text.bunpin
+                0x00000000        0x8 build/t113/kernel/bio.o
+ .comment       0x00000000       0x31 build/t113/kernel/bio.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/bio.o
+ .llvm_addrsig  0x00000000        0x1 build/t113/kernel/bio.o
+ .text          0x00000000        0x0 build/t113/kernel/fs.o
+ .ARM.exidx.text.fsinit
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iinit
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.ialloc
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iget
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iupdate
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.idup
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.ilock
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iunlock
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iput
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.itrunc
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.iunlockput
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.bfree
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.stati
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.readi
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.bmap
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.writei
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.namecmp
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.dirlookup
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.dirlink
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.namei
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.namex
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.nameiparent
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .ARM.exidx.text.balloc
+                0x00000000        0x8 build/t113/kernel/fs.o
+ .comment       0x00000000       0x31 build/t113/kernel/fs.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/fs.o
+ .llvm_addrsig  0x00000000        0x2 build/t113/kernel/fs.o
+ .text          0x00000000        0x0 build/t113/kernel/log.o
+ .ARM.exidx.text.initlog
+                0x00000000        0x8 build/t113/kernel/log.o
+ .ARM.exidx.text.begin_op
+                0x00000000        0x8 build/t113/kernel/log.o
+ .ARM.exidx.text.end_op
+                0x00000000        0x8 build/t113/kernel/log.o
+ .ARM.exidx.text.log_write
+                0x00000000        0x8 build/t113/kernel/log.o
+ .ARM.exidx.text.install_trans
+                0x00000000        0x8 build/t113/kernel/log.o
+ .ARM.exidx.text.write_head
+                0x00000000        0x8 build/t113/kernel/log.o
+ .comment       0x00000000       0x31 build/t113/kernel/log.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/log.o
+ .llvm_addrsig  0x00000000        0x1 build/t113/kernel/log.o
+ .text          0x00000000        0x0 build/t113/kernel/pipe.o
+ .ARM.exidx.text.pipealloc
+                0x00000000        0x8 build/t113/kernel/pipe.o
+ .ARM.exidx.text.pipeclose
+                0x00000000        0x8 build/t113/kernel/pipe.o
+ .ARM.exidx.text.pipewrite
+                0x00000000        0x8 build/t113/kernel/pipe.o
+ .ARM.exidx.text.piperead
+                0x00000000        0x8 build/t113/kernel/pipe.o
+ .comment       0x00000000       0x31 build/t113/kernel/pipe.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/pipe.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/pipe.o
+ .text          0x00000000        0x0 build/t113/kernel/file.o
+ .ARM.exidx.text.fileinit
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.filealloc
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.filedup
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.fileclose
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.filestat
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.fileread
+                0x00000000        0x8 build/t113/kernel/file.o
+ .ARM.exidx.text.filewrite
+                0x00000000        0x8 build/t113/kernel/file.o
+ .comment       0x00000000       0x31 build/t113/kernel/file.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/file.o
+ .llvm_addrsig  0x00000000        0x1 build/t113/kernel/file.o
+ .text          0x00000000        0x0 build/t113/kernel/sysfile.o
+ .text.sys_mount
+                0x00000000       0x98 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_mount
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_rename
+                0x00000000       0x68 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_rename
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_ext2read
+                0x00000000       0xf4 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_ext2read
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_ext2readdir
+                0x00000000       0xc0 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_ext2readdir
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_socket
+                0x00000000       0xe4 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_socket
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_bind
+                0x00000000       0xe0 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_bind
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.argfd
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_listen
+                0x00000000       0x9c build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_listen
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_lseek
+                0x00000000       0xe4 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_lseek
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_socket_listen
+                0x00000000       0xcc build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_socket_listen
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_socket_accept
+                0x00000000       0xd4 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_socket_accept
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_fcntl
+                0x00000000       0xa0 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_fcntl
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_epoll_create
+                0x00000000       0x90 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_epoll_create
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_epoll_ctl
+                0x00000000      0x10c build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_epoll_ctl
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_epoll_wait
+                0x00000000       0xa4 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_epoll_wait
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_dup
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_read
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_write
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_close
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_fstat
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_link
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_unlink
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_open
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.create
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_mkdir
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_mknod
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_chdir
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_exec
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_pipe
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .text.sys_pty_open
+                0x00000000      0x170 build/t113/kernel/sysfile.o
+ .ARM.exidx.text.sys_pty_open
+                0x00000000        0x8 build/t113/kernel/sysfile.o
+ .comment       0x00000000       0x31 build/t113/kernel/sysfile.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/sysfile.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/kernel/sysfile.o
+ .text          0x00000000        0x0 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_exit
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_getpid
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_gettid
+                0x00000000       0x18 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_gettid
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_clone
+                0x00000000       0x8c build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_clone
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_texit
+                0x00000000       0x3c build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_texit
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_tjoin
+                0x00000000       0x60 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_tjoin
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_fork
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_wait
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sbrk
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sleep
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_kill
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_uptime
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_getrandom
+                0x00000000       0xfc build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_getrandom
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_ps
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_tty_attach
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_tty_set_foreground
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_vmdump
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_create
+                0x00000000       0x60 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_create
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_wait
+                0x00000000       0x40 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_wait
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_signal
+                0x00000000       0x60 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_signal
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_reset
+                0x00000000       0x40 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_reset
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_atomic
+                0x00000000       0x90 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_atomic
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sync_destroy
+                0x00000000       0x40 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sync_destroy
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sched_setscheduler
+                0x00000000       0x78 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sched_setscheduler
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sched_getinfo
+                0x00000000       0x90 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sched_getinfo
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_setnice
+                0x00000000       0x60 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_setnice
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_sched_setaffinity
+                0x00000000       0x60 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sched_setaffinity
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_sched_yield
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_clock_us
+                0x00000000       0x2c build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_clock_us
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .text.sys_getcpu
+                0x00000000       0x14 build/t113/kernel/sysproc.o
+ .ARM.exidx.text.sys_getcpu
+                0x00000000        0x8 build/t113/kernel/sysproc.o
+ .comment       0x00000000       0x31 build/t113/kernel/sysproc.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/sysproc.o
+ .llvm_addrsig  0x00000000        0x2 build/t113/kernel/sysproc.o
+ .text          0x00000000        0x0 build/t113/kernel/device.o
+ .ARM.exidx.text.platform_match
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.bus_probe
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.bus_remove
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.device_init
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.bus_register
+                0x00000000        0x8 build/t113/kernel/device.o
+ .text.bus_unregister
+                0x00000000      0x110 build/t113/kernel/device.o
+ .ARM.exidx.text.bus_unregister
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.device_register
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.bind
+                0x00000000        0x8 build/t113/kernel/device.o
+ .text.device_unregister
+                0x00000000       0xf8 build/t113/kernel/device.o
+ .ARM.exidx.text.device_unregister
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.driver_register
+                0x00000000        0x8 build/t113/kernel/device.o
+ .text.driver_unregister
+                0x00000000      0x128 build/t113/kernel/device.o
+ .ARM.exidx.text.driver_unregister
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.platform_device_register
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.platform_driver_register
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.register_chrdev
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.chrdev_open
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.chrdev_release
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.chrdev_read
+                0x00000000        0x8 build/t113/kernel/device.o
+ .ARM.exidx.text.chrdev_write
+                0x00000000        0x8 build/t113/kernel/device.o
+ .text.device_format
+                0x00000000      0x500 build/t113/kernel/device.o
+ .ARM.exidx.text.device_format
+                0x00000000        0x8 build/t113/kernel/device.o
+ .text.putnum   0x00000000      0x10c build/t113/kernel/device.o
+ .ARM.exidx.text.putnum
+                0x00000000        0x8 build/t113/kernel/device.o
+ .comment       0x00000000       0x31 build/t113/kernel/device.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/device.o
+ .llvm_addrsig  0x00000000        0x5 build/t113/kernel/device.o
+ .text          0x00000000        0x0 build/t113/kernel/console.o
+ .ARM.exidx.text.consputc
+                0x00000000        0x8 build/t113/kernel/console.o
+ .ARM.exidx.text.consolewrite
+                0x00000000        0x8 build/t113/kernel/console.o
+ .ARM.exidx.text.consoleread
+                0x00000000        0x8 build/t113/kernel/console.o
+ .ARM.exidx.text.consoleintr
+                0x00000000        0x8 build/t113/kernel/console.o
+ .ARM.exidx.text.consoleinit
+                0x00000000        0x8 build/t113/kernel/console.o
+ .ARM.exidx.text.uart_probe
+                0x00000000        0x8 build/t113/kernel/console.o
+ .comment       0x00000000       0x31 build/t113/kernel/console.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/console.o
+ .llvm_addrsig  0x00000000        0x7 build/t113/kernel/console.o
+ .text          0x00000000        0x0 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttyattach
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttysetforeground
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttyintr
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttyinit
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttycurrentread
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .ARM.exidx.text.ttycurrentwrite
+                0x00000000        0x8 build/t113/kernel/tty.o
+ .comment       0x00000000       0x31 build/t113/kernel/tty.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/kernel/tty.o
+ .llvm_addrsig  0x00000000        0x7 build/t113/kernel/tty.o
+ .text          0x00000000        0x0 build/t113/port/vm.o
+ .ARM.exidx.text.kvminit
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.rootalloc
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.kvminithart
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.walk
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.mappages
+                0x00000000        0x8 build/t113/port/vm.o
+ .text.kvmmap   0x00000000       0x5c build/t113/port/vm.o
+ .ARM.exidx.text.kvmmap
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmcreate
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.walkaddr
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uva2ka
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmunmap
+                0x00000000        0x8 build/t113/port/vm.o
+ .text.uvmdealloc
+                0x00000000       0x8c build/t113/port/vm.o
+ .ARM.exidx.text.uvmdealloc
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmalloc
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvminit
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmfree
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmclear
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmcopy
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.copyout
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.copyin
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.copyinstr
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.switchuvm
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.switchkvm
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmsync_icache
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.kvmdump
+                0x00000000        0x8 build/t113/port/vm.o
+ .ARM.exidx.text.uvmdump
+                0x00000000        0x8 build/t113/port/vm.o
+ .comment       0x00000000       0x31 build/t113/port/vm.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/vm.o
+ .llvm_addrsig  0x00000000        0x2 build/t113/port/vm.o
+ .text          0x00000000        0x0 build/t113/port/platform.o
+ .ARM.exidx.text.uartinit
+                0x00000000        0x8 build/t113/port/platform.o
+ .text.uartgetc
+                0x00000000       0x2c build/t113/port/platform.o
+ .ARM.exidx.text.uartgetc
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.uartputc_sync
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.uartputc
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.uartintr
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.boot_uart_mark
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.fat32rw
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.t113_main
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.interrupts_init
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.timer_start
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.t113_svc
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.t113_irq
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.t113_fault
+                0x00000000        0x8 build/t113/port/platform.o
+ .text.send_resched_ipi
+                0x00000000        0xc build/t113/port/platform.o
+ .ARM.exidx.text.send_resched_ipi
+                0x00000000        0x8 build/t113/port/platform.o
+ .ARM.exidx.text.net_udp_closeproc
+                0x00000000        0x8 build/t113/port/platform.o
+ .comment       0x00000000       0x31 build/t113/port/platform.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/platform.o
+ .llvm_addrsig  0x00000000        0x5 build/t113/port/platform.o
+ .text          0x00000000        0x0 build/t113/port/syscall.o
+ .ARM.exidx.text.fetchaddr
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.fetchstr
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.argint
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.argraw
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.argaddr
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.argstr
+                0x00000000        0x8 build/t113/port/syscall.o
+ .ARM.exidx.text.syscall
+                0x00000000        0x8 build/t113/port/syscall.o
+ .comment       0x00000000       0x31 build/t113/port/syscall.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/syscall.o
+ .llvm_addrsig  0x00000000       0x1a build/t113/port/syscall.o
+ .text          0x00000000        0x0 build/t113/port/stubs.o
+ .ARM.exidx.text.epollinit
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.epollclose
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.ptyclose
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.ptyread
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.ptywrite
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.net_tcp_close
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.net_tcp_read
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.net_tcp_write
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.vfsopen
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.vfsclose
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.vfsstat
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.vfsread
+                0x00000000        0x8 build/t113/port/stubs.o
+ .ARM.exidx.text.vfswrite
+                0x00000000        0x8 build/t113/port/stubs.o
+ .comment       0x00000000       0x31 build/t113/port/stubs.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/stubs.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/port/stubs.o
+ .text          0x00000000        0x0 build/t113/port/runtime.o
+ .text.__aeabi_memcpy
+                0x00000000       0x10 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memcpy
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.__aeabi_memcpy4
+                0x00000000       0x10 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memcpy4
+                0x00000000        0x8 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memcpy8
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.__aeabi_memclr
+                0x00000000       0x18 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memclr
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.__aeabi_memclr4
+                0x00000000       0x18 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memclr4
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.__aeabi_memclr8
+                0x00000000       0x18 build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memclr8
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.__aeabi_memset
+                0x00000000       0x1c build/t113/port/runtime.o
+ .ARM.exidx.text.__aeabi_memset
+                0x00000000        0x8 build/t113/port/runtime.o
+ .text.t113_udiv
+                0x00000000       0xf0 build/t113/port/runtime.o
+ .ARM.exidx.text.t113_udiv
+                0x00000000        0x8 build/t113/port/runtime.o
+ .comment       0x00000000       0x31 build/t113/port/runtime.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/runtime.o
+ .llvm_addrsig  0x00000000        0x0 build/t113/port/runtime.o
+ .text          0x00000000        0x0 build/t113/port/entry.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/entry.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/vectors.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/swtch.o
+ .text          0x00000000       0x24 build/t113/port/div.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/div.o
+ .ARM.attributes
+                0x00000000       0x2b build/t113/port/div.o
+ .debug_info    0x00000000       0xa2 build/t113/port/div.o
+ .debug_abbrev  0x00000000       0x21 build/t113/port/div.o
+ .debug_aranges
+                0x00000000       0x20 build/t113/port/div.o
+ .debug_line    0x00000000       0x48 build/t113/port/div.o
+ .debug_line_str
+                0x00000000       0x39 build/t113/port/div.o
+ .text          0x00000000        0x0 build/t113/port/printf.o
+ .ARM.exidx.text.printf
+                0x00000000        0x8 build/t113/port/printf.o
+ .ARM.exidx.text.panic
+                0x00000000        0x8 build/t113/port/printf.o
+ .ARM.exidx.text.printint
+                0x00000000        0x8 build/t113/port/printf.o
+ .ARM.exidx.text.printfinit
+                0x00000000        0x8 build/t113/port/printf.o
+ .comment       0x00000000       0x31 build/t113/port/printf.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/port/printf.o
+ .llvm_addrsig  0x00000000        0x2 build/t113/port/printf.o
+ .text          0x00000000        0x0 build/t113/ramdisk.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/ramdisk.o
+ .text          0x00000000        0x0 build/t113/initcode-embed.o
+ .note.GNU-stack
+                0x00000000        0x0 build/t113/initcode-embed.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0x40200000                        . = 0x40200000
+
+.text           0x40200000     0x7c5c
+ *(.text.entry)
+ .text.entry    0x40200000       0xdc build/t113/port/entry.o
+                0x40200000                _entry
+ *(.text .text.*)
+ .text.memset   0x402000dc       0x28 build/t113/kernel/string.o
+                0x402000dc                memset
+ .text.memmove  0x40200104       0x58 build/t113/kernel/string.o
+                0x40200104                memmove
+ .text.strncmp  0x4020015c       0x4c build/t113/kernel/string.o
+                0x4020015c                strncmp
+ .text.strncpy  0x402001a8       0x50 build/t113/kernel/string.o
+                0x402001a8                strncpy
+ .text.safestrcpy
+                0x402001f8       0x40 build/t113/kernel/string.o
+                0x402001f8                safestrcpy
+ .text.strlen   0x40200238       0x24 build/t113/kernel/string.o
+                0x40200238                strlen
+ .text.kinit1   0x4020025c       0x3c build/t113/kernel/kalloc.o
+                0x4020025c                kinit1
+ .text.freerange
+                0x40200298       0x70 build/t113/kernel/kalloc.o
+                0x40200298                freerange
+ .text.kfree    0x40200308       0xb8 build/t113/kernel/kalloc.o
+                0x40200308                kfree
+ .text.kalloc   0x402003c0       0x5c build/t113/kernel/kalloc.o
+                0x402003c0                kalloc
+ .text.initlock
+                0x4020041c       0x1c build/t113/kernel/spinlock.o
+                0x4020041c                initlock
+ .text.acquire  0x40200438       0x70 build/t113/kernel/spinlock.o
+                0x40200438                acquire
+ .text.push_off
+                0x402004a8       0x44 build/t113/kernel/spinlock.o
+                0x402004a8                push_off
+ .text.holding  0x402004ec       0x30 build/t113/kernel/spinlock.o
+                0x402004ec                holding
+ .text.release  0x4020051c       0x50 build/t113/kernel/spinlock.o
+                0x4020051c                release
+ .text.pop_off  0x4020056c       0x68 build/t113/kernel/spinlock.o
+                0x4020056c                pop_off
+ .text.initsleeplock
+                0x402005d4       0x34 build/t113/kernel/sleeplock.o
+                0x402005d4                initsleeplock
+ .text.acquiresleep
+                0x40200608       0x54 build/t113/kernel/sleeplock.o
+                0x40200608                acquiresleep
+ .text.releasesleep
+                0x4020065c       0x38 build/t113/kernel/sleeplock.o
+                0x4020065c                releasesleep
+ .text.holdingsleep
+                0x40200694       0x54 build/t113/kernel/sleeplock.o
+                0x40200694                holdingsleep
+ .text.sched_tick
+                0x402006e8      0x108 build/t113/kernel/proc.o
+                0x402006e8                sched_tick
+ .text.mycpu    0x402007f0       0x14 build/t113/kernel/proc.o
+                0x402007f0                mycpu
+ .text.resched_pending
+                0x40200804       0x24 build/t113/kernel/proc.o
+                0x40200804                resched_pending
+ .text.procinit
+                0x40200828       0x90 build/t113/kernel/proc.o
+                0x40200828                procinit
+ .text.myproc   0x402008b8       0x24 build/t113/kernel/proc.o
+                0x402008b8                myproc
+ .text.allocproc
+                0x402008dc      0x2ac build/t113/kernel/proc.o
+ .text.make_runnable
+                0x40200b88       0x74 build/t113/kernel/proc.o
+ .text.userinit
+                0x40200bfc       0xac build/t113/kernel/proc.o
+                0x40200bfc                userinit
+ .text.growproc
+                0x40200ca8      0x118 build/t113/kernel/proc.o
+                0x40200ca8                growproc
+ .text.fork     0x40200dc0      0x1d4 build/t113/kernel/proc.o
+                0x40200dc0                fork
+ .text.freeproc
+                0x40200f94       0x84 build/t113/kernel/proc.o
+ .text.vmspace_put
+                0x40201018       0x8c build/t113/kernel/proc.o
+ .text.sleep    0x402010a4       0x60 build/t113/kernel/proc.o
+                0x402010a4                sleep
+ .text.exit     0x40201104      0x234 build/t113/kernel/proc.o
+                0x40201104                exit
+ .text.threadexit
+                0x40201338       0xd4 build/t113/kernel/proc.o
+ .text.reparent
+                0x4020140c       0x50 build/t113/kernel/proc.o
+ .text.wakeup   0x4020145c       0x84 build/t113/kernel/proc.o
+                0x4020145c                wakeup
+ .text.sched    0x402014e0       0xa8 build/t113/kernel/proc.o
+                0x402014e0                sched
+ .text.wait     0x40201588      0x14c build/t113/kernel/proc.o
+                0x40201588                wait
+ .text.scheduler
+                0x402016d4      0x1ec build/t113/kernel/proc.o
+                0x402016d4                scheduler
+ .text.yield    0x402018c0       0xa4 build/t113/kernel/proc.o
+                0x402018c0                yield
+ .text.sched_yield_now
+                0x40201964       0x84 build/t113/kernel/proc.o
+                0x40201964                sched_yield_now
+ .text.forkret  0x402019e8       0x58 build/t113/kernel/proc.o
+                0x402019e8                forkret
+ .text.kill     0x40201a40       0x84 build/t113/kernel/proc.o
+                0x40201a40                kill
+ .text.signal_pgrp
+                0x40201ac4       0xb0 build/t113/kernel/proc.o
+                0x40201ac4                signal_pgrp
+ .text.resched_hint
+                0x40201b74       0x68 build/t113/kernel/proc.o
+ .text.either_copyout
+                0x40201bdc       0x70 build/t113/kernel/proc.o
+                0x40201bdc                either_copyout
+ .text.either_copyin
+                0x40201c4c       0x74 build/t113/kernel/proc.o
+                0x40201c4c                either_copyin
+ .text.procdump
+                0x40201cc0       0x8c build/t113/kernel/proc.o
+                0x40201cc0                procdump
+ .text.proclist
+                0x40201d4c      0x2e8 build/t113/kernel/proc.o
+                0x40201d4c                proclist
+ .text.procputint
+                0x40202034       0xac build/t113/kernel/proc.o
+ .text.procputpad
+                0x402020e0       0xa0 build/t113/kernel/proc.o
+ .text.procvmdump
+                0x40202180       0xdc build/t113/kernel/proc.o
+                0x40202180                procvmdump
+ .text.exec     0x4020225c      0x588 build/t113/kernel/exec.o
+                0x4020225c                exec
+ .text.loadseg  0x402027e4       0xb0 build/t113/kernel/exec.o
+ .text.binit    0x40202894       0xac build/t113/kernel/bio.o
+                0x40202894                binit
+ .text.bread    0x40202940       0xf8 build/t113/kernel/bio.o
+                0x40202940                bread
+ .text.bwrite   0x40202a38       0x3c build/t113/kernel/bio.o
+                0x40202a38                bwrite
+ .text.brelse   0x40202a74       0x94 build/t113/kernel/bio.o
+                0x40202a74                brelse
+ .text.bpin     0x40202b08       0x34 build/t113/kernel/bio.o
+                0x40202b08                bpin
+ .text.bunpin   0x40202b3c       0x34 build/t113/kernel/bio.o
+                0x40202b3c                bunpin
+ .text.fsinit   0x40202b70       0x70 build/t113/kernel/fs.o
+                0x40202b70                fsinit
+ .text.iinit    0x40202be0       0x4c build/t113/kernel/fs.o
+                0x40202be0                iinit
+ .text.ialloc   0x40202c2c       0xac build/t113/kernel/fs.o
+                0x40202c2c                ialloc
+ .text.iget     0x40202cd8       0xc8 build/t113/kernel/fs.o
+ .text.iupdate  0x40202da0       0x74 build/t113/kernel/fs.o
+                0x40202da0                iupdate
+ .text.idup     0x40202e14       0x38 build/t113/kernel/fs.o
+                0x40202e14                idup
+ .text.ilock    0x40202e4c       0xc8 build/t113/kernel/fs.o
+                0x40202e4c                ilock
+ .text.iunlock  0x40202f14       0x50 build/t113/kernel/fs.o
+                0x40202f14                iunlock
+ .text.iput     0x40202f64       0xa4 build/t113/kernel/fs.o
+                0x40202f64                iput
+ .text.itrunc   0x40203008       0xa4 build/t113/kernel/fs.o
+                0x40203008                itrunc
+ .text.iunlockput
+                0x402030ac       0x1c build/t113/kernel/fs.o
+                0x402030ac                iunlockput
+ .text.bfree    0x402030c8       0x70 build/t113/kernel/fs.o
+ .text.stati    0x40203138       0x3c build/t113/kernel/fs.o
+                0x40203138                stati
+ .text.readi    0x40203174       0xf0 build/t113/kernel/fs.o
+                0x40203174                readi
+ .text.bmap     0x40203264       0xb8 build/t113/kernel/fs.o
+ .text.writei   0x4020331c      0x110 build/t113/kernel/fs.o
+                0x4020331c                writei
+ .text.namecmp  0x4020342c       0x14 build/t113/kernel/fs.o
+                0x4020342c                namecmp
+ .text.dirlookup
+                0x40203440       0xd8 build/t113/kernel/fs.o
+                0x40203440                dirlookup
+ .text.dirlink  0x40203518       0xf8 build/t113/kernel/fs.o
+                0x40203518                dirlink
+ .text.namei    0x40203610       0x20 build/t113/kernel/fs.o
+                0x40203610                namei
+ .text.namex    0x40203630      0x188 build/t113/kernel/fs.o
+ .text.nameiparent
+                0x402037b8       0x18 build/t113/kernel/fs.o
+                0x402037b8                nameiparent
+ .text.balloc   0x402037d0       0xf8 build/t113/kernel/fs.o
+ .text.initlog  0x402038c8       0x88 build/t113/kernel/log.o
+                0x402038c8                initlog
+ .text.begin_op
+                0x40203950       0x60 build/t113/kernel/log.o
+                0x40203950                begin_op
+ .text.end_op   0x402039b0      0x110 build/t113/kernel/log.o
+                0x402039b0                end_op
+ .text.log_write
+                0x40203ac0       0xcc build/t113/kernel/log.o
+                0x40203ac0                log_write
+ .text.install_trans
+                0x40203b8c       0x9c build/t113/kernel/log.o
+ .text.write_head
+                0x40203c28       0x68 build/t113/kernel/log.o
+ .text.pipealloc
+                0x40203c90       0xc4 build/t113/kernel/pipe.o
+                0x40203c90                pipealloc
+ .text.pipeclose
+                0x40203d54       0x6c build/t113/kernel/pipe.o
+                0x40203d54                pipeclose
+ .text.pipewrite
+                0x40203dc0      0x118 build/t113/kernel/pipe.o
+                0x40203dc0                pipewrite
+ .text.piperead
+                0x40203ed8      0x128 build/t113/kernel/pipe.o
+                0x40203ed8                piperead
+ .text.fileinit
+                0x40204000       0x24 build/t113/kernel/file.o
+                0x40204000                fileinit
+ .text.filealloc
+                0x40204024       0x7c build/t113/kernel/file.o
+                0x40204024                filealloc
+ .text.filedup  0x402040a0       0x50 build/t113/kernel/file.o
+                0x402040a0                filedup
+ .text.fileclose
+                0x402040f0      0x154 build/t113/kernel/file.o
+                0x402040f0                fileclose
+ .text.filestat
+                0x40204244       0xac build/t113/kernel/file.o
+                0x40204244                filestat
+ .text.fileread
+                0x402042f0      0x174 build/t113/kernel/file.o
+                0x402042f0                fileread
+ .text.filewrite
+                0x40204464      0x1b0 build/t113/kernel/file.o
+                0x40204464                filewrite
+ .text.argfd    0x40204614       0x6c build/t113/kernel/sysfile.o
+ .text.sys_dup  0x40204680       0x74 build/t113/kernel/sysfile.o
+                0x40204680                sys_dup
+ .text.sys_read
+                0x402046f4       0x80 build/t113/kernel/sysfile.o
+                0x402046f4                sys_read
+ .text.sys_write
+                0x40204774       0x80 build/t113/kernel/sysfile.o
+                0x40204774                sys_write
+ .text.sys_close
+                0x402047f4       0x54 build/t113/kernel/sysfile.o
+                0x402047f4                sys_close
+ .text.sys_fstat
+                0x40204848       0x60 build/t113/kernel/sysfile.o
+                0x40204848                sys_fstat
+ .text.sys_link
+                0x402048a8      0x120 build/t113/kernel/sysfile.o
+                0x402048a8                sys_link
+ .text.sys_unlink
+                0x402049c8      0x1dc build/t113/kernel/sysfile.o
+                0x402049c8                sys_unlink
+ .text.sys_open
+                0x40204ba4      0x278 build/t113/kernel/sysfile.o
+                0x40204ba4                sys_open
+ .text.create   0x40204e1c      0x174 build/t113/kernel/sysfile.o
+ .text.sys_mkdir
+                0x40204f90       0x64 build/t113/kernel/sysfile.o
+                0x40204f90                sys_mkdir
+ .text.sys_mknod
+                0x40204ff4       0x8c build/t113/kernel/sysfile.o
+                0x40204ff4                sys_mknod
+ .text.sys_chdir
+                0x40205080       0x90 build/t113/kernel/sysfile.o
+                0x40205080                sys_chdir
+ .text.sys_exec
+                0x40205110      0x130 build/t113/kernel/sysfile.o
+                0x40205110                sys_exec
+ .text.sys_pipe
+                0x40205240      0x158 build/t113/kernel/sysfile.o
+                0x40205240                sys_pipe
+ .text.sys_exit
+                0x40205398       0x44 build/t113/kernel/sysproc.o
+                0x40205398                sys_exit
+ .text.sys_getpid
+                0x402053dc       0x18 build/t113/kernel/sysproc.o
+                0x402053dc                sys_getpid
+ .text.sys_fork
+                0x402053f4       0x14 build/t113/kernel/sysproc.o
+                0x402053f4                sys_fork
+ .text.sys_wait
+                0x40205408       0x40 build/t113/kernel/sysproc.o
+                0x40205408                sys_wait
+ .text.sys_sbrk
+                0x40205448       0x70 build/t113/kernel/sysproc.o
+                0x40205448                sys_sbrk
+ .text.sys_sleep
+                0x402054b8       0xb0 build/t113/kernel/sysproc.o
+                0x402054b8                sys_sleep
+ .text.sys_kill
+                0x40205568       0x40 build/t113/kernel/sysproc.o
+                0x40205568                sys_kill
+ .text.sys_uptime
+                0x402055a8       0x38 build/t113/kernel/sysproc.o
+                0x402055a8                sys_uptime
+ .text.sys_ps   0x402055e0       0xbc build/t113/kernel/sysproc.o
+                0x402055e0                sys_ps
+ .text.sys_tty_attach
+                0x4020569c       0x40 build/t113/kernel/sysproc.o
+                0x4020569c                sys_tty_attach
+ .text.sys_tty_set_foreground
+                0x402056dc       0x40 build/t113/kernel/sysproc.o
+                0x402056dc                sys_tty_set_foreground
+ .text.sys_vmdump
+                0x4020571c       0x48 build/t113/kernel/sysproc.o
+                0x4020571c                sys_vmdump
+ .text.sys_sched_yield
+                0x40205764       0x18 build/t113/kernel/sysproc.o
+                0x40205764                sys_sched_yield
+ .text.platform_match
+                0x4020577c       0x34 build/t113/kernel/device.o
+ .text.bus_probe
+                0x402057b0       0x28 build/t113/kernel/device.o
+ .text.bus_remove
+                0x402057d8       0x24 build/t113/kernel/device.o
+ .text.device_init
+                0x402057fc       0x80 build/t113/kernel/device.o
+                0x402057fc                device_init
+ .text.bus_register
+                0x4020587c       0x64 build/t113/kernel/device.o
+                0x4020587c                bus_register
+ .text.device_register
+                0x402058e0       0xac build/t113/kernel/device.o
+                0x402058e0                device_register
+ .text.bind     0x4020598c       0x94 build/t113/kernel/device.o
+ .text.driver_register
+                0x40205a20       0xa4 build/t113/kernel/device.o
+                0x40205a20                driver_register
+ .text.platform_device_register
+                0x40205ac4       0x1c build/t113/kernel/device.o
+                0x40205ac4                platform_device_register
+ .text.platform_driver_register
+                0x40205ae0       0x1c build/t113/kernel/device.o
+                0x40205ae0                platform_driver_register
+ .text.register_chrdev
+                0x40205afc       0x78 build/t113/kernel/device.o
+                0x40205afc                register_chrdev
+ .text.chrdev_open
+                0x40205b74       0x64 build/t113/kernel/device.o
+                0x40205b74                chrdev_open
+ .text.chrdev_release
+                0x40205bd8       0x50 build/t113/kernel/device.o
+                0x40205bd8                chrdev_release
+ .text.chrdev_read
+                0x40205c28       0x7c build/t113/kernel/device.o
+                0x40205c28                chrdev_read
+ .text.chrdev_write
+                0x40205ca4       0x5c build/t113/kernel/device.o
+                0x40205ca4                chrdev_write
+ .text.consputc
+                0x40205d00       0x44 build/t113/kernel/console.o
+                0x40205d00                consputc
+ .text.consolewrite
+                0x40205d44       0x98 build/t113/kernel/console.o
+                0x40205d44                consolewrite
+ .text.consoleread
+                0x40205ddc      0x11c build/t113/kernel/console.o
+                0x40205ddc                consoleread
+ .text.consoleintr
+                0x40205ef8      0x198 build/t113/kernel/console.o
+                0x40205ef8                consoleintr
+ .text.consoleinit
+                0x40206090       0x38 build/t113/kernel/console.o
+                0x40206090                consoleinit
+ .text.uart_probe
+                0x402060c8       0x28 build/t113/kernel/console.o
+ .text.ttyattach
+                0x402060f0       0x6c build/t113/kernel/tty.o
+                0x402060f0                ttyattach
+ .text.ttysetforeground
+                0x4020615c       0xd8 build/t113/kernel/tty.o
+                0x4020615c                ttysetforeground
+ .text.ttyintr  0x40206234       0x3c build/t113/kernel/tty.o
+                0x40206234                ttyintr
+ .text.ttyinit  0x40206270       0x50 build/t113/kernel/tty.o
+                0x40206270                ttyinit
+ .text.ttycurrentread
+                0x402062c0       0x50 build/t113/kernel/tty.o
+ .text.ttycurrentwrite
+                0x40206310       0x50 build/t113/kernel/tty.o
+ .text.kvminit  0x40206360       0x84 build/t113/port/vm.o
+                0x40206360                kvminit
+ .text.rootalloc
+                0x402063e4       0x78 build/t113/port/vm.o
+ .text.kvminithart
+                0x4020645c       0x50 build/t113/port/vm.o
+                0x4020645c                kvminithart
+ .text.walk     0x402064ac       0x88 build/t113/port/vm.o
+                0x402064ac                walk
+ .text.mappages
+                0x40206534      0x12c build/t113/port/vm.o
+                0x40206534                mappages
+ .text.uvmcreate
+                0x40206660       0x38 build/t113/port/vm.o
+                0x40206660                uvmcreate
+ .text.walkaddr
+                0x40206698       0x70 build/t113/port/vm.o
+                0x40206698                walkaddr
+ .text.uva2ka   0x40206708       0x10 build/t113/port/vm.o
+                0x40206708                uva2ka
+ .text.uvmunmap
+                0x40206718       0xdc build/t113/port/vm.o
+                0x40206718                uvmunmap
+ .text.uvmalloc
+                0x402067f4      0x128 build/t113/port/vm.o
+                0x402067f4                uvmalloc
+ .text.uvminit  0x4020691c       0xa0 build/t113/port/vm.o
+                0x4020691c                uvminit
+ .text.uvmfree  0x402069bc       0xe8 build/t113/port/vm.o
+                0x402069bc                uvmfree
+ .text.uvmclear
+                0x40206aa4       0x58 build/t113/port/vm.o
+                0x40206aa4                uvmclear
+ .text.uvmcopy  0x40206afc      0x140 build/t113/port/vm.o
+                0x40206afc                uvmcopy
+ .text.copyout  0x40206c3c       0xa8 build/t113/port/vm.o
+                0x40206c3c                copyout
+ .text.copyin   0x40206ce4       0xa8 build/t113/port/vm.o
+                0x40206ce4                copyin
+ .text.copyinstr
+                0x40206d8c       0x88 build/t113/port/vm.o
+                0x40206d8c                copyinstr
+ .text.switchuvm
+                0x40206e14       0x3c build/t113/port/vm.o
+                0x40206e14                switchuvm
+ .text.switchkvm
+                0x40206e50       0x40 build/t113/port/vm.o
+                0x40206e50                switchkvm
+ .text.uvmsync_icache
+                0x40206e90       0x1c build/t113/port/vm.o
+                0x40206e90                uvmsync_icache
+ .text.kvmdump  0x40206eac       0x18 build/t113/port/vm.o
+                0x40206eac                kvmdump
+ .text.uvmdump  0x40206ec4       0x24 build/t113/port/vm.o
+                0x40206ec4                uvmdump
+ .text.uartinit
+                0x40206ee8       0x28 build/t113/port/platform.o
+                0x40206ee8                uartinit
+ .text.uartputc_sync
+                0x40206f10       0x2c build/t113/port/platform.o
+                0x40206f10                uartputc_sync
+ .text.uartputc
+                0x40206f3c       0x2c build/t113/port/platform.o
+                0x40206f3c                uartputc
+ .text.uartintr
+                0x40206f68       0x3c build/t113/port/platform.o
+                0x40206f68                uartintr
+ .text.boot_uart_mark
+                0x40206fa4        0xc build/t113/port/platform.o
+                0x40206fa4                boot_uart_mark
+ .text.fat32rw  0x40206fb0       0x84 build/t113/port/platform.o
+                0x40206fb0                fat32rw
+ .text.t113_main
+                0x40207034       0xcc build/t113/port/platform.o
+                0x40207034                t113_main
+ .text.interrupts_init
+                0x40207100       0xac build/t113/port/platform.o
+ .text.timer_start
+                0x402071ac       0x44 build/t113/port/platform.o
+ .text.t113_svc
+                0x402071f0       0xa0 build/t113/port/platform.o
+                0x402071f0                t113_svc
+ .text.t113_irq
+                0x40207290      0x104 build/t113/port/platform.o
+                0x40207290                t113_irq
+ .text.t113_fault
+                0x40207394       0x64 build/t113/port/platform.o
+                0x40207394                t113_fault
+ .text.net_udp_closeproc
+                0x402073f8        0xc build/t113/port/platform.o
+                0x402073f8                net_udp_closeproc
+ .text.fetchaddr
+                0x40207404       0x88 build/t113/port/syscall.o
+                0x40207404                fetchaddr
+ .text.fetchstr
+                0x4020748c       0x64 build/t113/port/syscall.o
+                0x4020748c                fetchstr
+ .text.argint   0x402074f0       0x1c build/t113/port/syscall.o
+                0x402074f0                argint
+ .text.argraw   0x4020750c       0x94 build/t113/port/syscall.o
+ .text.argaddr  0x402075a0       0x20 build/t113/port/syscall.o
+                0x402075a0                argaddr
+ .text.argstr   0x402075c0       0x24 build/t113/port/syscall.o
+                0x402075c0                argstr
+ .text.syscall  0x402075e4       0x50 build/t113/port/syscall.o
+                0x402075e4                syscall
+ .text.epollinit
+                0x40207634        0xc build/t113/port/stubs.o
+                0x40207634                epollinit
+ .text.epollclose
+                0x40207640        0xc build/t113/port/stubs.o
+                0x40207640                epollclose
+ .text.ptyclose
+                0x4020764c        0xc build/t113/port/stubs.o
+                0x4020764c                ptyclose
+ .text.ptyread  0x40207658       0x10 build/t113/port/stubs.o
+                0x40207658                ptyread
+ .text.ptywrite
+                0x40207668       0x10 build/t113/port/stubs.o
+                0x40207668                ptywrite
+ .text.net_tcp_close
+                0x40207678       0x10 build/t113/port/stubs.o
+                0x40207678                net_tcp_close
+ .text.net_tcp_read
+                0x40207688       0x10 build/t113/port/stubs.o
+                0x40207688                net_tcp_read
+ .text.net_tcp_write
+                0x40207698       0x10 build/t113/port/stubs.o
+                0x40207698                net_tcp_write
+ .text.vfsopen  0x402076a8       0x10 build/t113/port/stubs.o
+                0x402076a8                vfsopen
+ .text.vfsclose
+                0x402076b8        0xc build/t113/port/stubs.o
+                0x402076b8                vfsclose
+ .text.vfsstat  0x402076c4       0x10 build/t113/port/stubs.o
+                0x402076c4                vfsstat
+ .text.vfsread  0x402076d4       0x10 build/t113/port/stubs.o
+                0x402076d4                vfsread
+ .text.vfswrite
+                0x402076e4       0x10 build/t113/port/stubs.o
+                0x402076e4                vfswrite
+ .text.__aeabi_memcpy8
+                0x402076f4       0x10 build/t113/port/runtime.o
+                0x402076f4                __aeabi_memcpy8
+ *fill*         0x40207704       0x1c 
+ .text          0x40207720      0x218 build/t113/port/vectors.o
+                0x40207720                vectors
+                0x40207860                usertrapret
+ .text          0x40207938       0x54 build/t113/port/swtch.o
+                0x40207938                swtch
+ .text.printf   0x4020798c      0x1d0 build/t113/port/printf.o
+                0x4020798c                printf
+ .text.panic    0x40207b5c       0x50 build/t113/port/printf.o
+                0x40207b5c                panic
+ .text.printint
+                0x40207bac       0x84 build/t113/port/printf.o
+ .text.printfinit
+                0x40207c30       0x2c build/t113/port/printf.o
+                0x40207c30                printfinit
+
+.glue_7         0x40207c5c        0x0
+ .glue_7        0x40207c5c        0x0 linker stubs
+
+.glue_7t        0x40207c5c        0x0
+ .glue_7t       0x40207c5c        0x0 linker stubs
+
+.vfp11_veneer   0x40207c5c        0x0
+ .vfp11_veneer  0x40207c5c        0x0 linker stubs
+
+.v4_bx          0x40207c5c        0x0
+ .v4_bx         0x40207c5c        0x0 linker stubs
+
+.iplt           0x40207c5c        0x0
+ .iplt          0x40207c5c        0x0 build/t113/kernel/string.o
+                0x40208000                        . = ALIGN (0x1000)
+                0x40208000                        etext = .
+
+.rodata         0x40208000      0x7bc
+ *(.rodata .rodata.*)
+ .rodata.str1.1
+                0x40208000      0x64d build/t113/kernel/kalloc.o
+                                  0xb (size before relaxing)
+ .rodata.str1.1
+                0x4020864d        0x0 build/t113/kernel/spinlock.o
+                                 0x30 (size before relaxing)
+ .rodata.str1.1
+                0x4020864d        0x0 build/t113/kernel/sleeplock.o
+                                  0xb (size before relaxing)
+ .rodata.str1.1
+                0x4020864d        0x0 build/t113/kernel/proc.o
+                                0x233 (size before relaxing)
+ *fill*         0x4020864d        0x3 
+ .rodata.procdump.states
+                0x40208650       0x18 build/t113/kernel/proc.o
+ .rodata.proclist.states
+                0x40208668       0x18 build/t113/kernel/proc.o
+ .rodata.proclist.policies
+                0x40208680        0xc build/t113/kernel/proc.o
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/exec.o
+                                 0x1e (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/bio.o
+                                 0x2d (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/fs.o
+                                 0xd2 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/log.o
+                                 0x44 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/pipe.o
+                                  0x5 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/file.o
+                                 0x2c (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/sysfile.o
+                                 0x63 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/device.o
+                                 0x87 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/console.o
+                                 0x18 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/kernel/tty.o
+                                 0x19 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/port/vm.o
+                                 0x92 (size before relaxing)
+ .rodata.str1.1
+                0x4020868c        0x0 build/t113/port/platform.o
+                                 0xb2 (size before relaxing)
+ .rodata.calls  0x4020868c      0x100 build/t113/port/syscall.o
+ .rodata.str1.1
+                0x4020878c        0x0 build/t113/port/syscall.o
+                                  0x7 (size before relaxing)
+ .rodata.str1.1
+                0x4020878c        0x0 build/t113/port/printf.o
+                                 0x2e (size before relaxing)
+ .rodata        0x4020878c       0x30 build/t113/initcode-embed.o
+                0x4020878c                initcode
+                0x402087bc                initcode_end
+
+.rel.dyn        0x402087bc        0x0
+ .rel.iplt      0x402087bc        0x0 build/t113/kernel/string.o
+
+.data           0x402087c0       0xe4
+ *(.data .data.*)
+ .data.nextpid  0x402087c0        0x4 build/t113/kernel/proc.o
+                0x402087c0                nextpid
+ .data.platform_bus
+                0x402087c4       0x10 build/t113/kernel/device.o
+                0x402087c4                platform_bus
+ .data.uartdrv  0x402087d4       0x10 build/t113/kernel/console.o
+ *fill*         0x402087e4        0x4 
+ .data.uartdev  0x402087e8       0x80 build/t113/kernel/console.o
+ .data.uart_probe.fops
+                0x40208868       0x14 build/t113/kernel/console.o
+ .data.ttyinit.ttyS0_fops
+                0x4020887c       0x14 build/t113/kernel/tty.o
+ .data.ttyinit.tty_fops
+                0x40208890       0x14 build/t113/kernel/tty.o
+
+.igot.plt       0x402088a4        0x0
+ .igot.plt      0x402088a4        0x0 build/t113/kernel/string.o
+                0x40209000                        . = ALIGN (0x1000)
+
+.ramdisk        0x40209000   0x400000
+ *(.ramdisk)
+ .ramdisk       0x40209000   0x400000 build/t113/ramdisk.o
+                0x40209000                ramdisk_start
+                0x40609000                ramdisk_end
+                0x40609000                        . = ALIGN (0x10)
+                0x40609000                        bss_start = .
+
+.bss            0x4060c000   0x411134
+ *(.bss .bss.* COMMON)
+ .bss.kmem      0x4060c000       0x10 build/t113/kernel/kalloc.o
+                0x4060c000                kmem
+ .bss.proc_table_lock
+                0x4060c010        0xc build/t113/kernel/proc.o
+ .bss.kernel_stack_lock
+                0x4060c01c        0xc build/t113/kernel/proc.o
+ .bss.pid_lock  0x4060c028        0xc build/t113/kernel/proc.o
+                0x4060c028                pid_lock
+ .bss.wait_lock
+                0x4060c034        0xc build/t113/kernel/proc.o
+                0x4060c034                wait_lock
+ .bss.rq_counter_lock
+                0x4060c040        0xc build/t113/kernel/proc.o
+ .bss.proc_head
+                0x4060c04c        0x4 build/t113/kernel/proc.o
+                0x4060c04c                proc_head
+ .bss.next_kstack_slot
+                0x4060c050        0x8 build/t113/kernel/proc.o
+ .bss.cpus      0x4060c058       0xa0 build/t113/kernel/proc.o
+                0x4060c058                cpus
+ .bss.initproc  0x4060c0f8        0x4 build/t113/kernel/proc.o
+                0x4060c0f8                initproc
+ .bss.forkret.first
+                0x4060c0fc        0x1 build/t113/kernel/proc.o
+ *fill*         0x4060c0fd        0x3 
+ .bss.rq_counter
+                0x4060c100        0x8 build/t113/kernel/proc.o
+ .bss.bcache    0x4060c108     0x8258 build/t113/kernel/bio.o
+                0x4060c108                bcache
+ .bss.sb        0x40614360       0x20 build/t113/kernel/fs.o
+                0x40614360                sb
+ .bss.itable    0x40614380     0x145c build/t113/kernel/fs.o
+                0x40614380                itable
+ .bss.log       0x406157dc       0x9c build/t113/kernel/log.o
+                0x406157dc                log
+ .bss.ftable    0x40615878     0x190c build/t113/kernel/file.o
+                0x40615878                ftable
+ .bss.device_core
+                0x40617184      0x150 build/t113/kernel/device.o
+ .bss.cons      0x406172d4       0x98 build/t113/kernel/console.o
+                0x406172d4                cons
+ .bss.ttyfg_lock
+                0x4061736c        0xc build/t113/kernel/tty.o
+ .bss.ttyfg_pgid
+                0x40617378        0x4 build/t113/kernel/tty.o
+ .bss.rootlock  0x4061737c        0xc build/t113/port/vm.o
+ .bss.kernel_pagetable
+                0x40617388        0x4 build/t113/port/vm.o
+                0x40617388                kernel_pagetable
+ *fill*         0x4061738c      0xc74 
+ .bss.roots     0x40618000   0x400000 build/t113/port/vm.o
+ .bss.used      0x40a18000      0x100 build/t113/port/vm.o
+ .bss.tickslock
+                0x40a18100        0xc build/t113/port/platform.o
+                0x40a18100                tickslock
+ .bss.t113_irq.sub
+                0x40a1810c        0x4 build/t113/port/platform.o
+ .bss.ticks     0x40a18110        0x4 build/t113/port/platform.o
+                0x40a18110                ticks
+ *fill*         0x40a18114        0xc 
+ .bss           0x40a18120     0x5000 build/t113/port/entry.o
+ .bss.panicked  0x40a1d120        0x4 build/t113/port/printf.o
+                0x40a1d120                panicked
+ .bss.pr        0x40a1d124       0x10 build/t113/port/printf.o
+                0x40a1e000                        . = ALIGN (0x1000)
+                0x40a1e000                        bss_end = .
+                0x40a1e000                        end = .
+
+/DISCARD/
+ *(.ARM.exidx* .ARM.extab* .comment .note*)
+                0x00000001                        ASSERT ((end < 0x44000000), kernel exceeds reserved DRAM)
+LOAD build/t113/kernel/string.o
+LOAD build/t113/kernel/kalloc.o
+LOAD build/t113/kernel/spinlock.o
+LOAD build/t113/kernel/sleeplock.o
+LOAD build/t113/kernel/proc.o
+LOAD build/t113/kernel/exec.o
+LOAD build/t113/kernel/bio.o
+LOAD build/t113/kernel/fs.o
+LOAD build/t113/kernel/log.o
+LOAD build/t113/kernel/pipe.o
+LOAD build/t113/kernel/file.o
+LOAD build/t113/kernel/sysfile.o
+LOAD build/t113/kernel/sysproc.o
+LOAD build/t113/kernel/device.o
+LOAD build/t113/kernel/console.o
+LOAD build/t113/kernel/tty.o
+LOAD build/t113/port/vm.o
+LOAD build/t113/port/platform.o
+LOAD build/t113/port/syscall.o
+LOAD build/t113/port/stubs.o
+LOAD build/t113/port/runtime.o
+LOAD build/t113/port/entry.o
+LOAD build/t113/port/vectors.o
+LOAD build/t113/port/swtch.o
+LOAD build/t113/port/div.o
+LOAD build/t113/port/printf.o
+LOAD build/t113/ramdisk.o
+LOAD build/t113/initcode-embed.o
+OUTPUT(build/t113/kernel.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x00000000       0x3b
+ .ARM.attributes
+                0x00000000       0x47 build/t113/kernel/string.o
+ .ARM.attributes
+                0x00000047       0x47 build/t113/kernel/kalloc.o
+ .ARM.attributes
+                0x0000008e       0x47 build/t113/kernel/spinlock.o
+ .ARM.attributes
+                0x000000d5       0x47 build/t113/kernel/sleeplock.o
+ .ARM.attributes
+                0x0000011c       0x47 build/t113/kernel/proc.o
+ .ARM.attributes
+                0x00000163       0x47 build/t113/kernel/exec.o
+ .ARM.attributes
+                0x000001aa       0x47 build/t113/kernel/bio.o
+ .ARM.attributes
+                0x000001f1       0x47 build/t113/kernel/fs.o
+ .ARM.attributes
+                0x00000238       0x47 build/t113/kernel/log.o
+ .ARM.attributes
+                0x0000027f       0x47 build/t113/kernel/pipe.o
+ .ARM.attributes
+                0x000002c6       0x47 build/t113/kernel/file.o
+ .ARM.attributes
+                0x0000030d       0x47 build/t113/kernel/sysfile.o
+ .ARM.attributes
+                0x00000354       0x47 build/t113/kernel/sysproc.o
+ .ARM.attributes
+                0x0000039b       0x47 build/t113/kernel/device.o
+ .ARM.attributes
+                0x000003e2       0x47 build/t113/kernel/console.o
+ .ARM.attributes
+                0x00000429       0x47 build/t113/kernel/tty.o
+ .ARM.attributes
+                0x00000470       0x47 build/t113/port/vm.o
+ .ARM.attributes
+                0x000004b7       0x47 build/t113/port/platform.o
+ .ARM.attributes
+                0x000004fe       0x47 build/t113/port/syscall.o
+ .ARM.attributes
+                0x00000545       0x47 build/t113/port/stubs.o
+ .ARM.attributes
+                0x0000058c       0x47 build/t113/port/runtime.o
+ .ARM.attributes
+                0x000005d3       0x2b build/t113/port/entry.o
+ .ARM.attributes
+                0x000005fe       0x2b build/t113/port/vectors.o
+ .ARM.attributes
+                0x00000629       0x2b build/t113/port/swtch.o
+ .ARM.attributes
+                0x00000654       0x47 build/t113/port/printf.o
+ .ARM.attributes
+                0x0000069b       0x2b build/t113/ramdisk.o
+ .ARM.attributes
+                0x000006c6       0x2b build/t113/initcode-embed.o
+
+.debug_loclists
+                0x00000000     0x4896
+ .debug_loclists
+                0x00000000      0x227 build/t113/kernel/string.o
+ .debug_loclists
+                0x00000227       0xdd build/t113/kernel/kalloc.o
+ .debug_loclists
+                0x00000304       0x96 build/t113/kernel/spinlock.o
+ .debug_loclists
+                0x0000039a       0x92 build/t113/kernel/sleeplock.o
+ .debug_loclists
+                0x0000042c     0x10ac build/t113/kernel/proc.o
+ .debug_loclists
+                0x000014d8      0x5e7 build/t113/kernel/exec.o
+ .debug_loclists
+                0x00001abf      0x101 build/t113/kernel/bio.o
+ .debug_loclists
+                0x00001bc0      0x70f build/t113/kernel/fs.o
+ .debug_loclists
+                0x000022cf      0x16e build/t113/kernel/log.o
+ .debug_loclists
+                0x0000243d      0x152 build/t113/kernel/pipe.o
+ .debug_loclists
+                0x0000258f      0x368 build/t113/kernel/file.o
+ .debug_loclists
+                0x000028f7      0x793 build/t113/kernel/sysfile.o
+ .debug_loclists
+                0x0000308a       0xa0 build/t113/kernel/sysproc.o
+ .debug_loclists
+                0x0000312a      0x5eb build/t113/kernel/device.o
+ .debug_loclists
+                0x00003715      0x140 build/t113/kernel/console.o
+ .debug_loclists
+                0x00003855      0x11c build/t113/kernel/tty.o
+ .debug_loclists
+                0x00003971      0x803 build/t113/port/vm.o
+ .debug_loclists
+                0x00004174      0x1c4 build/t113/port/platform.o
+ .debug_loclists
+                0x00004338      0x19e build/t113/port/syscall.o
+ .debug_loclists
+                0x000044d6       0xc0 build/t113/port/stubs.o
+ .debug_loclists
+                0x00004596      0x177 build/t113/port/runtime.o
+ .debug_loclists
+                0x0000470d      0x189 build/t113/port/printf.o
+
+.debug_abbrev   0x00000000     0x32bc
+ .debug_abbrev  0x00000000      0x109 build/t113/kernel/string.o
+ .debug_abbrev  0x00000109      0x199 build/t113/kernel/kalloc.o
+ .debug_abbrev  0x000002a2      0x203 build/t113/kernel/spinlock.o
+ .debug_abbrev  0x000004a5      0x16f build/t113/kernel/sleeplock.o
+ .debug_abbrev  0x00000614      0x5aa build/t113/kernel/proc.o
+ .debug_abbrev  0x00000bbe      0x1fb build/t113/kernel/exec.o
+ .debug_abbrev  0x00000db9      0x1df build/t113/kernel/bio.o
+ .debug_abbrev  0x00000f98      0x3ab build/t113/kernel/fs.o
+ .debug_abbrev  0x00001343      0x20c build/t113/kernel/log.o
+ .debug_abbrev  0x0000154f      0x1e1 build/t113/kernel/pipe.o
+ .debug_abbrev  0x00001730      0x208 build/t113/kernel/file.o
+ .debug_abbrev  0x00001938      0x399 build/t113/kernel/sysfile.o
+ .debug_abbrev  0x00001cd1      0x233 build/t113/kernel/sysproc.o
+ .debug_abbrev  0x00001f04      0x2ff build/t113/kernel/device.o
+ .debug_abbrev  0x00002203      0x274 build/t113/kernel/console.o
+ .debug_abbrev  0x00002477      0x1d4 build/t113/kernel/tty.o
+ .debug_abbrev  0x0000264b      0x339 build/t113/port/vm.o
+ .debug_abbrev  0x00002984      0x2fe build/t113/port/platform.o
+ .debug_abbrev  0x00002c82      0x212 build/t113/port/syscall.o
+ .debug_abbrev  0x00002e94       0xaa build/t113/port/stubs.o
+ .debug_abbrev  0x00002f3e       0xf8 build/t113/port/runtime.o
+ .debug_abbrev  0x00003036       0x21 build/t113/port/entry.o
+ .debug_abbrev  0x00003057       0x21 build/t113/port/vectors.o
+ .debug_abbrev  0x00003078       0x21 build/t113/port/swtch.o
+ .debug_abbrev  0x00003099      0x223 build/t113/port/printf.o
+
+.debug_info     0x00000000     0xf99f
+ .debug_info    0x00000000      0x256 build/t113/kernel/string.o
+ .debug_info    0x00000256      0x2ce build/t113/kernel/kalloc.o
+ .debug_info    0x00000524      0x64e build/t113/kernel/spinlock.o
+ .debug_info    0x00000b72      0x5dc build/t113/kernel/sleeplock.o
+ .debug_info    0x0000114e     0x28ad build/t113/kernel/proc.o
+ .debug_info    0x000039fb      0x9e7 build/t113/kernel/exec.o
+ .debug_info    0x000043e2      0x3a5 build/t113/kernel/bio.o
+ .debug_info    0x00004787     0x146c build/t113/kernel/fs.o
+ .debug_info    0x00005bf3      0x5b8 build/t113/kernel/log.o
+ .debug_info    0x000061ab      0x8e5 build/t113/kernel/pipe.o
+ .debug_info    0x00006a90      0xbd5 build/t113/kernel/file.o
+ .debug_info    0x00007665     0x1ec7 build/t113/kernel/sysfile.o
+ .debug_info    0x0000952c      0xe61 build/t113/kernel/sysproc.o
+ .debug_info    0x0000a38d      0xefb build/t113/kernel/device.o
+ .debug_info    0x0000b288      0xba2 build/t113/kernel/console.o
+ .debug_info    0x0000be2a      0x8fa build/t113/kernel/tty.o
+ .debug_info    0x0000c724      0xfc6 build/t113/port/vm.o
+ .debug_info    0x0000d6ea      0xb57 build/t113/port/platform.o
+ .debug_info    0x0000e241      0x6d9 build/t113/port/syscall.o
+ .debug_info    0x0000e91a      0x29a build/t113/port/stubs.o
+ .debug_info    0x0000ebb4      0x297 build/t113/port/runtime.o
+ .debug_info    0x0000ee4b       0xc5 build/t113/port/entry.o
+ .debug_info    0x0000ef10      0x1af build/t113/port/vectors.o
+ .debug_info    0x0000f0bf       0x9a build/t113/port/swtch.o
+ .debug_info    0x0000f159      0x846 build/t113/port/printf.o
+
+.debug_rnglists
+                0x00000000      0x929
+ .debug_rnglists
+                0x00000000       0x36 build/t113/kernel/string.o
+ .debug_rnglists
+                0x00000036       0x24 build/t113/kernel/kalloc.o
+ .debug_rnglists
+                0x0000005a       0x30 build/t113/kernel/spinlock.o
+ .debug_rnglists
+                0x0000008a       0x1d build/t113/kernel/sleeplock.o
+ .debug_rnglists
+                0x000000a7      0x21f build/t113/kernel/proc.o
+ .debug_rnglists
+                0x000002c6       0x34 build/t113/kernel/exec.o
+ .debug_rnglists
+                0x000002fa       0x26 build/t113/kernel/bio.o
+ .debug_rnglists
+                0x00000320       0x7f build/t113/kernel/fs.o
+ .debug_rnglists
+                0x0000039f       0x42 build/t113/kernel/log.o
+ .debug_rnglists
+                0x000003e1       0x20 build/t113/kernel/pipe.o
+ .debug_rnglists
+                0x00000401       0x2a build/t113/kernel/file.o
+ .debug_rnglists
+                0x0000042b      0x140 build/t113/kernel/sysfile.o
+ .debug_rnglists
+                0x0000056b       0x86 build/t113/kernel/sysproc.o
+ .debug_rnglists
+                0x000005f1       0xf0 build/t113/kernel/device.o
+ .debug_rnglists
+                0x000006e1       0x26 build/t113/kernel/console.o
+ .debug_rnglists
+                0x00000707       0x34 build/t113/kernel/tty.o
+ .debug_rnglists
+                0x0000073b       0xe1 build/t113/port/vm.o
+ .debug_rnglists
+                0x0000081c       0x53 build/t113/port/platform.o
+ .debug_rnglists
+                0x0000086f       0x28 build/t113/port/syscall.o
+ .debug_rnglists
+                0x00000897       0x38 build/t113/port/stubs.o
+ .debug_rnglists
+                0x000008cf       0x2a build/t113/port/runtime.o
+ .debug_rnglists
+                0x000008f9       0x30 build/t113/port/printf.o
+
+.debug_str_offsets
+                0x00000000     0x34b8
+ .debug_str_offsets
+                0x00000000       0x8c build/t113/kernel/string.o
+ .debug_str_offsets
+                0x0000008c       0xa8 build/t113/kernel/kalloc.o
+ .debug_str_offsets
+                0x00000134      0x1f0 build/t113/kernel/spinlock.o
+ .debug_str_offsets
+                0x00000324      0x1e0 build/t113/kernel/sleeplock.o
+ .debug_str_offsets
+                0x00000504      0x520 build/t113/kernel/proc.o
+ .debug_str_offsets
+                0x00000a24      0x2c4 build/t113/kernel/exec.o
+ .debug_str_offsets
+                0x00000ce8       0xc0 build/t113/kernel/bio.o
+ .debug_str_offsets
+                0x00000da8      0x3b8 build/t113/kernel/fs.o
+ .debug_str_offsets
+                0x00001160      0x13c build/t113/kernel/log.o
+ .debug_str_offsets
+                0x0000129c      0x2b4 build/t113/kernel/pipe.o
+ .debug_str_offsets
+                0x00001550      0x314 build/t113/kernel/file.o
+ .debug_str_offsets
+                0x00001864      0x500 build/t113/kernel/sysfile.o
+ .debug_str_offsets
+                0x00001d64      0x344 build/t113/kernel/sysproc.o
+ .debug_str_offsets
+                0x000020a8      0x22c build/t113/kernel/device.o
+ .debug_str_offsets
+                0x000022d4      0x32c build/t113/kernel/console.o
+ .debug_str_offsets
+                0x00002600      0x2bc build/t113/kernel/tty.o
+ .debug_str_offsets
+                0x000028bc      0x2e4 build/t113/port/vm.o
+ .debug_str_offsets
+                0x00002ba0      0x358 build/t113/port/platform.o
+ .debug_str_offsets
+                0x00002ef8      0x1fc build/t113/port/syscall.o
+ .debug_str_offsets
+                0x000030f4       0x94 build/t113/port/stubs.o
+ .debug_str_offsets
+                0x00003188       0x7c build/t113/port/runtime.o
+ .debug_str_offsets
+                0x00003204      0x2b4 build/t113/port/printf.o
+
+.debug_str      0x00000000     0x18d4
+ .debug_str     0x00000000     0x18d4 build/t113/kernel/string.o
+                                0x102 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/kalloc.o
+                                0x180 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/spinlock.o
+                                0x378 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/sleeplock.o
+                                0x37e (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/proc.o
+                                0x9f6 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/exec.o
+                                0x4f1 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/bio.o
+                                0x19d (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/fs.o
+                                0x685 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/log.o
+                                0x278 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/pipe.o
+                                0x4cc (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/file.o
+                                0x5a2 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/sysfile.o
+                                0x987 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/sysproc.o
+                                0x6fb (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/device.o
+                                0x4ad (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/console.o
+                                0x60f (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/kernel/tty.o
+                                0x527 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/vm.o
+                                0x517 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/platform.o
+                                0x652 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/syscall.o
+                                0x38a (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/stubs.o
+                                0x149 (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/runtime.o
+                                0x13f (size before relaxing)
+ .debug_str     0x000018d4        0x0 build/t113/port/printf.o
+                                0x4e5 (size before relaxing)
+
+.debug_addr     0x00000000     0x1a60
+ .debug_addr    0x00000000       0x28 build/t113/kernel/string.o
+ .debug_addr    0x00000028       0x80 build/t113/kernel/kalloc.o
+ .debug_addr    0x000000a8       0x74 build/t113/kernel/spinlock.o
+ .debug_addr    0x0000011c       0x40 build/t113/kernel/sleeplock.o
+ .debug_addr    0x0000015c      0x690 build/t113/kernel/proc.o
+ .debug_addr    0x000007ec       0xa4 build/t113/kernel/exec.o
+ .debug_addr    0x00000890       0x88 build/t113/kernel/bio.o
+ .debug_addr    0x00000918      0x260 build/t113/kernel/fs.o
+ .debug_addr    0x00000b78       0xd4 build/t113/kernel/log.o
+ .debug_addr    0x00000c4c       0x80 build/t113/kernel/pipe.o
+ .debug_addr    0x00000ccc       0xfc build/t113/kernel/file.o
+ .debug_addr    0x00000dc8      0x3c0 build/t113/kernel/sysfile.o
+ .debug_addr    0x00001188      0x1b8 build/t113/kernel/sysproc.o
+ .debug_addr    0x00001340      0x1a4 build/t113/kernel/device.o
+ .debug_addr    0x000014e4       0xd4 build/t113/kernel/console.o
+ .debug_addr    0x000015b8       0x78 build/t113/kernel/tty.o
+ .debug_addr    0x00001630      0x1c0 build/t113/port/vm.o
+ .debug_addr    0x000017f0      0x124 build/t113/port/platform.o
+ .debug_addr    0x00001914       0x54 build/t113/port/syscall.o
+ .debug_addr    0x00001968       0x3c build/t113/port/stubs.o
+ .debug_addr    0x000019a4       0x48 build/t113/port/runtime.o
+ .debug_addr    0x000019ec       0x74 build/t113/port/printf.o
+
+.debug_frame    0x00000000     0x25ec
+ .debug_frame   0x00000000       0xf4 build/t113/kernel/string.o
+ .debug_frame   0x000000f4       0xd0 build/t113/kernel/kalloc.o
+ .debug_frame   0x000001c4       0xcc build/t113/kernel/spinlock.o
+ .debug_frame   0x00000290       0x94 build/t113/kernel/sleeplock.o
+ .debug_frame   0x00000324      0x5f4 build/t113/kernel/proc.o
+ .debug_frame   0x00000918       0x6c build/t113/kernel/exec.o
+ .debug_frame   0x00000984       0xe4 build/t113/kernel/bio.o
+ .debug_frame   0x00000a68      0x34c build/t113/kernel/fs.o
+ .debug_frame   0x00000db4       0xe4 build/t113/kernel/log.o
+ .debug_frame   0x00000e98       0xb4 build/t113/kernel/pipe.o
+ .debug_frame   0x00000f4c      0x10c build/t113/kernel/file.o
+ .debug_frame   0x00001058      0x434 build/t113/kernel/sysfile.o
+ .debug_frame   0x0000148c      0x3ac build/t113/kernel/sysproc.o
+ .debug_frame   0x00001838      0x2b4 build/t113/kernel/device.o
+ .debug_frame   0x00001aec       0xe4 build/t113/kernel/console.o
+ .debug_frame   0x00001bd0       0xdc build/t113/kernel/tty.o
+ .debug_frame   0x00001cac      0x350 build/t113/port/vm.o
+ .debug_frame   0x00001ffc      0x1cc build/t113/port/platform.o
+ .debug_frame   0x000021c8      0x100 build/t113/port/syscall.o
+ .debug_frame   0x000022c8      0x180 build/t113/port/stubs.o
+ .debug_frame   0x00002448      0x104 build/t113/port/runtime.o
+ .debug_frame   0x0000254c       0xa0 build/t113/port/printf.o
+
+.debug_line     0x00000000     0x7c32
+ .debug_line    0x00000000      0x237 build/t113/kernel/string.o
+ .debug_line    0x00000237      0x1d3 build/t113/kernel/kalloc.o
+ .debug_line    0x0000040a      0x22f build/t113/kernel/spinlock.o
+ .debug_line    0x00000639      0x19e build/t113/kernel/sleeplock.o
+ .debug_line    0x000007d7     0x1860 build/t113/kernel/proc.o
+ .debug_line    0x00002037      0x439 build/t113/kernel/exec.o
+ .debug_line    0x00002470      0x270 build/t113/kernel/bio.o
+ .debug_line    0x000026e0      0x9b5 build/t113/kernel/fs.o
+ .debug_line    0x00003095      0x32f build/t113/kernel/log.o
+ .debug_line    0x000033c4      0x2e1 build/t113/kernel/pipe.o
+ .debug_line    0x000036a5      0x477 build/t113/kernel/file.o
+ .debug_line    0x00003b1c     0x12d5 build/t113/kernel/sysfile.o
+ .debug_line    0x00004df1      0x7c1 build/t113/kernel/sysproc.o
+ .debug_line    0x000055b2      0x9fc build/t113/kernel/device.o
+ .debug_line    0x00005fae      0x313 build/t113/kernel/console.o
+ .debug_line    0x000062c1      0x266 build/t113/kernel/tty.o
+ .debug_line    0x00006527      0x883 build/t113/port/vm.o
+ .debug_line    0x00006daa      0x4db build/t113/port/platform.o
+ .debug_line    0x00007285      0x22a build/t113/port/syscall.o
+ .debug_line    0x000074af      0x184 build/t113/port/stubs.o
+ .debug_line    0x00007633      0x199 build/t113/port/runtime.o
+ .debug_line    0x000077cc       0x6f build/t113/port/entry.o
+ .debug_line    0x0000783b       0xc7 build/t113/port/vectors.o
+ .debug_line    0x00007902       0x54 build/t113/port/swtch.o
+ .debug_line    0x00007956      0x27a build/t113/port/printf.o
+ .debug_line    0x00007bd0       0x31 build/t113/ramdisk.o
+ .debug_line    0x00007c01       0x31 build/t113/initcode-embed.o
+
+.debug_line_str
+                0x00000000      0x2e6
+ .debug_line_str
+                0x00000000      0x2e6 build/t113/kernel/string.o
+                                 0x47 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/kalloc.o
+                                 0x59 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/spinlock.o
+                                 0x7d (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/sleeplock.o
+                                 0x8a (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/proc.o
+                                 0x94 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/exec.o
+                                 0x7f (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/bio.o
+                                 0x68 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/fs.o
+                                 0x9c (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/log.o
+                                 0x6d (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/pipe.o
+                                 0x8c (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/file.o
+                                 0x9c (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/sysfile.o
+                                 0xc2 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/sysproc.o
+                                 0x84 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/device.o
+                                 0x75 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/console.o
+                                 0x98 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/kernel/tty.o
+                                 0x94 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/vm.o
+                                 0x7f (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/platform.o
+                                 0xa7 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/syscall.o
+                                 0x84 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/stubs.o
+                                 0x4c (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/runtime.o
+                                 0x55 (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/entry.o
+                                 0x3b (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/vectors.o
+                                 0x3d (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/swtch.o
+                                 0x3b (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/port/printf.o
+                                 0xde (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/ramdisk.o
+                                 0x3d (size before relaxing)
+ .debug_line_str
+                0x000002e6        0x0 build/t113/initcode-embed.o
+                                 0x44 (size before relaxing)
+
+.debug_aranges  0x00000000       0x60
+ .debug_aranges
+                0x00000000       0x20 build/t113/port/entry.o
+ .debug_aranges
+                0x00000020       0x20 build/t113/port/vectors.o
+ .debug_aranges
+                0x00000040       0x20 build/t113/port/swtch.o

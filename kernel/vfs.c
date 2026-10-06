@@ -581,11 +581,18 @@ vfsopen(char *path, int omode, struct vnode **out)
   struct stat st;
   char *sub;
   int readonly, exists;
+  int trace_create;
   struct vnode_ops *ops;
   ops = findmount(path, &sub, &readonly);
   if(ops == 0)
     return 0;
+  trace_create = (omode & O_CREATE) && strncmp(path, "/boot/", 6) == 0;
+  if(trace_create)
+    printf("vfs: boot create begin path=%s sub=%s mode=%x\n",
+           path, sub, omode);
   exists = ops->stat(sub, &st) == 0;
+  if(trace_create)
+    printf("vfs: boot create stat complete exists=%d\n", exists);
   if(omode == O_RDONLY){
     if(!exists)
       return -1;
@@ -597,15 +604,29 @@ vfsopen(char *path, int omode, struct vnode **out)
       return -1;
     if(exists && !(omode & O_TRUNC) && st.type == T_FILE && st.size != 0)
       return -1;
-    if(!exists && ops->create(sub) < 0)
-      return -1;
+    if(!exists){
+      if(trace_create)
+        printf("vfs: boot create directory-entry begin\n");
+      if(ops->create(sub) < 0)
+        return -1;
+      if(trace_create)
+        printf("vfs: boot create directory-entry complete\n");
+    }
     if(omode & O_TRUNC){
       struct fat32_file ignored;
+      if(trace_create)
+        printf("vfs: boot create truncate begin\n");
       if(ops->truncate == 0 || ops->truncate(sub, &ignored) < 0)
         return -1;
+      if(trace_create)
+        printf("vfs: boot create truncate complete\n");
     }
+    if(trace_create)
+      printf("vfs: boot create verify-stat begin\n");
     if(ops->stat(sub, &st) < 0 || st.type != T_FILE)
       return -1;
+    if(trace_create)
+      printf("vfs: boot create verify-stat complete\n");
   }
   acquire(&vnodes.lock);
   for(int i = 0; i < NFILE; i++){
@@ -625,9 +646,15 @@ vfsopen(char *path, int omode, struct vnode **out)
   if(vn == 0)
     return -1;
   if(!readonly && omode != O_RDONLY &&
-     fat32openwrite(sub, &vn->fat_file) < 0){
-    vfsclose(vn);
-    return -1;
+     vn->ops->write != 0){
+    if(trace_create)
+      printf("vfs: boot create openwrite begin\n");
+    if(fat32openwrite(sub, &vn->fat_file) < 0){
+      vfsclose(vn);
+      return -1;
+    }
+    if(trace_create)
+      printf("vfs: boot create openwrite complete\n");
   }
   *out = vn;
   return 1;

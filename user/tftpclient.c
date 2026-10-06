@@ -80,7 +80,7 @@ print_progress(int total, int start_ticks)
 {
   int elapsed = uptime() - start_ticks;
   int rate_tenths = elapsed > 0 ? (total / 1024 * 100) / elapsed : 0;
-  printf("\rtftp: %d bytes, %d.%d KB/s", total,
+    printf("\rtftpclient: %d bytes, %d.%d KB/s", total,
          rate_tenths / 10, rate_tenths % 10);
 }
 
@@ -139,7 +139,7 @@ receive_first_data(uint32 server, int port, const uchar *rrq, int rrq_len,
       *packet_len = n;
       return 0;
     }
-    printf("tftp: timeout waiting for server response (%d/%d)\n",
+    printf("tftpclient: timeout waiting for server response (%d/%d)\n",
            retry + 1, TFTP_RETRIES);
   }
   return -1;
@@ -162,36 +162,36 @@ download(uint32 server, const char *remote_name)
   if(rrq_len < 0 || name_len == 0 ||
      name_len + sizeof("/boot/") > TFTP_PATH_SIZE ||
      strchr(remote_name, '/') != 0){
-    printf("tftp: invalid remote basename or filename is too long\n");
+    printf("tftpclient: invalid remote basename or filename is too long\n");
     return -1;
   }
   memmove(final_path + sizeof("/boot/") - 1, remote_name, name_len + 1);
   fd = open(final_path, O_WRONLY | O_CREATE | O_TRUNC);
   if(fd < 0){
-    printf("tftp: cannot create %s (check that /boot is mounted rw)\n",
+    printf("tftpclient: cannot create %s (check that /boot is mounted rw)\n",
            final_path);
     return -1;
   }
   if(udp_bind(LOCAL_PORT) < 0){
-    printf("tftp: cannot bind local UDP port %d\n", LOCAL_PORT);
+    printf("tftpclient: cannot bind local UDP port %d\n", LOCAL_PORT);
     close(fd);
     return -1;
   }
 
   start_ticks = uptime();
-  printf("tftp: requesting %s from %d.%d.%d.%d\n", remote_name,
+  printf("tftpclient: requesting %s from %d.%d.%d.%d\n", remote_name,
          (server >> 24) & 255, (server >> 16) & 255,
          (server >> 8) & 255, server & 255);
   if(receive_first_data(server, LOCAL_PORT, rrq, rrq_len, packet,
                         &packet_len, &server_port) < 0){
-    printf("tftp: no response from server\n");
+    printf("tftpclient: no response from server\n");
     goto failed;
   }
 
   for(;;){
     uint16 opcode;
     if(packet_len < 2){
-      printf("tftp: malformed packet\n");
+      printf("tftpclient: malformed packet\n");
       goto failed;
     }
     opcode = get16(packet);
@@ -209,12 +209,12 @@ download(uint32 server, const char *remote_name)
         }
         message[length] = 0;
       }
-      printf("tftp: server error %d: %s\n", code, message);
+      printf("tftpclient: server error %d: %s\n", code, message);
       goto failed;
     }
     if(opcode != 3 || packet_len < 4 ||
        packet_len > TFTP_PACKET_SIZE){
-      printf("tftp: unexpected opcode or packet size\n");
+      printf("tftpclient: unexpected opcode or packet size\n");
       goto failed;
     }
 
@@ -222,7 +222,7 @@ download(uint32 server, const char *remote_name)
     if(block == expected_block){
       int data_len = packet_len - 4;
       if(data_len > 0 && write(fd, packet + 4, data_len) != data_len){
-        printf("tftp: failed writing downloaded data\n");
+        printf("tftpclient: failed writing downloaded data\n");
         goto failed;
       }
       total += data_len;
@@ -231,7 +231,7 @@ download(uint32 server, const char *remote_name)
         last_progress = total;
       }
       if(send_ack(server, server_port, block) < 0){
-        printf("tftp: failed sending ACK for block %d\n", block);
+        printf("tftpclient: failed sending ACK for block %d\n", block);
         goto failed;
       }
       last_ack = block;
@@ -248,16 +248,16 @@ download(uint32 server, const char *remote_name)
       packet_len = wait_packet(server, &server_port, LOCAL_PORT,
                                packet, TFTP_PACKET_SIZE);
       if(packet_len < 0){
-        printf("tftp: UDP receive failed\n");
+        printf("tftpclient: UDP receive failed\n");
         goto failed;
       }
       if(packet_len > 0)
         break;
       if(++retries > TFTP_RETRIES){
-        printf("tftp: transfer timed out\n");
+        printf("tftpclient: transfer timed out\n");
         goto failed;
       }
-      printf("tftp: retrying block %d (%d/%d)\n",
+      printf("tftpclient: retrying block %d (%d/%d)\n",
              last_ack, retries, TFTP_RETRIES);
       if(send_ack(server, server_port, last_ack) < 0)
         goto failed;
@@ -265,19 +265,19 @@ download(uint32 server, const char *remote_name)
   }
 
   if(close(fd) < 0){
-    printf("tftp: close failed\n");
+    printf("tftpclient: close failed\n");
     udp_unbind(LOCAL_PORT);
     return -1;
   }
   if(udp_unbind(LOCAL_PORT) < 0){
-    printf("tftp: failed to release UDP port\n");
+    printf("tftpclient: failed to release UDP port\n");
     return -1;
   }
   if(total != last_progress)
     print_progress(total, start_ticks);
   int elapsed = uptime() - start_ticks;
   int rate_tenths = elapsed > 0 ? (total / 1024 * 100) / elapsed : 0;
-  printf("\ntftp: downloaded %s (%d bytes in %d.%d s, avg %d.%d KB/s) to %s\n",
+  printf("\ntftpclient: downloaded %s (%d bytes in %d.%d s, avg %d.%d KB/s) to %s\n",
          remote_name, total, elapsed / 10, elapsed % 10,
          rate_tenths / 10, rate_tenths % 10, final_path);
   return 0;
@@ -285,7 +285,7 @@ download(uint32 server, const char *remote_name)
 failed:
   close(fd);
   udp_unbind(LOCAL_PORT);
-  printf("tftp: incomplete download remains at %s\n", final_path);
+  printf("tftpclient: incomplete download remains at %s\n", final_path);
   return -1;
 }
 
@@ -297,7 +297,7 @@ main(int argc, char **argv)
   const char *remote_name = TFTP_DEFAULT_FILE;
 
   if(argc > 3){
-    printf("usage: tftp [server-ip [remote-filename]]\n");
+    printf("usage: tftpclient [server-ip [remote-filename]]\n");
     exit(1);
   }
   if(argc >= 2)
@@ -305,8 +305,8 @@ main(int argc, char **argv)
   if(argc == 3)
     remote_name = argv[2];
   if(parse_ipv4(server_name, &server) < 0){
-    printf("tftp: invalid server IPv4 address: %s\n", server_name);
-    printf("usage: tftp [server-ip [remote-filename]]\n");
+    printf("tftpclient: invalid server IPv4 address: %s\n", server_name);
+    printf("usage: tftpclient [server-ip [remote-filename]]\n");
     exit(1);
   }
   exit(download(server, remote_name) < 0 ? 1 : 0);

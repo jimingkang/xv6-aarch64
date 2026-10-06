@@ -1,0 +1,250 @@
+\chapter{项目组织}
+\label{chap:organization}
+
+\begin{introduction}[本章内容]
+  \item 仓库目录结构
+  \item 内核子系统与源文件
+  \item 从源码到镜像的构建流程
+  \item 安装、运行与调试目标
+  \item 内核初始化顺序：全书的地图
+\end{introduction}
+
+\section{目录结构}
+
+仓库的顶层目录如表~\ref{tab:dirs} 所示。它保留了 xv6 的基本布局：\file{kernel/} 是内核，\file{user/} 是用户程序和用户库，\file{mkfs/} 是在宿主机上运行的文件系统镜像生成工具。在此之上，为了支撑 POSIX 源码兼容、真机部署和调试，又增加了 \file{include/}、\file{firmware/}、\file{tools/} 等目录。
+
+\begin{table}[htbp]
+  \centering
+  \caption{仓库顶层目录}
+  \label{tab:dirs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    路径 & 内容 \\
+    \midrule
+    \file{kernel/} & 内核源码：启动汇编、异常、内存、进程、文件系统、VFS、网络栈、全部驱动 \\
+    \file{user/} & 用户程序（\code{sh}、\code{ls}、\code{sshd}、\code{wifi}、\code{camshot} 等）和用户库（\code{ulib}、\code{printf}、\code{umalloc}、线程、POSIX 包装） \\
+    \file{include/} & 面向 POSIX 源码的标准头文件：\code{stdio.h}、\code{unistd.h}、\code{pthread.h}、\code{sys/socket.h} 等 \\
+    \file{mkfs/} & 宿主机工具 \code{mkfs}，把用户程序打包成 xv6 原生文件系统镜像 \code{fs.img} \\
+    \file{readme/} & 30 余篇专题文档，记录每个功能的设计与调试过程 \\
+    \file{firmware/} & 无线网卡固件：BCM43430/43455 的 \code{.bin/.txt/.clm\_blob}，MT7601U 的 \code{mt7601u.bin} \\
+    \file{tools/} & 调试脚本：串口跟踪的采集、回放和网页导出（\code{trace\_xv6.py} 等） \\
+    \file{ports/} & 向其他开发板移植的实验（如全志 T113） \\
+    \file{config.txt} & 树莓派固件配置文件，随内核一起拷到启动分区 \\
+    \file{Makefile} & 构建、打包、安装、QEMU 运行的全部规则 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{内核子系统}
+
+内核约 2.8 万行（含头文件），用户空间约 1.1 万行。按功能可以把内核源文件分成几组（表~\ref{tab:kernel-files}）。阅读时建议先看“启动与异常”和“内存与进程”两组，它们是其余一切的基础。
+
+\begin{table}[htbp]
+  \centering
+  \caption{内核源文件分组}
+  \label{tab:kernel-files}
+  \small
+  \begin{tabularx}{\linewidth}{@{}p{2.2cm}X@{}}
+    \toprule
+    子系统 & 主要文件 \\
+    \midrule
+    启动与异常 & \file{entry.S}、\file{start.c}、\file{main.c}、\file{kernel.ld}、\file{trapasm.S}、\file{trap.c}、\file{timer.c}、\file{bcm2837.c} \\
+    内存 & \file{kalloc.c}（物理页分配）、\file{vm.c}（页表）、\file{memlayout.h}、\file{aarch64.h}（系统寄存器与页表位） \\
+    进程与同步 & \file{proc.c}、\file{proc.h}、\file{sched.h}、\file{swtch.S}、\file{spinlock.c}、\file{sleeplock.c}、\file{sync.c}、\file{workqueue.c}、\file{exec.c}、\file{syscall.c}、\file{sysproc.c} \\
+    文件系统 & \file{bio.c}、\file{log.c}、\file{fs.c}、\file{file.c}、\file{sysfile.c}、\file{pipe.c}、\file{vfs.c}、\file{fat32.c}、\file{ext2.c} \\
+    设备核心 & \file{device.c}、\file{device.h}（总线、设备、驱动、字符设备） \\
+    字符设备 & \file{uart.c}、\file{console.c}、\file{tty.c}、\file{pty.c}、\file{input.c} \\
+    存储 & \file{sdhost.c}（外置 SD 卡）、\file{sd.c}（早期 Arasan SD 驱动） \\
+    USB & \file{dwc2.c}（主机控制器）、\file{usb.c}（USB core 与 URB）、\file{usbkbd.c}、\file{usbnet.c} \\
+    无线网络 & \file{arasan\_sdio.c}、\file{sdio.c}、\file{brcmfmac.c}、\file{wpa\_crypto.c}、\file{mt7601u.c} \\
+    网络协议 & \file{net.c}、\file{net.h}、\file{sysnet.c}、\file{epoll.c} \\
+    摄像头 & \file{mbox.c}（固件 mailbox）、\file{i2c.c}、\file{camsensor.h}、\file{ov5647.c}、\file{unicam.c} \\
+    其他 & \file{rng.c}（硬件随机数）、\file{printf.c}、\file{string.c} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{构建流程}
+
+\subsection{编译选项}
+
+内核是一个独立运行的程序：没有 C 运行库，没有动态链接器，也不能假设 CPU 已经打开浮点单元。关键的编译选项如下：
+
+\begin{makecode}
+CFLAGS = -Wall -Werror -Os -g -fno-omit-frame-pointer -mcpu=cortex-a53+nofp
+CFLAGS += -ffreestanding -fno-common -nostdlib
+CFLAGS += -I. -Iinclude -fno-stack-protector -fno-pie -no-pie
+LDFLAGS = -z max-page-size=4096
+\end{makecode}
+
+\begin{itemize}
+  \item \code{-mcpu=cortex-a53+nofp}：生成 A53 指令，但禁止编译器使用浮点/SIMD 寄存器。内核上下文切换只保存通用寄存器，若编译器偷偷用 \code{q0} 做 \code{memcpy}，用户态的浮点状态就会被破坏。
+  \item \code{-ffreestanding -nostdlib}：不假设标准库存在，\code{memset}、\code{memmove} 等由 \file{kernel/string.c} 自己实现。
+  \item \code{-fno-pie}：内核链接在固定的高虚拟地址，不需要位置无关代码。
+  \item \code{-Werror}：所有警告视为错误，真机调试的成本很高，宁可在编译期多拦住一些问题。
+\end{itemize}
+
+\subsection{从目标文件到 \code{kernel8.img}}
+
+图~\ref{fig:build} 是完整的构建流水线。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=6mm and 9mm]
+    \node[box] (src) {\file{kernel/*.c}\\\file{kernel/*.S}};
+    \node[box, right=of src] (obj) {\code{*.o}};
+    \node[box, below=of obj] (bi) {\code{buildinfo.c}\\编译时间/分支};
+    \node[hbox, right=of obj] (elf) {\code{kernel/kernel}\\ELF，VMA 高地址};
+    \node[hbox, right=of elf] (img) {\code{kernel8-xv6\_wifi.img}\\裸二进制};
+    \node[box, above=of elf] (ld) {\file{kernel.ld}};
+    \node[box, below=of elf, yshift=-6mm] (ic) {\code{user/initcode}\\（嵌入内核）};
+    \draw[arr] (src) -- node[lab, above]{gcc} (obj);
+    \draw[arr] (obj) -- node[lab, above]{ld} (elf);
+    \draw[arr] (bi) -- (elf);
+    \draw[arr] (ld) -- (elf);
+    \draw[darr] (ic) -- (elf);
+    \draw[arr] (elf) -- node[lab, above]{objcopy} (img);
+
+    \node[box, below=24mm of src] (usrc) {\file{user/*.c}};
+    \node[box, right=of usrc] (libc) {\code{libc.a}\\ulib/usys/printf\\umalloc/thread/posix};
+    \node[box, right=of libc] (uprog) {\code{\_sh}、\code{\_ls}…\\-Ttext 0};
+    \node[hbox, right=of uprog] (fs) {\code{fs.img}\\32 MiB};
+    \draw[arr] (usrc) -- (libc);
+    \draw[arr] (libc) -- node[lab, above]{ld} (uprog);
+    \draw[arr] (uprog) -- node[lab, above]{mkfs} (fs);
+  \end{tikzpicture}
+  \caption{构建流水线：上方生成内核镜像，下方生成根文件系统镜像}
+  \label{fig:build}
+\end{figure}
+
+链接脚本 \file{kernel/kernel.ld} 同时给出两个地址：
+
+\begin{txtcode}
+. = 0xffffff8000080000;          /* VMA：运行时的虚拟地址 */
+.text : AT(0x80000) { ... }      /* LMA：镜像装入的物理地址 */
+\end{txtcode}
+
+ELF 中的所有符号都按高虚拟地址解析，但固件并不解析 ELF，它只是把文件内容原样拷到物理地址 \code{0x80000}。因此需要 \code{objcopy -O binary} 去掉 ELF 头，得到“从第一个字节开始就是第一条指令”的裸镜像。在 MMU 打开之前，代码实际运行在物理地址上，这段代码必须只使用 PC 相对寻址（\code{adr}/\code{adrp}），这是第~\ref{chap:boot} 章要处理的问题。
+
+每次链接都会重新生成 \file{kernel/buildinfo.c}，写入当时的日期和 git 分支、提交号，启动时打印出来：
+
+\begin{txtcode}
+kernel image built: 2026-10-05 14:02:11 CDT (rpi3-vfs ebefc6c+dirty)
+\end{txtcode}
+
+真机调试时经常要确认“SD 卡上的内核是不是刚编译的那个”，这一行能省去很多困惑。
+
+\subsection{用户程序与文件系统镜像}
+
+用户程序先编译成 \code{.o}，再与 \code{libc.a} 静态链接。每个程序都链接在虚拟地址 0、入口为 \code{main}：
+
+\begin{makecode}
+LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
+            $U/posix.o $U/tweetnacl.o $U/ssh_crypto.o
+_%: %.o $(ULIB)
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+\end{makecode}
+
+\code{usys.S} 由 Perl 脚本 \file{user/usys.pl} 生成，每个系统调用对应三条指令（第~\ref{chap:user} 章）。最后 \code{mkfs} 把所有程序写进一个 32\,MiB 的 xv6 原生文件系统镜像：
+
+\begin{makecode}
+fs.img: mkfs/mkfs $(UPROGS)
+	mkfs/mkfs fs.img $(UPROGS)
+	truncate -s 32M fs.img
+\end{makecode}
+
+\begin{note}
+  \code{mkfs} 是宿主机程序。如果仓库在 macOS 上编译过，\file{mkfs/mkfs} 就是一个 Mach-O 可执行文件，换到 Linux 构建时必须先删掉它重新编译，否则 \code{make fs.img} 会报 “Syntax error”。
+\end{note}
+
+\section{安装、运行与调试}
+
+Makefile 提供了几组目标，覆盖从模拟器到真机的完整工作流（表~\ref{tab:targets}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{常用 make 目标}
+  \label{tab:targets}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    目标 & 作用 \\
+    \midrule
+    \code{make} & 构建内核与 \code{fs.img}，并把内核同步到本机 TFTP 目录 \\
+    \code{make qemu} & 用 \code{raspi3b} 机器启动，\code{fs.img} 作为虚拟 SD 卡 \\
+    \code{make qemu-net} & 额外接入 QEMU 的 USB 网卡（CDC-ECM）和用户态 NAT \\
+    \code{make qemu-gdb} & 启动后暂停，等待 GDB 连接 \\
+    \code{make install-rpi3} & 把内核、\code{config.txt}、Wi-Fi 固件拷到已挂载的启动分区；若给出 \code{RPI3\_XV6\_DEV} 则同时烧写根文件系统 \\
+    \code{make install-rpi3-rawfs} & 只把 \code{fs.img} 写入 SD 卡上的 xv6 原始分区 \\
+    \code{make install-tftp} & 把内核拷到宿主机 TFTP 目录，真机上用 \code{tftp} 命令下载到 \code{/boot} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+QEMU 的 \code{raspi3b} 有两个串口：第一个是 PL011，第二个是 AUX Mini UART。本内核使用 Mini UART，因此 QEMU 参数要把第一个串口丢弃：
+
+\begin{shcode}
+qemu-system-aarch64 -machine raspi3b -kernel kernel/kernel8-xv6_wifi.img \
+    -display none -serial null -serial mon:stdio \
+    -drive file=fs.img,if=sd,format=raw
+\end{shcode}
+
+真机通过启动分区里的 \file{config.txt} 指定内核文件名和几个关键参数：
+
+\begin{txtcode}
+arm_64bit=1                      # 以 AArch64 状态启动 CPU
+enable_uart=1                    # 打开 GPIO14/15 上的串口
+uart_2ndstage=1                  # 固件自身的启动日志也输出到串口
+core_freq=250                    # 固定 VPU 时钟：Mini UART 波特率依赖它
+core_freq_min=250
+kernel=kernel8-xv6_wifi.img
+camera_auto_detect=0             # 不让固件接管摄像头
+\end{txtcode}
+
+其中 \code{core\_freq=250} 很重要：Mini UART 的波特率由 VPU 核心时钟分频得到，如果固件动态调频，串口就会乱码（第~\ref{sec:early-uart} 节）。
+
+\section{内核初始化顺序}
+\label{sec:init-order}
+
+\file{kernel/main.c} 是整个内核的入口函数，它的初始化顺序就是全书的目录。下面的代码去掉了注释中的细节，保留了调用顺序：
+
+\begin{ccode}
+void main() {
+  if(cpuid() == 0){
+    kinit1(end, P2V(EARLYTOP));  // 只用启动页表覆盖的前 2 MiB    -> 第 4 章
+    kvminit();  kvminithart();   // 建立并切换到最终内核页表      -> 第 4 章
+    kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
+    device_init(); sdio_bus_init(); usb_bus_init();             // -> 第 7 章
+    consoleinit(); ttyinit(); printfinit();                     // 从这里起 printf 可用
+    procinit(); workqueue_init();                               // -> 第 5 章
+    rnginit(); syncinit(); netinit();
+    input_init(); usbkbd_driver_init(); dwc2_driver_init();     // USB 与键盘
+    trapinit(); trapinithart(); gicv3init(); gicv3inithart();   // -> 第 3 章
+    timerinit();
+    binit(); iinit(); fileinit();                               // -> 第 6 章
+    sd_driver_init(); arasan_sdio_driver_init();
+    fat32init();                                                // 找到根文件系统
+    brcmfmac_driver_init(); mt7601u_driver_init();              // 需要读 bootfs 里的固件
+    ov5647_init(); camera_init();                               // 摄像头
+    ext2init(); vfsinit();
+    userinit();                                                 // 第一个用户进程
+    start_secondary_cpus();                                     // 唤醒 CPU1~3
+    started = 1;
+  } else {
+    while(started == 0) ;
+    kvminithart(); trapinithart(); gicv3inithart(); timerinit();
+  }
+  scheduler();
+}
+\end{ccode}
+
+几条顺序约束值得先记住，后面各章会解释原因：
+
+\begin{itemize}
+  \item 页表必须在内存分配器之前就绪，但建页表本身又要分配页——所以分配器分两次初始化（\code{kinit1}/\code{kinit2}）。
+  \item 设备核心（\code{device\_init}）要在任何驱动注册之前初始化；控制台要尽早，因为之后的错误都要靠 \code{printf} 报告。
+  \item 异常向量、中断控制器、定时器依次初始化，但真正打开 CPU 中断要等到 \code{scheduler()}。
+  \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以必须排在 \code{fat32init()} 之后。
+  \item 其余三个 CPU 最后才被唤醒，它们只做每核相关的初始化，然后直接进入调度器。
+\end{itemize}

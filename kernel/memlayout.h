@@ -19,6 +19,11 @@
 #define EARLYTOP  0x00200000L
 #define RAMDISK_PA 0x07000000L
 #define RAMDISK_SIZE (1024*1024L)
+// Physically contiguous DMA memory for the camera (Unicam writes frames
+// here).  Above PHYSTOP, so kalloc never hands it out, and mapped
+// non-cacheable, so no cache maintenance is needed around DMA.
+#define CAMDMA_PA   0x07200000L
+#define CAMDMA_SIZE (1024*1024L)
 
 #define KERNBASE  0xffffff8000000000L     // First kernel virtual address
 #define KERNLINK  (KERNBASE + KERNPA)     // virtual address where kernel is linked
@@ -41,11 +46,13 @@
 #define DWC2_IRQ    9    // BCM2837 legacy GPU USB/DWC2 interrupt
 #define UART0_IRQ   29   // BCM2837 AUX interrupt (Mini UART)
 #define SDIO_IRQ    62   // BCM2837 Arasan EMMC/SDIO interrupt
+#define CSI1_IRQ    39   // Unicam CSI1 (DTS: interrupts = <2 7>, GPU IRQ 32+7)
 #define TIMER0_IRQ  27
 #define IPI_RESCHED_IRQ 1000  // pseudo IRQ number: ARM-local mailbox 0
 
 #define IRQCTRL     (PERIPHERAL_BASE + 0x00b000L)
 #define RAMDISK     (KERNBASE + RAMDISK_PA)
+#define CAMDMA      (KERNBASE + CAMDMA_PA)
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.

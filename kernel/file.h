@@ -47,3 +47,4 @@ struct inode {
 #define TTY     2   // current process controlling terminal (/dev/tty)
 #define TTYS0   3   // Mini UART terminal (/dev/ttyS0)
 #define INPUT   4   // input subsystem evdev (/dev/input/event0)
+#define CAMERA  5   // Unicam CSI-2 camera (/dev/video0)

@@ -26,14 +26,14 @@ static struct {
 static char digits[] = "0123456789abcdef";
 
 static void
-printint(int xx, int base, int sign)
+printint(uint xx, int base, int sign)
 {
   char buf[16];
   int i;
   uint x;
 
-  if(sign && (sign = xx < 0))
-    x = -xx;
+  if(sign && (sign = (int)xx < 0))
+    x = -(int)xx;
   else
     x = xx;
 
@@ -88,7 +88,10 @@ printf(char *fmt, ...)
       printint(va_arg(ap, int), 10, 1);
       break;
     case 'x':
-      printint(va_arg(ap, int), 16, 1);
+      // Hexadecimal is unsigned.  The old signed conversion printed a
+      // register value such as 0x90000131 as "-6ffffecf", obscuring MMIO
+      // diagnostics.
+      printint(va_arg(ap, uint), 16, 0);
       break;
     case 'p':
       printptr(va_arg(ap, uint64));

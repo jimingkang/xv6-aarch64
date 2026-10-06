@@ -1,0 +1,582 @@
+% 3.5 raspberry-pi-os 第 4 课（docs/lesson04/rpi-os.md 的中文译本）
+\section{第 4 课：进程调度器}
+\label{sec:rpios-l4}
+
+到现在为止，RPi OS 已经是一个相当复杂的裸机程序了，但说实话，我们还不能称它为操作系统。原因是它还不能完成任何操作系统都该完成的核心任务，其中之一就是进程调度。所谓调度，是指操作系统应当能在不同进程之间分享 CPU 时间。难点在于：进程本身不应察觉调度的发生，它应当认为自己独占着 CPU。这一课就给 RPi OS 加上这个功能。
+
+\subsection{\code{task\_struct}}
+
+要管理进程，首先要定义一个描述进程的结构体。Linux 有这样一个结构体，叫 \code{task\_struct}（在 Linux 中，线程和进程都只是不同类型的任务）。我们主要是模仿 Linux 的实现，所以也这样做。RPi OS 的 \code{task\_struct}（\code{include/sched.h}）如下：
+
+\begin{ccode}
+struct cpu_context {
+	unsigned long x19;
+	unsigned long x20;
+	unsigned long x21;
+	unsigned long x22;
+	unsigned long x23;
+	unsigned long x24;
+	unsigned long x25;
+	unsigned long x26;
+	unsigned long x27;
+	unsigned long x28;
+	unsigned long fp;
+	unsigned long sp;
+	unsigned long pc;
+};
+
+struct task_struct {
+	struct cpu_context cpu_context;
+	long state;
+	long counter;
+	long priority;
+	long preempt_count;
+};
+\end{ccode}
+
+这个结构体有以下成员：
+
+\begin{itemize}
+  \item \code{cpu\_context}：一个内嵌结构体，保存在被切换的任务之间可能不同的全部寄存器。一个合理的问题是：为什么不保存所有寄存器，而只保存 \code{x19}～\code{x30} 和 \code{sp}？（\code{fp} 就是 \code{x29}，\code{pc} 就是 \code{x30}。）答案是，真正的上下文切换只发生在任务调用 \code{cpu\_switch\_to} 函数的时候。从被切换的任务的角度看，它只是调用了 \code{cpu\_switch\_to}，过了一段（可能很长的）时间后函数返回了，它并不知道这期间有别的任务在运行。按照 ARM 调用约定，\code{x0}～\code{x18} 可以被被调用函数覆盖，调用者不能假定这些寄存器的值在函数调用之后还保持不变。所以保存 \code{x0}～\code{x18} 没有意义；
+  \item \code{state}：当前任务的状态。对于正在 CPU 上做事的任务，状态总是 \code{TASK\_RUNNING}。实际上这也是 RPi OS 目前唯一支持的状态。不过以后还要增加几种状态，例如一个正在等待中断的任务应当处于另一种状态，因为在它等待的中断到来之前唤醒它是没有意义的；
+  \item \code{counter}：用来判断当前任务已经运行了多久。每个定时器节拍 \code{counter} 减 1，减到 0 时就调度另一个任务；
+  \item \code{priority}：调度一个新任务时，把它的 \code{priority} 拷贝到 \code{counter}。通过设置任务的优先级，可以调节一个任务相对于其他任务获得的处理器时间；
+  \item \code{preempt\_count}：如果这个字段非零，说明当前任务正在执行某个不可打断的关键函数（例如它正在运行调度函数）。这时若有定时器节拍到来，它会被忽略，不会触发重新调度。
+\end{itemize}
+
+内核启动后，只有一个任务在运行：运行 \code{kernel\_main} 的那个，称为“初始任务”（init task）。在打开调度功能之前，必须先填好初始任务的 \code{task\_struct}，这由 \code{INIT\_TASK} 宏完成（状态 0、计数 0、优先级 1、\code{preempt\_count} 0）。
+
+所有任务都保存在 \code{task} 数组中。这个数组只有 64 个槽位，也就是 RPi OS 中最多能同时存在的任务数。对于可用于生产的操作系统这当然不是最好的方案，但对我们的目标来说足够了。
+
+还有一个非常重要的变量 \code{current}，它总是指向当前正在执行的任务。\code{current} 和 \code{task} 数组初始时都指向初始任务。另有一个全局变量 \code{nr\_tasks}，记录系统中当前运行的任务数：
+
+\begin{ccode}
+static struct task_struct init_task = INIT_TASK;
+struct task_struct *current = &(init_task);
+struct task_struct * task[NR_TASKS] = {&(init_task), };
+int nr_tasks = 1;
+\end{ccode}
+
+实现调度功能要用的结构体和全局变量就是这些。在介绍 \code{task\_struct} 时我已经简要提到了调度如何工作的一些方面，因为不理解字段的用法就无法理解字段的含义。下面更详细地研究调度算法，先从 \code{kernel\_main} 开始。
+
+\subsection{\code{kernel\_main} 函数}
+
+在深入调度器的实现之前，先快速看一下如何证明调度器确实在工作。相关代码在 \code{kernel.c} 中：
+
+\begin{ccode}
+void kernel_main(void)
+{
+	uart_init();
+	init_printf(0, putc);
+	irq_vector_init();
+	timer_init();
+	enable_interrupt_controller();
+	enable_irq();
+
+	int res = copy_process((unsigned long)&process, (unsigned long)"12345");
+	if (res != 0) {
+		printf("error while starting process 1");
+		return;
+	}
+	res = copy_process((unsigned long)&process, (unsigned long)"abcde");
+	if (res != 0) {
+		printf("error while starting process 2");
+		return;
+	}
+
+	while (1){
+		schedule();
+	}
+}
+\end{ccode}
+
+这段代码有几点重要的地方：
+
+\begin{enumerate}
+  \item 引入了新函数 \code{copy\_process}。它接受两个参数：要在新线程中执行的函数，以及要传给这个函数的参数。\code{copy\_process} 分配一个新的 \code{task\_struct}，并让调度器可以使用它；
+  \item 另一个新函数是 \code{schedule}。这是调度器的核心函数：它检查是否有新任务需要抢占当前任务。任务在暂时无事可做时可以主动调用 \code{schedule}；定时器中断处理程序也会调用 \code{schedule}。
+\end{enumerate}
+
+我们调用了两次 \code{copy\_process}，每次都把 \code{process} 函数的指针作为第一个参数。\code{process} 很简单：
+
+\begin{ccode}
+void process(char *array)
+{
+	while (1){
+		for (int i = 0; i < 5; i++){
+			uart_send(array[i]);
+			delay(100000);
+		}
+	}
+}
+\end{ccode}
+
+它不停地把参数数组中的字符打印到屏幕上。第一次调用的参数是 \code{"12345"}，第二次是 \code{"abcde"}。如果调度器实现正确，我们应该在屏幕上看到两个线程交错的输出。
+
+\subsection{内存分配}
+
+系统中的每个任务都应有自己专用的栈，所以创建新任务时必须有分配内存的办法。目前我们的内存分配器极其简陋（\code{mm.c}）：
+
+\begin{ccode}
+static unsigned short mem_map [ PAGING_PAGES ] = {0,};
+
+unsigned long get_free_page()
+{
+	for (int i = 0; i < PAGING_PAGES; i++){
+		if (mem_map[i] == 0){
+			mem_map[i] = 1;
+			return LOW_MEMORY + i*PAGE_SIZE;
+		}
+	}
+	return 0;
+}
+
+void free_page(unsigned long p){
+	mem_map[(p - LOW_MEMORY) / PAGE_SIZE] = 0;
+}
+\end{ccode}
+
+分配器只能以页为单位工作（每页 4\,KB）。数组 \code{mem\_map} 记录系统中每一页的状态：已分配还是空闲。每当需要分配新页时，就遍历这个数组，返回第一个空闲页。这个实现基于两个假设：
+
+\begin{enumerate}
+  \item 我们知道系统中内存的总量。它保存在常量 \code{HIGH\_MEMORY} 中，从这里往上是设备寄存器区；
+  \item 前 4\,MB 内存留给内核镜像和初始任务的栈，这个值保存在常量 \code{LOW\_MEMORY} 中。所有内存分配都从这里之后开始。
+\end{enumerate}
+
+\begin{remark}
+  译注：原文说 \code{HIGH\_MEMORY} 是 “1\,GB $-$ 1\,MB（最后 1\,MB 留给设备寄存器）”，但源码中 \code{HIGH\_MEMORY} 定义为 \code{PBASE}，即 \code{0x3F000000}（1008\,MB），设备寄存器区是 \code{0x3F000000}～\code{0x3FFFFFFF} 这 16\,MB。可分配的页数为 $(\code{0x3F000000} - 4\,\text{MB}) / 4\,\text{KB}$。
+\end{remark}
+
+\subsection{创建新任务}
+
+新任务的分配在 \code{copy\_process} 中实现（\code{fork.c}）：
+
+\begin{ccode}
+int copy_process(unsigned long fn, unsigned long arg)
+{
+	preempt_disable();
+	struct task_struct *p;
+
+	p = (struct task_struct *) get_free_page();
+	if (!p)
+		return 1;
+	p->priority = current->priority;
+	p->state = TASK_RUNNING;
+	p->counter = p->priority;
+	p->preempt_count = 1; //disable preemtion until schedule_tail
+
+	p->cpu_context.x19 = fn;
+	p->cpu_context.x20 = arg;
+	p->cpu_context.pc = (unsigned long)ret_from_fork;
+	p->cpu_context.sp = (unsigned long)p + THREAD_SIZE;
+	int pid = nr_tasks++;
+	task[pid] = p;
+	preempt_enable();
+	return 0;
+}
+\end{ccode}
+
+下面详细分析。
+
+\begin{ccode}
+	preempt_disable();
+	struct task_struct *p;
+\end{ccode}
+
+函数一开始先禁止抢占，并为新任务声明一个指针。禁止抢占是因为我们不希望在 \code{copy\_process} 执行到一半时被调度到别的任务。
+
+\begin{ccode}
+	p = (struct task_struct *) get_free_page();
+	if (!p)
+		return 1;
+\end{ccode}
+
+接着分配一个新页。新任务的 \code{task\_struct} 放在这一页的最底部，页的其余部分用作任务的栈。
+
+\begin{ccode}
+	p->priority = current->priority;
+	p->state = TASK_RUNNING;
+	p->counter = p->priority;
+	p->preempt_count = 1; //disable preemtion until schedule_tail
+\end{ccode}
+
+分配好 \code{task\_struct} 后，就可以初始化它的各个属性了。优先级和初始计数值取自当前任务的优先级；状态设为 \code{TASK\_RUNNING}，表示新任务已经准备好启动；\code{preempt\_count} 设为 1，表示任务开始执行之后，在完成某些初始化工作之前不应被重新调度。
+
+\begin{ccode}
+	p->cpu_context.x19 = fn;
+	p->cpu_context.x20 = arg;
+	p->cpu_context.pc = (unsigned long)ret_from_fork;
+	p->cpu_context.sp = (unsigned long)p + THREAD_SIZE;
+\end{ccode}
+
+这是函数中最重要的部分：初始化 \code{cpu\_context}。栈指针设为新分配页的顶端；\code{pc} 设为 \code{ret\_from\_fork} 函数——要理解 \code{cpu\_context} 中其余寄存器为何这样初始化，需要看看这个函数：
+
+\begin{asmcode}
+.globl ret_from_fork
+ret_from_fork:
+	bl	schedule_tail
+	mov	x0, x20
+	blr	x19 		//should never return
+\end{asmcode}
+
+可以看到，\code{ret\_from\_fork} 先调用 \code{schedule\_tail}（它只是重新打开抢占），然后以 \code{x20} 中的值为参数，调用保存在 \code{x19} 中的函数。在 \code{ret\_from\_fork} 被调用之前，\code{x19} 和 \code{x20} 刚刚从 \code{cpu\_context} 中恢复出来。
+
+现在回到 \code{copy\_process}：
+
+\begin{ccode}
+	int pid = nr_tasks++;
+	task[pid] = p;
+	preempt_enable();
+	return 0;
+\end{ccode}
+
+最后，\code{copy\_process} 把新建的任务加入 \code{task} 数组，并为当前任务重新打开抢占。
+
+关于 \code{copy\_process}，重要的是要明白：它执行完之后并不会发生上下文切换。它只是准备好新的 \code{task\_struct} 并加入 \code{task} 数组——这个任务要等 \code{schedule} 被调用之后才会执行。
+
+\subsection{谁调用 \code{schedule}？}
+
+在研究 \code{schedule} 的细节之前，先弄清楚它是怎样被调用的。有两种情形：
+
+\begin{enumerate}
+  \item 当一个任务暂时无事可做、但又不能终止时，它可以主动调用 \code{schedule}。\code{kernel\_main} 就是这样做的；
+  \item 定时器中断处理程序也会定期调用 \code{schedule}。
+\end{enumerate}
+
+先看定时器中断调用的 \code{timer\_tick} 函数（定时器中断处理程序在确认中断之后调用它）：
+
+\begin{ccode}
+void timer_tick()
+{
+	--current->counter;
+	if (current->counter>0 || current->preempt_count >0) {
+		return;
+	}
+	current->counter=0;
+	enable_irq();
+	_schedule();
+	disable_irq();
+}
+\end{ccode}
+
+它首先把当前任务的计数值减 1。如果计数值仍大于 0，或者当前禁止抢占，就直接返回；否则就在\emph{打开中断}的情况下调用调度函数（我们正处在中断处理程序中，默认中断是关闭的）。为什么调度器执行期间必须打开中断，下一节就会看到。
+
+\begin{remark}
+  译注：主动调用的入口 \code{schedule()} 只是先把 \code{current->counter} 清零，再调用 \code{\_schedule()}；定时器路径直接调用 \code{\_schedule()}。
+\end{remark}
+
+\subsection{调度算法}
+
+终于可以看调度算法了。这个算法几乎是从 Linux 内核的第一个版本（0.01）原样照搬过来的：
+
+\begin{ccode}
+void _schedule(void)
+{
+	preempt_disable();
+	int next,c;
+	struct task_struct * p;
+	while (1) {
+		c = -1;
+		next = 0;
+		for (int i = 0; i < NR_TASKS; i++){
+			p = task[i];
+			if (p && p->state == TASK_RUNNING && p->counter > c) {
+				c = p->counter;
+				next = i;
+			}
+		}
+		if (c) {
+			break;
+		}
+		for (int i = 0; i < NR_TASKS; i++) {
+			p = task[i];
+			if (p) {
+				p->counter = (p->counter >> 1) + p->priority;
+			}
+		}
+	}
+	switch_to(task[next]);
+	preempt_enable();
+}
+\end{ccode}
+
+算法的工作方式如下：
+
+\begin{itemize}
+  \item 第一个内层 \code{for} 循环遍历所有任务，寻找处于 \code{TASK\_RUNNING} 状态、计数值最大的任务。如果找到了，并且它的计数值大于 0，就立即跳出外层 \code{while} 循环，切换到这个任务。如果没找到，说明当前没有处于 \code{TASK\_RUNNING} 状态的任务，或者所有这样的任务计数值都为 0。在真实的操作系统中，前一种情况是可能发生的，例如所有任务都在等待中断。这时执行第二个内层 \code{for} 循环：它为每个任务（不论处于什么状态）增加计数值。增加的方式很巧妙：
+  \begin{enumerate}
+    \item 一个任务经历第二个 \code{for} 循环的次数越多，它的计数值增加得越多；
+    \item 任务的计数值永远不会超过 $2 \times \text{priority}$。
+  \end{enumerate}
+  \item 然后重复整个过程。只要至少有一个任务处于 \code{TASK\_RUNNING}，外层 \code{while} 的第二轮就是最后一轮，因为第一轮之后所有计数值都已非零。但如果没有 \code{TASK\_RUNNING} 的任务，这个过程会一遍又一遍地重复，直到某个任务进入 \code{TASK\_RUNNING} 状态。可是如果只有一个 CPU，在这个循环运行时，任务的状态怎么可能改变呢？答案是：如果某个任务在等待中断，这个中断可能在 \code{schedule} 执行期间发生，而中断处理程序可以改变任务的状态。这正说明了为什么在 \code{schedule} 执行期间必须打开中断。这也体现了“关中断”与“关抢占”之间的重要区别：\code{schedule} 在整个函数执行期间关闭抢占，保证在原来的函数执行到一半时不会嵌套地调用 \code{schedule}；但中断可以在 \code{schedule} 执行期间合法地发生。
+\end{itemize}
+
+我花了很多笔墨讨论“有任务在等待中断”的情形，尽管 RPi OS 还没有实现这个功能。但我仍然认为有必要理解这种情况，因为它是核心调度算法的一部分，类似的功能以后也会加入。
+
+\begin{remark}
+  译注：计数值的上界可以这样理解：反复执行 $c \leftarrow c/2 + p$，不动点是 $c = 2p$，所以计数值收敛到但不超过 $2\times$priority。长时间睡眠的任务因此在醒来后能获得较多的时间片。
+\end{remark}
+
+\subsection{切换任务}
+
+找到计数值非零的 \code{TASK\_RUNNING} 任务后，调用 \code{switch\_to}：
+
+\begin{ccode}
+void switch_to(struct task_struct * next)
+{
+	if (current == next)
+		return;
+	struct task_struct * prev = current;
+	current = next;
+	cpu_switch_to(prev, next);
+}
+\end{ccode}
+
+这里检查下一个进程是否就是当前进程，如果不是，就更新 \code{current} 变量。真正的工作交给 \code{cpu\_switch\_to}（\code{sched.S}）：
+
+\begin{asmcode}
+.globl cpu_switch_to
+cpu_switch_to:
+	mov	x10, #THREAD_CPU_CONTEXT
+	add	x8, x0, x10
+	mov	x9, sp
+	stp	x19, x20, [x8], #16		// store callee-saved registers
+	stp	x21, x22, [x8], #16
+	stp	x23, x24, [x8], #16
+	stp	x25, x26, [x8], #16
+	stp	x27, x28, [x8], #16
+	stp	x29, x9, [x8], #16
+	str	x30, [x8]
+	add	x8, x1, x10
+	ldp	x19, x20, [x8], #16		// restore callee-saved registers
+	ldp	x21, x22, [x8], #16
+	ldp	x23, x24, [x8], #16
+	ldp	x25, x26, [x8], #16
+	ldp	x27, x28, [x8], #16
+	ldp	x29, x9, [x8], #16
+	ldr	x30, [x8]
+	mov	sp, x9
+	ret
+\end{asmcode}
+
+真正的上下文切换就发生在这里。逐行来看：
+
+\begin{asmcode}
+	mov	x10, #THREAD_CPU_CONTEXT
+	add	x8, x0, x10
+\end{asmcode}
+
+常量 \code{THREAD\_CPU\_CONTEXT} 是 \code{cpu\_context} 在 \code{task\_struct} 中的偏移（目前为 0）。\code{x0} 是第一个参数，即当前的 \code{task\_struct}（这里的“当前”指我们要切换离开的那个任务）。这两行执行后，\code{x8} 指向当前任务的 \code{cpu\_context}。
+
+\begin{asmcode}
+	mov	x9, sp
+	stp	x19, x20, [x8], #16		// store callee-saved registers
+	...
+	stp	x29, x9, [x8], #16
+	str	x30, [x8]
+\end{asmcode}
+
+接着按 \code{cpu\_context} 结构中定义的顺序保存所有被调用者保存寄存器。\code{x30}（链接寄存器，存放函数返回地址）作为 \code{pc} 保存，当前栈指针作为 \code{sp} 保存，\code{x29} 作为 \code{fp}（帧指针）保存。
+
+\begin{asmcode}
+	add	x8, x1, x10
+\end{asmcode}
+
+\code{x10} 是 \code{cpu\_context} 在 \code{task\_struct} 中的偏移，\code{x1} 指向下一个任务的 \code{task\_struct}，所以 \code{x8} 现在指向下一个任务的 \code{cpu\_context}。
+
+\begin{asmcode}
+	ldp	x19, x20, [x8], #16		// restore callee-saved registers
+	...
+	ldp	x29, x9, [x8], #16
+	ldr	x30, [x8]
+	mov	sp, x9
+\end{asmcode}
+
+从下一个任务的 \code{cpu\_context} 中恢复被调用者保存寄存器。
+
+\begin{asmcode}
+	ret
+\end{asmcode}
+
+函数返回到链接寄存器（\code{x30}）指向的位置。如果是第一次切换到某个任务，这里就是 \code{ret\_from\_fork}；其他情况下，就是之前某次 \code{cpu\_switch\_to} 保存在 \code{cpu\_context} 中的位置。
+
+\subsection{调度与异常进入/退出如何配合}
+
+上一课我们看到 \code{kernel\_entry} 和 \code{kernel\_exit} 宏如何保存和恢复处理器状态。引入调度器之后出现了一个新问题：以一个任务的身份进入中断、以另一个任务的身份离开中断，现在变得完全合法了。这是个问题，因为用于从中断返回的 \code{eret} 指令依赖于返回地址保存在 \reg{ELR\_EL1}、处理器状态保存在 \reg{SPSR\_EL1} 中。所以，如果要在处理中断时切换任务，就必须把这两个寄存器与所有通用寄存器一起保存和恢复。代码很直接，帧大小 \code{S\_FRAME\_SIZE} 也从 256 增加到了 272：
+
+\begin{asmcode}
+	.macro	kernel_entry
+	sub	sp, sp, #S_FRAME_SIZE		// 272
+	stp	x0, x1, [sp, #16 * 0]
+	...
+	stp	x28, x29, [sp, #16 * 14]
+	mrs	x22, elr_el1
+	mrs	x23, spsr_el1
+	stp	x30, x22, [sp, #16 * 15]
+	str	x23, [sp, #16 * 16]
+	.endm
+
+	.macro	kernel_exit
+	ldr	x23, [sp, #16 * 16]
+	ldp	x30, x22, [sp, #16 * 15]
+	msr	elr_el1, x22
+	msr	spsr_el1, x23
+	ldp	x0, x1, [sp, #16 * 0]
+	...
+	add	sp, sp, #S_FRAME_SIZE
+	eret
+	.endm
+\end{asmcode}
+
+\subsection{跟踪上下文切换过程中的系统状态}
+
+与上下文切换相关的源码我们已经全部看过了。但这些代码中有大量异步的交互，很难完整理解整个系统的状态是如何随时间变化的。这一节想帮你降低难度：我描述从系统启动到第二次上下文切换之间发生的一系列事件，并为每个事件画出当时的内存状态图。希望这种表示方式能帮你深刻理解调度器的工作原理。我们开始吧！
+
+\begin{enumerate}
+  \item 内核完成初始化，执行 \code{kernel\_main}。初始栈从 \code{LOW\_MEMORY}（4\,MB）处开始。
+\begin{txtcode}
+         0 +------------------+
+           | kernel image     |
+           |------------------|
+           |                  |
+           |------------------|
+           | init task stack  |
+0x00400000 +------------------+
+           |                  |
+0x3F000000 +------------------+
+           | device registers |
+0x40000000 +------------------+
+\end{txtcode}
+  \item \code{kernel\_main} 第一次调用 \code{copy\_process}。分配了一个新的 4\,KB 内存页，\code{task\_struct} 放在页的底部。（下文把此时创建的任务称为“任务 1”。）
+\begin{txtcode}
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+0x00401000 +------------------+
+\end{txtcode}
+  \item \code{kernel\_main} 第二次调用 \code{copy\_process}，重复同样的过程。任务 2 被创建并加入任务列表。
+\begin{txtcode}
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+0x00401000 +------------------+
+           | task_struct 2    |
+           |------------------|
+           |                  |
+0x00402000 +------------------+
+\end{txtcode}
+  \item \code{kernel\_main} 主动调用 \code{schedule}，调度器决定运行任务 1。
+  \item \code{cpu\_switch\_to} 把被调用者保存寄存器保存到初始任务的 \code{cpu\_context} 中，它位于内核镜像之内。
+  \item \code{cpu\_switch\_to} 从任务 1 的 \code{cpu\_context} 恢复被调用者保存寄存器。此时 \code{sp} 指向 \code{0x00401000}，链接寄存器指向 \code{ret\_from\_fork}，\code{x19} 是 \code{process} 函数的指针，\code{x20} 是字符串 \code{"12345"} 的指针（字符串位于内核镜像中某处）。
+  \item \code{cpu\_switch\_to} 执行 \code{ret}，跳到 \code{ret\_from\_fork}。
+  \item \code{ret\_from\_fork} 读取 \code{x19} 和 \code{x20}，以 \code{"12345"} 为参数调用 \code{process}。\code{process} 开始执行后，它的栈开始增长。
+\begin{txtcode}
+0x00400000 +------------------+
+           | task_struct 1    |
+           |------------------|
+           |                  |
+           |------------------|
+           | task 1 stack     |
+0x00401000 +------------------+
+           | task_struct 2    |
+           |------------------|
+           |                  |
+0x00402000 +------------------+
+\end{txtcode}
+  \item 发生了一次定时器中断。\code{kernel\_entry} 宏把所有通用寄存器以及 \reg{ELR\_EL1}、\reg{SPSR\_EL1} 保存到任务 1 的栈底。
+\begin{txtcode}
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+\end{txtcode}
+  \item 调用 \code{schedule}，它决定运行任务 2。但我们仍在运行任务 1，它的栈在“任务 1 已保存寄存器”区域之下继续增长。图中把这部分栈标为 (int)，表示“中断栈”。
+\begin{txtcode}
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack (int)     |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+\end{txtcode}
+  \item \code{cpu\_switch\_to} 运行任务 2，执行的步骤与切到任务 1 时完全相同。任务 2 开始执行，它的栈开始增长。注意，此时我们并没有从中断返回，但这没有关系，因为中断现在是打开的（在调用 \code{schedule} 之前，\code{timer\_tick} 已经打开了中断）。
+\begin{txtcode}
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+\end{txtcode}
+  \item 又发生一次定时器中断，\code{kernel\_entry} 把所有通用寄存器以及 \reg{ELR\_EL1}、\reg{SPSR\_EL1} 保存到任务 2 的栈底。任务 2 的中断栈开始增长。
+\begin{txtcode}
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 2 stack (int)     |
+           |------------------------|
+           | task 2 saved registers |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+\end{txtcode}
+  \item 调用 \code{schedule}。它发现所有任务的计数值都为 0，于是把计数值重新设为各自的优先级。
+  \item \code{schedule} 选择运行初始任务（因为此时所有任务的计数值都是 1，而初始任务排在列表第一位）。但实际上，这时选择任务 1 或任务 2 也完全合法，因为它们的计数值相等。我们更关心选中任务 1 的情形，所以假设发生的是这种情况。
+  \item 调用 \code{cpu\_switch\_to}，从任务 1 的 \code{cpu\_context} 恢复之前保存的被调用者保存寄存器。链接寄存器现在指向 \code{switch\_to} 中调用 \code{cpu\_switch\_to} 之后的位置，因为任务 1 上次运行时就是从那里调用 \code{cpu\_switch\_to} 的。\code{sp} 指向任务 1 中断栈的底部。
+  \item \code{timer\_tick} 从 \code{\_schedule()} 之后的那一行继续执行：关闭中断，然后返回到中断入口，最终执行 \code{kernel\_exit}。到 \code{kernel\_exit} 被调用时，任务 1 的中断栈已经缩回到 0。
+\begin{txtcode}
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 saved registers |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+           | task_struct 2          |
+           |------------------------|
+           | task 2 stack (int)     |
+           |------------------------|
+           | task 2 saved registers |
+           |------------------------|
+           | task 2 stack           |
+0x00402000 +------------------------+
+\end{txtcode}
+  \item \code{kernel\_exit} 恢复所有通用寄存器以及 \reg{ELR\_EL1} 和 \reg{SPSR\_EL1}。\reg{ELR\_EL1} 现在指向 \code{process} 函数中间的某处，\code{sp} 指向任务 1 栈的底部。
+\begin{txtcode}
+0x00400000 +------------------------+
+           | task_struct 1          |
+           |------------------------|
+           |                        |
+           |------------------------|
+           | task 1 stack           |
+0x00401000 +------------------------+
+\end{txtcode}
+  \item \code{kernel\_exit} 执行 \code{eret}，借助 \reg{ELR\_EL1} 跳回 \code{process} 函数。任务 1 恢复正常执行。
+\end{enumerate}
+
+上面描述的这一系列步骤非常重要——我个人认为它是整个教程中最重要的内容之一。如果理解起来有困难，建议做一做本课的第 1 道习题。
+
+\begin{remark}
+  译注：为节省篇幅，上面的状态图只画出了每一步发生变化的那部分内存；完整的图在每一步中都还包含 \code{0}～\code{0x00400000} 的“内核镜像 + 初始任务栈”和 \code{0x3F000000} 以上的设备寄存器区。
+\end{remark}
+
+\subsection{小结}
+
+调度到此讲完了。不过目前我们的内核只能管理内核线程：它们运行在 EL1，可以直接访问任何内核函数和数据。接下来的两课会解决这个问题，引入系统调用和虚拟内存。

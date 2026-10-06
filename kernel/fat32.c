@@ -101,6 +101,19 @@ struct fat_path_match {
   struct fat_dir_slot lfn_slots[FAT_LFN_MAX];
 };
 
+// FAT operations are serialized by fat32_lock.  Keep the large path/LFN
+// scratch objects here instead of nesting them on xv6's single-page kernel
+// stack.  fat32createfile() used to consume roughly another page when it
+// called fat_find_path(), which could corrupt the stack before the first
+// directory-allocation diagnostic was printed.
+static struct {
+  char path_name[FAT_LFN_CHARS + 1];
+  uint16 lfn_chars[FAT_LFN_STORAGE];
+  struct fat_dir_slot lfn_slots[FAT_LFN_MAX];
+  struct fat_path_match match;
+  struct fat_dir_slot create_slots[FAT_LFN_MAX + 2];
+} fat_work;
+
 static int
 fat_path_name(char *path, char name[FAT_LFN_CHARS + 1], int *length)
 {
@@ -166,9 +179,10 @@ fat_lfn_matches(const uint16 chars[FAT_LFN_STORAGE],
 static int
 fat_find_path(char *path, struct fat_path_match *match)
 {
-  char name[FAT_LFN_CHARS + 1], short_name[11];
-  uint16 lfn_chars[FAT_LFN_STORAGE];
-  struct fat_dir_slot lfn_slots[FAT_LFN_MAX];
+  char *name = fat_work.path_name;
+  uint16 *lfn_chars = fat_work.lfn_chars;
+  struct fat_dir_slot *lfn_slots = fat_work.lfn_slots;
+  char short_name[11];
   uint32 cluster = diskmap.root_cluster;
   int name_len, have_short, lfn_count = 0, next_order = 0;
   uchar lfn_sum = 0;
@@ -361,9 +375,12 @@ fat_reserve_root_slots(int count, struct fat_dir_slot *slots)
     uint32 next = fat_next(cluster);
     if(next >= FAT32_EOC){
       uint32 new_cluster;
+      printf("fat32: extending root directory after cluster %d\n", tail);
       if(fat_alloc_cluster(&new_cluster) < 0 ||
          fat_set_next(tail, new_cluster) < 0)
         return -1;
+      printf("fat32: root directory extended with cluster %d\n",
+             new_cluster);
       cluster = new_cluster;
       started = 1;
       continue;
@@ -694,15 +711,28 @@ static int
 fat_alloc_cluster(uint32 *cluster_out)
 {
   uint32 start = diskmap.next_alloc_cluster;
+  uint32 loaded_sector = 0xffffffffU;
   if(start < 2 || start >= diskmap.total_clusters + 2)
     start = 2;
+
+  // Cache the FAT sector while scanning candidates.  A 512-byte FAT sector
+  // contains 128 FAT32 entries; fat_next() here used to reread that same
+  // sector once per candidate and made root-directory growth appear hung.
   for(uint32 checked = 0; checked < diskmap.total_clusters; checked++){
     uint32 start_index = start - 2;
     uint32 index = checked < diskmap.total_clusters - start_index
                      ? start_index + checked
                      : checked - (diskmap.total_clusters - start_index);
     uint32 cluster = index + 2;
-    if(fat_next(cluster) != 0)
+    uint32 sector_offset = cluster / (SECTOR_SIZE / 4);
+    uint32 pos = (cluster % (SECTOR_SIZE / 4)) * 4;
+    if(sector_offset != loaded_sector){
+      if(sector_offset >= diskmap.fat_sectors ||
+         sdsector(diskmap.fat_lba + sector_offset, scratch, 0) < 0)
+        return -1;
+      loaded_sector = sector_offset;
+    }
+    if((le32(scratch + pos) & 0x0fffffffU) != 0)
       continue;
     if(fat_set_next(cluster, 0x0fffffffU) < 0)
       return -1;
@@ -725,19 +755,53 @@ fat_alloc_cluster(uint32 *cluster_out)
 static int
 fat_free_chain(uint32 cluster)
 {
+  uint32 loaded_sector = 0xffffffffU;
   int changed = 0;
+
+  // A camera image occupies many adjacent clusters.  The old implementation
+  // called fat_next() plus fat_set_next() for every cluster, causing one FAT
+  // read and two read/modify/write operations per cluster on a two-copy FAT.
+  // Truncating a 320x240 BMP could therefore issue more than 500 SD-sector
+  // transactions before userspace printed its next message.  Keep one FAT
+  // sector in scratch, clear all chain entries found in it, then mirror that
+  // complete sector to every FAT copy.
   for(uint32 visited = 0; cluster >= 2 &&
        cluster < diskmap.total_clusters + 2 &&
        visited < diskmap.total_clusters; visited++){
-    uint32 next = fat_next(cluster);
-    if(fat_set_next(cluster, 0) < 0)
+    uint32 sector_offset = cluster / (SECTOR_SIZE / 4);
+    uint32 pos = (cluster % (SECTOR_SIZE / 4)) * 4;
+    if(sector_offset >= diskmap.fat_sectors)
       return -1;
+    if(sector_offset != loaded_sector){
+      if(loaded_sector != 0xffffffffU){
+        for(uint32 copy = 0; copy < diskmap.fat_count; copy++)
+          if(sdsector(diskmap.fat_lba + copy * diskmap.fat_sectors +
+                      loaded_sector, scratch, 1) < 0)
+            return -1;
+      }
+      if(sdsector(diskmap.fat_lba + sector_offset, scratch, 0) < 0)
+        return -1;
+      loaded_sector = sector_offset;
+    }
+    uint32 current = le32(scratch + pos);
+    uint32 next = current & 0x0fffffffU;
+    uint32 value = current & 0xf0000000U;
+    scratch[pos] = value;
+    scratch[pos + 1] = value >> 8;
+    scratch[pos + 2] = value >> 16;
+    scratch[pos + 3] = value >> 24;
     changed = 1;
     if(next == 0 || next >= FAT32_EOC){
       cluster = 0;
       break;
     }
     cluster = next;
+  }
+  if(loaded_sector != 0xffffffffU){
+    for(uint32 copy = 0; copy < diskmap.fat_count; copy++)
+      if(sdsector(diskmap.fat_lba + copy * diskmap.fat_sectors +
+                  loaded_sector, scratch, 1) < 0)
+        return -1;
   }
   if(changed && fat_mark_fsinfo_unknown() < 0)
     return -1;
@@ -876,12 +940,26 @@ setup_fat32(uint32 partition_lba, uint32 partition_sectors)
   diskmap.fat_lba = partition_lba + reserved;
   diskmap.data_lba = diskmap.fat_lba + fat_area;
 
+  // FSInfo offset 492 is an advisory next-free-cluster hint.  Use it only
+  // when both signatures and the cluster range are valid; otherwise the
+  // sector-cached full scan in fat_alloc_cluster() remains the fallback.
+  if(fsinfo != 0 && fsinfo != 0xffff &&
+     sdsector(partition_lba + fsinfo, scratch, 0) == 0 &&
+     le32(scratch) == 0x41615252U &&
+     le32(scratch + 484) == 0x61417272U){
+    uint32 hint = le32(scratch + 492);
+    if(hint >= 2 && hint < diskmap.total_clusters + 2)
+      diskmap.next_alloc_cluster = hint;
+  }
+
   printf("fat32: BPB lba=%d bytes/sector=%d sectors/cluster=%d\n",
          partition_lba, le16(scratch + 11), diskmap.sectors_per_cluster);
   printf("fat32: reserved=%d FATs=%d sectors/FAT=%d root-cluster=%d\n",
          reserved, fats, fat_sectors, root);
   printf("fat32: FAT lba=%d data lba=%d\n",
          diskmap.fat_lba, diskmap.data_lba);
+  printf("fat32: allocator next-free hint=%d\n",
+         diskmap.next_alloc_cluster);
 
   // FAT32 is useful for firmware even when the root filesystem resides in a
   // separate raw partition and FS.IMG no longer exists.
@@ -1034,14 +1112,16 @@ int
 fat32createfile(char *path)
 {
   char name[FAT_LFN_CHARS + 1], short_name[11], parsed_short[11];
-  struct fat_path_match match;
-  struct fat_dir_slot slots[FAT_LFN_MAX + 2];
+  struct fat_path_match *match = &fat_work.match;
+  struct fat_dir_slot *slots = fat_work.create_slots;
   uchar entry[32];
   int length, lfn_count, slot_count, exists;
   if(!diskmap.fat || fat_path_name(path, name, &length) < 0)
     return -1;
   acquire(&fat32_lock);
-  exists = fat_find_path(path, &match);
+  printf("fat32: create lookup begin path=%s\n", path);
+  exists = fat_find_path(path, match);
+  printf("fat32: create lookup complete exists=%d\n", exists);
   if(exists != 0)
     goto bad;
   if(path_to_name11(path, parsed_short) == 0){
@@ -1065,8 +1145,10 @@ fat32createfile(char *path)
       goto bad;
   }
   slot_count = lfn_count + 2;
+  printf("fat32: create reserve begin slots=%d\n", slot_count);
   if(fat_reserve_root_slots(slot_count, slots) < 0)
     goto bad;
+  printf("fat32: create reserve complete\n");
   for(int i = 0; i < lfn_count; i++){
     fat_make_lfn_entry(entry, name, length, lfn_count - i,
                        lfn_count, fat_lfn_checksum((uchar*)short_name));

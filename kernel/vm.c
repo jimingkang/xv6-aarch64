@@ -34,6 +34,9 @@ kvmmake(void)
   kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE,
          PTE_NORMAL | PTE_XN);
 
+  // Camera DMA buffer: non-cacheable normal memory (see memlayout.h).
+  kvmmap(kpgtbl, CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
+
   // Raspberry Pi AArch64 secondary-core spin-table slots live at physical
   // 0xe0..0xf0.  Keep only page zero in the high direct map so CPU0 can
   // publish _entry after switching away from the bootstrap page table.
@@ -274,9 +277,9 @@ uva2ka(pagetable_t pagetable, uint64 va)
 // Make instructions written through the kernel's high direct mapping visible
 // through the low EL0 mapping. AArch64 does not guarantee D/I coherence after
 // loading executable bytes. Clean the data by its kernel VA, then invalidate
-// the complete local I-cache: IC IVAU with the high kernel VA is insufficient
-// for the low user-VA alias on implementations with a virtually indexed
-// instruction cache.
+// every PE's I-cache in the inner-shareable domain: IC IVAU with the high
+// kernel VA is insufficient for the low user-VA alias, while local-only
+// IC IALLU is insufficient after the process migrates to another Cortex-A53.
 void
 uvmsync_icache(pagetable_t pagetable, uint64 sz)
 {
@@ -288,7 +291,7 @@ uvmsync_icache(pagetable_t pagetable, uint64 sz)
       asm volatile("dc cvau, %0" :: "r"(p) : "memory");
   }
   asm volatile("dsb ish" ::: "memory");
-  asm volatile("ic iallu\n\tdsb ish\n\tisb" ::: "memory");
+  asm volatile("ic ialluis\n\tdsb ish\n\tisb" ::: "memory");
 }
 
 // add a mapping to the kernel page table.

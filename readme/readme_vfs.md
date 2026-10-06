@@ -197,26 +197,59 @@ FAT32 VFS 支持根目录的 `stat`、`readdir`、普通文件读取，以及有
 QEMU 当前直接把 `fs.img` 作为 SD 介质，没有 FAT32 分区，因此 QEMU 下 `/boot` 是空的原生挂载点；
 真实 Raspberry Pi 的分区表探测到 FAT32 bootfs 后，启动日志才会显示挂载结果并枚举其中的文件。
 
-### TFTP 下载启动镜像
+### TFTP 客户端与服务器
 
-`tftp` 从 IPv4 TFTP 服务器以 octet 模式下载文件，并在 `/boot` 下沿用远端文件名。
+原来的 `/bin/tftp` 已改名为 `/bin/tftpclient`。它从 IPv4 TFTP 服务器以 octet 模式
+下载文件，并在 `/boot` 下沿用远端文件名。
 不带参数时默认从 `192.168.0.195` 下载 `kernel8-xv6_wifi.img`：
 
 ```sh
-tftp
-tftp 192.168.1.20
-tftp 192.168.1.20 kernel8.img
+tftpclient
+tftpclient 192.168.1.20
+tftpclient 192.168.1.20 kernel8.img
 ```
 
-完整命令格式为 `tftp [server-ip [remote-filename]]`。只给服务器地址时仍使用默认文件名；
+完整命令格式为 `tftpclient [server-ip [remote-filename]]`。只给服务器地址时仍使用默认文件名；
 第二个参数可指定服务器上的其他 basename，例如
-`tftp 192.168.1.20 kernel8-xv6_wifi.img` 会保存为 `/boot/kernel8-xv6_wifi.img`。
+`tftpclient 192.168.1.20 kernel8-xv6_wifi.img` 会保存为
+`/boot/kernel8-xv6_wifi.img`。
 客户端直接创建或截断目标文件，因此传输失败或按 Ctrl+C 中止时，目标路径会留下部分文件；
 再次下载相同文件会先截断它。客户端使用固定本地 UDP 端口 49152，需确保该端口未被其他进程占用。
 传输中每累计收到 16 KiB 会显示累计字节数和平均速度（KB/s）；完成时显示耗时与平均速度。
 TFTP 不协商文件总长度，因此进度以已接收字节数和速度显示，不显示百分比。串口终端按
 Ctrl+C 可向当前前台命令进程组发送 SIGINT 并终止下载。下载使用远端basename作为FAT长文件名，
 因此接收 `kernel8-xv6_wifi.img` 后，`ls /boot` 和后续 `open()` 都使用同一个名称。
+
+新增的 `/bin/tftpd` 是只读 TFTP 服务器，默认服务目录是 `/boot`：
+
+```sh
+/bin/tftpd
+/bin/tftpd /boot
+```
+
+也可以显式指定另一个绝对目录。服务器在 UDP 69 接收 RRQ，然后为该次传输绑定
+50000–50100 范围内的独立 TID 端口，从该端口发送 512 字节 DATA block 并等待 ACK；
+丢包时每秒重发，最多五次。当前实现顺序处理客户端，只支持 octet 模式 RRQ，不支持 WRQ，
+因此远端客户端不能修改 xv6 文件。请求名必须是单个 basename；包含 `/`、反斜杠、控制字符、
+`.` 或 `..` 的请求会被拒绝，不能越过服务根目录。
+
+从 macOS 读取 bootfs 文件的示例：
+
+```sh
+tftp 192.168.0.201
+tftp> binary
+tftp> get kernel8-xv6_wifi.img
+tftp> quit
+```
+
+也可以用另一个 xv6 实例测试：
+
+```sh
+tftpclient 192.168.0.201 kernel8-xv6_wifi.img
+```
+
+服务器端会打印请求者地址、TID、每 16 KiB 的发送进度以及最终字节数。按 Ctrl+C 可以终止
+前台服务器。因为 xv6 UDP 绑定按进程拥有，监听端口 69 与传输 TID 都会在进程退出时回收。
 
 为了把这个名称经普通 `struct dirent` 返回给 `ls`，原生 xv6 的 `DIRSIZ` 从14扩大为30；
 `struct dirent` 总长由16变为32字节，仍可整除1 KiB文件系统块。该修改改变了原生xv6磁盘目录

@@ -249,7 +249,7 @@ uvmsync_icache(pagetable_t pagetable, uint64 sz)
   }
 
   asm volatile("dsb ish" ::: "memory");
-  asm volatile("ic iallu\n\tdsb ish\n\tisb" ::: "memory");
+  asm volatile("ic ialluis\n\tdsb ish\n\tisb" ::: "memory");
 }
 ```
 
@@ -262,7 +262,7 @@ dc cvau, kernel_direct_map_va
 dsb ish
 
 // 不依赖高/低 VA alias
-ic iallu
+ic ialluis
 dsb ish
 isb
 ```

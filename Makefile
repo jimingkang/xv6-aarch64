@@ -65,6 +65,10 @@ OBJS = \
   $K/fat32.o \
   $K/ext2.o \
   $K/bcm2837.o \
+  $K/mbox.o \
+  $K/i2c.o \
+  $K/ov5647.o \
+  $K/unicam.o \
 
 # Try to infer the correct TOOLPREFIX if not set
 ifndef TOOLPREFIX
@@ -295,7 +299,8 @@ UPROGS=\
 	$U/_prodcons\
 	$U/_nettest\
 	$U/_netdns\
-	$U/_tftp\
+	$U/_tftpclient\
+	$U/_tftpd\
 	$U/_ping\
 	$U/_wifi\
 	$U/_dhcp\
@@ -314,6 +319,7 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$U/_camshot\
 	$U/_chrt\
 	$U/_taskset\
 	$U/_nice\
