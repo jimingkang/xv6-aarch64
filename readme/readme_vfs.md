@@ -139,6 +139,7 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 /boot
 /mnt
 /mnt/ext2
+/mnt/net
 /etc
 ```
 
@@ -155,13 +156,18 @@ procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系
 proc /proc procfs ro 0 0
 bootfs /boot fat32 rw 0 0
 ext2 /mnt/ext2 ext2 ro 0 0
+192.168.0.195:5640 /mnt/net netfs ro 0 0
 ```
 
 `init` 逐行解析 `fstab` 的 source、target、fstype 和 options 字段并调用新加入的
-`mount(source, target, fstype, flags)` 系统调用。当前实现只支持只读 VFS 后端：`procfs`
-总能挂载；`ext2` 只有在启动阶段发现兼容分区后才会挂载成功；FAT32 bootfs 支持只读或有限
-的读写挂载。`ro`/`rw` 会被转换为挂载标志，ext2 和 procfs 仍拒绝 `rw`。目前尚未实现设备名
-解析与 `umount(2)`。
+`mount(source, target, fstype, flags)` 系统调用。`procfs` 总能挂载；`ext2` 只有在启动阶段发现
+兼容分区后才会挂载成功；FAT32 bootfs 支持只读或有限的读写挂载；`netfs` 把
+`source` 解析成远端 `IPv4[:port]`，当前只允许只读挂载。`ro`/`rw` 会被转换为挂载标志，
+ext2、procfs 和 netfs 拒绝 `rw`。目前尚未实现设备名解析与 `umount(2)`。
+
+NetFS 通过 VFS vnode 后端将远程 `stat/readdir/read` 映射成带 xid、超时和重试的 UDP RPC，
+完整结构、协议、启动方法和分布式演进路线见
+[readme_netfs.md](readme_netfs.md)。
 
 ## FAT32 bootfs 挂载
 

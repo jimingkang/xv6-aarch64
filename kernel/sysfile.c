@@ -36,8 +36,7 @@ sys_mount(void)
      argstr(1, target, sizeof(target)) < 0 ||
      argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0)
     return -1;
-  (void)source;
-  return vfsmount(target, fstype, flags);
+  return vfsmount(source, target, fstype, flags);
 }
 
 uint64

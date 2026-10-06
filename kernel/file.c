@@ -80,8 +80,14 @@ fileclose(struct file *f)
   if(ff.type == FD_PIPE){
     pipeclose(ff.pipe, ff.writable);
   } else if(ff.type == FD_INODE || ff.type == FD_DEVICE){
-    if(ff.type == FD_DEVICE)
+    if(ff.type == FD_DEVICE){
       chrdev_release(&ff);
+      // Releasing a completed sdroot updater must not start a transaction on
+      // the now-replaced root image.  Keep this one in-memory inode reference
+      // until the mandatory reboot instead of touching stale root metadata.
+      if(ff.major == ROOTUPDATE && rootupdate_root_frozen())
+        return;
+    }
     begin_op();
     iput(ff.ip);
     end_op();
@@ -168,7 +174,7 @@ filewrite(struct file *f, uint64 addr, int n)
   if(f->type == FD_PIPE){
     ret = pipewrite(f->pipe, addr, n);
   } else if(f->type == FD_DEVICE){
-    ret = chrdev_write(f->major, 1, addr, n);
+    ret = chrdev_write(f, 1, addr, n);
   } else if(f->type == FD_INODE){
     // write a few blocks at a time to avoid exceeding
     // the maximum log transaction size, including

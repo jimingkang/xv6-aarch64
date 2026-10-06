@@ -236,3 +236,68 @@ make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2
 容器模式。
 但它不会自动下载 Raspberry Pi 官方 boot firmware；这些基础启动文件必须事先放入
 `/Volumes/BOOTFS`。
+
+## 12. 在 xv6 内在线更新 p2 根文件系统
+
+安装过本版本后，可以不再把 SD 卡拔到 macOS 上写 `rdisk4s2`。内核注册了受保护的
+字符设备 `/dev/sdroot`，用户命令 `/bin/dd` 可将 TFTP 下载到 `/boot` 的新镜像写入
+启动时实际选中的 raw xv6 根分区。正常布局中该分区就是 MBR p2；驱动使用 MBR 探测
+得到的 LBA，不写死某一张卡的扇区号，也绝不会暴露整张 SD 卡。
+
+先在开发机生成新镜像，并放入 TFTP 服务目录。默认 `make` 的 `install-tftp` 阶段会
+同时同步内核和 `fs.img`：
+
+```sh
+make
+```
+
+若只想同步 TFTP 文件，可执行 `make install-tftp`。该目标写入的是开发机的
+`/private/tftpboot`，不是 SD 卡的 FAT32 bootfs。
+
+然后在 Raspberry Pi 上下载并安装：
+
+```sh
+/bin/tftpclient 192.168.0.195 fs.img
+/bin/dd
+```
+
+等价的完整写法是：
+
+```sh
+/bin/dd if=/boot/fs.img of=/dev/sdroot bs=32768
+```
+
+`dd` 在真正写 p2 前会依次完成：
+
+```text
+检查 /boot/fs.img 恰好为 FSSIZE * BSIZE（当前 32 MiB）
+  -> 把完整镜像读入用户内存
+  -> 校验 xv6 superblock magic、size 和布局字段
+  -> 打开仅允许写入当前 raw root 的 /dev/sdroot
+  -> 停止新根文件系统事务，等待已有事务提交和读操作退出
+  -> 每次写一个 512-byte SD 扇区
+  -> 立即读回该扇区并逐字节比较
+  -> 完成后保持旧根冻结，要求断电重启
+```
+
+完整预读非常重要：一旦开始覆盖 p2，就不能再从旧根加载 `/bin/dd` 的代码、库或读取
+其他文件。当前用户程序是静态链接的，镜像又已经全部进入内存，因此后续只需要内核、
+SD 驱动和串口输出。更新期间仍可看到每 4 MiB 一次的装载与回读校验进度。
+
+成功日志末尾应类似：
+
+```text
+sdroot: verified 32/32 MiB
+sdroot: update complete and verified; reboot now
+dd: 33554432 bytes installed and read-back verified
+dd: root filesystem is frozen; power-cycle Raspberry Pi now
+```
+
+注意：
+
+- 写入过程中不能拔卡、断电或复位；中断写入会留下不完整的根文件系统。
+- 命令只接受 `of=/dev/sdroot`，故意不实现任意块设备和整盘写入。
+- 只支持独立 raw root 模式；仍从 FAT32 `FS.IMG` 启动时，设备会拒绝打开。
+- 写入一旦开始，根文件系统冻结是单向的；无论成功还是失败都必须断电重启。
+- 第一次取得 `/bin/dd` 和 `/dev/sdroot` 仍需从 macOS 执行一次
+  `make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2`。以后才可使用上述在线更新流程。

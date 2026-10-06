@@ -9,8 +9,9 @@ RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
 RPI3_ARMSTUB_NAME ?= armstub-xv6.bin
 TFTPBOOT_DIR ?= /private/tftpboot
 TFTPBOOT_KERNEL ?= $(TFTPBOOT_DIR)/$(RPI3_KERNEL_NAME)
+TFTPBOOT_FS ?= $(TFTPBOOT_DIR)/fs.img
 # Raw xv6 partition device.  Intentionally empty: callers must name the exact
-# partition (for example /dev/rdisk4s3) to prevent accidental whole-disk writes.
+# partition (for example /dev/rdisk4s2) to prevent accidental whole-disk writes.
 RPI3_XV6_DEV ?=
 WIFI_FIRMWARE_DIR ?= firmware
 SUDO ?= sudo
@@ -46,6 +47,7 @@ OBJS = \
   $K/bio.o \
   $K/fs.o \
 	$K/vfs.o \
+	$K/netfs.o \
   $K/log.o \
   $K/sleeplock.o \
   $K/sync.o \
@@ -62,8 +64,9 @@ OBJS = \
   $K/trapasm.o \
   $K/timer.o \
   $K/sdhost.o \
-  $K/fat32.o \
-  $K/ext2.o \
+	$K/fat32.o \
+	$K/rootupdate.o \
+	$K/ext2.o \
   $K/bcm2837.o \
   $K/mbox.o \
   $K/i2c.o \
@@ -147,17 +150,23 @@ build: $(KERNEL_IMAGE) fs.img config.txt install-tftp
 # just built.  /private/tftpboot is normally owned by root on macOS, hence
 # SUDO is used just like the physical-SD installation targets below.
 .PHONY: install-tftp
-install-tftp: $(KERNEL_IMAGE)
+install-tftp: $(KERNEL_IMAGE) fs.img
 	@test -d "$(TFTPBOOT_DIR)" || { \
 		echo "error: TFTPBOOT_DIR $(TFTPBOOT_DIR) does not exist" 1>&2; \
 		exit 1; \
 	}
 	$(SUDO) cp -f $(KERNEL_IMAGE) "$(TFTPBOOT_KERNEL)"
+	$(SUDO) cp -f fs.img "$(TFTPBOOT_FS)"
 	@cmp -s $(KERNEL_IMAGE) "$(TFTPBOOT_KERNEL)" || { \
 		echo "error: TFTP image differs from $(KERNEL_IMAGE)" 1>&2; \
 		exit 1; \
 	}
+	@cmp -s fs.img "$(TFTPBOOT_FS)" || { \
+		echo "error: TFTP image differs from fs.img" 1>&2; \
+		exit 1; \
+	}
 	@echo "installed $(KERNEL_IMAGE) -> $(TFTPBOOT_KERNEL)"
+	@echo "installed fs.img -> $(TFTPBOOT_FS)"
 
 .PHONY: install-rpi3
 install-rpi3: $(KERNEL_IMAGE) fs.img config.txt
@@ -270,6 +279,11 @@ $U/_forktest: $U/forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $(ULIB)
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
+$U/_camshot: $U/camshot.o $U/jpeg.o $(ULIB)
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+	$(OBJDUMP) -S $@ > $U/camshot.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camshot.sym
+
 mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
 
@@ -304,6 +318,7 @@ UPROGS=\
 	$U/_ping\
 	$U/_wifi\
 	$U/_dhcp\
+	$U/_dd\
 	$U/_tcpd\
 	$U/_epollserver\
 	$U/_ptytest\

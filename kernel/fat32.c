@@ -48,6 +48,11 @@ static struct {
 
 static uchar scratch[SECTOR_SIZE];
 static struct spinlock fat32_lock;
+static struct {
+  struct spinlock lock;
+  int readers;
+  int updating;
+} rawroot_gate;
 
 static uint16 le16(const uchar *p);
 static uint32 le32(const uchar *p);
@@ -1460,6 +1465,9 @@ void
 fat32init(void)
 {
   initlock(&fat32_lock, "fat32");
+  initlock(&rawroot_gate.lock, "rawroot-io");
+  rawroot_gate.readers = 0;
+  rawroot_gate.updating = 0;
   if(sdsector(0, scratch, 0) < 0)
     panic("fat32: sector 0");
 
@@ -1547,6 +1555,54 @@ fat32init(void)
   printf("fat32: no FS.IMG container; using raw xv6 image\n");
 }
 
+int
+fat32_raw_root_info(uint32 *lba, uint32 *sectors)
+{
+  if(!diskmap.raw_root || lba == 0 || sectors == 0)
+    return -1;
+  *lba = diskmap.root_lba;
+  *sectors = diskmap.root_sectors;
+  return 0;
+}
+
+// Quiesce the mounted native root before it is replaced in place.  Log
+// transactions are stopped first; then plain reads already in fat32rw drain.
+// The gate is intentionally never reopened because cached inodes and buffers
+// describe the old image.  The updater must reboot after completing the copy.
+int
+fat32_root_update_begin(void)
+{
+  if(!diskmap.raw_root)
+    return -1;
+  if(rootfs_freeze_for_update() < 0)
+    return -1;
+  acquire(&rawroot_gate.lock);
+  rawroot_gate.updating = 1;
+  while(rawroot_gate.readers != 0)
+    sleep(&rawroot_gate, &rawroot_gate.lock);
+  release(&rawroot_gate.lock);
+  return 0;
+}
+
+static void
+rawroot_io_enter(void)
+{
+  acquire(&rawroot_gate.lock);
+  while(rawroot_gate.updating)
+    sleep(&rawroot_gate, &rawroot_gate.lock);
+  rawroot_gate.readers++;
+  release(&rawroot_gate.lock);
+}
+
+static void
+rawroot_io_exit(void)
+{
+  acquire(&rawroot_gate.lock);
+  if(--rawroot_gate.readers == 0)
+    wakeup(&rawroot_gate);
+  release(&rawroot_gate.lock);
+}
+
 static uint32
 file_sector_lba(uint32 file_sector)
 {
@@ -1574,6 +1630,7 @@ fat32rw(struct buf *b, int write)
     panic("fat32rw: blockno too big");
 
   uint32 first = b->blockno * (BSIZE / SECTOR_SIZE);
+  rawroot_io_enter();
   acquire(&fat32_lock);
   for(int i = 0; i < BSIZE / SECTOR_SIZE; i++){
     uint32 lba = file_sector_lba(first + i);
@@ -1581,4 +1638,5 @@ fat32rw(struct buf *b, int write)
       panic(write ? "fat32: write FS.IMG" : "fat32: read FS.IMG");
   }
   release(&fat32_lock);
+  rawroot_io_exit();
 }

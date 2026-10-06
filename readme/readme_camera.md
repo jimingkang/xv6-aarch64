@@ -4,7 +4,7 @@
 
 路线：由 ARM 直接驱动，不经过 GPU 固件的摄像头栈（`start_x.elf`、MMAL/VCHIQ）。
 内核自己完成 I2C 配置传感器、开电源与时钟、用 Unicam 接收 MIPI CSI-2 数据并 DMA 到内存；
-用户态 `camshot` 把原始 Bayer 数据转换成 BMP。这与 Linux 主线的
+用户态 `camshot` 把原始 Bayer 数据转换成 BMP 或基线 JPEG。这与 Linux 主线的
 `bcm2835-unicam` + `ov5647` 驱动是同一种结构，本驱动的寄存器配置也都取自这两个 Linux 驱动。
 
 当前状态：已经编译通过，并在 QEMU 上验证了“没有摄像头”时的流程；图像转换部分在主机上用
@@ -20,7 +20,8 @@
 | `kernel/ov5647.c` | 新增。`sensor_ops` 的一个实现：上电、读芯片 ID、640x480 RAW10 寄存器表、开关数据流、测试图 | `drivers/media/i2c/ov5647.c` |
 | `kernel/unicam.c` | 新增。桥接驱动：CSI1 接收器、CAM1 时钟、帧状态机、中断、`/dev/video0`；只通过 `sensor_ops` 访问传感器 | `bcm2835-unicam.c` |
 | `kernel/camera.h` | 新增。内核与用户程序共用的帧头格式和常量 | — |
-| `user/camshot.c` | 新增。拍照并转换成 BMP | — |
+| `user/camshot.c` | 拍照、RAW10 解包、去马赛克、白平衡并输出 BMP/JPEG | — |
+| `user/jpeg.[ch]` | 无浮点、流式基线 JPEG 编码器，YCbCr 4:2:0，供拍照及未来 MJPEG 复用 | — |
 | `kernel/memlayout.h`、`vm.c` | 摄像头 DMA 区 `CAMDMA`（非缓存映射）；`CSI1_IRQ` | — |
 | `kernel/bcm2837.c`、`trap.c` | CSI1 中断的识别、分发、开关 | — |
 | `kernel/file.h`、`user/init.c` | 主设备号 `CAMERA = 5`，`mknod /dev/video0` | — |
@@ -390,8 +391,10 @@ RAW10 打包格式：每 4 个像素占 5 个字节，前 4 个字节是 4 个�
 ### camshot
 
 ```text
-camshot [-o OUT.bmp] [-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]
-  -o  输出 BMP（默认 /boot/camera.bmp）
+camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
+        [-t PATTERN] [-s] [-w]
+  -o  按 .bmp/.jpg/.jpeg 后缀选择格式（默认 /boot/camera.bmp）
+  -q  JPEG 质量 1..100（默认 75）
   -r  另存原始帧（帧头 + RAW10）
   -i  不拍照，转换之前用 -r 保存的原始帧
   -t  测试图：1 彩条，2 彩色方块，3 随机
@@ -399,7 +402,7 @@ camshot [-o OUT.bmp] [-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]
   -w  不做白平衡
 ```
 
-拍摄成功后，`camshot` 会分别打印收到帧、RAW10 解包、白平衡/亮度统计和 BMP 写盘阶段，便于区分
+拍摄成功后，`camshot` 会分别打印收到帧、RAW10 解包、白平衡/亮度统计和输出阶段，便于区分
 内核采集与用户态转换问题。BMP 数据按 16 行批量写入，而不是每行调用一次 `write()`；640×480
 半尺寸输出由 240 次 FAT32 写操作降为 15 次，避免把正常但缓慢的 `/boot` 写盘误判成相机卡死。
 白平衡求和与绿色通道亮度直方图也合并为一次全帧扫描，并每 64 行打印进度。
@@ -411,8 +414,51 @@ camshot [-o OUT.bmp] [-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]
 `camshot -t N` 使用 OV5647 内部生成的标准测试图。测试图已经校准，因此转换器采用固定
 1.0 白平衡和固定亮度，不再运行灰世界/直方图统计；这使测试图专门验证 sensor、CSI-2、
 Unicam DMA、RAW10 转换和 FAT32 写盘。只有不带 `-t` 的真实画面才运行自动白平衡和亮度统计。
-启动时的 `camshot: converter fixed-pattern-v2 fat-progress batch16` 用来确认根文件系统中的用户程序确实
+启动时的 `camshot: converter jpeg420-v1 bmp-batch16` 用来确认根文件系统中的用户程序确实
 已经更新。
+
+### JPEG编码器与视频准备
+
+JPEG 路径不依赖浮点或外部 `libjpeg`。`user/jpeg.c` 把转换后的 RGB 像素按 16×16 MCU 流式处理：
+
+```text
+RGB
+  -> 整数 YCbCr
+  -> 4:2:0 色度下采样
+  -> 8x8 分块
+  -> Q14 二维整数 DCT
+  -> 质量缩放量化表
+  -> zig-zag
+  -> DC差分/AC游程
+  -> canonical Huffman
+  -> JFIF baseline JPEG
+```
+
+编码器只缓存一个 MCU 和 4 KiB 输出，不建立整张 RGB 图。因此在已有 RAW10 mosaic 之外几乎不增加
+峰值内存，也不会因为 640×480 RGB 缓冲再消耗约 900 KiB。接口通过像素回调取样：
+
+```c
+int jpeg_encode(int fd, int width, int height, int quality,
+                jpeg_pixel_fn pixel, void *arg, uint *written);
+```
+
+每次调用输出一幅完整的 SOI...EOI JPEG，未来 `camrec` 可以对连续帧重复调用此编码核心，再在外层
+增加 MJPEG multipart 或 AVI 容器。当前仍只有单帧 `/dev/video0` 读取；JPEG 编码器完成不代表摄像头
+已经支持连续取流。
+
+真机测试命令：
+
+```sh
+# 传感器彩条，半尺寸，质量75
+/bin/camshot -t 1 -s -q 75 -o /boot/cam320.jpg
+
+# 真实640x480画面
+/bin/camshot -q 75 -o /boot/camera.jpg
+```
+
+JPEG通常远小于BMP并可能装入原生xv6单文件上限，但高质量噪声图仍可能超过268 KiB；稳定测试仍
+推荐写到 `/boot`。当前 Huffman 表是合法但固定的紧凑表，没有对每张图做频率优化，因此压缩率
+会低于成熟 `libjpeg-turbo`；第一版优先保证无浮点、低内存和码流可移植性。
 
 `/dev/video0` 的字符设备节点会在 sensor probe 之前注册，所以 open 成功不代表启动时已经绑定
 传感器。GPIO software SCCB 若在启动探测时偶发丢失 ACK，旧实现会让设备一直 inactive 到下次
@@ -461,6 +507,7 @@ SD 扇区事务，串口最后只看到 `sensor test pattern; fixed WB/level`，
 | 没有摄像头时的启动 | QEMU raspi3b | 打印 `camera: no sensor found (1 driver tried)`，不会卡住；`camshot` 正常报错退出 |
 | I2C 超时路径 | QEMU 8.2 中 BSC 是未实现设备，寄存器读出全 0 | 20 ms 后超时返回，不会挂死 |
 | 图像转换 | 在主机上编译同一份 `camshot.c`，输入合成的 RAW10 帧（四色条、渐变、左上角白块，并叠加偏暖色温） | 颜色和方向正确，白平衡把色温校正回来；全尺寸和 `-s` 都正确 |
+| JPEG码流 | 同一编码核心在主机生成64×48及640×480 RGB渐变/棋盘图，质量25/75/95；用系统ImageIO解码 | 均识别为3分量baseline JFIF，尺寸正确；640×480样本约12/23/59 KiB |
 | 传感器接口重构 | BGGR、RGGB 640x480 和 GBRG 320x240 三种合成帧；与重构前的版本比较 | 三种 Bayer 顺序结果一致，BGGR 的像素值与重构前完全相同；OV5647 的 97 个寄存器写入不变，Unicam 只有 6 处改成取自 `bus`/`mode`，代入 OV5647 的参数后取值与原来相同 |
 | Pi 3 真机 OV5647 探测 | CAM_GPIO0 上电；BSC0 四档恢复；GPIO44/45 软件 SCCB 读取芯片 ID | BSC0 在 100/50/25/10 kHz 均失败；软件 SCCB 稳定读到 `0x5647`，切换到 GPIO 后备路径并成功绑定 `/dev/video0` |
 
@@ -528,6 +575,8 @@ mailbox 电源域和 GPIO、CAM1 时钟、CSI-2 接收、DMA、中断号。
 - **模式选择**：桥接驱动总是使用 `modes[0]`，还没有让用户选择模式的接口（可以在 `camwrite`
   里加 `mode=N`）；
 - **每次拍照都完整地上电和预热**（约 1 秒），没有连续取流的接口，也没有 `poll()`；
+- **JPEG已经可以逐帧编码，但还没有MJPEG容器和录制进程**：下一步应让Unicam保持streaming，
+  提供多缓冲队列，再由用户态 `camrec` 连续调用编码器并按时间切片；
 - **曝光完全交给传感器**，没有手动曝光/增益接口；
 - **I2C 是轮询方式**，每个寄存器传输都要在自旋锁里关中断等待约 0.3 ms，写完整张寄存器表的
   这段时间会抬高软实时任务的延迟（见 `readme_soft_realtime.md` 第 10 节）；

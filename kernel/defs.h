@@ -87,10 +87,15 @@ void            ramdiskrw(struct buf*, int);
 void            sdinit(void);
 void            sd_driver_init(void);
 int             sdsector(uint32, void*, int);
+void            rootupdate_init(void);
+int             rootupdate_root_frozen(void);
 
 // fat32.c
 void            fat32init(void);
 void            fat32rw(struct buf*, int);
+int             fat32_raw_root_info(uint32*, uint32*);
+int             fat32_root_update_begin(void);
+int             rootfs_freeze_for_update(void);
 struct fat32_file;
 int             fat32openroot(char*, struct fat32_file*);
 int             fat32openpath(char*, struct fat32_file*);
@@ -120,7 +125,7 @@ void            vfsclose(struct vnode*);
 int             vfsread(struct vnode*, int, uint64, uint, uint);
 int             vfswrite(struct vnode*, int, uint64, uint, uint);
 int             vfsstat(struct vnode*, struct stat*);
-int             vfsmount(char*, char*, int);
+int             vfsmount(char*, char*, char*, int);
 
 // kalloc.c
 void*           kalloc(void);
@@ -206,11 +211,14 @@ int             ksync_destroy(int);
 // net.c
 void            netinit(void);
 int             net_udp_bind(int);
+int             net_udp_bind_kernel(int);
 int             net_udp_unbind(int);
 int             net_udp_send(uint32, int, int, uint64, int);
+int             net_udp_send_kernel(uint32, int, int, void*, int);
 int             net_udp_recv(int, uint64, uint64, uint64, int);
 int             net_udp_tryrecv(int, uint64, uint64, uint64, int);
 int             net_udp_recv_timeout(int, uint64, uint64, uint64, int, int);
+int             net_udp_recv_kernel_timeout(int, uint32*, uint16*, void*, int, int);
 void            net_udp_timeout_tick(void);
 void            net_udp_closeproc(int);
 int             net_icmp_send(uint32, int, int, uint64, int);

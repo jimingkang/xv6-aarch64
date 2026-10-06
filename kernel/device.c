@@ -293,13 +293,18 @@ chrdev_read(struct file *f, int user_dst, uint64 dst, int n)
 }
 
 int
-chrdev_write(int major, int user_src, uint64 src, int n)
+chrdev_write(struct file *f, int user_src, uint64 src, int n)
 {
   struct file_operations *fops;
+  int major = f->major;
   if(major < 0 || major >= NDEV)
     return -1;
   fops = device_core.chrdevs[major].fops;
-  if(!device_core.chrdevs[major].used || fops == 0 || fops->write == 0)
+  if(!device_core.chrdevs[major].used || fops == 0)
+    return -1;
+  if(fops->fwrite)
+    return fops->fwrite(f, user_src, src, n);
+  if(fops->write == 0)
     return -1;
   return fops->write(user_src, src, n);
 }

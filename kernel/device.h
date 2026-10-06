@@ -31,6 +31,7 @@ struct file_operations {
   int (*open)(struct file *f);
   void (*release)(struct file *f);
   int (*fread)(struct file *f, int user_dst, uint64 dst, int n);
+  int (*fwrite)(struct file *f, int user_src, uint64 src, int n);
 };
 
 struct device;
@@ -75,7 +76,7 @@ int register_chrdev(int major, char *name, struct file_operations *fops);
 int chrdev_open(struct file *f);
 void chrdev_release(struct file *f);
 int chrdev_read(struct file *f, int user_dst, uint64 dst, int n);
-int chrdev_write(int major, int user_src, uint64 src, int n);
+int chrdev_write(struct file *f, int user_src, uint64 src, int n);
 int device_format(char *buf, int max);
 
 #endif

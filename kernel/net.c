@@ -842,8 +842,8 @@ findport(int port)
   return 0;
 }
 
-int
-net_udp_bind(int port)
+static int
+net_udp_bind_owner(int port, int owner)
 {
   int i;
   struct udp_port *p;
@@ -866,7 +866,7 @@ net_udp_bind(int port)
     if(!p->used && p->waiters == 0){
       p->used = 1;
       p->port = port;
-      p->owner = myproc()->pid;
+      p->owner = owner;
       p->waiters = p->queued = 0;
       p->head = p->tail = 0;
       release(&p->lock);
@@ -877,6 +877,20 @@ net_udp_bind(int port)
   }
   release(&porttable_lock);
   return -1;
+}
+
+int
+net_udp_bind(int port)
+{
+  return net_udp_bind_owner(port, myproc()->pid);
+}
+
+int
+net_udp_bind_kernel(int port)
+{
+  // Owner zero is not matched by net_udp_closeproc(), so the binding
+  // survives the process that first performs a NetFS lookup.
+  return net_udp_bind_owner(port, 0);
 }
 
 int
@@ -1727,8 +1741,9 @@ net_icmp_recv(int id, uint64 srcaddr, uint64 seqaddr, uint64 uaddr, int maxlen)
   return n;
 }
 
-int
-net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
+static int
+net_udp_send_copy(uint32 dst, int sport, int dport, int user_src,
+                  uint64 addr, int len)
 {
   uchar *packet;
   struct ethhdr *eth;
@@ -1782,7 +1797,7 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   udp->dport = swap16(dport);
   udp->len = swap16(sizeof(*udp) + len);
   udp->sum = 0; // IPv4 permits a zero UDP checksum.
-  if(copyin(myproc()->vm->pagetable, (char*)(udp + 1), uaddr, len) < 0){
+  if(either_copyin(udp + 1, user_src, addr, len) < 0){
     kfree(packet);
     return -1;
   }
@@ -1799,6 +1814,18 @@ net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
   }
   kfree(packet);
   return -1;
+}
+
+int
+net_udp_send(uint32 dst, int sport, int dport, uint64 uaddr, int len)
+{
+  return net_udp_send_copy(dst, sport, dport, 1, uaddr, len);
+}
+
+int
+net_udp_send_kernel(uint32 dst, int sport, int dport, void *buf, int len)
+{
+  return net_udp_send_copy(dst, sport, dport, 0, (uint64)buf, len);
 }
 
 int
@@ -1939,6 +1966,61 @@ net_udp_recv_timeout(int port, uint64 srcaddr, uint64 sportaddr, uint64 uaddr,
     kfree(d);
     return -1;
   }
+  kfree(d);
+  return n;
+}
+
+// Kernel-buffer variant used by in-kernel RPC clients.  It shares the same
+// UDP queue and timeout/wakeup path as the user syscall, but does not interpret
+// kernel pointers as addresses in the current process page table.
+int
+net_udp_recv_kernel_timeout(int port, uint32 *src, uint16 *sport, void *buf,
+                            int maxlen, int timeout_ticks)
+{
+  struct udp_port *p = findport(port);
+  struct udp_dgram *d;
+  uint deadline;
+  int n;
+
+  if(p == 0 || buf == 0 || maxlen < 0 || timeout_ticks < 0){
+    if(p)
+      release(&p->lock);
+    return -1;
+  }
+  deadline = ticks + timeout_ticks;
+  p->waiters++;
+  while(p->head == 0 && p->used){
+    if(myproc() && myproc()->killed){
+      p->waiters--;
+      release(&p->lock);
+      return -1;
+    }
+    if((int)(ticks - deadline) >= 0){
+      p->waiters--;
+      release(&p->lock);
+      return 0;
+    }
+    sleep(p, &p->lock);
+  }
+  if(!p->used){
+    p->waiters--;
+    release(&p->lock);
+    return -1;
+  }
+  d = p->head;
+  p->head = d->next;
+  if(p->head == 0)
+    p->tail = 0;
+  p->queued--;
+  p->waiters--;
+  release(&p->lock);
+
+  n = d->len < maxlen ? d->len : maxlen;
+  if(src)
+    *src = d->src;
+  if(sport)
+    *sport = d->sport;
+  memmove(buf, d->data, n);
   kfree(d);
   return n;
 }

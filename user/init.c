@@ -98,6 +98,7 @@ main(void)
   mknod("dev/ttyS0", TTYS0, 0);
   mknod("dev/input/event0", INPUT, 0);
   mknod("dev/video0", CAMERA, 0);
+  mknod("dev/sdroot", ROOTUPDATE, 0);
   if(open("/dev/ttyS0", O_RDWR) < 0 &&
      open("/dev/console", O_RDWR) < 0)
     exit(1);
@@ -110,6 +111,7 @@ main(void)
   mkdir("boot");
   mkdir("mnt");
   mkdir("mnt/ext2");
+  mkdir("mnt/net");
   mkdir("etc");
   mkdir("root");
   mkdir("bin");
@@ -121,7 +123,8 @@ main(void)
   create_config("etc/fstab",
                 "proc /proc procfs ro 0 0\n"
                 "bootfs /boot fat32 rw 0 0\n"
-                "ext2 /mnt/ext2 ext2 ro 0 0\n");
+                "ext2 /mnt/ext2 ext2 ro 0 0\n"
+                "192.168.0.195:5640 /mnt/net netfs ro 0 0\n");
   create_config("etc/wifi.conf",
                 "ssid=TP-Link_B114\n"
                 "psk=Minghua123\n");

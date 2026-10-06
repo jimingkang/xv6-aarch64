@@ -12,6 +12,7 @@
 #include "stat.h"
 #include "ext2.h"
 #include "fat32.h"
+#include "netfs.h"
 #include "defs.h"
 #include "vfs.h"
 #include "device.h"
@@ -51,7 +52,7 @@ static struct {
   struct vnode nodes[NFILE];
 } vnodes;
 
-#define NMOUNT 4
+#define NMOUNT 8
 struct vfs_mount {
   int used;
   char path[MAXPATH];
@@ -168,6 +169,40 @@ static struct vnode_ops fat32_ops = {
   .stat = fat_vstat, .read = fat_vread, .readdir = fat_vreaddir,
   .write = fat_vwrite, .create = fat_vcreate, .truncate = fat_vtruncate,
   .rename = fat_vrename,
+};
+
+static int
+netfs_vstat(char *path, struct stat *st)
+{
+  return netfsstat(path, st);
+}
+
+static int
+netfs_vread(char *path, uint64 off, void *dst, int n)
+{
+  return netfsread(path, off, dst, n);
+}
+
+static int
+netfs_vreaddir(char *path, int index, void *arg)
+{
+  struct netfs_dirent ne;
+  struct vfs_dirent *de = arg;
+  int r = netfsreaddir(path, index, &ne);
+  if(r <= 0)
+    return r;
+  memset(de, 0, sizeof(*de));
+  de->ino = ne.ino;
+  de->size = ne.size;
+  de->type = ne.type;
+  safestrcpy(de->name, ne.name, sizeof(de->name));
+  return 1;
+}
+
+static struct vnode_ops netfs_ops = {
+  .stat = netfs_vstat,
+  .read = netfs_vread,
+  .readdir = netfs_vreaddir,
 };
 
 static int
@@ -517,7 +552,7 @@ mountops(char *path, struct vnode_ops *ops, int readonly)
 }
 
 int
-vfsmount(char *path, char *fstype, int flags)
+vfsmount(char *source, char *path, char *fstype, int flags)
 {
   struct vnode_ops *ops;
   int readonly = (flags & VFS_MOUNT_RDONLY) != 0;
@@ -529,6 +564,9 @@ vfsmount(char *path, char *fstype, int flags)
     ops = &fat32_ops;
   else if(streq(fstype, "ext2") && ext2ready())
     ops = &ext2_ops;
+  else if(streq(fstype, "netfs") && readonly &&
+          netfs_configure(source) == 0)
+    ops = &netfs_ops;
   else
     return -1;
   if(!readonly && ops != &fat32_ops)
@@ -571,6 +609,7 @@ vfsinit(void)
 {
   initlock(&vnodes.lock, "vnodes");
   memset(mounts, 0, sizeof(mounts));
+  netfsinit();
   printf("vfs: native root rw; waiting for /etc/fstab mounts\n");
 }
 

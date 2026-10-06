@@ -48,3 +48,4 @@ struct inode {
 #define TTYS0   3   // Mini UART terminal (/dev/ttyS0)
 #define INPUT   4   // input subsystem evdev (/dev/input/event0)
 #define CAMERA  5   // Unicam CSI-2 camera (/dev/video0)
+#define ROOTUPDATE 6 // guarded raw-root updater (/dev/sdroot)

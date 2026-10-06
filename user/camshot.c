@@ -1,8 +1,10 @@
-// camshot: capture one frame from /dev/video0 and save it as a BMP.
+// camshot: capture one frame from /dev/video0 and save it as BMP or JPEG.
 //
-//   camshot [-o OUT.bmp] [-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]
+//   camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
+//           [-t PATTERN] [-s] [-w]
 //
-//   -o  BMP file to write (default /boot/camera.bmp)
+//   -o  output selected by .bmp/.jpg/.jpeg suffix (default /boot/camera.bmp)
+//   -q  JPEG quality 1..100 (default 75)
 //   -r  also save the raw frame: struct cam_frame_hdr + packed RAW10
 //   -i  convert a raw frame saved with -r instead of capturing
 //   -t  OV5647 test pattern: 1 colour bars, 2 colour squares, 3 random
@@ -22,6 +24,7 @@
 #include "kernel/types.h"
 #include "kernel/fcntl.h"
 #include "user/user.h"
+#include "user/jpeg.h"
 #include "kernel/camera.h"
 
 #define BLACK 16                      // black level, 10-bit units (OV5647)
@@ -130,11 +133,48 @@ put32(uchar *p, uint v)
   p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24;
 }
 
+struct convert {
+  int half;
+  uint gain_r;
+  uint gain_b;
+  uint level;
+};
+
+static void
+output_pixel(void *arg, int x, int y, uchar *red, uchar *green, uchar *blue)
+{
+  struct convert *c = arg;
+  int r, g, b;
+  if(c->half){
+    int v[3] = { 0, 0, 0 };
+    for(int i = 0; i < 4; i++)
+      v[bayer[i]] += P(2 * x + (i & 1), 2 * y + (i >> 1));
+    r = v[R];
+    g = v[G] / 2;
+    b = v[B];
+  } else {
+    demosaic(x, y, &r, &g, &b);
+  }
+  uint lr = ((uint)r * c->gain_r / 256) * c->level / 256 / 4;
+  uint lg = (uint)g * c->level / 256 / 4;
+  uint lb = ((uint)b * c->gain_b / 256) * c->level / 256 / 4;
+  *red = gamma22[lr > 255 ? 255 : lr];
+  *green = gamma22[lg > 255 ? 255 : lg];
+  *blue = gamma22[lb > 255 ? 255 : lb];
+}
+
+static int
+endswith(char *path, char *suffix)
+{
+  int n = strlen(path), m = strlen(suffix);
+  return n >= m && strcmp(path + n - m, suffix) == 0;
+}
+
 static void
 usage(void)
 {
-  fprintf(2, "usage: camshot [-o OUT.bmp] [-r OUT.raw] [-i IN.raw] "
-             "[-t PATTERN] [-s] [-w]\n");
+  fprintf(2, "usage: camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] "
+             "[-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]\n");
   exit(1);
 }
 
@@ -142,12 +182,13 @@ int
 main(int argc, char *argv[])
 {
   char *out = "/boot/camera.bmp", *raw = 0, *in = 0;
-  int pattern = 0, wb = 1, half = 0, fd, n;
+  int pattern = 0, wb = 1, half = 0, quality = 75, fd, n;
 
-  printf("camshot: converter fixed-pattern-v2 fat-progress batch16\n");
+  printf("camshot: converter jpeg420-v1 bmp-batch16\n");
 
   for(int i = 1; i < argc; i++){
     if(strcmp(argv[i], "-o") == 0 && i + 1 < argc) out = argv[++i];
+    else if(strcmp(argv[i], "-q") == 0 && i + 1 < argc) quality = atoi(argv[++i]);
     else if(strcmp(argv[i], "-r") == 0 && i + 1 < argc) raw = argv[++i];
     else if(strcmp(argv[i], "-i") == 0 && i + 1 < argc) in = argv[++i];
     else if(strcmp(argv[i], "-t") == 0 && i + 1 < argc) pattern = atoi(argv[++i]);
@@ -155,7 +196,7 @@ main(int argc, char *argv[])
     else if(strcmp(argv[i], "-s") == 0) half = 1;
     else usage();
   }
-  if(pattern < 0 || pattern > 3)
+  if(pattern < 0 || pattern > 3 || quality < 1 || quality > 100)
     usage();
 
   uchar *frame = malloc(CAM_READ_MAX);
@@ -280,8 +321,31 @@ main(int argc, char *argv[])
     level = 1023 * 256 / p99;                      // 8.8
   }
 
-  // 24-bit BMP, rows bottom-up, BGR, each row padded to 4 bytes.
   int ow = half ? W / 2 : W, oh = half ? H / 2 : H;
+  struct convert conversion = { half, gain_r, gain_b, level };
+  if(endswith(out, ".jpg") || endswith(out, ".jpeg")){
+    printf("camshot: encoding baseline JPEG 4:2:0 quality=%d -> %s\n",
+           quality, out);
+    int ofd = open(out, O_CREATE | O_WRONLY | O_TRUNC);
+    uint jpeg_bytes = 0;
+    if(ofd < 0 || jpeg_encode(ofd, ow, oh, quality, output_pixel,
+                              &conversion, &jpeg_bytes) < 0){
+      fprintf(2, "camshot: JPEG write failed: %s\n", out);
+      if(ofd >= 0)
+        close(ofd);
+      exit(1);
+    }
+    close(ofd);
+    printf("camshot: %dx%d frame %d, JPEG quality=%d, %d bytes -> %s\n",
+           ow, oh, seq, quality, jpeg_bytes, out);
+    exit(0);
+  }
+  if(!endswith(out, ".bmp")){
+    fprintf(2, "camshot: output suffix must be .bmp, .jpg or .jpeg\n");
+    exit(1);
+  }
+
+  // 24-bit BMP, rows bottom-up, BGR, each row padded to 4 bytes.
   int row = (ow * 3 + 3) & ~3, img = row * oh;
   uchar bmp[54];
   memset(bmp, 0, sizeof(bmp));
@@ -322,24 +386,11 @@ main(int argc, char *argv[])
     uchar *line = lines + batch_rows * row;
     memset(line, 0, row);
     for(int x = 0; x < ow; x++){
-      int r, g, b;
-      if(half){                     // superpixel: one 2x2 Bayer block
-        int v[3] = { 0, 0, 0 };
-        for(int i = 0; i < 4; i++)
-          v[bayer[i]] += P(2 * x + (i & 1), 2 * y + (i >> 1));
-        r = v[R];
-        g = v[G] / 2;
-        b = v[B];
-      } else {
-        demosaic(x, y, &r, &g, &b);
-      }
-      // 10-bit -> 8-bit linear with WB and level, then gamma.
-      uint lr = ((uint)r * gain_r / 256) * level / 256 / 4;
-      uint lg = (uint)g * level / 256 / 4;
-      uint lb = ((uint)b * gain_b / 256) * level / 256 / 4;
-      line[x * 3 + 0] = gamma22[lb > 255 ? 255 : lb];
-      line[x * 3 + 1] = gamma22[lg > 255 ? 255 : lg];
-      line[x * 3 + 2] = gamma22[lr > 255 ? 255 : lr];
+      uchar r, g, b;
+      output_pixel(&conversion, x, y, &r, &g, &b);
+      line[x * 3 + 0] = b;
+      line[x * 3 + 1] = g;
+      line[x * 3 + 2] = r;
     }
     batch_rows++;
     if((batch_rows == BMP_BATCH_ROWS || y == 0) &&
