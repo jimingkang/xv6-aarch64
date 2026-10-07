@@ -8,12 +8,14 @@
   \item 接入 VFS：按 inode 打开、孤儿 inode
   \item 持久化：\code{sdflush()} 写屏障
   \item 外置事务日志 xjournal：格式、提交协议、崩溃恢复
-  \item 用 WAL 程序和随机断电做测试
+  \item 源码组织与编译，用 WAL 程序和随机断电做测试
+  \item 在 MBR 卡上用 \code{fdisk} 分出 ext2 分区，用 \code{mke2fs} 格式化
+  \item 安装到真机，以及一次“旧内核”问题的调试
 \end{introduction}
 
-前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致。代码在 \file{kernel/ext2.c}、\file{kernel/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
+前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2 移植：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致；从驱动原理、编译测试，一直到给真卡分区、格式化和上机调试。代码在 \file{kernel/ext2.c}、\file{kernel/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
 
-\section{ext2 读写与外置事务日志}
+\section{ext2 移植}
 \label{sec:ext2}
 
 \subsection{动机与分区布局}
@@ -377,6 +379,46 @@ int ext2rename(char *oldpath, char *newpath) {
 
 最后，第一次写 ext2 时，\code{mark\_write\_session\_dirty()} 绕过日志直接清除 superblock 的 \code{VALID\_FS} 位并 flush。驱动还没有 \code{umount}，从来不会把它置回去，所以开发机上的 \code{e2fsck} 总会做一次完整检查。
 
+\subsection{源码组织与编译}
+\label{sec:ext2-build}
+
+ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（表~\ref{tab:ext2-files}）。除了 \file{ext2.c} 和 \file{xjournal.c}，另外几处改动是为了让 ext2 真正可用：块设备层要提供写屏障，VFS 要支持按 inode 打开，\code{exec} 和当前目录要能跨过挂载点（第~\ref{sec:vfs-cwd} 节）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{ext2 移植涉及的文件}
+  \label{tab:ext2-files}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    文件 & 作用 \\
+    \midrule
+    \file{kernel/ext2.c} & superblock 检查、inode 读写、直接到三级间接块、位图分配、目录项、事务封装、打开表与孤儿回收 \\
+    \file{kernel/xjournal.c} & 外置事务日志：事务缓冲、四步提交、启动恢复 \\
+    \file{kernel/rootdev.c} & \code{rootdev\_raw\_info()} 告诉 ext2 p2 的位置，日志就放在 xv6 镜像之后 \\
+    \file{kernel/sd.c} & \code{sdflush()}：\code{dsb} 加 CMD13 轮询，作为持久化边界 \\
+    \file{kernel/vfs.c} & 句柄型 vnode：\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate} \\
+    \file{kernel/exec.c}、\file{kernel/sysfile.c} & \code{exec} 从 vnode 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
+    \file{user/waltest.c} & WAL 示例与语义、压力、断电测试 \\
+    \file{Makefile} & \code{xjournal.o}、\code{rootdev.o}；\code{fs\_ext2.img} 与 \code{install-rpi3-ext2} 目标 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+编译不需要额外步骤，\code{make} 会同时生成内核镜像 \file{kernel/kernel8-xv6\_wifi.img} 和带 \code{waltest} 的根文件系统 \file{fs.img}。与 ext2 有关的构建变量如下：
+
+\begin{shcode}
+RPI3_EXT2_DEV ?=              # ext2 分区，例如 /dev/rdisk4s3；默认为空，防止误写整卡
+EXT2_IMAGE    ?= fs_ext2.img  # 可选：在开发机上预先格式化的 ext2 镜像
+EXT2_SIZE     ?= 32M
+EXT2_LABEL    ?= xv6-linux
+MKE2FS        ?= ...          # 依次查找 PATH、/opt/homebrew 与 /usr/local 下的 e2fsprogs
+\end{shcode}
+
+\code{e2fsprogs} 在 macOS 上用 Homebrew 安装（\code{brew install e2fsprogs}）。它是一个“keg-only”包，\code{mke2fs} 不在默认的 \code{PATH} 里，所以 \code{Makefile} 会自己去 \file{/opt/homebrew/opt/e2fsprogs/sbin} 下找。
+
+开发阶段先在 QEMU 里测试：用宿主机上的分区和格式化工具做一张与真机分区布局相同的 256\,MiB 镜像（p1 FAT32，p2 写入 \file{fs.img}，p3 为 ext2），通过 \code{-drive if=sd} 挂给 \code{raspi3b} 机器。断电测试就是在这张镜像上做的（下一小节）。
+
 \subsection{测试：WAL 程序与随机断电}
 
 \code{user/waltest.c} 是一个极小的“数据库”：数据文件 \code{data.db} 里存一个值，修改时先写一条 redo 记录到 \code{redo.wal}。每条记录带魔数、事务号和校验和，提交顺序是：
@@ -422,27 +464,182 @@ ext2: p2 has no ext superblock
 ext2: p3 ready rw start=215040 sectors=309248 block=4096 groups=2
 \end{txtcode}
 
-（QEMU 镜像的 p2 较小，日志起点是 198656；真机上应为 274432。）
+（QEMU 镜像的 p2 起点是 133120，所以日志起点是 $133120 + 65536 = 198656$；真机上的数字见第~\ref{sec:ext2-install} 节。）
 
-\subsection{在真机上使用}
+\subsection{给 SD 卡分出 ext2 分区}
+\label{sec:ext2-part}
 
-p3 要格式化成不带 ext4 特性的 ext2。比第~\ref{chap:fs} 章“烧录 SD 卡”一节里的命令多指定几个特性开关更稳妥：
+新卡可以按第~\ref{chap:fs} 章“烧录 SD 卡”一节，用 \code{diskutil partitionDisk} 一次建好四个分区。本小节记录的是另一种更常见的情况：卡上已经装好 xv6，p2 一直占到卡尾，需要从中腾出一个 p3。
+
+\paragraph{为什么不用 \code{diskutil}.} \code{diskutil addPartition} 只能在 GPT 分区表上新增分区，而树莓派 3 的 Boot ROM 只认 MBR；\code{diskutil resizeVolume} 也缩不了 p2，因为 macOS 不认识 xv6 的格式。MBR 只是第 0 扇区里的 4 个 16 字节表项，用 macOS 自带的 \code{fdisk -e} 直接改表项即可：既不移动数据，也不重写分区里的任何扇区。
+
+\paragraph{先看清现状.} 这张卡共 250\,347\,520 个扇区（约 119\,GiB）：
+
+\begin{txtcode}
+$ sudo fdisk /dev/disk4
+Disk: /dev/disk4        geometry: 15583/255/63 [250347520 sectors]
+ #: id  cyl  hd sec -  cyl  hd sec [     start -       size]
+ 1: 0C  128   0   1 - 1023   3  32 [     16384 -    1048576] Win95 FAT32L
+ 2: 83 1023   3  32 - 1023 127  63 [   1064960 -  249282560] Linux files*
+ 3: 00    0   0   0 -    0   0   0 [         0 -          0] unused
+ 4: 00    0   0   0 -    0   0   0 [         0 -          0] unused
+\end{txtcode}
+
+p2 虽然占了 119\,GiB，xv6 真正用到的只有开头 65\,536 个扇区的镜像和紧随其后的 1034 个扇区日志。缩小表项之前，必须确认 p2 真的是 xv6 而不是 Raspberry Pi OS 的 ext4，并做好备份：
+
+\begin{shcode}
+sudo dd if=/dev/rdisk4s2 bs=512 skip=2 count=1 2>/dev/null | xxd | head -1
+# xv6：以 4030 2010 0080 0000 开头（FSMAGIC 0x10203040，FSSIZE 32768）
+sudo dd if=/dev/rdisk4s2 of=~/xv6fs-p2-backup.img bs=512 count=66570
+\end{shcode}
+
+\paragraph{新布局.} p2 的起点不变，只把大小改成 400\,MiB；p3 从下一个 2048 对齐的扇区开始，一直到卡尾（表~\ref{tab:ext2-parts}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{加入 p3 之后的分区表}
+  \label{tab:ext2-parts}
+  \small
+  \begin{tabular}{@{}llrrrl@{}}
+    \toprule
+    分区 & 类型 & 起始 LBA & 扇区数 & 容量 & 用途 \\
+    \midrule
+    p1 & 0x0C & 16384 & 1048576 & 512\,MiB & BOOTFS，不变 \\
+    p2 & 0x7F & 1064960 & 819200 & 400\,MiB & xv6 根，只缩小表项 \\
+    p3 & 0x83 & 1884160 & 248463360 & 118.5\,GiB & ext2 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+$1884160 + 248463360 = 250347520$，恰好用到卡尾。p2 的类型改成 \code{0x7F} 只是为了标明用途：\code{rootdev\_init()} 优先选 0x7f，\code{ext2init()} 只尝试 0x83，就不会再去 p2 里找 ext2 superblock。
+
+\paragraph{用 \code{fdisk -e} 修改.}
+
+\begin{txtcode}
+$ diskutil unmountDisk /dev/disk4
+$ sudo fdisk -e /dev/disk4
+fdisk: could not open MBR file /usr/standalone/i386/boot0: No such file or directory
+fdisk: 1> edit 2
+         Partition id: 7F
+         Do you wish to edit in CHS mode? n
+         Partition offset: 1064960
+         Partition size: 819200
+fdisk:*1> edit 3
+         Partition id: 83
+         Do you wish to edit in CHS mode? n
+         Partition offset: 1884160
+         Partition size: 248463360
+fdisk:*1> print
+fdisk:*1> write
+Device could not be accessed exclusively.
+A reboot will be needed for changes to take effect. OK? [n] y
+Writing MBR at offset 0.
+fdisk: 1> quit
+\end{txtcode}
+
+两条提示都无害。第一条说找不到 Intel Mac 的引导代码模板 \file{boot0}，只有 \code{update}、\code{reinit} 才会用到它，而这两个命令一个会覆盖引导代码，一个会清空分区表，这里都不能用；\code{edit} 和 \code{write} 会保留原有的引导代码和磁盘签名。第二条是因为 macOS 仍持有这张卡，回答 \code{y} 后把卡弹出、重新插入，系统就会重读分区表，不必重启电脑。
+
+\subsection{格式化 ext2}
+\label{sec:ext2-mkfs}
+
+p3 必须格式化成本驱动认识的 ext2。直接对整个分区运行 \code{mke2fs}：
 
 \begin{shcode}
 diskutil unmount /dev/disk4s3
-sudo mke2fs -F -t ext2 -b 4096 \
+sudo /opt/homebrew/opt/e2fsprogs/sbin/mke2fs -F -t ext2 -b 4096 \
   -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
   -L xv6-linux /dev/rdisk4s3
-sudo e2fsck -fn /dev/rdisk4s3
+sudo /opt/homebrew/opt/e2fsprogs/sbin/e2fsck -fn /dev/rdisk4s3
+sudo /opt/homebrew/opt/e2fsprogs/sbin/dumpe2fs -h /dev/rdisk4s3   # 查看特性位
 \end{shcode}
 
-\code{/etc/fstab} 里 ext2 一行要从 \code{ro} 改成 \code{rw}（\code{init} 不会覆盖已有的 \code{fstab}）。正常的启动日志：
+\code{-O} 里的每一项都对应 \code{setup\_ext2()} 的一条检查（表~\ref{tab:mke2fs-opts}）。新版 \code{mke2fs} 的默认配置偏向 ext4，所以哪怕指定了 \code{-t ext2}，也最好把不支持的特性明确关掉。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{mke2fs} 特性选项与驱动的对应关系}
+  \label{tab:mke2fs-opts}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    选项 & 特性位 & 驱动的态度 \\
+    \midrule
+    \code{-b 4096} & 块大小 & 支持 1/2/4\,KiB；4\,KiB 时间接块能放 1024 个块号 \\
+    \code{filetype} & incompat 0x0002 & 支持：目录项里带文件类型 \\
+    \code{sparse\_super} & ro\_compat 0x0001 & 支持：只在部分块组保存 superblock 备份 \\
+    \code{large\_file} & ro\_compat 0x0002 & 支持：文件大小的高 32 位 \\
+    \code{\^{}has\_journal} & compat 0x0004 & 必须关：有 ext3 日志就拒绝挂载 \\
+    \code{\^{}extent} & incompat 0x0040 & 必须关：不认识 ext4 extent 树 \\
+    \code{\^{}64bit} & incompat 0x0080 & 必须关：块号和组描述符都按 32 位解释 \\
+    \code{\^{}metadata\_csum} & ro\_compat 0x0400 & 必须关：不维护元数据校验和 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{不要把 32\,MiB 镜像写进大分区.} \code{Makefile} 里还有一个 \code{install-rpi3-ext2} 目标，它把开发机上预先格式化好的 \file{fs\_ext2.img} 用 \code{dd} 写进分区。这个镜像由 \code{truncate -s 32M} 加 \code{mke2fs} 生成，里面只有 \code{.}、\code{..} 和 \code{lost+found}，不含任何用户程序，也不是 xv6 文件系统。但它只有 32\,MiB：写进 118\,GiB 的 p3 之后，superblock 记的仍是 8192 个块，分区的其余空间全部浪费，启动日志里会出现 \code{groups=1}。要使用整个分区，应当像上面那样直接对分区运行 \code{mke2fs}；已经写了镜像的话，可以用 \code{resize2fs} 扩展：
+
+\begin{shcode}
+sudo /opt/homebrew/opt/e2fsprogs/sbin/e2fsck -f /dev/rdisk4s3
+sudo /opt/homebrew/opt/e2fsprogs/sbin/resize2fs /dev/rdisk4s3
+\end{shcode}
+
+扩展后应有 $248463360 / 8 = 31\,057\,920$ 个块，按每组 32\,768 块计共 948 个块组。另外，\code{fs\_ext2.img} 这个目标只依赖文件名，镜像已经存在时改了 \code{EXT2\_SIZE} 也不会重新生成，要先删掉旧文件。
+
+\subsection{安装与真机调试}
+\label{sec:ext2-install}
+
+内核和根文件系统一起安装：
+
+\begin{shcode}
+make
+make install-rpi3 RPI3_XV6_DEV=/dev/rdisk4s2   # BOOTFS 挂载在 /Volumes/bootfs
+\end{shcode}
+
+\code{install-rpi3} 把内核、\file{config.txt} 和 Wi-Fi 固件复制到 BOOTFS，并把 \file{fs.img} 写入 \code{RPI3\_XV6\_DEV} 指定的 p2；它不会碰 p3 上的 ext2，也不会碰 p2 尾部的日志区。xv6 启动后，\code{/etc/fstab} 中 ext2 一行应为 \code{rw}（\code{init} 不会覆盖已有的 \code{fstab}，老卡要用 \code{edit /etc/fstab} 手工改一次）。
+
+\paragraph{日志输出.} 第一次插卡启动时看到的是：
 
 \begin{txtcode}
-xjournal: ready lba=274432 capacity=1024 sectors
-ext2: p3 ready rw start=1030144 sectors=... block=4096 groups=...
+ext2: mounted p3 read-only start=1884160 sectors=248463360 block=4096 groups=1
+$ ls /mnt
+.                              1 60 96
+..                             1 1 1024
+ext2                           1 2 4096
+$ cd /mnt
+exec cd failed
+$ ls /mnt/ext2
+exec ls failed
+\end{txtcode}
+
+\paragraph{问题分析.} 这几行日志里有三条线索：
+
+\begin{itemize}
+  \item \code{ext2: mounted p\%d read-only} 这句只在早期的只读 ext2 驱动里出现过，当前源码打印的是 \code{ext2: p\%d ready rw ...}，前面还应有一行 \code{xjournal: ready}。在仓库里搜索这个格式串，只能在旧提交里找到——卡上 BOOTFS 中的内核根本不是新编译的那个；
+  \item \code{groups=1} 说明 p3 上是那个 32\,MiB 的 \file{fs\_ext2.img}，而不是整分区的 ext2；
+  \item \code{ls /mnt} 显示 \code{ext2} 的 inode 号为 2、大小为 4096——这是 ext2 根目录，说明挂载本身是成功的。\code{cd} 和 \code{exec ls} 的失败也与 ext2 无关：\code{ls} 刚刚还成功列出了 \code{/mnt}，失败发生在执行命令这一步，还没有访问 ext2。
+\end{itemize}
+
+\paragraph{解决方案.} 用 \code{make install-rpi3 RPI3\_XV6\_DEV=/dev/rdisk4s2} 重新安装内核和 p2 根文件系统后，\code{cd /mnt}、\code{ls /mnt/ext2} 恢复正常，再按上一小节把 p3 改成整分区 ext2。新内核的启动日志应为：
+
+\begin{txtcode}
+rootdev: p2 boot=no type=0x7f (xv6 raw filesystem)
+rootdev: raw xv6 root p2 lba=1064960 sectors=819200 size=400 MiB
+rootdev: bootfs p1 lba=16384 mounted as FAT32
+xjournal: ready lba=1130496 capacity=1024 sectors
+ext2: p3 ready rw start=1884160 sectors=248463360 block=4096 groups=948
 vfs: mounted ext2 at /mnt/ext2 read-write
 \end{txtcode}
+
+日志起点 $1130496 = 1064960 + 65536$，即 p2 起点加上 xv6 镜像的长度。最后在真机上跑一遍：
+
+\begin{shcode}
+cd /mnt/ext2
+waltest init
+waltest fsops
+waltest semantics
+\end{shcode}
+
+这次调试的教训是：换了内核却没看启动日志的第一行，很容易把旧内核的问题算到新代码头上。每次安装后先核对一两条只有新版本才会打印的日志（这里是 \code{xjournal: ready} 和 \code{ready rw}），再开始测试。
 
 \subsection{当前边界}
 

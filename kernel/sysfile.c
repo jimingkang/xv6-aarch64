@@ -489,6 +489,43 @@ sys_read(void)
   return fileread(f, p, n);
 }
 
+// Minimal device mmap.  Filesystems do not yet provide page-cache-backed
+// mappings; a character driver owns the selected virtual address and physical
+// pages.  This is sufficient for coherent DMA mappings such as /dev/video0.
+uint64
+sys_mmap(void)
+{
+  struct file *f;
+  uint64 addr, len, off;
+  int prot, flags;
+
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 ||
+     argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+     argfd(4, 0, &f) < 0 || argaddr(5, &off) < 0 ||
+     f->type != FD_DEVICE)
+    return (uint64)-1;
+  return chrdev_mmap(f, addr, len, prot, flags, off);
+}
+
+uint64
+sys_munmap(void)
+{
+  struct file *f;
+  uint64 addr, len;
+
+  // The mapping callback is selected by the mapping address.  For now only
+  // /dev/video0 supplies mmap, so find an open camera descriptor belonging to
+  // this process rather than adding a global VMA table prematurely.
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
+    return -1;
+  for(int fd = 0; fd < NOFILE; fd++){
+    f = myproc()->ofile[fd];
+    if(f && f->type == FD_DEVICE && f->major == CAMERA)
+      return chrdev_munmap(f, addr, len);
+  }
+  return camera_munmap_current(addr, len);
+}
+
 uint64
 sys_write(void)
 {

@@ -7,8 +7,9 @@
 用户态 `camshot` 把原始 Bayer 数据转换成 BMP 或基线 JPEG。这与 Linux 主线的
 `bcm2835-unicam` + `ov5647` 驱动是同一种结构，本驱动的寄存器配置也都取自这两个 Linux 驱动。
 
-当前状态：已经编译通过，并在 QEMU 上验证了“没有摄像头”时的流程；图像转换部分在主机上用
-合成 RAW10 帧验证过。**真机采集还没有测试过**，第 10 节给出了按顺序排查的步骤。
+当前状态：OV5647 已在 Pi 3 真机完成 SCCB 探测、CSI-2/Unicam RAW10 采集和测试彩图 BMP 输出；
+已验证的真机路径使用轮询完成帧。当前版本进一步加入 CSI1 IRQ 主路径、10 ms watchdog、DMA
+双缓冲及只读 mmap，已通过完整构建，IRQ 主路径仍需烧录后以真机日志确认。
 
 ## 0. 文件
 
@@ -141,6 +142,33 @@ void imx219_init(void) { camsensor_register(&imx219_sensor); }
 ARM 物理地址 = 总线地址 `0x7e......` 换成 `0x3f......`。这些寄存器都在内核已经映射的 16 MB
 外设窗口里。
 
+### 2.1 15 芯排线与 D-PHY
+
+排线本身不是 D-PHY；它只是 15 根铜导体。D-PHY 是 OV5647 内部的高速发送 PHY、差分线路及
+BCM2837 Unicam 内部的接收 PHY 的合称。排线同时承载 D-PHY、低速 SCCB/I2C、控制、电源和地。
+Pi 3 使用的标准 15-pin 接口定义如下（方向以 Pi 主板为准）：
+
+| Pin | 信号 | 含义 |
+|---:|---|---|
+| 1 | GND | 地 |
+| 2 / 3 | CAM_DN0 / CAM_DP0 | D-PHY 数据 lane 0 的负/正差分线，输入到 Pi |
+| 4 | GND | 差分对之间的回流与隔离 |
+| 5 / 6 | CAM_DN1 / CAM_DP1 | D-PHY 数据 lane 1 的负/正差分线，输入到 Pi |
+| 7 | GND | 地 |
+| 8 / 9 | CAM_CN / CAM_CP | D-PHY 时钟 lane 的负/正差分线，输入到 Pi |
+| 10 | GND | 地 |
+| 11 | CAM_IO0 | 3.3 V GPIO，通常用于 active-high power enable |
+| 12 | CAM_IO1 | 3.3 V GPIO，可作时钟、LED 等，取决于模块 |
+| 13 / 14 | SCL / SDA | 3.3 V SCCB/I2C 控制总线；不是 D-PHY lane |
+| 15 | 3V3 | Pi 向相机板供电 |
+
+Pin 1 的方向不能只凭排线蓝色加强片猜测；应按连接器触点和主板丝印确认。官方定义见
+[Raspberry Pi camera connector pinout](https://github.com/raspberrypi/documentation/blob/master/documentation/asciidoc/accessories/camera/advanced.adoc)。
+
+D-PHY 的 P/N 两根线传送互补电压，接收端判断的是差分电压，不是把它们当普通 GPIO 读 0/1。
+低功耗状态使用 LP 电平（停止出流时为 LP-11）；高速传输时 lane 进入 HS 差分模式。两条数据
+lane 并行承载 CSI-2 字节流，clock lane 提供源同步时钟。
+
 ## 3. 启动时探测
 
 `main()` → `ov5647_init()` → `camera_init()`：
@@ -157,6 +185,88 @@ ARM 物理地址 = 总线地址 `0x7e......` 换成 `0x3f......`。这些寄存�
    然后调用 `power_off`，等到 `read()` 时再上电；
 5. 都不成功时打印 `camera: no sensor found (N driver(s) tried)`，`/dev/video0` 的
    `read()` 返回 -1。
+
+### 3.1 摄像头 SCCB/I2C 的电气连接与逐位时序
+
+OV5647 的 `0x36` 是 7 位从机地址。GPIO44/45 选择 ALT1 时，它们分别连接到
+`BSC0.SDA0/SCL0`，由 BSC0 硬件状态机产生时序；切回普通 GPIO INPUT/OUTPUT 时，则由 CPU
+执行 `bb_start()`、`bb_write_byte()`、`bb_read_byte()` 和 `bb_stop()` 逐位产生同一套时序。
+当前 `ov5647_use_bitbang=1`，所以正常的 OV5647 寄存器访问实际走后一条路径：每次传输先由
+`bsc_force_off(0)` 关闭 BSC0，再暂时接管 GPIO44/45，结束后恢复原来的 ALT1 复用。ALT1 只是
+同一个 BSC0 的可选引脚出口，不是另一条 I2C channel；一条总线上可以并联多个地址不同的
+slave，但事务仍由同一把 `i2c_lock` 串行化。
+
+```mermaid
+flowchart LR
+    CPU[CPU / i2c.c] -->|硬件路径：写 A、DLEN、FIFO、C| BSC[BSC0 硬件 I2C master]
+    BSC -->|GPIO44/45 = ALT1| BUS[SDA / SCL]
+    CPU -->|当前路径：切换 INPUT/OUTPUT| GPIO[GPIO bit-bang]
+    GPIO -->|GPIO44/45 = 普通 GPIO| BUS
+    BUS -->|7-bit address 0x36| OV[OV5647 SCCB slave]
+```
+
+软件路径用 GPIO 方向切换模拟开漏，而不是主动输出高电平：
+
+| 逻辑状态 | GPIO操作 | 线路上的结果 |
+|---|---|---|
+| 输出 0 | 输出锁存器先清零，再设 `FSEL_OUTPUT` | 主机主动拉低 |
+| 输出 1/释放 | 设 `FSEL_INPUT` | 高阻态，由相机板上的上拉电阻拉高 |
+
+`bb_low(pin)` 实现第一行，`bb_release(pin)` 实现第二行；后者还等待并确认线路真的升高，因此
+SCL 被从设备拉低、排线短路或上拉不足都能以超时暴露出来。与常见 MCU 示例里的推挽 SCL 相比，
+开漏上升沿较慢，却不会出现主机主动输出高电平、从设备同时拉低所造成的驱动冲突，也保留了
+检查 clock stretching 的能力。
+
+总线空闲时 SDA=SCL=1。只有下面两个边沿允许 SDA 在 SCL=1 时改变：
+
+```text
+START：SCL保持高，SDA从高变低
+STOP ：SCL保持高，SDA从低变高
+
+普通数据位：SCL低时设置/释放SDA，SCL升高后接收方采样，再把SCL拉低
+```
+
+对应代码过程是：
+
+```text
+bb_start()
+  release SDA -> release SCL -> low SDA -> low SCL
+
+bb_write_byte(byte)
+  对 bit7..bit0：设置SDA -> SCL高（从机采样）-> SCL低
+  第9拍：主机释放SDA -> SCL高 -> 读取SDA；低=从机ACK，高=NACK
+
+bb_read_byte(&byte, ack)
+  主机释放SDA
+  对 bit7..bit0：SCL高 -> 主机采样SDA -> SCL低
+  第9拍：还有后续字节就由主机拉低SDA发ACK；最后一个字节释放SDA发NACK
+
+bb_stop()
+  low SDA -> release SCL -> release SDA
+```
+
+因此“ACK/NACK 由谁发”取决于数据方向：主机写地址或数据时，OV5647 在第九拍产生 ACK；主机
+读取数据时，主机在第九拍回应，最后一个字节必须 NACK，然后发 STOP。当前驱动没有单独的
+`NoAck()` 函数，NACK 已集成在 `bb_read_byte(..., ack=0)` 中。
+
+OV5647 寄存器地址为 16 位。写 `0x3034 = 0x1a` 的线上字节如下，其中 `0x6c` 是
+`0x36 << 1 | WRITE`：
+
+```text
+START -> 0x6c -> ACK -> 0x30 -> ACK -> 0x34 -> ACK
+      -> 0x1a -> ACK -> STOP
+```
+
+读取芯片 ID 高字节 `0x300a` 时，当前软件 SCCB 使用传感器实测可接受的分离 STOP/START，
+而不是 repeated START；读方向地址是 `0x6d = 0x36 << 1 | READ`：
+
+```text
+START -> 0x6c -> ACK -> 0x30 -> ACK -> 0x0a -> ACK -> STOP
+START -> 0x6d -> ACK -> 0x56 <- NACK -> STOP
+```
+
+这个低速控制口只读写芯片 ID、模式、曝光、增益和 MIPI 开关。图像像素不走 I2C，而是走
+两 lane CSI-2 到 Unicam，再由 Unicam DMA 写入内存，所以 25 kHz 软件 SCCB 不限制拍照帧率。
 
 BSC0 也可以接到 GPIO 0/1（ALT0，HAT ID EEPROM）。为了避免两组引脚同时接在同一个控制器上，
 如果 GPIO 0/1 当前是 ALT0，就先把它们切成输入。
@@ -250,7 +360,7 @@ now=... div=2500 fsel=55 levels=3
 
 ## 4. 拍一帧的完整流程
 
-`read(/dev/video0)` → `cam_capture()`：
+`read(/dev/video0)` → `cam_stream_start()`（首次）→ `cam_grab()`：
 
 | 步骤 | 做什么 |
 |---|---|
@@ -261,19 +371,18 @@ now=... div=2500 fsel=55 levels=3
 | 5 | `unicam_start(&sensor->bus, mode)`：按 Linux `unicam_start_rx()` 配置接收器，DMA 指针先指向 dummy |
 | 6 | 打开 CSI1 中断 |
 | 7 | `sensor->stream_on(mode)`：OV5647 依次写公共寄存器表 → 640x480 模式表 → HTS/VTS/曝光/增益 → VC → 缓存的测试图 → 退出软件待机 → MIPI 开始发送 |
-| 8 | 等待状态变成 `DONE`：每个 xv6 tick（100 ms）醒来一次，中断也会唤醒；最多 4 s |
-| 9 | `sensor->stream_off` → 关中断 → `unicam_stop()`（Linux `unicam_disable()`）→ `sensor->power_off` → 关时钟 → 关电源域 |
-| 10 | 把帧头和数据拷给用户 |
+| 8 | 进程在专用 `&cam.done_count` 等待通道睡眠；CSI1 FS/FE IRQ 是主完成源，10 ms delayed work 只作 watchdog；最多 4 s |
+| 9 | FE 把 ACTIVE 槽放入 DONE 队列；普通 `read` 拷出帧，mmap 模式只返回槽号和帧头 |
+| 10 | 最后一个 `/dev/video0` 引用关闭时，才执行 `sensor->stream_off` → 关中断 → `unicam_stop()` → 断电 |
 
 顺序与 Linux 相同：开始时先启动接收器再让传感器出流，结束时先停传感器再停接收器。
 真机 bring-up 阶段会分别打印 sensor powered、receiver enabled、三组 OV5647 寄存器表以及
 sensor streaming；因此并发的 Wi-Fi/SDIO 错误日志不会再掩盖摄像头实际停在哪个阶段。
 
-首次真机出流时发现，启用尚未验证的 CSI1 legacy IRQ 后 CPU0 可能陷入电平中断，连负责更新
-`ticks` 的 Generic Timer 都得不到执行，于是原本基于 `ticks` 的 4 秒超时也永远不会到达。
-bring-up 版本因此屏蔽 CSI1 IRQ，使用 `CNTVCT_EL0` 作为独立的 4 秒期限，并每 1 ms 轮询一次
-Unicam 状态。这样无论 CSI-2 是否收到帧，都会成功返回或打印 FS/FE/STA/IBWP 诊断；得到成功的
-轮询帧以后再单独验证 legacy IRQ 路由。
+首次真机出流时发现，错误的 CSI1 legacy IRQ 路由可能让 CPU0 陷入电平中断，连负责更新
+`ticks` 的 Generic Timer 都得不到执行。当前版本以 CSI1 IRQ 为主路径，但连续 100 次中断都没有
+Unicam 状态时会屏蔽该 IRQ；独立 `camera_wq` 每 10 ms 运行一次同一服务函数作为 watchdog，超时
+使用不依赖 timer IRQ 的 `CNTVCT_EL0`。因此错误 IRQ 不再造成无限等待。
 
 当日志显示
 
@@ -281,9 +390,9 @@ Unicam 状态。这样无论 CSI-2 是否收到帧，都会成功返回或打印
 unicam: frame captured by polling; CSI1 IRQ 39 intentionally masked
 ```
 
-表示完整的 sensor → CSI-2 → Unicam → DMA 路径已经成功，只是 bring-up 版本主动没有打开
-legacy IRQ 39；它不表示硬件中断已经打开却丢失。IRQ 路由验证应作为下一阶段单独进行，并始终
-保留 `CNTVCT_EL0` 的有界轮询作为兜底，避免错误的电平中断再次饿死 CPU0。
+表示完整的 sensor → CSI-2 → Unicam → DMA 路径已经成功，但 IRQ 39 已被显式关闭；如果显示
+`did not fire`，则本次帧由 watchdog 收到而硬件 IRQ 没有到达。两种情况都保留有界兜底，不影响
+用户进程睡眠等待。
 
 ## 5. Unicam 配置要点
 
@@ -303,17 +412,62 @@ legacy IRQ 39；它不表示硬件中断已经打开却丢失。IRQ 路由验证
 | `IDI0` | `0x2b` | VC 0，数据类型 RAW10 |
 | `ICTL` | `FSIE FEIE IBOB`，再 `LIP=1`、`TFC=1` | 帧开始/结束中断；装载指针；与下一个帧开始同步 |
 
+### 5.1 FIFO、DMA 缓冲和帧通知
+
+这里有两种容易混淆的“buffer”：
+
+1. **Unicam 内部 FIFO**：位于 D-PHY/CSI-2 包解析器与 AXI 写主机之间，是 SoC 内部的小容量
+   硬件队列。它没有可供软件填写的内存地址，也不是 `kalloc()` 出来的区域。当前代码通过
+   `PRI` 设置 AXI normal/panic 优先级和阈值，通过 `ICTL.IBOB` 选择 image-buffer overflow 行为；
+   `STA.IFO`、`STA.OFO` 分别报告输入/输出 FIFO overflow。`IBLS=800` 是 DDR 行跨度，不是 FIFO
+   大小。本项目可见的寄存器手册没有提供“给 FIFO 分配 N 字节”的接口。
+2. **DDR 图像缓冲**：这是最终保存整帧的内存。当前保留 2 MB `CAMDMA`，其中两个 512 KB 槽
+   组成双缓冲，后面再放 dummy page。CPU 把槽的 bus 起止地址写入 `IBSA0/IBEA0`，Unicam 自己
+   作为 AXI bus master 把 FIFO 中的像素写到 DDR；这条路径不使用通用 BCM DMA channel。
+   `IBWP` 是当前写指针，`IBLS` 是行跨度。Unicam 内部还保存一组 shadow/next 指针，并在 FS
+   到达时锁存，因此软件可以在当前帧写入期间提前排好下一槽。
+
+```mermaid
+flowchart LR
+    TX[OV5647 D-PHY TX] == clock + 2 data lanes ==> RX[Unicam D-PHY RX]
+    RX --> PKT[CSI-2 解串与包解析]
+    PKT --> FIFO[Unicam 内部 FIFO]
+    FIFO --> AXI[Unicam AXI 写主机]
+    AXI --> S0[DDR slot 0]
+    AXI --> S1[DDR slot 1]
+    PKT -->|FS/FE status + IRQ| CPU[unicam_irq / camera_wq]
+    CPU -->|IBSA0/IBEA0: next slot| AXI
+```
+
+OV5647 不通过一根额外 GPIO 通知 Unicam“现在接收”。开始顺序是：CPU 先配置并使能 Unicam，
+再通过 SCCB 清除 OV5647 的 software standby。随后发生：
+
+1. OV5647 的 clock/data lane 从 LP-11 进入 HS，Unicam D-PHY 用 SoT 同步完成时钟恢复和解串；
+2. OV5647 在 data lane 上发送 CSI-2 **Frame Start short packet**（DT `0x00`、VC0）；
+3. Unicam 包解析器识别 FS，置 `ISTA.FSI`，把 shadow `IBSA0/IBEA0` 锁存为本帧地址并开始接收
+   RAW10 long packet（DT `0x2b`）；
+4. 每行像素经内部 FIFO 由 AXI 写主机搬到 DDR；CPU 不逐字节参与；
+5. OV5647 发送 **Frame End short packet**（DT `0x01`），Unicam 置 `ISTA.FEI`/`STA.PI0` 并产生
+   CSI1 IRQ；中断处理把 ACTIVE 槽移入 DONE 队列并唤醒等帧进程。
+
+所以电气层的 LP→HS/SoT 告诉接收 PHY“一段高速 burst 来了”，CSI-2 协议层的 FS/FE short
+packet 才告诉 Unicam“帧从这里开始/结束”。SCCB 只负责预先配置传感器，并不参与逐帧握手。
+
 ## 6. 帧状态机
 
 ```text
-WARMUP ──(第 30 个帧开始，或 1.5 s)──► ARMED ──(下一个帧开始)──► CAPTURE ──(帧结束)──► DONE
-  │ DMA 指向 dummy（大小 0）            │ 写入真缓冲地址            │ 写回 dummy
-  │ 传感器 AEC/AGC 在收敛               │ 下一帧开始时生效          │ 当前帧继续写进真缓冲
+WARMUP ──(第 30 个 FS)──► STREAMING ──read/有空槽──► ARMED
+ dummy                     dummy                         │ 下一个 FS 锁存槽
+                                                        ▼
+              用户持有 DONE 槽 ◄── FE ── CAM_CAPTURE/ACTIVE
+                       │                    │ FS 后预挂另一个 FREE 槽
+                       └─释放──► FREE ──────┘
 ```
 
 关键在于：写进 `IBSA0/IBEA0` 的新地址**要到下一个帧开始才生效**（Linux 也是在帧开始时安排
-“下一帧”的缓冲区）。所以在真缓冲那一帧开始后立刻写回 dummy，缓冲区里就恰好留下一整帧，
-不会被后面的帧覆盖。
+“下一帧”的缓冲区）。当前实现会优先写入另一个 FREE 槽；只有两个槽都处于 ACTIVE、DONE 或
+USER 状态时才写回 dummy。这样前一帧在用户态处理时，下一帧仍可由硬件接收，又不会覆盖用户
+持有的槽。
 
 dummy 的结束地址等于起始地址（大小 0），这是照搬 Linux 的做法：Linux 注释说，循环缓冲模式
 有一个会导致越界写的硬件缺陷，所以 dummy 要按 0 字节来编程。
@@ -322,11 +476,15 @@ dummy 的结束地址等于起始地址（大小 0），这是照搬 Linux 的�
 
 状态机 `unicam_service()` 由两条路径驱动，都在 `cam.lock` 保护下运行：
 
-- **CSI1 中断**（CPU0，GPU IRQ 39）：每个帧开始/结束都会触发，响应最及时；
-- **读者轮询**：`read()` 每个 tick（100 ms）自己调用一次。
+- **主路径：CSI1 中断**（legacy GPU IRQ 39）：FS/FE 到达后立刻推进状态并
+  `wakeup(&cam.done_count)`；首次成功会打印
+  `unicam: frame captured by CSI1 IRQ 39; watchdog remains armed`；
+- **容错路径：`camera_wq` delayed work**：按 10 ms 到期时间调用同一个服务函数，处理
+  没有路由 IRQ 39 的板卡，并唤醒读者检查 4 s 截止时间。
 
-只靠轮询也能拿到完整的一帧：100 ms 内的多个帧开始事件会合并成一次，但 dummy 总是在“某一帧
-正在写入真缓冲”的时候写入，而这一帧会在切换生效前写完。
+`read()` 本身不再执行 `delay_us()` 忙等，而是以 `cam.lock` 调用
+`sleep(&cam.done_count, &cam.lock)`。IRQ 或 watchdog 唤醒它；因此相机等待不会占满一个 Cortex-A53
+核心，也不会因用户拍照长期挤压 SDIO Wi-Fi worker。
 
 中断号 39 来自设备树，没有在真机上验证过。如果它实际属于别的外设，处理函数永远清不掉它，
 CPU0 就会陷在中断里出不来。所以中断只在拍照期间打开，并且连续 100 次没有发现 Unicam 状态时
@@ -336,9 +494,9 @@ CPU0 就会陷在中断里出不来。所以中断只在拍照期间打开，并
 
 | 项目 | 取值 |
 |---|---|
-| 物理地址 | `CAMDMA_PA = 0x07200000`，大小 1 MB |
-| 帧缓冲 | `CAMDMA` 开头，最大 `CAM_MAX_FRAME_BYTES` = 512 KB（OV5647 640x480 用 384000 字节） |
-| dummy | `CAMDMA_PA + CAM_MAX_FRAME_BYTES`（编译期断言保证在 1 MB 之内） |
+| 物理地址 | `CAMDMA_PA = 0x07200000`，大小 2 MB |
+| 帧槽 | 2 个槽，每槽最大 512 KB（OV5647 640x480 实际使用 384000 字节） |
+| dummy | `CAMDMA_PA + 2 * CAM_SLOT_BYTES`，结束地址等于开始地址 |
 | 映射 | `PTE_NORMAL_NC`：非缓存的普通内存 |
 | 总线地址 | `0xC0000000 | phys`，与 `dwc2.c` 的 `DWC2_DMA_BUS` 相同；VideoCore 侧不经过 L2 |
 
@@ -382,8 +540,55 @@ HTS 1852，VTS 504，约 59 帧/秒，Bayer 排列 BGGR。
 - 帧头里的 `format` 同时给出 Bayer 顺序：`CAM_FMT_SBGGR10P`（OV5647）、`SGBRG10P`、
   `SGRBG10P`、`SRGGB10P`（IMX219）；
 - `write(fd, "pattern=N", 9)`：选择之后拍照使用的测试图；传感器不支持时返回 -1；
-- 同一时间只允许一次拍照（睡眠锁），每次 `read()` 都会完整地上电、预热、拍照、断电，
-  大约需要 1 秒。
+- 同一时间只允许一次拍照（睡眠锁 `cam.busy`）；
+- 两个 DMA 槽分别经历 `FREE → NEXT → ACTIVE → DONE → USER → FREE`。FE 上半部只把完成槽
+  放进两项 `doneq` 并唤醒读者；另一个槽可在用户处理前一帧时继续接收。两个槽都未释放时，
+  Unicam 自动回到零长度 dummy，不覆盖用户仍在读取的像素；
+- **连续取流**：第一次 `read()` 给传感器上电、启动 streaming 并预热（约 1 秒），接收器停在
+  零长度的 dummy 缓冲上；第一次取帧后，驱动在两个真实槽间连续排队，只有无 FREE 槽时才
+  暂时回到 dummy；之后的 `read()` 直接取 DONE 槽，不再断电重启；
+  `/dev/video0` 的最后一个引用关闭时（`camrelease()`）才停流断电。因此连续读帧的程序
+  （`camshot -v`、`camserver`）应当一直开着同一个 fd；两个进程分别打开再关闭，会让
+  传感器反复重启。
+
+### 零拷贝 mmap
+
+字符设备现在提供最小的 Linux 风格 `mmap`：
+
+```c
+uchar *dma = mmap(0, CAM_MMAP_BYTES, PROT_READ, MAP_SHARED, fd, 0);
+struct cam_frame_hdr h;
+if(read(fd, &h, sizeof(h)) == sizeof(h)) {
+  const uchar *raw10 = dma + h.reserved * CAM_SLOT_BYTES;
+  // 在下一次 read() 或 close(fd) 前使用 raw10。
+}
+munmap(dma, CAM_MMAP_BYTES);
+```
+
+普通大缓冲 `read()` 保持兼容，仍返回“40 字节帧头 + RAW10”并执行一次 `copyout`。映射成功后，
+传入恰好 40 字节缓冲的 `read()` 是 dequeue：只复制帧头，`reserved` 给出 0/1 槽号，像素直接从
+映射读取。用户持有的槽标记为 `CAM_BUF_USER`，下一次 read 或 close 才归还。
+
+用户映射固定在 `CAM_MMAP_BASE`，权限为只读、不可执行、`Normal-NC`，与内核 CAMDMA alias 的
+内存属性完全一致。这里有意不采用“内核 cacheable、用户 non-cacheable”的混合属性；Arm 明确不
+保证同一物理页的不同内存属性 alias 正确。零拷贝已经去掉 384 KB/frame 的 CPU copy，而 NC 映射
+让 Unicam 写入后无需逐 cache line invalidate。`fork()` 会复制这段特殊映射但不复制物理页，
+`exec()`/退出只回收页表，绝不会把预留 DMA 物理页交给 `kfree()`。
+
+### 六项并发与性能改进
+
+| 改进 | 当前实现 |
+|---|---|
+| CSI1 IRQ 主完成路径 | `unicam_irq()` 读取并清除 `STA/ISTA`，FS/FE 直接推进状态；错误路由连续空中断后自动屏蔽 |
+| 专用等待条件 | 读者在 `&cam.done_count` 上睡眠，由 FE 或 watchdog 唤醒，不再借用全局 `ticks` |
+| 消除 arm/IRQ 竞态 | `cam.lock` 内同时写 DMA shadow pointer 与发布 NEXT 状态，MMIO 后执行 `dsb sy` |
+| 双缓冲 | 两个 512 KB 槽及两项 DONE 队列，状态为 `FREE→NEXT→ACTIVE→DONE→USER→FREE` |
+| mmap 零拷贝 | 新增字符设备 `mmap/munmap`、系统调用和只读 dequeue API；普通 `read` 保持兼容 |
+| DMA cache 一致性 | 内核和用户 alias 都使用 `Normal-NC`，避免混合属性和 invalidate 遗漏；mmap 去掉每帧 384 KB `copyout` |
+
+这里的 cache 改进优先保证正确性，并不是把 DMA 页改成 cacheable。以后若为了 CPU 图像处理速度
+改用 cacheable 映射，必须为每个槽实现严格的 DMA ownership 转换和 cache invalidate/clean，且所有
+alias 必须使用一致属性。
 
 RAW10 打包格式：每 4 个像素占 5 个字节，前 4 个字节是 4 个像素的高 8 位，第 5 个字节依次放
 它们的低 2 位。
@@ -416,6 +621,72 @@ camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
 Unicam DMA、RAW10 转换和 FAT32 写盘。只有不带 `-t` 的真实画面才运行自动白平衡和亮度统计。
 启动时的 `camshot: converter jpeg420-v1 bmp-batch16` 用来确认根文件系统中的用户程序确实
 已经更新。
+
+### camserver：HTTP 推流服务器
+
+```text
+camserver [-p PORT] [-q QUALITY] [-s] [-w] [-n CLIENTS]
+  -p  监听端口（默认 8080）
+  -q  JPEG 质量 1..100（默认 75）
+  -s  半尺寸 320x240（帧更小，Wi-Fi 上帧率更高）
+  -w  不做白平衡
+  -n  同时观看的最大客户端数（默认 4，最多 4）
+```
+
+先用 `wifi` 连上网络，然后运行 `camserver`，在同一局域网的浏览器打开 `http://<wlan0 IP>:8080/`：
+
+| 路径 | 内容 |
+|---|---|
+| `/` | HTML 页面，内嵌 `<img src="/stream">` |
+| `/stream`（或 `/stream.mjpg`） | `multipart/x-mixed-replace; boundary=frame` 的 MJPEG 流，每帧带 `Content-Length` |
+| `/snapshot.jpg` | 单帧 JPEG；正在推流时直接给最新一帧，否则临时上电拍一帧再断电 |
+| `/status` | 纯文本：摄像头状态、尺寸、质量、观看人数、帧数、帧率、最近一帧字节数、快照数 |
+| 其他 | 404 |
+
+设计要点：
+
+```text
+main loop
+  没有观看者 -> 关闭 /dev/video0（传感器断电）-> epoll_wait(listener, -1) 睡眠
+  有观看者   -> epoll_wait(listener, 0) 只检查新连接
+  新连接     -> 最多等 2 s 读请求头 -> 按路径分派
+  有观看者   -> read(/dev/video0) 抓一帧 -> camproc_jpeg() 编码一次 -> 写给每个观看者
+               写失败的观看者被移除
+```
+
+- **单进程扇出**：xv6 的 socket 归 accept 它的进程所有，不能 fork 后交给子进程；而且
+  `/dev/video0` 只有一路传感器流。所以一个进程抓帧、编码一次，再写给全部观看者，N 个观看者只
+  花一次采集和一次编码。代价是一个很慢的客户端会拖慢所有人（TCP 发送队列满时 `write()` 阻塞）。
+- **请求超时**：浏览器常常先建立“预连接”而不发请求。读请求头之前用 `epoll_wait()` 最多等
+  2 秒，超时就关闭连接，不会卡住正在推送的流。
+- **按需上电**：最后一个观看者离开后立即关闭 `/dev/video0`，内核停流断电。
+- 图像流水线在 `user/camproc.c`（与 `camshot` 相同的 RAW10 → 去马赛克 → 白平衡 → 自动电平 →
+  gamma → JPEG），编码器是 `user/jpeg.c`。
+- 每 3 秒在串口打印一次 `camserver: N.N fps, B bytes/frame, K viewer(s)`。
+
+测试（宿主机）：把 xv6 的 `socket_listen/socket_accept/epoll_*` 和 `/dev/video0` 换成 POSIX 实现
+（假摄像头每 100 ms 产生一帧带移动红条的 640×480 RAW10），同一份 `camserver.c` 原样编译：
+
+```text
+/status            200，idle 状态
+/                  200 text/html
+/nope              404
+静默预连接         2.0 s 后被丢弃，同时到来的 /status 正常返回
+/snapshot.jpg      200 image/jpeg，PIL 解码为 640x480
+5 个并发 /stream   前 4 个各收到 26~28 帧且每帧都能解码；第 5 个 503 too many viewers
+观看者全部离开     camserver: no viewers, camera stopped
+```
+
+QEMU 的 `raspi3b` 没有摄像头；它的 USB 网卡在当前 QEMU 8.2 下也没有被 `dwc2` 驱动接受
+（`no supported USB child on external hub ports`），所以真机是唯一的端到端测试。真机步骤：
+
+```sh
+wifi                    # 读 /etc/wifi.conf，关联并 DHCP
+camserver -s            # 先用 320x240 试
+# Mac 浏览器打开 http://<IP>:8080/ ，或：
+curl -o snap.jpg http://<IP>:8080/snapshot.jpg
+curl http://<IP>:8080/status
+```
 
 ### JPEG编码器与视频准备
 
@@ -574,9 +845,10 @@ mailbox 电源域和 GPIO、CAM1 时钟、CSI-2 接收、DMA、中断号。
   桥接驱动不用改；存成文件仍受 268 KB 的限制；
 - **模式选择**：桥接驱动总是使用 `modes[0]`，还没有让用户选择模式的接口（可以在 `camwrite`
   里加 `mode=N`）；
-- **每次拍照都完整地上电和预热**（约 1 秒），没有连续取流的接口，也没有 `poll()`；
-- **JPEG已经可以逐帧编码，但还没有MJPEG容器和录制进程**：下一步应让Unicam保持streaming，
-  提供多缓冲队列，再由用户态 `camrec` 连续调用编码器并按时间切片；
+- **连续取流是“按需抓帧”**：传感器一直 streaming，但每次 `read()` 只抓下一帧，没有多缓冲
+  队列，也没有 `poll()`；帧率受限于抓帧等待加上用户态整数去马赛克和 JPEG 编码；
+- **MJPEG 已经可以通过 `camserver` 用 HTTP 推送，`camshot -v` 可以录成连续 JPEG 文件**；还没有
+  AVI/MP4 容器；
 - **曝光完全交给传感器**，没有手动曝光/增益接口；
 - **I2C 是轮询方式**，每个寄存器传输都要在自旋锁里关中断等待约 0.3 ms，写完整张寄存器表的
   这段时间会抬高软实时任务的延迟（见 `readme_soft_realtime.md` 第 10 节）；

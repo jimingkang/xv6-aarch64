@@ -129,6 +129,9 @@ main(void)
                 "ssid=TP-Link_B114\n"
                 "psk=Minghua123\n");
   mount_fstab();
+  // Default recording/download directory on the ext2 volume (rw, large
+  // files): tftpd serves from it and camshot -v writes frames into it.
+  mkdir("mnt/ext2/video");
 
 #if AUTO_START_WIFI
   // Optional automatic network bring-up. /bin/wifi reads wifi.conf,

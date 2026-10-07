@@ -77,3 +77,5 @@
 #define SYS_ftruncate    76
 #define SYS_pread        77
 #define SYS_pwrite       78
+#define SYS_mmap         79
+#define SYS_munmap       80

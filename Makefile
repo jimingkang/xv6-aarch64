@@ -319,6 +319,11 @@ $U/_camshot: $U/camshot.o $U/jpeg.o $(ULIB)
 	$(OBJDUMP) -S $@ > $U/camshot.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camshot.sym
 
+$U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB)
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+	$(OBJDUMP) -S $@ > $U/camserver.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
+
 mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
 
@@ -371,6 +376,7 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_camshot\
+	$U/_camserver\
 	$U/_chrt\
 	$U/_taskset\
 	$U/_nice\

@@ -102,6 +102,7 @@ struct vmspace {
   int execing;
   pagetable_t pagetable;
   uint64 sz;
+  int camera_mapped;          // fixed read-only Unicam DMA mapping
 };
 
 // Per-process state

@@ -309,6 +309,25 @@ chrdev_write(struct file *f, int user_src, uint64 src, int n)
   return fops->write(user_src, src, n);
 }
 
+uint64
+chrdev_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
+            uint64 off)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0 || fops->mmap == 0)
+    return (uint64)-1;
+  return fops->mmap(f, addr, len, prot, flags, off);
+}
+
+int
+chrdev_munmap(struct file *f, uint64 addr, uint64 len)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0 || fops->munmap == 0)
+    return -1;
+  return fops->munmap(f, addr, len);
+}
+
 static char *
 putstr(char *p, char *end, char *s)
 {

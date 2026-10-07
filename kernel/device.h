@@ -32,6 +32,9 @@ struct file_operations {
   void (*release)(struct file *f);
   int (*fread)(struct file *f, int user_dst, uint64 dst, int n);
   int (*fwrite)(struct file *f, int user_src, uint64 src, int n);
+  uint64 (*mmap)(struct file *f, uint64 addr, uint64 len, int prot,
+                 int flags, uint64 off);
+  int (*munmap)(struct file *f, uint64 addr, uint64 len);
 };
 
 struct device;
@@ -77,6 +80,9 @@ int chrdev_open(struct file *f);
 void chrdev_release(struct file *f);
 int chrdev_read(struct file *f, int user_dst, uint64 dst, int n);
 int chrdev_write(struct file *f, int user_src, uint64 src, int n);
+uint64 chrdev_mmap(struct file *f, uint64 addr, uint64 len, int prot,
+                   int flags, uint64 off);
+int chrdev_munmap(struct file *f, uint64 addr, uint64 len);
 int device_format(char *buf, int max);
 
 #endif

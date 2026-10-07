@@ -7,25 +7,33 @@
 // camsensor_register(), camera_init() binds the first one that answers, and
 // everything the receiver must know (lanes, clock mode, virtual channel,
 // line length, CSI-2 data type, frame size) comes from its camsensor_bus
-// and cam_mode.  This driver captures single frames:
+// and cam_mode.  The sensor streams continuously and the receiver is parked
+// on a zero-size dummy buffer between reads, so read() grabs a frame on
+// demand without a power cycle per frame:
 //
-//   read(/dev/video0)
+//   first read(/dev/video0)
 //     power domain UNICAM1 on, CAM1 "lp" clock 100 MHz, sensor->power_on
 //     Unicam started with the DMA pointers on a zero-size dummy buffer
 //     sensor->stream_on(mode)
-//     WARMUP  : let auto exposure settle (sensor->warmup_frames FS)
-//     ARMED   : real buffer programmed; Unicam latches it at the next FS
-//     CAPTURE : that frame is being written; dummy programmed for the next
-//     DONE    : its frame end arrived -> stop everything, copy to the user
+//     WARMUP    : let auto exposure settle (sensor->warmup_frames FS)
+//     STREAMING : sensor keeps streaming, receiver parked on the dummy
+//   every read(/dev/video0)
+//     ARMED   : a free slot is programmed; Unicam latches it at the next FS
+//     CAPTURE : that slot is being written; another free slot is queued
+//     DONE    : FE enqueues the completed slot; read copies or mmap dequeues it
+//   release (/dev/video0 closed)
+//     sensor->stream_off, receiver stop, power domain off
 //
 // As in Linux, new buffer addresses written to IBSA0/IBEA0 only take effect
 // at the next frame start, so programming the dummy right after the real
 // buffer's frame start leaves exactly one complete frame in the buffer.
 //
-// The state machine runs from the CSI1 interrupt and, as a fallback, from
-// the reader every xv6 tick (100 ms).  Polling alone still yields a clean
-// frame: whichever frame is in progress when the dummy is programmed is
-// completed into the real buffer before the switch takes effect.
+// CSI1 IRQ advances the state machine and wakes the reader.  A 10-ms delayed
+// work item runs the same service routine as a watchdog/fallback on boards
+// where legacy IRQ 39 is not routed; the user process sleeps in both cases.
+// Two DMA slots allow one frame to be owned by userspace while the other is
+// NEXT/ACTIVE, and a read-only Normal-NC mmap provides an optional zero-copy
+// dequeue API without cache-attribute aliases.
 
 #include "types.h"
 #include "param.h"
@@ -38,8 +46,10 @@
 #include "file.h"
 #include "defs.h"
 #include "device.h"
+#include "mman.h"
 #include "mbox.h"
 #include "camsensor.h"
+#include "workqueue.h"
 
 #define UNICAM_BASE   (PERIPHERAL_BASE + 0x801000UL)   // CSI1
 #define UNICAM_CLKGATE (PERIPHERAL_BASE + 0x802004UL)  // CSI1 lane clocks
@@ -146,18 +156,31 @@
 #define CM_DIVI(x)    ((uint32)(x) << 12)
 
 // DMA memory layout inside CAMDMA (non-cacheable)
-#define FRAME_VA      ((uchar *)CAMDMA)
-#define FRAME_PA      CAMDMA_PA
-#define DUMMY_PA      (CAMDMA_PA + CAM_MAX_FRAME_BYTES)
+#define FRAME_VA(n)   ((uchar *)CAMDMA + (n) * CAM_SLOT_BYTES)
+#define FRAME_PA(n)   (CAMDMA_PA + (n) * CAM_SLOT_BYTES)
+#define DUMMY_PA      (CAMDMA_PA + CAM_BUFFER_COUNT * CAM_SLOT_BYTES)
 #define BUS(pa)       (0xc0000000U | (uint32)(pa))   // as DWC2_DMA_BUS
-_Static_assert(CAM_MAX_FRAME_BYTES + PGSIZE <= CAMDMA_SIZE,
-               "CAMDMA too small for frame + dummy page");
+_Static_assert(CAM_BUFFER_COUNT * CAM_SLOT_BYTES + PGSIZE <= CAMDMA_SIZE,
+               "CAMDMA too small for frame slots + dummy page");
 
 #define CAM_WARMUP_MS      1500    // warm-up limit (polling fallback)
 #define CAM_TIMEOUT_MS     4000
 #define CAM_MAX_SENSORS    4
 
-enum cam_state { CAM_IDLE, CAM_WARMUP, CAM_ARMED, CAM_CAPTURE, CAM_DONE };
+enum cam_state { CAM_IDLE, CAM_WARMUP, CAM_STREAMING, CAM_ARMED,
+                 CAM_CAPTURE, CAM_DONE };
+enum cam_buffer_state { CAM_BUF_FREE, CAM_BUF_NEXT, CAM_BUF_ACTIVE,
+                        CAM_BUF_DONE, CAM_BUF_USER };
+
+struct cam_buffer {
+  enum cam_buffer_state state;
+  uint sequence;
+  uint64 timestamp_us;
+};
+
+struct cam_file {
+  int held_slot;
+};
 
 static struct {
   struct spinlock lock;       // state below; taken by the IRQ handler
@@ -171,12 +194,23 @@ static struct {
   uint frame_starts;
   uint frame_ends;
   uint irqs;
+  int irq_reported;           // positive IRQ-path banner printed once/stream
   uint spurious;              // CSI1 interrupts that found no Unicam status
   int irq_off;                // gave up on the interrupt: poll only
   uint sta_seen;              // OR of STA over the capture, for diagnostics
   uint64 warm_deadline;
   uint64 done_us;
   uint32 lp_hz;
+  int streaming;              // sensor streaming continuously
+  int open_count;
+  int active_slot;            // slot currently receiving pixels, -1 for dummy
+  int next_slot;              // slot latched by the next FS, -1 for dummy
+  struct cam_buffer buffers[CAM_BUFFER_COUNT];
+  int doneq[CAM_BUFFER_COUNT];
+  int done_head;
+  int done_count;
+  struct workqueue wq;
+  struct delayed_work poll_work; // IRQ watchdog/fallback, never busy-waits caller
 } cam;
 
 static int camera_bind(void);
@@ -291,6 +325,82 @@ set_image_buffer(uint32 pa, uint32 bytes)
   // its dummy page, working around an overrun bug in circular mode.
   wr(UNICAM_IBSA0, BUS(pa));
   wr(UNICAM_IBEA0, BUS(pa + bytes));
+  // The device must see both pointer writes before software publishes the
+  // corresponding NEXT/ARMED state to an interrupt running on another CPU.
+  asm volatile("dsb sy" ::: "memory");
+}
+
+// cam.lock held below.  Unicam latches these shadow pointers only at FS.
+static int
+free_slot_locked(void)
+{
+  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
+    if(cam.buffers[i].state == CAM_BUF_FREE)
+      return i;
+  return -1;
+}
+
+static void
+park_dummy_locked(void)
+{
+  set_image_buffer(DUMMY_PA, 0);
+  cam.next_slot = -1;
+}
+
+static int
+queue_slot_locked(void)
+{
+  int slot;
+
+  if(cam.next_slot >= 0)
+    return cam.next_slot;
+  slot = free_slot_locked();
+  if(slot < 0){
+    park_dummy_locked();
+    return -1;
+  }
+  set_image_buffer(FRAME_PA(slot), cam.frame_bytes);
+  cam.buffers[slot].state = CAM_BUF_NEXT;
+  cam.next_slot = slot;
+  if(cam.active_slot < 0)
+    cam.state = CAM_ARMED;
+  return slot;
+}
+
+static void
+done_push_locked(int slot)
+{
+  if(cam.done_count >= CAM_BUFFER_COUNT)
+    panic("unicam doneq");
+  cam.doneq[(cam.done_head + cam.done_count) % CAM_BUFFER_COUNT] = slot;
+  cam.done_count++;
+}
+
+static int
+done_pop_locked(void)
+{
+  int slot;
+
+  if(cam.done_count == 0)
+    return -1;
+  slot = cam.doneq[cam.done_head];
+  cam.done_head = (cam.done_head + 1) % CAM_BUFFER_COUNT;
+  cam.done_count--;
+  cam.buffers[slot].state = CAM_BUF_USER;
+  return slot;
+}
+
+static void
+release_slot_locked(int slot)
+{
+  if(slot < 0 || slot >= CAM_BUFFER_COUNT ||
+     cam.buffers[slot].state != CAM_BUF_USER)
+    return;
+  cam.buffers[slot].state = CAM_BUF_FREE;
+  // If the receiver had to park because both slots were full, make the
+  // returned slot the next capture without waiting for another read().
+  if(cam.streaming && cam.next_slot < 0)
+    queue_slot_locked();
 }
 
 // unicam_start_rx() for CSI-2, configured from the sensor's bus and mode.
@@ -377,50 +487,87 @@ static int
 unicam_service(int from_irq)
 {
   uint32 sta, ista;
-  int fe;
+  int fe, wake = 0;
 
   acquire(&cam.lock);
   if(cam.state == CAM_IDLE){
     release(&cam.lock);
     return 0;
   }
-  if(from_irq)
-    cam.irqs++;
   sta = rd(UNICAM_STA);
   wr(UNICAM_STA, sta);
   ista = rd(UNICAM_ISTA);
   wr(UNICAM_ISTA, ista);
   cam.sta_seen |= sta;
-  if(!(sta & (STA_IS | STA_PI0))){
+  if(!(sta & (STA_IS | STA_PI0)) && !(ista & (ISTA_FSI | ISTA_FEI))){
     release(&cam.lock);
     return (sta | ista) != 0;
   }
+  if(from_irq)
+    cam.irqs++;
 
   // Frame end first: an FE and the next FS can arrive together.
   fe = (ista & ISTA_FEI) || (sta & STA_PI0);
   if(fe){
     cam.frame_ends++;
-    if(cam.state == CAM_CAPTURE){
-      cam.state = CAM_DONE;
+    if(cam.active_slot >= 0){
+      int slot = cam.active_slot;
+      cam.active_slot = -1;
+      cam.buffers[slot].state = CAM_BUF_DONE;
+      cam.buffers[slot].sequence = cam.frame_ends;
+      cam.buffers[slot].timestamp_us = now_us();
+      done_push_locked(slot);
       cam.done_us = now_us();
-      wakeup(&ticks);           // the reader sleeps on the tick channel
+      cam.state = CAM_DONE;
+      wake = 1;
     }
   }
   if(ista & ISTA_FSI){
     cam.frame_starts++;
-    if(cam.state == CAM_ARMED){
-      // This frame goes to the real buffer; send the next to the dummy.
-      set_image_buffer(DUMMY_PA, 0);
+    if(cam.next_slot >= 0){
+      // Hardware has just latched this slot.  Queue another free slot for
+      // the following FS, or park on dummy when userspace owns both slots.
+      int slot = cam.next_slot;
+      cam.next_slot = -1;
+      cam.active_slot = slot;
+      cam.buffers[slot].state = CAM_BUF_ACTIVE;
       cam.state = CAM_CAPTURE;
+      if(queue_slot_locked() < 0)
+        cam.state = CAM_CAPTURE;
     } else if(cam.state == CAM_WARMUP &&
               (cam.frame_starts >= cam.sensor->warmup_frames ||
                r_cntvct_el0() >= cam.warm_deadline)){
-      set_image_buffer(FRAME_PA, cam.frame_bytes);  // latched at next FS
-      cam.state = CAM_ARMED;
+      // Warm-up done: the sensor keeps streaming and the receiver stays
+      // parked on the zero-size dummy.  cam_grab() arms the real buffer to
+      // capture exactly one frame on demand.
+      cam.state = CAM_STREAMING;
+      wake = 1;
     }
   }
+  if(wake)
+    wakeup(&cam.done_count);
   release(&cam.lock);
   return 1;
+}
+
+// CSI1 IRQ is the normal completion source.  This delayed worker is a bounded
+// watchdog for boards/firmware where legacy IRQ 39 is not routed: it advances
+// the same state machine every 10 ms and wakes sleepers to check deadlines.
+// Unlike the old delay_us(1000) loops, the calling process consumes no CPU.
+static void
+unicam_poll_work(struct work_struct *work)
+{
+  int active;
+
+  (void)work;
+  unicam_service(0);
+  acquire(&cam.lock);
+  active = cam.state != CAM_IDLE;
+  if(active)
+    wakeup(&cam.done_count);
+  release(&cam.lock);
+  if(active)
+    queue_delayed_work(&cam.wq, &cam.poll_work, 1);
 }
 
 // CSI1_IRQ comes from the device tree (<2 7>), not from hardware we could
@@ -430,8 +577,10 @@ unicam_service(int from_irq)
 void
 unicam_irq(void)
 {
-  if(unicam_service(1))
+  if(unicam_service(1)){
+    cam.spurious = 0;
     return;
+  }
   if(++cam.spurious >= 100 && !cam.irq_off){
     cam.irq_off = 1;
     bcm2837_disable_irq(CSI1_IRQ);
@@ -448,11 +597,38 @@ cam_power_off(void)
   mbox_set_domain(MBOX_DOMAIN_UNICAM1, 0);
 }
 
-// Capture one frame into FRAME_VA.  Returns 0 on success.
-static int
-cam_capture(struct cam_frame_hdr *hdr)
+// Stop the sensor and receiver and power down (idempotent).
+static void
+cam_stream_stop(void)
 {
-  enum cam_state st;
+  if(!cam.streaming)
+    return;
+  bcm2837_disable_irq(CSI1_IRQ);
+  // Publish IDLE before cancelling: a poll callback already in flight will
+  // observe it and will not requeue itself behind cancel_delayed_work_sync().
+  acquire(&cam.lock);
+  cam.state = CAM_IDLE;
+  release(&cam.lock);
+  cancel_delayed_work_sync(&cam.poll_work);
+  cam.sensor->ops->stream_off(cam.sensor);
+  acquire(&cam.lock);
+  cam.active_slot = cam.next_slot = -1;
+  cam.done_head = cam.done_count = 0;
+  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
+    cam.buffers[i].state = CAM_BUF_FREE;
+  release(&cam.lock);
+  unicam_stop();
+  cam_power_off();
+  cam.streaming = 0;
+}
+
+// Power the sensor on and start it streaming, discarding warm-up frames until
+// auto exposure settles.  The receiver is parked on the zero-size dummy buffer
+// throughout, so nothing is kept; cam_grab() arms the real buffer to capture
+// one frame on demand.  Returns 0 once CAM_STREAMING is reached.
+static int
+cam_stream_start(void)
+{
   uint64 deadline;
 
   if(mbox_set_domain(MBOX_DOMAIN_UNICAM1, 1) < 0){
@@ -465,10 +641,16 @@ cam_capture(struct cam_frame_hdr *hdr)
     return -1;
   }
   printf("unicam: sensor powered, receiver setup begins\n");
-  memset(FRAME_VA, 0, cam.frame_bytes);
+  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
+    memset(FRAME_VA(i), 0, cam.frame_bytes);
 
   acquire(&cam.lock);
-  cam.frame_starts = cam.frame_ends = cam.irqs = cam.sta_seen = 0;
+  cam.frame_starts = cam.frame_ends = cam.irqs = cam.spurious =
+    cam.sta_seen = cam.irq_reported = 0;
+  cam.active_slot = cam.next_slot = -1;
+  cam.done_head = cam.done_count = 0;
+  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
+    cam.buffers[i].state = CAM_BUF_FREE;
   cam.warm_deadline = r_cntvct_el0() +
     (uint64)r_cntfrq_el0() * CAM_WARMUP_MS / 1000;
   cam.state = CAM_WARMUP;
@@ -489,39 +671,75 @@ cam_capture(struct cam_frame_hdr *hdr)
     cam_power_off();
     return -1;
   }
-  printf("unicam: sensor streaming, waiting for frame\n");
+  cam.streaming = 1;
+  queue_delayed_work(&cam.wq, &cam.poll_work, 1);
+  printf("unicam: sensor streaming, waiting for warm-up\n");
 
   // Bring-up uses bounded polling.  An unverified/stuck legacy CSI IRQ can
   // starve CPU0's generic-timer interrupt, in which case a timeout based on
   // xv6 ticks never expires.  CNTVCT keeps advancing independently.
+  // unicam_service() advances the state machine to CAM_STREAMING.
+  deadline = r_cntvct_el0() +
+    (uint64)r_cntfrq_el0() * CAM_WARMUP_MS / 1000;
+  acquire(&cam.lock);
+  while(cam.state != CAM_STREAMING && r_cntvct_el0() < deadline &&
+        !myproc()->killed)
+    sleep(&cam.done_count, &cam.lock);
+  int settled = cam.state == CAM_STREAMING;
+  release(&cam.lock);
+  if(!settled){
+    printf("unicam: stream did not settle (state %d, FS %d, FE %d)\n",
+           cam.state, cam.frame_starts, cam.frame_ends);
+    cam_stream_stop();
+    return -1;
+  }
+  printf("unicam: streaming (parked), %d warm-up frames\n", cam.frame_starts);
+  return 0;
+}
+
+// Dequeue one complete frame while the sensor keeps streaming.  If no frame
+// is queued, arm a free slot; FS latches it, FE marks it done, and a second
+// slot can already be NEXT/ACTIVE.  The dummy is used only when userspace owns
+// all real slots.
+static int
+cam_grab(struct cam_frame_hdr *hdr, int *slotp)
+{
+  uint64 deadline;
+  enum cam_state st = CAM_IDLE;
+  int slot, report_irq = 0;
+
   deadline = r_cntvct_el0() +
     (uint64)r_cntfrq_el0() * CAM_TIMEOUT_MS / 1000;
-  for(;;){
-    unicam_service(0);
-    st = cam.state;
-    if(st == CAM_DONE || r_cntvct_el0() >= deadline || myproc()->killed)
-      break;
-    delay_us(1000);
-  }
-
-  // Linux order: sensor stream off, then the receiver.
-  cam.sensor->ops->stream_off(cam.sensor);
   acquire(&cam.lock);
+  // Buffer programming and CAM_ARMED publication are one critical section.
+  // The spinlock disables the local IRQ and serializes a CSI IRQ on another
+  // CPU; dsb in set_image_buffer() orders MMIO before the state is visible.
+  if(cam.done_count == 0 && cam.next_slot < 0 && cam.active_slot < 0)
+    queue_slot_locked();
+  while(cam.done_count == 0 && r_cntvct_el0() < deadline &&
+        !myproc()->killed)
+    sleep(&cam.done_count, &cam.lock);
   st = cam.state;
-  cam.state = CAM_IDLE;
+  slot = done_pop_locked();
+  if(slot >= 0 && cam.irqs > 0 && !cam.irq_reported){
+    cam.irq_reported = 1;
+    report_irq = 1;
+  }
   release(&cam.lock);
-  bcm2837_disable_irq(CSI1_IRQ);
-  uint32 ibwp = rd(UNICAM_IBWP);
-  unicam_stop();
-  cam_power_off();
 
-  if(st != CAM_DONE){
+  if(slot < 0){
+    uint32 ibwp = rd(UNICAM_IBWP);
     printf("unicam: no frame (state %d, FS %d, FE %d, irqs %d, "
            "sta %x, ibwp %x, lp %d Hz)\n", st, cam.frame_starts,
            cam.frame_ends, cam.irqs, cam.sta_seen, ibwp, cam.lp_hz);
+    cam_stream_stop();
     return -1;
   }
-  if(cam.irqs == 0){
+
+  if(report_irq){
+    printf("unicam: frame captured by CSI1 IRQ %d; watchdog remains armed\n",
+           CSI1_IRQ);
+  } else if(cam.irqs == 0){
     if(cam.irq_off)
       printf("unicam: frame captured by polling; CSI1 IRQ %d intentionally "
              "masked\n", CSI1_IRQ);
@@ -538,43 +756,111 @@ cam_capture(struct cam_frame_hdr *hdr)
   hdr->bytesperline = cam.mode->bytesperline;
   hdr->format = cam.mode->format;
   hdr->data_bytes = cam.frame_bytes;
-  hdr->sequence = cam.frame_ends;
-  hdr->reserved = 0;
-  hdr->timestamp_us = cam.done_us;
+  hdr->sequence = cam.buffers[slot].sequence;
+  hdr->reserved = slot;
+  hdr->timestamp_us = cam.buffers[slot].timestamp_us;
+  *slotp = slot;
   return 0;
 }
 
 static int
-camread(int user_dst, uint64 dst, int n)
+camopen(struct file *f)
 {
+  struct cam_file *cf = kalloc();
+
+  if(cf == 0)
+    return -1;
+  memset(cf, 0, PGSIZE);
+  cf->held_slot = -1;
+  f->private_data = cf;
+  acquiresleep(&cam.busy);
+  cam.open_count++;
+  releasesleep(&cam.busy);
+  return 0;
+}
+
+static int
+camread(struct file *f, int user_dst, uint64 dst, int n)
+{
+  struct cam_file *cf = f->private_data;
   struct cam_frame_hdr hdr;
+  int slot = -1;
   int r = -1;
 
   acquiresleep(&cam.busy);
+  // In mmap mode a slot stays owned by userspace until its next read (or
+  // close), so the pixels cannot be overwritten while it is processing them.
+  if(cf && cf->held_slot >= 0){
+    acquire(&cam.lock);
+    release_slot_locked(cf->held_slot);
+    release(&cam.lock);
+    cf->held_slot = -1;
+  }
   // The software SCCB bus on clone camera modules can miss the boot-time
   // probe.  /dev/video0 remains registered, so retry binding on first use
   // instead of leaving the device permanently inactive until reboot.
   if((cam.sensor == 0 && camera_bind() < 0) ||
-     n < (int)(sizeof(hdr) + cam.frame_bytes))
+     (n != (int)sizeof(hdr) &&
+      n < (int)(sizeof(hdr) + cam.frame_bytes)))
     goto out;
-  if(cam_capture(&hdr) == 0 &&
-     either_copyout(user_dst, dst, &hdr, sizeof(hdr)) == 0 &&
-     either_copyout(user_dst, dst + sizeof(hdr), FRAME_VA,
-                    cam.frame_bytes) == 0)
-    r = sizeof(hdr) + cam.frame_bytes;
+  // First read powers the sensor and starts it streaming (one warm-up); every
+  // later read grabs a fresh frame without another power cycle.  release()
+  // stops the stream when the last reference to /dev/video0 is dropped.
+  if(!cam.streaming && cam_stream_start() < 0)
+    goto out;
+  if(cam_grab(&hdr, &slot) == 0 &&
+     either_copyout(user_dst, dst, &hdr, sizeof(hdr)) == 0){
+    if(n == (int)sizeof(hdr) && cf && myproc()->vm->camera_mapped){
+      // Header-only read is the zero-copy dequeue operation.  hdr.reserved
+      // selects CAM_MMAP_BASE + slot*CAM_SLOT_BYTES.
+      cf->held_slot = slot;
+      r = sizeof(hdr);
+      slot = -1;
+    } else if(either_copyout(user_dst, dst + sizeof(hdr), FRAME_VA(slot),
+                             cam.frame_bytes) == 0){
+      r = sizeof(hdr) + cam.frame_bytes;
+    }
+  }
+  if(slot >= 0){
+    acquire(&cam.lock);
+    release_slot_locked(slot);
+    release(&cam.lock);
+  }
 out:
   releasesleep(&cam.busy);
   return r;
 }
 
+// Stop the continuous stream when the last reference to /dev/video0 is
+// dropped, so the sensor is not left powered between program runs.
+static void
+camrelease(struct file *f)
+{
+  struct cam_file *cf = f->private_data;
+
+  acquiresleep(&cam.busy);
+  if(cf && cf->held_slot >= 0){
+    acquire(&cam.lock);
+    release_slot_locked(cf->held_slot);
+    release(&cam.lock);
+  }
+  if(cam.open_count > 0 && --cam.open_count == 0)
+    cam_stream_stop();
+  releasesleep(&cam.busy);
+  if(cf)
+    kfree(cf);
+  f->private_data = 0;
+}
+
 // "pattern=N" selects a sensor test pattern for later captures.  The value
 // is checked and cached by the sensor (set_ctrl) and applied at stream_on.
 static int
-camwrite(int user_src, uint64 src, int n)
+camwrite(struct file *f, int user_src, uint64 src, int n)
 {
   char buf[16];
   int value = 0, i, r;
 
+  (void)f;
   if(n <= 0 || n >= (int)sizeof(buf) ||
      either_copyin(buf, user_src, src, n) < 0)
     return -1;
@@ -597,6 +883,90 @@ camwrite(int user_src, uint64 src, int n)
       cam.sensor->ops->set_ctrl(cam.sensor, CAM_CTRL_TEST_PATTERN, value) : -1;
   releasesleep(&cam.busy);
   return r < 0 ? -1 : n;
+}
+
+static uint64
+cammmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
+        uint64 off)
+{
+  struct cam_file *cf = f->private_data;
+  struct vmspace *vm = myproc()->vm;
+  uint64 va = addr ? addr : CAM_MMAP_BASE;
+
+  if(cf == 0 || va != CAM_MMAP_BASE || off != 0 ||
+     len != CAM_MMAP_BYTES || prot != PROT_READ ||
+     !(flags & MAP_SHARED))
+    return (uint64)-1;
+
+  acquire(&vm->lock);
+  if(vm->camera_mapped){
+    release(&vm->lock);
+    return (uint64)-1;
+  }
+  for(uint64 a = va; a < va + len; a += PGSIZE){
+    pte_t *pte = walk(vm->pagetable, a, 0);
+    if(pte && (*pte & PTE_V)){
+      release(&vm->lock);
+      return (uint64)-1;
+    }
+  }
+  // Use the same Normal-NC attribute as the kernel alias.  Mixing cacheable
+  // and non-cacheable aliases for one physical DMA page is architecturally
+  // unsafe; RO applies only to CPU page-table accesses, not Unicam AXI writes.
+  if(mappages(vm->pagetable, va, len, CAMDMA_PA,
+              PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
+    // mappages() may have installed a prefix before a page-table allocation
+    // failed.  Reserved DMA pages are never freed; remove only those leaves.
+    for(uint64 a = va; a < va + len; a += PGSIZE){
+      pte_t *pte = walk(vm->pagetable, a, 0);
+      if(pte && (*pte & PTE_V) && (*pte & PTE_AF))
+        *pte = 0;
+    }
+    flush_tlb();
+    release(&vm->lock);
+    return (uint64)-1;
+  }
+  flush_tlb();
+  vm->camera_mapped = 1;
+  release(&vm->lock);
+  return va;
+}
+
+static int
+cammunmap(struct file *f, uint64 addr, uint64 len)
+{
+  struct cam_file *cf = f->private_data;
+
+  if(cf == 0 || addr != CAM_MMAP_BASE || len != CAM_MMAP_BYTES)
+    return -1;
+  acquiresleep(&cam.busy);
+  if(cf->held_slot >= 0){
+    acquire(&cam.lock);
+    release_slot_locked(cf->held_slot);
+    release(&cam.lock);
+    cf->held_slot = -1;
+  }
+  releasesleep(&cam.busy);
+  return camera_munmap_current(addr, len);
+}
+
+int
+camera_munmap_current(uint64 addr, uint64 len)
+{
+  struct vmspace *vm = myproc()->vm;
+
+  if(addr != CAM_MMAP_BASE || len != CAM_MMAP_BYTES)
+    return -1;
+  acquire(&vm->lock);
+  if(!vm->camera_mapped){
+    release(&vm->lock);
+    return -1;
+  }
+  uvmunmap(vm->pagetable, addr, len / PGSIZE, 0);
+  flush_tlb();
+  vm->camera_mapped = 0;
+  release(&vm->lock);
+  return 0;
 }
 
 // Can this receiver and DMA area take the mode at all?
@@ -662,19 +1032,26 @@ void
 camera_init(void)
 {
   static struct file_operations fops = {
-    .read = camread,
-    .write = camwrite,
+    .open = camopen,
+    .fread = camread,
+    .fwrite = camwrite,
+    .release = camrelease,
+    .mmap = cammmap,
+    .munmap = cammunmap,
   };
 
   initlock(&cam.lock, "unicam");
   initsleeplock(&cam.busy, "camera");
+  init_workqueue(&cam.wq, "camera_wq", 1);
+  init_delayed_work(&cam.poll_work, unicam_poll_work);
   cam.state = CAM_IDLE;
-  // Keep the legacy CSI line masked until its BCM2837 routing is validated
-  // from successful polling captures.  This also guarantees a bad level IRQ
-  // cannot prevent the ARM-counter capture timeout from running.
-  cam.irq_off = 1;
+  cam.active_slot = cam.next_slot = -1;
+  // IRQ 39 is the primary receive-completion path.  The delayed worker keeps
+  // captures functional if a board does not route the legacy CSI interrupt;
+  // unicam_irq() masks a genuinely stuck/spurious line after 100 assertions.
+  cam.irq_off = 0;
   bcm2837_disable_irq(CSI1_IRQ);
-  printf("camera: driver gpio-sccb-v8 unicam-poll-v2\n");
+  printf("camera: driver gpio-sccb-v8 unicam-irq-v3 double-buffer mmap\n");
   if(register_chrdev(CAMERA, "video0", &fops) < 0){
     printf("unicam: cannot register /dev/video0\n");
     return;

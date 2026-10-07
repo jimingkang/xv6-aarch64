@@ -408,6 +408,7 @@ void            bcm2837_disable_irq(int);
 
 // unicam.c (camera bridge: Unicam CSI-2 -> /dev/video0)
 void            camera_init(void);
+int             camera_munmap_current(uint64, uint64);
 void            unicam_irq(void);
 
 // camera sensor drivers (register a struct camsensor)

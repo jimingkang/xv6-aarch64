@@ -8,6 +8,7 @@
 #include "file.h"
 #include "proc.h"
 #include "sched.h"
+#include "camera.h"
 #include "defs.h"
 
 struct cpu cpus[NCPU];
@@ -625,6 +626,16 @@ fork(void)
     freeproc(np);
     release(&np->lock);
     return -1;
+  }
+  if(p->vm->camera_mapped){
+    if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
+                PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
+      release(&p->vm->lock);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
+    np->vm->camera_mapped = 1;
   }
   np->vm->sz = p->vm->sz;
   release(&p->vm->lock);

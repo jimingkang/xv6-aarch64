@@ -233,7 +233,7 @@ failed:
 int
 main(int argc, char **argv)
 {
-  const char *root = "/boot";
+  const char *root = "/mnt/ext2/video";
   if(argc > 2){
     printf("usage: tftpd [service-directory]\n");
     exit(1);

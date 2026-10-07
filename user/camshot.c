@@ -2,6 +2,7 @@
 //
 //   camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
 //           [-t PATTERN] [-s] [-w]
+//   camshot -v [-n FRAMES] [-d DIR] [-q QUALITY] [-t PATTERN] [-s] [-w]
 //
 //   -o  output selected by .bmp/.jpg/.jpeg suffix (default /boot/camera.bmp)
 //   -q  JPEG quality 1..100 (default 75)
@@ -10,6 +11,9 @@
 //   -t  OV5647 test pattern: 1 colour bars, 2 colour squares, 3 random
 //   -s  half size, 320x240: one RGB pixel per 2x2 Bayer block
 //   -w  skip gray-world white balance
+//   -v  record FRAMES frames as frameNNNN.jpg into DIR
+//   -n  number of frames for -v (default 30)
+//   -d  directory for -v (default /mnt/ext2/video)
 //
 // Files: the native xv6 file system holds at most 268 KB per file
 // (MAXFILE = 12 + 256 blocks), so a 640x480 BMP (900 KB) or a raw frame
@@ -54,6 +58,7 @@ static const uchar gamma22[256] = {
 };
 
 static ushort *px;                    // unpacked 10-bit mosaic, W*H
+static uint hist[1024];               // green histogram for auto level
 
 static void
 unpack_raw10(const uchar *src, int bpl)
@@ -163,6 +168,161 @@ output_pixel(void *arg, int x, int y, uchar *red, uchar *green, uchar *blue)
   *blue = gamma22[lb > 255 ? 255 : lb];
 }
 
+// Gray-world white balance and the 99th-percentile auto level share one pass
+// over the mosaic (px), so the single-shot and video paths use the same math.
+static void
+compute_wb_level(int pattern, int wb, uint *gain_r, uint *gain_b, uint *level)
+{
+  if(pattern){
+    *gain_r = *gain_b = 256;
+    *level = 256;
+    printf("camshot: sensor test pattern; fixed WB/level\n");
+    return;
+  }
+  printf("camshot: calculating white balance and level...\n");
+  uint64 sum[3] = { 0, 0, 0 };
+  memset(hist, 0, sizeof(hist));
+  for(int y = 0; y < H; y++){
+    for(int x = 0; x < W; x++){
+      int c = colour(x, y);
+      int value = px[y * W + x];
+      if(c < R || c > B || value < 0 || value >= 1024){
+        fprintf(2, "camshot: corrupt mosaic row=%d col=%d c=%d value=%d\n",
+                y, x, c, value);
+        exit(1);
+      }
+      sum[c] += value;
+      if(c == G)
+        hist[value]++;
+    }
+    if((y & 63) == 63)
+      printf("camshot: statistics %d/%d rows\n", y + 1, H);
+  }
+  uint64 sum_r = sum[R], sum_g = sum[G], sum_b = sum[B];
+  *gain_r = *gain_b = 256;
+  if(wb && sum_r && sum_b){
+    *gain_r = (uint)(sum_g * 128 / sum_r);        // G counts 2 pixels
+    *gain_b = (uint)(sum_g * 128 / sum_b);
+    if(*gain_r < 128) *gain_r = 128;
+    if(*gain_r > 1024) *gain_r = 1024;
+    if(*gain_b < 128) *gain_b = 128;
+    if(*gain_b > 1024) *gain_b = 1024;
+  }
+  // Map the 99th percentile of G to full scale (at most 8x).
+  uint want = (W * H / 2) / 100, seen = 0;
+  int p99 = 1023;
+  while(p99 > 0 && seen + hist[p99] < want)
+    seen += hist[p99--];
+  if(p99 < 128)
+    p99 = 128;
+  *level = 1023 * 256 / p99;                      // 8.8
+}
+
+// Build "DIR/frameNNNN.jpg" for the video recorder.
+static void
+frame_path(char *buf, const char *dir, int index)
+{
+  int n = 0, dl = strlen(dir);
+  if(dl > 200)
+    dl = 200;
+  memmove(buf, dir, dl);
+  n = dl;
+  if(n == 0 || buf[n - 1] != '/')
+    buf[n++] = '/';
+  memmove(buf + n, "frame", 5);
+  n += 5;
+  for(int d = 1000; d > 0; d /= 10)
+    buf[n++] = '0' + (index / d) % 10;
+  memmove(buf + n, ".jpg", 5);
+}
+
+// Record a sequence of frames from /dev/video0, one JPEG per frame in DIR.
+// The first read starts the sensor and performs warm-up; later reads dequeue
+// fresh frames from the continuously streaming double-buffered receiver.  The
+// files form a simple MJPEG sequence.
+static void
+record_video(int pattern, int wb, int half, int quality, int frames,
+             const char *dir)
+{
+  mkdir(dir);                       // create the default directory if absent
+
+  uchar *frame = malloc(CAM_READ_MAX);
+  if(frame == 0){
+    fprintf(2, "camshot: out of memory\n");
+    exit(1);
+  }
+  int fd = open("/dev/video0", O_RDWR);
+  if(fd < 0){
+    fprintf(2, "camshot: cannot open /dev/video0\n");
+    exit(1);
+  }
+  char cmd[] = "pattern=0";
+  cmd[8] = '0' + pattern;
+  int control_result = write(fd, cmd, 9);
+  if(control_result != 9 && pattern){
+    fprintf(2, "camshot: pattern=%d control failed (write returned %d)\n",
+            pattern, control_result);
+    exit(1);
+  }
+
+  int ow = 0, oh = 0;
+  for(int i = 0; i < frames; i++){
+    printf("camshot: recording frame %d/%d...\n", i + 1, frames);
+    int n = read(fd, frame, CAM_READ_MAX);
+    struct cam_frame_hdr *hdr = (struct cam_frame_hdr *)frame;
+    if(n < (int)sizeof(*hdr) || hdr->magic != CAM_MAGIC){
+      fprintf(2, "camshot: frame %d capture failed\n", i + 1);
+      break;
+    }
+    W = hdr->width;
+    H = hdr->height;
+    if(n != (int)(sizeof(*hdr) + hdr->data_bytes) || W < 4 || H < 4 ||
+       W % 4 || H % 2 || hdr->bytesperline < W * 10 / 8 ||
+       hdr->data_bytes < hdr->bytesperline * H || set_bayer(hdr->format) < 0){
+      fprintf(2, "camshot: unsupported frame %d (%dx%d format %d, %d bytes)\n",
+              i + 1, W, H, hdr->format, n);
+      break;
+    }
+    if(i == 0){
+      ow = half ? W / 2 : W;
+      oh = half ? H / 2 : H;
+      if((px = malloc(W * H * sizeof(ushort))) == 0){
+        fprintf(2, "camshot: out of memory\n");
+        exit(1);
+      }
+    }
+    unpack_raw10(frame + sizeof(*hdr), hdr->bytesperline);
+
+    uint gain_r, gain_b, level;
+    compute_wb_level(pattern, wb, &gain_r, &gain_b, &level);
+    struct convert conversion = { half, gain_r, gain_b, level };
+
+    char path[256];
+    frame_path(path, dir, i);
+    int ofd = open(path, O_CREATE | O_WRONLY | O_TRUNC);
+    uint jpeg_bytes = 0;
+    if(ofd < 0 || jpeg_encode(ofd, ow, oh, quality, output_pixel,
+                              &conversion, &jpeg_bytes) < 0){
+      fprintf(2, "camshot: cannot write %s\n", path);
+      if(ofd >= 0)
+        close(ofd);
+      break;
+    }
+    close(ofd);
+    printf("camshot: saved %s (%d bytes)\n", path, jpeg_bytes);
+  }
+
+  if(pattern){
+    cmd[8] = '0';
+    write(fd, cmd, 9);
+  }
+  close(fd);
+  free(frame);
+  if(px)
+    free(px);
+  exit(0);
+}
+
 static int
 endswith(char *path, char *suffix)
 {
@@ -174,7 +334,9 @@ static void
 usage(void)
 {
   fprintf(2, "usage: camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] "
-             "[-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]\n");
+             "[-r OUT.raw] [-i IN.raw] [-t PATTERN] [-s] [-w]\n"
+             "       camshot -v [-n FRAMES] [-d DIR] [-q QUALITY] "
+             "[-t PATTERN] [-s] [-w]\n");
   exit(1);
 }
 
@@ -182,7 +344,9 @@ int
 main(int argc, char *argv[])
 {
   char *out = "/boot/camera.bmp", *raw = 0, *in = 0;
+  char *dir = "/mnt/ext2/video";
   int pattern = 0, wb = 1, half = 0, quality = 75, fd, n;
+  int video = 0, frames = 30;
 
   printf("camshot: converter jpeg420-v1 bmp-batch16\n");
 
@@ -194,10 +358,17 @@ main(int argc, char *argv[])
     else if(strcmp(argv[i], "-t") == 0 && i + 1 < argc) pattern = atoi(argv[++i]);
     else if(strcmp(argv[i], "-w") == 0) wb = 0;
     else if(strcmp(argv[i], "-s") == 0) half = 1;
+    else if(strcmp(argv[i], "-v") == 0) video = 1;
+    else if(strcmp(argv[i], "-n") == 0 && i + 1 < argc) frames = atoi(argv[++i]);
+    else if(strcmp(argv[i], "-d") == 0 && i + 1 < argc) dir = argv[++i];
     else usage();
   }
-  if(pattern < 0 || pattern > 3 || quality < 1 || quality > 100)
+  if(pattern < 0 || pattern > 3 || quality < 1 || quality > 100 || frames < 1)
     usage();
+  if(video){
+    printf("camshot: recording %d frames -> %s\n", frames, dir);
+    record_video(pattern, wb, half, quality, frames, dir);
+  }
 
   uchar *frame = malloc(CAM_READ_MAX);
   if(frame == 0){
@@ -273,53 +444,8 @@ main(int argc, char *argv[])
   unpack_raw10(frame + sizeof(*hdr), hdr->bytesperline);
   free(frame);                      // hdr points into frame
 
-  uint gain_r = 256, gain_b = 256;
-  uint level = 256;
-  if(pattern){
-    // Sensor-generated colour bars are already calibrated.  Fixed unity
-    // gains validate capture, conversion and storage without allowing an
-    // optional image-enhancement pass to obscure that test.
-    printf("camshot: sensor test pattern; fixed WB/level\n");
-  } else {
-    // Gray world and the G histogram share one pass over the real mosaic.
-    printf("camshot: calculating white balance and level...\n");
-    uint64 sum[3] = { 0, 0, 0 };
-    static uint hist[1024];
-    for(int y = 0; y < H; y++){
-      for(int x = 0; x < W; x++){
-        int c = colour(x, y);
-        int value = px[y * W + x];
-        if(c < R || c > B || value < 0 || value >= 1024){
-          fprintf(2, "camshot: corrupt mosaic row=%d col=%d c=%d value=%d\n",
-                  y, x, c, value);
-          exit(1);
-        }
-        sum[c] += value;
-        if(c == G)
-          hist[value]++;
-      }
-      if((y & 63) == 63)
-        printf("camshot: statistics %d/%d rows\n", y + 1, H);
-    }
-    uint64 sum_r = sum[R], sum_g = sum[G], sum_b = sum[B];
-    if(wb && sum_r && sum_b){
-      gain_r = (uint)(sum_g * 128 / sum_r);        // G counts 2 pixels
-      gain_b = (uint)(sum_g * 128 / sum_b);
-      if(gain_r < 128) gain_r = 128;
-      if(gain_r > 1024) gain_r = 1024;
-      if(gain_b < 128) gain_b = 128;
-      if(gain_b > 1024) gain_b = 1024;
-    }
-
-    // Map the 99th percentile of G to full scale (at most 8x).
-    uint want = (W * H / 2) / 100, seen = 0;
-    int p99 = 1023;
-    while(p99 > 0 && seen + hist[p99] < want)
-      seen += hist[p99--];
-    if(p99 < 128)
-      p99 = 128;
-    level = 1023 * 256 / p99;                      // 8.8
-  }
+  uint gain_r, gain_b, level;
+  compute_wb_level(pattern, wb, &gain_r, &gain_b, &level);
 
   int ow = half ? W / 2 : W, oh = half ? H / 2 : H;
   struct convert conversion = { half, gain_r, gain_b, level };

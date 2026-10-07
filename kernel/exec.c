@@ -175,6 +175,7 @@ exec(char *path, char **argv)
   oldsz = vm->sz;
   vm->pagetable = pagetable;
   vm->sz = sz;
+  vm->camera_mapped = 0;       // mmap belongs to the replaced address space
   vm->execing = 0;
   release(&vm->lock);
   p->trapframe->elr = elf.entry;  // initial program counter = main

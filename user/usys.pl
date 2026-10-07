@@ -94,3 +94,5 @@ entry("fdatasync");
 entry("ftruncate");
 entry("pread");
 entry("pwrite");
+entry("mmap");
+entry("munmap");

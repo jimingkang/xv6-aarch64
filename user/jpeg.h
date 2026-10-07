@@ -10,4 +10,10 @@ typedef void (*jpeg_pixel_fn)(void *arg, int x, int y,
 int jpeg_encode(int fd, int width, int height, int quality,
                 jpeg_pixel_fn pixel, void *arg, uint *written);
 
+// Encode into a caller-provided memory buffer of cap bytes.  Returns 0 on
+// success and stores the total JPEG size in *written; returns -1 if the image
+// does not fit in cap bytes or any parameter is invalid.
+int jpeg_encode_mem(uchar *dst, int cap, int width, int height, int quality,
+                    jpeg_pixel_fn pixel, void *arg, uint *written);
+
 #endif

@@ -96,6 +96,8 @@ int fdatasync(int);
 int ftruncate(int, uint64);
 int pread(int, void*, int, uint64);
 int pwrite(int, const void*, int, uint64);
+void *mmap(void*, uint64, int, int, int, uint64);
+int munmap(void*, uint64);
 
 // ulib.c
 int stat(const char*, struct stat*);

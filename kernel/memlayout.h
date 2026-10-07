@@ -23,7 +23,7 @@
 // here).  Above PHYSTOP, so kalloc never hands it out, and mapped
 // non-cacheable, so no cache maintenance is needed around DMA.
 #define CAMDMA_PA   0x07200000L
-#define CAMDMA_SIZE (1024*1024L)
+#define CAMDMA_SIZE (2*1024*1024L)
 
 #define KERNBASE  0xffffff8000000000L     // First kernel virtual address
 #define KERNLINK  (KERNBASE + KERNPA)     // virtual address where kernel is linked

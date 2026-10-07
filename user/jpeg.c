@@ -22,10 +22,12 @@ typedef uint64_t uint64;
 #define OUTBUF 4096
 
 struct jw {
-  int fd;
+  int fd;         // fd-mode destination (memory mode uses mem below)
+  uchar *mem;     // memory destination; when non-zero, fd is ignored
+  int cap;        // memory capacity in bytes
   int error;
-  uint total;
-  int used;
+  uint total;     // bytes emitted so far (both modes)
+  int used;       // fd mode: bytes buffered in out[]
   uchar out[OUTBUF];
   uint bits;
   int nbits;
@@ -67,6 +69,8 @@ static const short dctm[8][8] = {
 static int
 jflush(struct jw *w)
 {
+  if(w->mem)
+    return w->error ? -1 : 0;   // memory mode: jbyte() wrote directly
   int done = 0;
   while(done < w->used){
     int n = write(w->fd, w->out + done, w->used - done);
@@ -86,6 +90,14 @@ jbyte(struct jw *w, int value)
 {
   if(w->error)
     return;
+  if(w->mem){
+    if(w->total >= w->cap){
+      w->error = 1;
+      return;
+    }
+    w->mem[w->total++] = value;
+    return;
+  }
   if(w->used == OUTBUF && jflush(w) < 0)
     return;
   w->out[w->used++] = value;
@@ -287,24 +299,21 @@ write_headers(struct jw *w, int width, int height,
   jbyte(w, 0); jbyte(w, 63); jbyte(w, 0);
 }
 
-int
-jpeg_encode(int fd, int width, int height, int quality,
-            jpeg_pixel_fn pixel, void *arg, uint *written)
+static int
+jpeg_encode_to(struct jw *w, int width, int height, int quality,
+               jpeg_pixel_fn pixel, void *arg, uint *written)
 {
-  struct jw w;
   uchar qy[64], qc[64];
   uchar rgb[16][16][3];
   short yblock[64], cb[64], cr[64];
   int pred_y = 0, pred_cb = 0, pred_cr = 0;
 
-  if(fd < 0 || width <= 0 || height <= 0 || width > 65535 ||
+  if(width <= 0 || height <= 0 || width > 65535 ||
      height > 65535 || quality < 1 || quality > 100 || pixel == 0)
     return -1;
-  memset(&w, 0, sizeof(w));
-  w.fd = fd;
   make_quant(qy, qbase_y, quality);
   make_quant(qc, qbase_c, quality);
-  write_headers(&w, width, height, qy, qc);
+  write_headers(w, width, height, qy, qc);
 
   for(int my = 0; my < height; my += 16){
     for(int mx = 0; mx < width; mx += 16){
@@ -322,7 +331,7 @@ jpeg_encode(int fd, int width, int height, int quality,
               uchar *p = rgb[by * 8 + y][bx * 8 + x];
               yblock[y * 8 + x] = ((77*p[0] + 150*p[1] + 29*p[2]) >> 8)-128;
             }
-          encode_block(&w, yblock, qy, &pred_y);
+          encode_block(w, yblock, qy, &pred_y);
         }
 
       for(int y = 0; y < 8; y++)
@@ -337,15 +346,41 @@ jpeg_encode(int fd, int width, int height, int quality,
           cb[y * 8 + x] = (-43*r - 85*g + 128*b) >> 8;
           cr[y * 8 + x] = (128*r - 107*g - 21*b) >> 8;
         }
-      encode_block(&w, cb, qc, &pred_cb);
-      encode_block(&w, cr, qc, &pred_cr);
+      encode_block(w, cb, qc, &pred_cb);
+      encode_block(w, cr, qc, &pred_cr);
     }
   }
-  finish_bits(&w);
-  jmarker(&w, 0xd9);                // EOI
-  if(jflush(&w) < 0 || w.error)
+  finish_bits(w);
+  jmarker(w, 0xd9);                // EOI
+  if(jflush(w) < 0 || w->error)
     return -1;
   if(written)
-    *written = w.total;
+    *written = w->total;
   return 0;
+}
+
+int
+jpeg_encode(int fd, int width, int height, int quality,
+            jpeg_pixel_fn pixel, void *arg, uint *written)
+{
+  struct jw w;
+  if(fd < 0)
+    return -1;
+  memset(&w, 0, sizeof(w));
+  w.fd = fd;
+  return jpeg_encode_to(&w, width, height, quality, pixel, arg, written);
+}
+
+int
+jpeg_encode_mem(uchar *dst, int cap, int width, int height, int quality,
+                jpeg_pixel_fn pixel, void *arg, uint *written)
+{
+  struct jw w;
+  if(dst == 0 || cap <= 0)
+    return -1;
+  memset(&w, 0, sizeof(w));
+  w.fd = -1;
+  w.mem = dst;
+  w.cap = cap;
+  return jpeg_encode_to(&w, width, height, quality, pixel, arg, written);
 }
