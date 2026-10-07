@@ -54,18 +54,6 @@ static const uchar qbase_c[64] = {
   99,99,99,99,99,99,99,99, 99,99,99,99,99,99,99,99
 };
 
-// C(u)*cos((2*x+1)*u*pi/16), Q14.  C(0)=1/sqrt(2).
-static const short dctm[8][8] = {
-  {11585,11585,11585,11585,11585,11585,11585,11585},
-  {16069,13623, 9102, 3196,-3196,-9102,-13623,-16069},
-  {15137, 6270,-6270,-15137,-15137,-6270, 6270,15137},
-  {13623,-3196,-16069,-9102, 9102,16069, 3196,-13623},
-  {11585,-11585,-11585,11585,11585,-11585,-11585,11585},
-  { 9102,-16069, 3196,13623,-13623,-3196,16069,-9102},
-  { 6270,-15137,15137,-6270,-6270,15137,-15137, 6270},
-  { 3196,-9102,13623,-16069,16069,-13623,9102,-3196}
-};
-
 static int
 jflush(struct jw *w)
 {
@@ -182,22 +170,65 @@ make_quant(uchar out[64], const uchar base[64], int quality)
   }
 }
 
+// Exact factorisation of the Q14 matrix C(u)*cos((2*x+1)*u*pi/16), with
+// C(0)=1/sqrt(2).  Pairing samples mirrored around
+// the centre separates the even and odd frequencies.  One 8-point transform
+// therefore needs 24 multiplies instead of eight independent 8-term dot
+// products (64 multiplies), without changing a coefficient or its rounding.
+static inline void
+fdct8_short(const short *x, int *o)
+{
+  int s0 = x[0] + x[7], d0 = x[0] - x[7];
+  int s1 = x[1] + x[6], d1 = x[1] - x[6];
+  int s2 = x[2] + x[5], d2 = x[2] - x[5];
+  int s3 = x[3] + x[4], d3 = x[3] - x[4];
+  int a = s0 - s3, b = s1 - s2;
+
+  o[0] = 11585 * (s0 + s1 + s2 + s3);
+  o[2] = 15137 * a + 6270 * b;
+  o[4] = 11585 * (s0 - s1 - s2 + s3);
+  o[6] = 6270 * a - 15137 * b;
+  o[1] = 16069*d0 + 13623*d1 +  9102*d2 +  3196*d3;
+  o[3] = 13623*d0 -  3196*d1 - 16069*d2 -  9102*d3;
+  o[5] =  9102*d0 - 16069*d1 +  3196*d2 + 13623*d3;
+  o[7] =  3196*d0 -  9102*d1 + 13623*d2 - 16069*d3;
+}
+
+static inline void
+fdct8_int_stride8(const int *x, long long *o)
+{
+  long long s0 = (long long)x[0]  + x[56];
+  long long d0 = (long long)x[0]  - x[56];
+  long long s1 = (long long)x[8]  + x[48];
+  long long d1 = (long long)x[8]  - x[48];
+  long long s2 = (long long)x[16] + x[40];
+  long long d2 = (long long)x[16] - x[40];
+  long long s3 = (long long)x[24] + x[32];
+  long long d3 = (long long)x[24] - x[32];
+  long long a = s0 - s3, b = s1 - s2;
+
+  o[0] = 11585 * (s0 + s1 + s2 + s3);
+  o[2] = 15137 * a + 6270 * b;
+  o[4] = 11585 * (s0 - s1 - s2 + s3);
+  o[6] = 6270 * a - 15137 * b;
+  o[1] = 16069*d0 + 13623*d1 +  9102*d2 +  3196*d3;
+  o[3] = 13623*d0 -  3196*d1 - 16069*d2 -  9102*d3;
+  o[5] =  9102*d0 - 16069*d1 +  3196*d2 + 13623*d3;
+  o[7] =  3196*d0 -  9102*d1 + 13623*d2 - 16069*d3;
+}
+
 static void
 fdct_quant(const short input[64], const uchar quant[64], short output[64])
 {
   int tmp[64];
   for(int y = 0; y < 8; y++)
-    for(int u = 0; u < 8; u++){
-      int sum = 0;
-      for(int x = 0; x < 8; x++)
-        sum += input[y * 8 + x] * dctm[u][x];
-      tmp[y * 8 + u] = sum;
-    }
-  for(int v = 0; v < 8; v++)
-    for(int u = 0; u < 8; u++){
-      long long sum = 0;
-      for(int y = 0; y < 8; y++)
-        sum += (long long)tmp[y * 8 + u] * dctm[v][y];
+    fdct8_short(input + y * 8, tmp + y * 8);
+
+  for(int u = 0; u < 8; u++){
+    long long coefficient[8];
+    fdct8_int_stride8(tmp + u, coefficient);
+    for(int v = 0; v < 8; v++){
+      long long sum = coefficient[v];
       int value;
       if(sum >= 0)
         value = (sum + ((long long)1 << 29)) >> 30;
@@ -210,6 +241,7 @@ fdct_quant(const short input[64], const uchar quant[64], short output[64])
         value = -((-value + q / 2) / q);
       output[v * 8 + u] = value;
     }
+  }
 }
 
 // DC symbols 0..11 have four-bit canonical codes equal to the symbol.

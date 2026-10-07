@@ -172,17 +172,18 @@ compute_wb_level(int wb, uint *gain_r, uint *gain_b, uint *level)
 }
 
 int
-camproc_jpeg(uchar *dst, int cap, const uchar *frame, int n,
-             int half, int wb, int quality, uint *written)
+camproc_jpeg_raw(uchar *dst, int cap, const struct cam_frame_hdr *hdr,
+                 const uchar *raw, int half, int wb, int quality,
+                 uint *written)
 {
-  struct cam_frame_hdr *hdr = (struct cam_frame_hdr *)frame;
-  if(dst == 0 || cap <= 0 || frame == 0 ||
-     n < (int)sizeof(*hdr) || hdr->magic != CAM_MAGIC)
+  if(dst == 0 || cap <= 0 || hdr == 0 || raw == 0 ||
+     hdr->magic != CAM_MAGIC)
     return -1;
   W = hdr->width;
   H = hdr->height;
-  if(n != (int)(sizeof(*hdr) + hdr->data_bytes) || W < 4 || H < 4 ||
-     W % 4 || H % 2 || hdr->bytesperline < W * 10 / 8 ||
+  if(W < 4 || H < 4 || W % 4 || H % 2 ||
+     hdr->data_bytes > CAM_SLOT_BYTES ||
+     hdr->bytesperline < W * 10 / 8 ||
      hdr->data_bytes < hdr->bytesperline * H || set_bayer(hdr->format) < 0)
     return -1;
 
@@ -195,11 +196,23 @@ camproc_jpeg(uchar *dst, int cap, const uchar *frame, int n,
       return -1;
   }
 
-  unpack_raw10(frame + sizeof(*hdr), hdr->bytesperline);
+  unpack_raw10(raw, hdr->bytesperline);
   uint gain_r, gain_b, level;
   compute_wb_level(wb, &gain_r, &gain_b, &level);
   int ow = half ? W / 2 : W, oh = half ? H / 2 : H;
   struct convert conversion = { half, gain_r, gain_b, level };
   return jpeg_encode_mem(dst, cap, ow, oh, quality, output_pixel,
                          &conversion, written);
+}
+
+int
+camproc_jpeg(uchar *dst, int cap, const uchar *frame, int n,
+             int half, int wb, int quality, uint *written)
+{
+  const struct cam_frame_hdr *hdr = (const struct cam_frame_hdr *)frame;
+  if(frame == 0 || n < (int)sizeof(*hdr) ||
+     n != (int)(sizeof(*hdr) + hdr->data_bytes))
+    return -1;
+  return camproc_jpeg_raw(dst, cap, hdr, frame + sizeof(*hdr),
+                          half, wb, quality, written);
 }

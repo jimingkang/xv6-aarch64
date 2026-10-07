@@ -13,4 +13,10 @@
 int camproc_jpeg(uchar *dst, int cap, const uchar *frame, int n,
                  int half, int wb, int quality, uint *written);
 
+// Zero-copy variant for /dev/video0 mmap users.  hdr is returned by the
+// header-only dequeue read and raw points at its completed DMA slot.
+int camproc_jpeg_raw(uchar *dst, int cap, const struct cam_frame_hdr *hdr,
+                     const uchar *raw, int half, int wb, int quality,
+                     uint *written);
+
 #endif

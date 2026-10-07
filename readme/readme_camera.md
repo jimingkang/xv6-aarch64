@@ -619,7 +619,7 @@ camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
 `camshot -t N` 使用 OV5647 内部生成的标准测试图。测试图已经校准，因此转换器采用固定
 1.0 白平衡和固定亮度，不再运行灰世界/直方图统计；这使测试图专门验证 sensor、CSI-2、
 Unicam DMA、RAW10 转换和 FAT32 写盘。只有不带 `-t` 的真实画面才运行自动白平衡和亮度统计。
-启动时的 `camshot: converter jpeg420-v1 bmp-batch16` 用来确认根文件系统中的用户程序确实
+启动时的 `camshot: converter jpeg420-dctsym-v2 bmp-batch16` 用来确认根文件系统中的用户程序确实
 已经更新。
 
 ### camserver：HTTP 推流服务器
@@ -646,23 +646,41 @@ camserver [-p PORT] [-q QUALITY] [-s] [-w] [-n CLIENTS]
 设计要点：
 
 ```text
-main loop
-  没有观看者 -> 关闭 /dev/video0（传感器断电）-> epoll_wait(listener, -1) 睡眠
-  有观看者   -> epoll_wait(listener, 0) 只检查新连接
-  新连接     -> 最多等 2 s 读请求头 -> 按路径分派
-  有观看者   -> read(/dev/video0) 抓一帧 -> camproc_jpeg() 编码一次 -> 写给每个观看者
-               写失败的观看者被移除
+capture thread                         JPEG thread                    main/HTTP thread
+  两个 camera fd 轮换                   raw_ready 等待                  epoll 接受新连接
+  header-only read dequeue             直接读取 mmap DMA 槽            encoded_ready 等待
+  raw_job -> raw_ready                 RAW10 -> JPEG                   JPEG 扇出到所有 viewer
+  等 camera_free 再复用 fd             归还 camera_free                保存最近一帧供 snapshot
+          \________________ 双 RAW 槽 ________________/ \__ 双 JPEG buffer __/
+
+没有观看者 -> pipeline_run=0 -> 两个 camera fd 关闭 -> 最后引用停流断电
 ```
 
-- **单进程扇出**：xv6 的 socket 归 accept 它的进程所有，不能 fork 后交给子进程；而且
-  `/dev/video0` 只有一路传感器流。所以一个进程抓帧、编码一次，再写给全部观看者，N 个观看者只
-  花一次采集和一次编码。代价是一个很慢的客户端会拖慢所有人（TCP 发送队列满时 `write()` 阻塞）。
+- **三级流水线**：采集、JPEG、HTTP/TCP 发送不再串行相加，而可在不同 CPU 核上同时处理相邻三帧。
+  双 RAW 槽和双 JPEG buffer 提供背压；稳定帧周期从近似
+  `capture + jpeg + send` 降为 `max(capture, jpeg, send)`。以实测 70.8/308.2/199.2 ms 为例，串行上限
+  约 1.7 fps，流水线理论上限约 3.2 fps，实际值还会受调度、内存带宽和 Wi-Fi 波动影响。
+- **RAW 零拷贝及槽所有权**：采集线程只读取 40 字节帧头，JPEG 线程由 `reserved` 槽号直接读取
+  `/dev/video0` 的只读 `mmap`。两个 camera fd 各自持有一个内核槽；JPEG 完成后才 `sem_post`
+  对应 `camera_free`，之后该 fd 的下一次 read 才把旧槽还给 Unicam，因而不会在转换途中被 DMA 覆盖。
+- **单进程扇出**：xv6 的 TCP connection 当前记录 owner PID；已连接 socket 不能直接交给另一个线程
+  的独立 fd 表。所以主线程保留 accept/broadcast，采集和 JPEG 使用共享 vmspace 的用户线程。
+  N 个观看者只花一次采集和编码。一个很慢的客户端仍可能拖慢 send 阶段（TCP 发送队列满时
+  `write()` 阻塞），但此时采集和 JPEG 可继续运行，直到双缓冲形成背压。
+- **并发保护**：`raw_ready`、`encoded_ready` 是阶段完成量；`raw_free`、`camera_free[2]` 与
+  `encoded_free` 是有界
+  缓冲背压。raw/encoded 队列均为单生产者、单消费者环，发布索引用 release/acquire；`camproc`
+  内部复用静态 RAW/RGB scratch array，所以另用 `convert_lock` 防止一次性 snapshot 与 JPEG worker
+  并发破坏转换状态。generation 丢弃观看者全部离开后残留的旧帧。
 - **请求超时**：浏览器常常先建立“预连接”而不发请求。读请求头之前用 `epoll_wait()` 最多等
   2 秒，超时就关闭连接，不会卡住正在推送的流。
 - **按需上电**：最后一个观看者离开后立即关闭 `/dev/video0`，内核停流断电。
 - 图像流水线在 `user/camproc.c`（与 `camshot` 相同的 RAW10 → 去马赛克 → 白平衡 → 自动电平 →
-  gamma → JPEG），编码器是 `user/jpeg.c`。
-- 每 3 秒在串口打印一次 `camserver: N.N fps, B bytes/frame, K viewer(s)`。
+  gamma → JPEG），编码器是 `user/jpeg.c`。`camproc_jpeg_raw()` 接受独立的 frame header 和 mmap
+  RAW 指针；原有 `camproc_jpeg()` 仍作为普通 read 缓冲的兼容包装。
+- 每 3 秒在串口打印一次帧率、JPEG 大小、观看人数，以及
+  `capture/jpeg/send` 三阶段平均耗时和每个观看者的 MJPEG payload kbit/s。`send` 是向所有当前
+  TCP socket 入队一帧所花的时间；慢客户端造成的阻塞会直接反映在这一项。
 
 测试（宿主机）：把 xv6 的 `socket_listen/socket_accept/epoll_*` 和 `/dev/video0` 换成 POSIX 实现
 （假摄像头每 100 ms 产生一帧带移动红条的 640×480 RAW10），同一份 `camserver.c` 原样编译：
@@ -688,6 +706,11 @@ curl -o snap.jpg http://<IP>:8080/snapshot.jpg
 curl http://<IP>:8080/status
 ```
 
+速度定位时先保持一个观看者，等待至少 3 秒后读取 `/status`。如果 `avg jpeg ms` 最大，瓶颈是
+ARM 上的 RAW10 去马赛克/JPEG；如果 `avg capture ms` 最大，检查 CSI/DMA 及 watchdog；如果
+`avg send ms` 最大，检查 TCP/Wi-Fi 或慢客户端。然后对比 `camserver -s -q 60`：半尺寸减少约
+75% 输出像素，较低质量也会减少 JPEG 大小，适合作为网络推流模式。
+
 ### JPEG编码器与视频准备
 
 JPEG 路径不依赖浮点或外部 `libjpeg`。`user/jpeg.c` 把转换后的 RGB 像素按 16×16 MCU 流式处理：
@@ -705,6 +728,22 @@ RGB
   -> JFIF baseline JPEG
 ```
 
+二维 DCT 已针对 Cortex-A53 的纯整数路径做等价因式分解。原实现对每一行、每一列分别执行 8 个
+8 项点积，即每个一维 8 点 DCT 需要 64 次乘法。Q14 DCT 矩阵具有镜像偶/奇对称性；先计算
+`x0±x7`、`x1±x6`、`x2±x5`、`x3±x4` 后，偶频率和奇频率可分开求值，只需 24 次乘法。
+两遍变换的缩放、最终 `2^30` 舍入以及量化顺序完全保持不变，因此不是降低精度的近似 DCT。
+
+宿主机对同一幅确定性的 640×480、quality 75 图像连续编码 20 次的回归结果：
+
+| 实现 | 每帧耗时 | JPEG 长度 | FNV-1a 哈希 |
+|---|---:|---:|---:|
+| 原 64-multiply dot product | 27.884 ms | 276065 | `3f32a30263bba8fd` |
+| 对称分解 DCT | 15.273 ms | 276065 | `3f32a30263bba8fd` |
+
+测试机上纯 JPEG 编码缩短约 45%，且输出逐字节一致。Raspberry Pi 3 的绝对时间不同，但原先
+`avg jpeg ms=308.2` 是最大瓶颈，预计会明显下降；流水线最终帧率取决于优化后的 JPEG 与约
+199 ms 的网络发送阶段谁更慢。启动日志中的 `JPEG dctsym-v2` 可用于确认新程序已烧录。
+
 编码器只缓存一个 MCU 和 4 KiB 输出，不建立整张 RGB 图。因此在已有 RAW10 mosaic 之外几乎不增加
 峰值内存，也不会因为 640×480 RGB 缓冲再消耗约 900 KiB。接口通过像素回调取样：
 
@@ -713,9 +752,8 @@ int jpeg_encode(int fd, int width, int height, int quality,
                 jpeg_pixel_fn pixel, void *arg, uint *written);
 ```
 
-每次调用输出一幅完整的 SOI...EOI JPEG，未来 `camrec` 可以对连续帧重复调用此编码核心，再在外层
-增加 MJPEG multipart 或 AVI 容器。当前仍只有单帧 `/dev/video0` 读取；JPEG 编码器完成不代表摄像头
-已经支持连续取流。
+每次调用输出一幅完整的 SOI...EOI JPEG，`camserver` 已在外层把连续帧封装成 MJPEG multipart；
+未来 `camrec` 还可以复用此编码核心并增加 AVI 容器。
 
 真机测试命令：
 
@@ -845,8 +883,9 @@ mailbox 电源域和 GPIO、CAM1 时钟、CSI-2 接收、DMA、中断号。
   桥接驱动不用改；存成文件仍受 268 KB 的限制；
 - **模式选择**：桥接驱动总是使用 `modes[0]`，还没有让用户选择模式的接口（可以在 `camwrite`
   里加 `mode=N`）；
-- **连续取流是“按需抓帧”**：传感器一直 streaming，但每次 `read()` 只抓下一帧，没有多缓冲
-  队列，也没有 `poll()`；帧率受限于抓帧等待加上用户态整数去马赛克和 JPEG 编码；
+- **连续取流仍是 userspace 主动 dequeue**：传感器一直 streaming，内核有双 DMA 槽/DONE 队列，
+  `camserver` 已用两个 fd、mmap 和两级用户队列形成采集/JPEG/发送流水线；字符设备仍没有通用
+  `poll()`/V4L2 buffer queue 接口，其他程序需要主动 `read()`；
 - **MJPEG 已经可以通过 `camserver` 用 HTTP 推送，`camshot -v` 可以录成连续 JPEG 文件**；还没有
   AVI/MP4 容器；
 - **曝光完全交给传感器**，没有手动曝光/增益接口；

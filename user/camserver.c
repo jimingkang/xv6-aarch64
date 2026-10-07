@@ -15,9 +15,9 @@
 //   /snapshot.jpg   one JPEG frame
 //   /status         plain-text counters
 //
-// One process serves everyone.  Each captured frame is converted to JPEG
-// once and written to every stream viewer, so N viewers cost one capture
-// (/dev/video0 has a single sensor stream; separate opens would restart it).
+// One process serves everyone.  Capture, JPEG conversion, and TCP broadcast
+// are a three-stage double-buffered pipeline; each frame is converted once
+// and written to every stream viewer, so N viewers still cost one capture.
 // The sensor is powered only while somebody is watching: when the last viewer
 // leaves, /dev/video0 is closed and the kernel stops the stream.
 //
@@ -29,8 +29,10 @@
 #include "kernel/types.h"
 #include "kernel/fcntl.h"
 #include "kernel/camera.h"
+#include "kernel/mman.h"
 #include "kernel/epoll.h"
 #include "user/user.h"
+#include "user/sync.h"
 #include "user/camproc.h"
 
 #define BACKLOG         4
@@ -38,6 +40,7 @@
 #define REQ_CAP         1024
 #define REQ_TIMEOUT_MS  2000
 #define JPEG_CAP        (256 * 1024)
+#define PIPE_DEPTH      2
 
 static int port = 8080, quality = 75, half, wb = 1, maxclients = MAXCLIENTS;
 
@@ -49,11 +52,52 @@ static uchar *frame;                  // raw capture, CAM_READ_MAX bytes
 static uchar *jpeg;                   // last encoded frame
 static uint jpeg_len;                 // 0 = no valid frame yet
 
+// Streaming pipeline.  The capture thread owns two camera fds so each mmap
+// DMA slot remains held until the JPEG thread has consumed it.  The main
+// thread alone owns accepted TCP descriptors and broadcasts encoded jobs.
+struct raw_job {
+  struct cam_frame_hdr hdr;
+  uint64 capture_us;
+  uint generation;
+  int camera_index;
+  int error;
+};
+
+struct encoded_job {
+  uint64 capture_us;
+  uint64 jpeg_us;
+  uint generation;
+  uint len;
+  int buffer_index;
+  int error;
+};
+
+static struct raw_job rawq[PIPE_DEPTH];
+static struct encoded_job encodedq[PIPE_DEPTH];
+static uchar *encoded_buf[PIPE_DEPTH];
+static uchar *camera_dma;
+static volatile uint raw_head, raw_tail, encoded_head, encoded_tail;
+static volatile int pipeline_run;
+static volatile uint pipeline_generation;
+static semaphore_t pipeline_start;
+static semaphore_t camera_free[PIPE_DEPTH];
+static semaphore_t raw_free;
+static semaphore_t raw_ready;
+static semaphore_t encoded_free;
+static semaphore_t encoded_ready;
+static mutex_t convert_lock;          // camproc uses shared scratch arrays
+static thread_t capture_thread, jpeg_thread;
+
 // Counters for /status and the console.
 static uint frames, served_snapshots, total_viewers;
 static uint64 window_start_us;
 static uint window_frames;
 static uint fps10;                    // frames per second * 10, last window
+static uint64 window_capture_us, window_jpeg_us, window_send_us;
+static uint64 window_jpeg_bytes;
+static uint window_send_frames;
+static uint capture_ms10, jpeg_ms10, send_ms10; // window averages, 0.1 ms
+static uint payload_kbps;             // generated MJPEG payload per viewer
 
 static int
 write_all(int fd, const void *buf, int n)
@@ -108,6 +152,15 @@ cat_fps(char *buf, int *n)
   cat_uint(buf, n, fps10 % 10);
 }
 
+// A duration stored as tenths of a millisecond, formatted as "12.3".
+static void
+cat_ms10(char *buf, int *n, uint v)
+{
+  cat_uint(buf, n, v / 10);
+  cat(buf, n, ".");
+  cat_uint(buf, n, v % 10);
+}
+
 static void
 send_simple(int fd, const char *status, const char *type, const char *body)
 {
@@ -137,6 +190,66 @@ camera_close(void)
   }
 }
 
+static void
+stats_reset(void)
+{
+  window_start_us = clock_us();
+  window_frames = 0;
+  window_capture_us = window_jpeg_us = window_send_us = 0;
+  window_jpeg_bytes = 0;
+  window_send_frames = 0;
+}
+
+// Account for one frame after the final pipeline stage.  Keeping the window
+// update in the main thread avoids putting a lock around the status counters.
+static void
+stats_frame(uint64 capture_us, uint64 jpeg_us, uint64 send_us, uint bytes,
+            int sent)
+{
+  frames++;
+  window_frames++;
+  window_capture_us += capture_us;
+  window_jpeg_us += jpeg_us;
+  window_jpeg_bytes += bytes;
+  if(sent){
+    window_send_us += send_us;
+    window_send_frames++;
+  }
+  uint64 now = clock_us();
+  if(now - window_start_us < 3000000ULL)
+    return;
+
+  uint64 elapsed = now - window_start_us;
+  fps10 = (uint)(window_frames * 10000000ULL / elapsed);
+  capture_ms10 = (uint)(window_capture_us * 10 /
+                        (window_frames * 1000ULL));
+  jpeg_ms10 = (uint)(window_jpeg_us * 10 /
+                     (window_frames * 1000ULL));
+  send_ms10 = window_send_frames ?
+    (uint)(window_send_us * 10 / (window_send_frames * 1000ULL)) : 0;
+  payload_kbps = (uint)(window_jpeg_bytes * 8000ULL / elapsed);
+
+  char line[224];
+  int k = 0;
+  cat(line, &k, "camserver: ");
+  cat_fps(line, &k);
+  cat(line, &k, " fps, ");
+  cat_uint(line, &k, bytes);
+  cat(line, &k, " bytes/frame, ");
+  cat_uint(line, &k, nclients);
+  cat(line, &k, " viewer(s), capture/jpeg/send ");
+  cat_ms10(line, &k, capture_ms10);
+  cat(line, &k, "/");
+  cat_ms10(line, &k, jpeg_ms10);
+  cat(line, &k, "/");
+  cat_ms10(line, &k, send_ms10);
+  cat(line, &k, " ms, payload ");
+  cat_uint(line, &k, payload_kbps);
+  cat(line, &k, " kbit/s\n");
+  write(1, line, k);
+  stats_reset();
+}
+
 // Capture one frame and convert it to JPEG.  Returns 0 on success.
 static int
 capture(void)
@@ -148,41 +261,219 @@ capture(void)
       return -1;
     }
     printf("camserver: camera opened\n");
-    window_start_us = clock_us();
-    window_frames = 0;
+    stats_reset();
   }
+  uint64 capture_begin = clock_us();
   int n = read(cam, frame, CAM_READ_MAX);
+  uint64 capture_end = clock_us();
   if(n <= 0){
     printf("camserver: capture failed\n");
     camera_close();
     return -1;
   }
   uint len = 0;
-  if(camproc_jpeg(jpeg, JPEG_CAP, frame, n, half, wb, quality, &len) < 0 ||
-     len == 0){
+  uint64 jpeg_begin = clock_us();
+  mutex_lock(&convert_lock);
+  int convert_result = camproc_jpeg(jpeg, JPEG_CAP, frame, n, half, wb,
+                                    quality, &len);
+  mutex_unlock(&convert_lock);
+  if(convert_result < 0 || len == 0){
     printf("camserver: JPEG conversion failed\n");
     return -1;
   }
+  uint64 jpeg_end = clock_us();
   jpeg_len = len;
-  frames++;
-  window_frames++;
-  uint64 now = clock_us();
-  if(now - window_start_us >= 3000000ULL){
-    fps10 = (uint)(window_frames * 10000000ULL / (now - window_start_us));
-    char line[160];
-    int k = 0;
-    cat(line, &k, "camserver: ");
-    cat_fps(line, &k);
-    cat(line, &k, " fps, ");
-    cat_uint(line, &k, jpeg_len);
-    cat(line, &k, " bytes/frame, ");
-    cat_uint(line, &k, nclients);
-    cat(line, &k, " viewer(s)\n");
-    write(1, line, k);
-    window_start_us = now;
-    window_frames = 0;
-  }
+  stats_frame(capture_end - capture_begin, jpeg_end - jpeg_begin, 0,
+              jpeg_len, 0);
   return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Three-stage stream pipeline.
+
+static int
+pipeline_running(void)
+{
+  return __atomic_load_n(&pipeline_run, __ATOMIC_ACQUIRE);
+}
+
+static uint
+pipeline_current_generation(void)
+{
+  return __atomic_load_n(&pipeline_generation, __ATOMIC_ACQUIRE);
+}
+
+static void
+raw_push(const struct raw_job *job)
+{
+  sem_wait(&raw_free);
+  uint tail = __atomic_load_n(&raw_tail, __ATOMIC_RELAXED);
+  rawq[tail % PIPE_DEPTH] = *job;
+  __atomic_store_n(&raw_tail, tail + 1, __ATOMIC_RELEASE);
+  sem_post(&raw_ready);
+}
+
+static struct raw_job
+raw_pop(void)
+{
+  sem_wait(&raw_ready);
+  uint head = __atomic_load_n(&raw_head, __ATOMIC_RELAXED);
+  struct raw_job job = rawq[head % PIPE_DEPTH];
+  __atomic_store_n(&raw_head, head + 1, __ATOMIC_RELEASE);
+  sem_post(&raw_free);
+  return job;
+}
+
+static void
+encoded_push(const struct encoded_job *job)
+{
+  uint tail = __atomic_load_n(&encoded_tail, __ATOMIC_RELAXED);
+  encodedq[tail % PIPE_DEPTH] = *job;
+  __atomic_store_n(&encoded_tail, tail + 1, __ATOMIC_RELEASE);
+  sem_post(&encoded_ready);
+}
+
+static struct encoded_job
+encoded_pop(void)
+{
+  sem_wait(&encoded_ready);
+  uint head = __atomic_load_n(&encoded_head, __ATOMIC_RELAXED);
+  struct encoded_job job = encodedq[head % PIPE_DEPTH];
+  __atomic_store_n(&encoded_head, head + 1, __ATOMIC_RELEASE);
+  return job;
+}
+
+// Two open camera files pin the two DMA slots independently.  A camera_free
+// token is returned only after JPEG conversion, so the kernel cannot recycle
+// a slot while userspace is reading RAW10 from its mmap mapping.
+static void
+capture_worker(void *arg)
+{
+  (void)arg;
+  for(;;){
+    sem_wait(&pipeline_start);
+    if(!pipeline_running())
+      continue;
+    uint generation = pipeline_current_generation();
+    int fd[PIPE_DEPTH] = {-1, -1};
+    struct raw_job failure;
+    memset(&failure, 0, sizeof(failure));
+    failure.generation = generation;
+    failure.camera_index = -1;
+    failure.error = 1;
+
+    fd[0] = open("/dev/video0", O_RDWR);
+    fd[1] = open("/dev/video0", O_RDWR);
+    if(fd[0] < 0 || fd[1] < 0){
+      printf("camserver: pipeline cannot open two camera files\n");
+      raw_push(&failure);
+      if(fd[0] >= 0) close(fd[0]);
+      if(fd[1] >= 0) close(fd[1]);
+      continue;
+    }
+    if(camera_dma == 0){
+      void *p = mmap(0, CAM_MMAP_BYTES, PROT_READ, MAP_SHARED, fd[0], 0);
+      if(p == MAP_FAILED){
+        printf("camserver: camera DMA mmap failed\n");
+        raw_push(&failure);
+        close(fd[0]);
+        close(fd[1]);
+        continue;
+      }
+      camera_dma = p;
+    }
+    printf("camserver: capture/JPEG/send pipeline started\n");
+
+    uint sequence = 0;
+    while(pipeline_running() &&
+          generation == pipeline_current_generation()){
+      int ci = sequence++ % PIPE_DEPTH;
+      sem_wait(&camera_free[ci]);
+      if(!pipeline_running() || generation != pipeline_current_generation()){
+        sem_post(&camera_free[ci]);
+        break;
+      }
+      struct raw_job job;
+      memset(&job, 0, sizeof(job));
+      job.generation = generation;
+      job.camera_index = ci;
+      uint64 begin = clock_us();
+      int n = read(fd[ci], &job.hdr, sizeof(job.hdr));
+      job.capture_us = clock_us() - begin;
+      if(n != sizeof(job.hdr) || job.hdr.magic != CAM_MAGIC ||
+         job.hdr.reserved >= CAM_BUFFER_COUNT ||
+         job.hdr.data_bytes > CAM_SLOT_BYTES){
+        printf("camserver: pipeline capture failed\n");
+        job.error = 1;
+      }
+      raw_push(&job);
+      if(job.error)
+        break;
+    }
+
+    // Closing a camera file releases its kernel-side held slot.  Wait until
+    // the JPEG worker has stopped touching both user mappings first.
+    sem_wait(&camera_free[0]);
+    sem_wait(&camera_free[1]);
+    close(fd[0]);
+    close(fd[1]);
+    sem_post(&camera_free[0]);
+    sem_post(&camera_free[1]);
+  }
+}
+
+static void
+jpeg_worker(void *arg)
+{
+  (void)arg;
+  for(;;){
+    struct raw_job raw = raw_pop();
+    sem_wait(&encoded_free);
+    uint tail = __atomic_load_n(&encoded_tail, __ATOMIC_RELAXED);
+    int bi = tail % PIPE_DEPTH;
+    struct encoded_job out;
+    memset(&out, 0, sizeof(out));
+    out.capture_us = raw.capture_us;
+    out.generation = raw.generation;
+    out.buffer_index = bi;
+    out.error = raw.error;
+    if(!out.error){
+      const uchar *pixels = camera_dma + raw.hdr.reserved * CAM_SLOT_BYTES;
+      uint64 begin = clock_us();
+      mutex_lock(&convert_lock);
+      int result = camproc_jpeg_raw(encoded_buf[bi], JPEG_CAP, &raw.hdr,
+                                    pixels, half, wb, quality, &out.len);
+      mutex_unlock(&convert_lock);
+      if(result < 0 || out.len == 0)
+        out.error = 1;
+      out.jpeg_us = clock_us() - begin;
+    }
+    if(raw.camera_index >= 0)
+      sem_post(&camera_free[raw.camera_index]);
+    encoded_push(&out);
+  }
+}
+
+static void
+pipeline_start_stream(void)
+{
+  // Only the HTTP/main thread changes streaming generations, so an acquire
+  // load followed by release stores is sufficient (and avoids an LSE helper
+  // dependency in the freestanding userspace runtime).
+  if(!pipeline_running()){
+    uint next = pipeline_current_generation() + 1;
+    __atomic_store_n(&pipeline_generation, next, __ATOMIC_RELEASE);
+    __atomic_store_n(&pipeline_run, 1, __ATOMIC_RELEASE);
+    jpeg_len = 0;
+    stats_reset();
+    sem_post(&pipeline_start);
+  }
+}
+
+static void
+pipeline_stop_stream(void)
+{
+  __atomic_store_n(&pipeline_run, 0, __ATOMIC_RELEASE);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,11 +560,11 @@ send_index(int fd)
 static void
 send_status(int fd)
 {
-  char body[384];
+  char body[640];
   int n = 0;
   body[0] = 0;
   cat(body, &n, "camera: ");
-  cat(body, &n, cam >= 0 ? "streaming\n" : "idle\n");
+  cat(body, &n, (pipeline_running() || cam >= 0) ? "streaming\n" : "idle\n");
   cat(body, &n, "size: ");
   cat(body, &n, half ? "320x240\n" : "640x480\n");
   cat(body, &n, "quality: ");
@@ -290,6 +581,14 @@ send_status(int fd)
   cat_fps(body, &n);
   cat(body, &n, "\nlast frame bytes: ");
   cat_uint(body, &n, jpeg_len);
+  cat(body, &n, "\navg capture ms: ");
+  cat_ms10(body, &n, capture_ms10);
+  cat(body, &n, "\navg jpeg ms: ");
+  cat_ms10(body, &n, jpeg_ms10);
+  cat(body, &n, "\navg send ms: ");
+  cat_ms10(body, &n, send_ms10);
+  cat(body, &n, "\npayload kbit/s per viewer: ");
+  cat_uint(body, &n, payload_kbps);
   cat(body, &n, "\nsnapshots: ");
   cat_uint(body, &n, served_snapshots);
   cat(body, &n, "\n");
@@ -297,14 +596,14 @@ send_status(int fd)
 }
 
 static int
-send_jpeg_part(int fd)
+send_jpeg_part(int fd, const uchar *data, uint len)
 {
   char head[128];
   int n = 0;
   cat(head, &n, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ");
-  cat_uint(head, &n, jpeg_len);
+  cat_uint(head, &n, len);
   cat(head, &n, "\r\n\r\n");
-  if(write_all(fd, head, n) < 0 || write_all(fd, jpeg, jpeg_len) < 0 ||
+  if(write_all(fd, head, n) < 0 || write_all(fd, data, len) < 0 ||
      write_all(fd, "\r\n", 2) < 0)
     return -1;
   return 0;
@@ -315,8 +614,13 @@ send_snapshot(int fd)
 {
   // While streaming, the newest frame is at most one frame old; otherwise
   // power the camera up for a single capture.
-  int fresh = cam < 0;
-  if(cam < 0 || jpeg_len == 0){
+  int fresh = !pipeline_running() && cam < 0;
+  if(pipeline_running() && jpeg_len == 0){
+    send_simple(fd, "503 Service Unavailable", "text/plain",
+                "camera warming up\n");
+    return;
+  }
+  if(!pipeline_running() && (cam < 0 || jpeg_len == 0)){
     if(capture() < 0){
       send_simple(fd, "503 Service Unavailable", "text/plain", "no camera\n");
       return;
@@ -387,11 +691,12 @@ handle_connection(int listener, int epfd)
 }
 
 // Send the current frame to every viewer; drop the ones that went away.
-static void
-broadcast(void)
+static uint64
+broadcast(const uchar *data, uint len)
 {
+  uint64 begin = clock_us();
   for(int i = 0; i < nclients; ){
-    if(send_jpeg_part(clients[i]) < 0){
+    if(send_jpeg_part(clients[i], data, len) < 0){
       printf("camserver: viewer fd=%d left\n", clients[i]);
       close(clients[i]);
       clients[i] = clients[--nclients];
@@ -399,6 +704,10 @@ broadcast(void)
     }
     i++;
   }
+  // This is time spent enqueueing one frame to all current TCP sockets.  It
+  // can include blocking behind a slow viewer, so it is deliberately shown
+  // separately from capture and JPEG conversion.
+  return clock_us() - begin;
 }
 
 static void
@@ -431,10 +740,13 @@ main(int argc, char **argv)
 
   frame = malloc(CAM_READ_MAX);
   jpeg = malloc(JPEG_CAP);
+  encoded_buf[0] = malloc(JPEG_CAP);
+  encoded_buf[1] = malloc(JPEG_CAP);
   int listener = socket_listen(port, BACKLOG);
   int accept_ep = epoll_create();     // watches the listener
   int req_ep = epoll_create();        // bounded waits for request headers
-  if(frame == 0 || jpeg == 0 || listener < 0 || accept_ep < 0 || req_ep < 0){
+  if(frame == 0 || jpeg == 0 || encoded_buf[0] == 0 || encoded_buf[1] == 0 ||
+     listener < 0 || accept_ep < 0 || req_ep < 0){
     fprintf(2, "camserver: setup failed (memory, port %d or epoll)\n", port);
     exit(1);
   }
@@ -445,27 +757,61 @@ main(int argc, char **argv)
     fprintf(2, "camserver: epoll_ctl failed\n");
     exit(1);
   }
+  if(sem_init(&pipeline_start, 0) < 0 ||
+     sem_init(&camera_free[0], 1) < 0 ||
+     sem_init(&camera_free[1], 1) < 0 ||
+     sem_init(&raw_free, PIPE_DEPTH) < 0 ||
+     sem_init(&raw_ready, 0) < 0 ||
+     sem_init(&encoded_free, PIPE_DEPTH) < 0 ||
+     sem_init(&encoded_ready, 0) < 0 ||
+     mutex_init(&convert_lock) < 0 ||
+     thread_create(&capture_thread, capture_worker, 0) < 0 ||
+     thread_create(&jpeg_thread, jpeg_worker, 0) < 0){
+    fprintf(2, "camserver: cannot create pipeline workers\n");
+    exit(1);
+  }
   printf("camserver: listening on port %d (%s, quality %d, max %d viewers)\n",
          port, half ? "320x240" : "640x480", quality, maxclients);
+  printf("camserver: pipeline double-buffer-v1, JPEG dctsym-v2\n");
   printf("camserver: open http://<ip>:%d/  (stream: /stream, "
          "snapshot: /snapshot.jpg, status: /status)\n", port);
 
   for(;;){
     // Nobody watching: power the sensor down before sleeping in epoll_wait.
-    if(nclients == 0)
+    if(nclients == 0){
+      pipeline_stop_stream();
       camera_close();
+    }
     // Idle: sleep until a connection arrives.  Streaming: just poll.
     int n = epoll_wait(accept_ep, ready, BACKLOG, nclients ? 0 : -1);
     for(int i = 0; i < n; i++)
       handle_connection(listener, req_ep);
     if(nclients == 0)
       continue;
-    if(capture() < 0){
-      // Camera failed: tell nobody more frames are coming and go idle.
+
+    pipeline_start_stream();
+    struct encoded_job job = encoded_pop();
+    if(job.generation != pipeline_current_generation()){
+      // A completed frame from a stream generation whose last viewer left.
+      sem_post(&encoded_free);
+      continue;
+    }
+    if(job.error || job.len == 0 || job.len > JPEG_CAP){
+      printf("camserver: stream pipeline failed\n");
+      sem_post(&encoded_free);
+      pipeline_stop_stream();
       drop_all_viewers();
       sleep(10);
       continue;
     }
-    broadcast();
+    // Preserve the most recent JPEG for /snapshot.jpg.  This is only a small
+    // encoded-frame copy; the large RAW10 frame stays in the mmap DMA slot.
+    memmove(jpeg, encoded_buf[job.buffer_index], job.len);
+    jpeg_len = job.len;
+    uint64 send_us = broadcast(encoded_buf[job.buffer_index], job.len);
+    stats_frame(job.capture_us, job.jpeg_us, send_us, job.len, 1);
+    sem_post(&encoded_free);
+    if(nclients == 0)
+      pipeline_stop_stream();
   }
 }

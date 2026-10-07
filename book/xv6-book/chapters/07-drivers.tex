@@ -10,7 +10,7 @@
   \item 网络协议栈
   \item SDIO 无线网卡 BCM43430/43455
   \item USB 无线网卡 MT7601U
-  \item CSI-2 摄像头 OV5647：D-PHY、CSI-2 包、Unicam FIFO、DMA 双缓冲与帧通知，HTTP MJPEG 推流
+  \item CSI-2 摄像头 OV5647：D-PHY、CSI-2 包、Unicam FIFO、DMA 双缓冲与帧通知，HTTP MJPEG 推流及其流水线提速
 \end{introduction}
 
 \section{设备模型}
@@ -1804,7 +1804,7 @@ vfs: boot create directory-entry begin
 
 这带来一条使用约定：连续读帧的程序要一直开着同一个文件描述符。两个进程各自打开、读一帧、关闭，会让传感器反复重启。
 
-\paragraph{用户态：一个进程扇出给所有观看者.} 图~\ref{fig:cam-http} 是 \code{camserver} 的结构。
+\paragraph{用户态：一个进程扇出给所有观看者.} 图~\ref{fig:cam-http} 是 \code{camserver} 第一版的结构：抓帧、编码、发送在同一个循环里串行进行。后来它被拆成了三级流水线，见 \ref{sec:cam-perf} 小节。
 
 \begin{figure}[htbp]
   \centering
@@ -1900,6 +1900,112 @@ camserver: listening on port 8080 (320x240, quality 75, max 4 viewers)
 
 然后在同一局域网里用浏览器打开 \code{http://<IP>:8080/}。串口每 3 秒打印一行 \code{camserver: N.N fps, B bytes/frame, K viewer(s)}。帧率受三件事限制：等待下一帧的到来、用户态整数去马赛克和 JPEG 编码，以及 Wi-Fi 上的 TCP 吞吐；半尺寸 \code{-s} 能同时减轻后两项。
 
+\subsection{提高推流帧率}
+\label{sec:cam-perf}
+
+\ref{sec:cam-http} 小节的第一版 \code{camserver} 在一个循环里依次做三件事：抓一帧、转成 JPEG、写给所有观看者。它正确，但慢：三段时间直接相加。本小节记录后来的提速过程，方法可以归结为四条：先测量，把串行改成流水线，去掉大块拷贝，再按瓶颈减少每帧的工作量。
+
+\paragraph{先测量，再优化.} 改动之前先给每一帧计时。\code{stats\_frame()} 分别累加三段耗时：\emph{capture} 是 \code{read()} 拿到一帧所花的时间，\emph{jpeg} 是 \code{camproc\_jpeg\_raw()} 的时间，\emph{send} 是把这一帧写进所有观看者 socket 的时间（被慢客户端阻塞也计在里面）。每 3 秒在串口打印一次平均值，\code{/status} 也给出同样的数字：
+
+\begin{txtcode}
+camserver: N.N fps, B bytes/frame, K viewer(s), capture/jpeg/send C/J/S ms, payload P kbit/s
+\end{txtcode}
+
+真机上测得的三段约为 70.8、308.2、199.2\,ms。串行时一帧要 $70.8+308.2+199.2 \approx 578$\,ms，帧率只有约 1.7\,fps。三段里最慢的是 JPEG：640$\times$480 的 RAW10 要在 ARM 上做整数去马赛克、白平衡、gamma 和 DCT 编码，用户程序又是以 \code{-mcpu=cortex-a53+nofp} 编译的，没有浮点和 NEON。
+
+\paragraph{方法一：三级流水线.} 三段工作分别由三个执行流承担：采集线程只负责从 \code{/dev/video0} 取帧，JPEG 线程只负责转换，主线程负责 HTTP 和发送。它们之间用两个深度为 2 的队列相连。这样相邻的三帧可以在不同的 CPU 核上同时处理：第 $n$ 帧在发送时，第 $n{+}1$ 帧在编码，第 $n{+}2$ 帧在采集。稳定后的帧周期从三段之和变成三段中的最大值（图~\ref{fig:cam-pipe}）：
+\[
+  T_{\text{串行}} = t_c + t_j + t_s \approx 578\,\text{ms}
+  \quad\Longrightarrow\quad
+  T_{\text{流水线}} = \max(t_c, t_j, t_s) \approx 308\,\text{ms},
+\]
+理论上限从 1.7\,fps 提高到约 3.2\,fps；实际值还受调度、内存带宽和 Wi-Fi 波动影响。
+
+\begin{figure}[htbp]
+  \centering
+  \input{chapters/fig-cam-pipe}
+  \caption{串行与三级流水线的时间线（按实测的 70.8/308.2/199.2\,ms 画，比例尺相同）。流水线中 JPEG 线程几乎一直在工作，帧周期由最慢的这一段决定}
+  \label{fig:cam-pipe}
+\end{figure}
+
+为什么用线程而不用进程？xv6 的 TCP 连接记录了接受它的进程号（\code{c->owner}），已经连上的 socket 不能交给另一个进程。所以接受连接和发送都留在主线程，采集和 JPEG 用 \code{thread\_create()} 创建的用户线程（第~\ref{chap:user} 章），它们与主线程共享地址空间，可以直接读写同一块缓冲。
+
+\paragraph{方法二：RAW 帧零拷贝.} 一帧 RAW10 有 384\,KB。第一版用普通 \code{read()} 把它从内核拷进用户缓冲；现在采集线程只读 40 字节的帧头，JPEG 线程按帧头里的槽号，直接从 \code{/dev/video0} 的只读 \code{mmap} 里读像素（\ref{sec:cam-dma} 小节），每帧省掉一次 384\,KB 的拷贝。
+
+零拷贝带来一个所有权问题：内核在同一个文件的下一次 \code{read()} 时归还上一个槽，如果 JPEG 线程还在读这个槽，像素就可能被 Unicam 的下一帧覆盖。解决办法是打开\emph{两个}文件描述符，每个各持有一个内核槽，并用信号量 \code{camera\_free[i]} 表示“第 $i$ 个 fd 的槽已经用完”：
+
+\begin{ccode}
+// 采集线程：轮流使用两个 fd
+int ci = sequence++ % PIPE_DEPTH;
+sem_wait(&camera_free[ci]);              // 等 JPEG 线程用完这个 fd 上一次的槽
+int n = read(fd[ci], &job.hdr, sizeof(job.hdr));   // 只取帧头；内核归还旧槽、给出新槽
+job.camera_index = ci;
+raw_push(&job);
+
+// JPEG 线程
+struct raw_job raw = raw_pop();
+const uchar *pixels = camera_dma + raw.hdr.reserved * CAM_SLOT_BYTES;
+camproc_jpeg_raw(encoded_buf[bi], JPEG_CAP, &raw.hdr, pixels, half, wb, quality, &out.len);
+sem_post(&camera_free[raw.camera_index]);  // 槽用完了，这个 fd 可以再 read
+\end{ccode}
+
+JPEG 结果只有几十 KB，主线程把最新一帧复制一份留给 \code{/snapshot.jpg}；大块的 RAW 数据始终留在 DMA 槽里。
+
+\paragraph{方法三：有界队列与背压.} 流水线的各段速度不同，必须有机制防止快的一段把慢的一段淹没。这里全部用计数信号量实现（表~\ref{tab:cam-sems}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{流水线中的同步对象}
+  \label{tab:cam-sems}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    对象 & 初值 & 含义 \\
+    \midrule
+    \code{pipeline\_start} & 0 & 主线程有了第一个观看者时 \code{sem\_post}，唤醒采集线程打开摄像头 \\
+    \code{camera\_free[0..1]} & 1, 1 & 每个 camera fd 持有的 DMA 槽是否已被 JPEG 线程用完 \\
+    \code{raw\_free} / \code{raw\_ready} & 2 / 0 & RAW 队列的空位 / 待编码的帧 \\
+    \code{encoded\_free} / \code{encoded\_ready} & 2 / 0 & JPEG 缓冲的空位 / 待发送的帧 \\
+    \code{convert\_lock} & 互斥锁 & \file{camproc.c} 复用静态的 RAW 解包缓冲，单次快照不能与 JPEG 线程同时转换 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+两个队列都是单生产者、单消费者的环形缓冲。生产者写好元素后用 release 语义推进尾指针，消费者用 acquire 语义读，因此不需要额外的锁：
+
+\begin{ccode}
+static void raw_push(const struct raw_job *job) {
+  sem_wait(&raw_free);                                       // 背压：队列满就等
+  uint tail = __atomic_load_n(&raw_tail, __ATOMIC_RELAXED);
+  rawq[tail % PIPE_DEPTH] = *job;
+  __atomic_store_n(&raw_tail, tail + 1, __ATOMIC_RELEASE);   // 先写元素，再发布
+  sem_post(&raw_ready);
+}
+\end{ccode}
+
+如果发送慢了（例如某个观看者网速很差，\code{write()} 阻塞），\code{encoded\_free} 很快耗尽，JPEG 线程停在 \code{sem\_wait()} 上；它不再归还 \code{camera\_free}，采集线程也随之停下；内核那边两个槽都被持有，Unicam 自动把多余的帧写进 dummy 丢弃。慢的一端就这样一级一级地把压力传回传感器，而不会让内存无限增长。
+
+观看者全部离开时，主线程把 \code{pipeline\_run} 清零，采集线程退出内层循环，等两个 \code{camera\_free} 都收回之后才关闭两个 fd（这时 JPEG 线程已不再读映射），最后一个引用关闭使内核停流断电。每次重新开始推流时 \code{pipeline\_generation} 加 1，主线程丢弃上一代残留在队列里的帧。
+
+\paragraph{方法四：减少每帧的工作量.} 流水线只能把周期压到最慢的一段；要再快，就得让最慢的那段少干活。现有的两个开关作用在不同的阶段：
+
+\begin{itemize}
+  \item \code{-s}（320$\times$240）：每个 2$\times$2 Bayer 块直接合成一个像素，省掉双线性去马赛克，输出像素减少 75\%，同时减轻 JPEG 和发送两段；
+  \item \code{-q 60}：降低 JPEG 质量，量化更粗，码流更短，主要减轻发送一段，对编码时间影响较小。
+\end{itemize}
+
+网络推流建议从 \code{camserver -s -q 60} 开始。
+
+\paragraph{按测量结果定位瓶颈.} 保持一个观看者，等至少 3 秒后读 \code{/status} 或看串口的那一行：\code{jpeg} 最大，瓶颈在 ARM 上的图像处理，先试 \code{-s}；\code{capture} 最大，检查 CSI/DMA 是否正常、帧是否靠 watchdog 而不是中断取得；\code{send} 最大，检查 Wi-Fi 信号、TCP 发送队列，或是否有一个慢客户端拖住了所有人。
+
+\paragraph{还可以继续做的.} 下面几项目前没有实现，按预期收益排列：
+\begin{itemize}
+  \item \textbf{把 JPEG 拆到多个核上}：编码是按 16 行的 MCU 行进行的，可以把一帧分成上下两半交给两个 JPEG 线程各自编码，再把两段熵编码结果用 restart marker（\code{RST}$n$）拼接；Pi 3 有四个核，而现在只用上了三个执行流；
+  \item \textbf{用查表和定点优化热点}：去马赛克和色彩转换对每个像素都做多次乘除，可以把 gamma、白平衡增益合并进一张查表，色彩空间转换改用移位和加法；
+  \item \textbf{让发送不阻塞流水线}：给每个观看者独立的发送队列，慢客户端只丢自己的帧，不再拖慢别人；
+  \item \textbf{可缓存的 DMA 映射}：现在为了正确性用 \code{Normal-NC}，CPU 读 384\,KB 像素时每次都要访问 DRAM。改成可缓存映射可以加快 JPEG 一段，但必须在每个槽交还给用户前严格作废对应的缓存行（\ref{sec:cam-dma} 小节）。
+\end{itemize}
+
 \subsection{当前状态}
 
 真机（Pi 3B+，Camera v1.3）上，v8 驱动从第一次访问起就用 25\,kHz 软件 SCCB，稳定读到芯片 ID \code{0x5647} 并绑定到 \code{/dev/video0}；Unicam 以轮询方式拿到完整帧（单缓冲版本），\code{camshot -t 1 -s -o /boot/cam02.bmp} 能把彩条写成 BMP（\ref{sec:cam-log} 小节）。驱动已经改为连续出流、DMA 双缓冲、以 CSI1 中断通知帧完成，并支持零拷贝 \code{mmap}（\ref{sec:cam-dma} 小节）；\code{camshot -v} 可以连续录成一串 JPEG，\code{camserver} 可以通过 HTTP 推送 MJPEG（\ref{sec:cam-http} 小节）。还没有完成的工作有：
@@ -1908,7 +2014,7 @@ camserver: listening on port 8080 (320x240, quality 75, max 4 viewers)
   \item 在真机上确认 CSI1 中断路径（日志 \code{frame captured by CSI1 IRQ 39}），watchdog 轮询保留为兜底；
   \item 查清 BSC0 硬件读不到芯片 ID 的原因（控制器路由还是固件占用），以便退回硬件 I2C；
   \item 更多模式：Linux 的 1296$\times$972 等模式每帧超过 1.5\,MB，需要扩大 \code{CAMDMA}，桥接驱动不用改；目前也还没有选择模式的接口；
-  \item 只有两个槽，没有 \code{poll()}，也没有手动曝光；\code{camserver} 的 MJPEG 推流还需要在真机上测量帧率；
+  \item 只有两个槽，没有 \code{poll()}，也没有手动曝光；\code{camserver} 已改为三级流水线，JPEG 编码（约 308\,ms/帧）是目前的瓶颈（\ref{sec:cam-perf} 小节）；
   \item \code{arasan\_sdio.c}、\code{dwc2.c}、\code{sd.c} 里仍各有一份私有 mailbox 代码，应统一到 \file{mbox.c}；
   \item \file{config.txt} 不能打开固件的摄像头支持（\code{start\_x=1}、\code{camera\_auto\_detect=1}），否则固件会占用同一个传感器和 I2C。
 \end{itemize}

@@ -1,0 +1,36 @@
+\begin{tikzpicture}[x=1mm,y=1mm,font=\scriptsize]
+\node[lab,anchor=east] at (-1,37.5) {串行（单线程）};
+\draw[fill=structurecolor!35,draw=gray!60] (0.00,35.0) rectangle (5.66,40.0); \node[font=\tiny] at (2.83,37.5) {采0};
+\draw[fill=orange!40,draw=gray!60] (5.66,35.0) rectangle (30.32,40.0); \node[font=\tiny] at (17.99,37.5) {JPEG 0};
+\draw[fill=green!30,draw=gray!60] (30.32,35.0) rectangle (46.26,40.0); \node[font=\tiny] at (38.29,37.5) {发 0};
+\draw[fill=structurecolor!35,draw=gray!60] (46.26,35.0) rectangle (51.92,40.0); \node[font=\tiny] at (49.09,37.5) {采1};
+\draw[fill=orange!40,draw=gray!60] (51.92,35.0) rectangle (76.58,40.0); \node[font=\tiny] at (64.25,37.5) {JPEG 1};
+\draw[fill=green!30,draw=gray!60] (76.58,35.0) rectangle (92.51,40.0); \node[font=\tiny] at (84.54,37.5) {发 1};
+\draw[gray] (0,33.5) -- (46.26,33.5); \node[lab,anchor=north] at (23.13,33.3) {一帧 $\approx$ 578\,ms，约 1.7\,fps};
+\node[lab,anchor=east] at (-1,24.5) {采集线程};
+\node[lab,anchor=east] at (-1,17.5) {JPEG 线程};
+\node[lab,anchor=east] at (-1,10.5) {主线程发送};
+\draw[fill=structurecolor!35,draw=gray!60] (0.00,22.0) rectangle (5.66,27.0); \node[font=\tiny] at (2.83,24.5) {0};
+\draw[fill=orange!40,draw=gray!60] (5.66,15.0) rectangle (30.32,20.0); \node[font=\tiny] at (17.99,17.5) {JPEG 0};
+\draw[fill=green!30,draw=gray!60] (30.32,8.0) rectangle (46.26,13.0); \node[font=\tiny] at (38.29,10.5) {发 0};
+\draw[fill=structurecolor!35,draw=gray!60] (5.66,22.0) rectangle (11.33,27.0); \node[font=\tiny] at (8.50,24.5) {1};
+\draw[fill=orange!40,draw=gray!60] (30.32,15.0) rectangle (54.98,20.0); \node[font=\tiny] at (42.65,17.5) {JPEG 1};
+\draw[fill=green!30,draw=gray!60] (54.98,8.0) rectangle (70.91,13.0); \node[font=\tiny] at (62.94,10.5) {发 1};
+\draw[fill=structurecolor!35,draw=gray!60] (30.32,22.0) rectangle (35.98,27.0); \node[font=\tiny] at (33.15,24.5) {2};
+\draw[fill=orange!40,draw=gray!60] (54.98,15.0) rectangle (79.63,20.0); \node[font=\tiny] at (67.30,17.5) {JPEG 2};
+\draw[fill=green!30,draw=gray!60] (79.63,8.0) rectangle (95.57,13.0); \node[font=\tiny] at (87.60,10.5) {发 2};
+\draw[fill=structurecolor!35,draw=gray!60] (54.98,22.0) rectangle (60.64,27.0); \node[font=\tiny] at (57.81,24.5) {3};
+\draw[fill=orange!40,draw=gray!60] (79.63,15.0) rectangle (104.29,20.0); \node[font=\tiny] at (91.96,17.5) {JPEG 3};
+\draw[fill=green!30,draw=gray!60] (104.29,8.0) rectangle (120.22,13.0); \node[font=\tiny] at (112.26,10.5) {发 3};
+\draw[decorate,decoration={brace,amplitude=2pt,mirror}] (30.32,7) -- node[lab,below=2pt]{稳态周期 $=\max(\text{采集},\text{JPEG},\text{发送})\approx 308$\,ms，约 3.2\,fps} (54.98,7);
+\draw[gray] (0,-6) -- (120.2,-6);
+\draw[gray] (0.00,-6) -- ++(0,-1) node[below,lab]{0};
+\draw[gray] (16.00,-6) -- ++(0,-1) node[below,lab]{200};
+\draw[gray] (32.00,-6) -- ++(0,-1) node[below,lab]{400};
+\draw[gray] (48.00,-6) -- ++(0,-1) node[below,lab]{600};
+\draw[gray] (64.00,-6) -- ++(0,-1) node[below,lab]{800};
+\draw[gray] (80.00,-6) -- ++(0,-1) node[below,lab]{1000};
+\draw[gray] (96.00,-6) -- ++(0,-1) node[below,lab]{1200};
+\draw[gray] (112.00,-6) -- ++(0,-1) node[below,lab]{1400};
+\node[lab,anchor=west] at (121.2,-8.2) {ms};
+\end{tikzpicture}
