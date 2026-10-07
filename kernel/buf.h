@@ -7,6 +7,8 @@ struct buf {
   uint refcnt;
   struct buf *prev; // LRU cache list
   struct buf *next;
-  uchar data[BSIZE];
+  int error;   // last device transfer failed (non-root devices only)
+  uchar *data; // one page from kalloc(): holds a block of up to 4096 bytes;
+               // the device's block size (blkdev_bsize) says how much is used
 };
 

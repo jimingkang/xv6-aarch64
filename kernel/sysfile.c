@@ -306,14 +306,18 @@ sys_lseek(void)
      argint(2, &whence) < 0)
     return -1;
   offset = (long)raw_offset;
-  if(f->type != FD_INODE && f->type != FD_VNODE)
+  int blk = f->type == FD_DEVICE && f->major == BLOCKDEV;
+  if(f->type != FD_INODE && f->type != FD_VNODE && !blk)
     return -1;
   if(whence == 0){
     base = 0;
   } else if(whence == 1){
     base = f->off;
   } else if(whence == 2){
-    if(f->type == FD_INODE){
+    if(blk){
+      if((base = blkdev_size(f->ip->minor)) == 0)
+        return -1;
+    } else if(f->type == FD_INODE){
       ilock(f->ip);
       base = f->ip->size;
       iunlock(f->ip);
@@ -661,6 +665,10 @@ sys_unlink(void)
 
   if((ip = dirlookup(dp, name, &off)) == 0)
     goto bad;
+  if(fs_is_mountpoint(ip)){       // EBUSY: something is mounted on it
+    iput(ip);
+    goto bad;
+  }
   ilock(ip);
 
   if(ip->nlink < 1)
@@ -696,46 +704,12 @@ bad:
 static struct inode*
 create(char *path, short type, short major, short minor)
 {
-  struct inode *ip, *dp;
+  struct inode *dp;
   char name[DIRSIZ];
 
   if((dp = nameiparent(path, name)) == 0)
     return 0;
-
-  ilock(dp);
-
-  if((ip = dirlookup(dp, name, 0)) != 0){
-    iunlockput(dp);
-    ilock(ip);
-    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
-      return ip;
-    iunlockput(ip);
-    return 0;
-  }
-
-  if((ip = ialloc(dp->dev, type)) == 0)
-    panic("create: ialloc");
-
-  ilock(ip);
-  ip->major = major;
-  ip->minor = minor;
-  ip->nlink = 1;
-  iupdate(ip);
-
-  if(type == T_DIR){  // Create . and .. entries.
-    dp->nlink++;  // for ".."
-    iupdate(dp);
-    // No ip->nlink++ for ".": avoid cyclic ref count.
-    if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
-      panic("create dots");
-  }
-
-  if(dirlink(dp, name, ip->inum) < 0)
-    panic("create: dirlink");
-
-  iunlockput(dp);
-
-  return ip;
+  return fs_create(dp, name, type, major, minor);
 }
 
 uint64

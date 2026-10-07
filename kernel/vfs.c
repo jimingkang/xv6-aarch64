@@ -70,6 +70,7 @@ static struct {
 struct vfs_mount {
   int used;
   char path[MAXPATH];
+  char source[24];          // for /proc/mounts
   struct vnode_ops *ops;
   int readonly;
 };
@@ -438,8 +439,10 @@ proc_vstat(char *path, struct stat *st)
     return 0;
   }
   if(streq(path, "/meminfo") || streq(path, "/iomem") ||
-     streq(path, "/devices")){
-    st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 : 4;
+     streq(path, "/devices") || streq(path, "/mounts") ||
+     streq(path, "/cmdline")){
+    st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 :
+              streq(path, "/devices") ? 4 : streq(path, "/mounts") ? 5 : 6;
     st->type = T_FILE;
     st->size = 2048;
     return 0;
@@ -464,6 +467,8 @@ proc_vstat(char *path, struct stat *st)
   return 0;
 }
 
+static int vfs_mounts_format(char *buf, int n);
+
 static int
 proc_vread(char *path, uint64 off, void *dst, int n)
 {
@@ -474,12 +479,21 @@ proc_vread(char *path, uint64 off, void *dst, int n)
     return proc_memread(0, off, dst, n);
   if(streq(path, "/iomem"))
     return proc_memread(1, off, dst, n);
-  if(streq(path, "/devices")){
+  if(streq(path, "/devices") || streq(path, "/mounts") ||
+     streq(path, "/cmdline")){
     char *page = kalloc();
     int len;
     if(page == 0)
       return -1;
-    len = device_format(page, PGSIZE);
+    if(streq(path, "/devices"))
+      len = device_format(page, PGSIZE);
+    else if(streq(path, "/mounts"))
+      len = vfs_mounts_format(page, PGSIZE);
+    else {
+      safestrcpy(page, cmdline_get_all(), PGSIZE - 1);
+      len = strlen(page);
+      page[len++] = '\n';
+    }
     if(off >= (uint64)len)
       n = 0;
     else {
@@ -547,10 +561,18 @@ proc_vreaddir(char *path, int index, void *arg)
       safestrcpy(de->name, "devices", sizeof(de->name));
       return 1;
     }
+    if(index == 3 || index == 4){
+      de->ino = index == 3 ? 5 : 6;
+      de->type = T_FILE;
+      de->size = 2048;
+      safestrcpy(de->name, index == 3 ? "mounts" : "cmdline",
+                 sizeof(de->name));
+      return 1;
+    }
     int seen = 0;
     for(p = proc_head; p; p = p->next){
       acquire(&p->lock);
-      if(p->state != UNUSED && seen++ == index - 3){
+      if(p->state != UNUSED && seen++ == index - 5){
         pid = p->pid;
         release(&p->lock);
         de->ino = 1000 + pid;
@@ -586,7 +608,7 @@ static struct vnode_ops proc_ops = {
 };
 
 static int
-mountops(char *path, struct vnode_ops *ops, int readonly)
+mountops(char *path, struct vnode_ops *ops, int readonly, char *source)
 {
   if(path[0] != '/')
     return -1;
@@ -599,10 +621,35 @@ mountops(char *path, struct vnode_ops *ops, int readonly)
       mounts[i].ops = ops;
       mounts[i].readonly = readonly;
       safestrcpy(mounts[i].path, path, sizeof(mounts[i].path));
+      safestrcpy(mounts[i].source, source, sizeof(mounts[i].source));
       return 0;
     }
   }
   return -1;
+}
+
+// /proc/mounts: xv6-inode mounts (fs.c), then the path-prefix mounts here.
+static int
+vfs_mounts_format(char *buf, int n)
+{
+  int len = fs_mounts_format(buf, n);
+  char *p = buf + len, *e = buf + n;
+  acquire(&vnodes.lock);
+  for(int i = 0; i < NMOUNT; i++){
+    if(!mounts[i].used)
+      continue;
+    struct vnode_ops *ops = mounts[i].ops;
+    char *t = ops == &proc_ops ? "procfs" : ops == &fat32_ops ? "fat32" :
+              ops == &ext2_ops ? "ext2" : ops == &netfs_ops ? "netfs" : "?";
+    p = putstr(p, e, mounts[i].source);
+    p = putstr(p, e, " ");
+    p = putstr(p, e, mounts[i].path);
+    p = putstr(p, e, " ");
+    p = putstr(p, e, t);
+    p = putstr(p, e, mounts[i].readonly ? " ro 0 0\n" : " rw 0 0\n");
+  }
+  release(&vnodes.lock);
+  return p - buf;
 }
 
 int
@@ -626,7 +673,7 @@ vfsmount(char *source, char *path, char *fstype, int flags)
   if(!readonly && ops != &fat32_ops && ops != &ext2_ops)
     return -1;
   acquire(&vnodes.lock);
-  int r = mountops(path, ops, readonly);
+  int r = mountops(path, ops, readonly, source);
   release(&vnodes.lock);
   if(r == 0)
     printf("vfs: mounted %s at %s %s\n", fstype, path,
@@ -644,6 +691,16 @@ findmount(char *path, char **relative, int *readonly)
     if(!mounts[i].used)
       continue;
     n = strlen(mounts[i].path);
+    if(n == 1){
+      // A filesystem mounted on "/" (ext2 root) matches every path, with the
+      // lowest priority.  Paths under a native xv6 mount (/dev, devtmpfs)
+      // stay in the inode world.
+      if(bestlen < 0 && path[0] == '/' && !fs_native_covers(path)){
+        best = &mounts[i];
+        bestlen = 0;
+      }
+      continue;
+    }
     if(n > bestlen && strncmp(path, mounts[i].path, n) == 0 &&
        (path[n] == 0 || path[n] == '/')){
       best = &mounts[i];

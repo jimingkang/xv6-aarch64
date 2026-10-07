@@ -190,6 +190,12 @@ el0irq:
         bl userirq
       
 trapret:
+        // urestorereg loads ELR_EL1/SPSR_EL1 before eret.  An IRQ taken in
+        // between would overwrite them with its own (EL1) return state, and
+        // the eret would "return" to EL1 at the next instruction with
+        // sp = kstack top.  forkret() reaches here after release() may have
+        // re-enabled interrupts, so mask them unconditionally.
+        msr daifset, #0xf
         urestorereg
 
         eret

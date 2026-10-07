@@ -1,7 +1,10 @@
 // Buffer cache.
 //
 // The buffer cache is a linked list of buf structures holding
-// cached copies of disk block contents.  Caching disk blocks
+// cached copies of disk block contents.  Buffers are indexed by (dev, block)
+// for any registered block device (blkdev.c); the block size is the device's,
+// from 512 bytes up to one 4 KiB page, so the xv6 root (1 KiB), whole-card
+// sectors (512 B) and ext2 (4 KiB) can share one cache.  Caching disk blocks
 // in memory reduces the number of disk reads and also provides
 // a synchronization point for disk blocks used by multiple processes.
 //
@@ -22,6 +25,7 @@
 #include "defs.h"
 #include "fs.h"
 #include "buf.h"
+#include "blkdev.h"
 
 struct {
   struct spinlock lock;
@@ -47,6 +51,8 @@ binit(void)
     b->next = bcache.head.next;
     b->prev = &bcache.head;
     initsleeplock(&b->lock, "buffer");
+    if((b->data = kalloc()) == 0)
+      panic("binit: no memory for buffer data");
     bcache.head.next->prev = b;
     bcache.head.next = b;
   }
@@ -79,6 +85,7 @@ bget(uint dev, uint blockno)
       b->dev = dev;
       b->blockno = blockno;
       b->valid = 0;
+      b->error = 0;
       b->refcnt = 1;
       release(&bcache.lock);
       acquiresleep(&b->lock);
@@ -96,8 +103,14 @@ bread(uint dev, uint blockno)
 
   b = bget(dev, blockno);
   if(!b->valid) {
-    rootdev_rw(b, 0);
-    b->valid = 1;
+    if(blk_rw(b, 0) == 0){
+      b->valid = 1;
+      b->error = 0;
+    } else if(dev == ROOTDEV){
+      panic("bread: root device read failed");
+    } else {
+      b->error = 1;                 // caller checks b->error; not cached
+    }
   }
   return b;
 }
@@ -108,7 +121,11 @@ bwrite(struct buf *b)
 {
   if(!holdingsleep(&b->lock))
     panic("bwrite");
-  rootdev_rw(b, 1);
+  if(blk_rw(b, 1) < 0){
+    if(b->dev == ROOTDEV)
+      panic("bwrite: root device write failed");
+    b->error = 1;
+  }
 }
 
 // Release a locked buffer.

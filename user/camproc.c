@@ -19,6 +19,7 @@ static int bayer[4];                  // colour at (x&1) + 2*(y&1)
 static ushort *px;                    // unpacked 10-bit mosaic, W*H
 static int px_size;                   // W*H for which px is allocated
 static uint hist[1024];               // green histogram for auto level
+static uchar tone[3][1024];           // per-frame WB/level/gamma lookup
 
 static const uchar gamma22[256] = {
     0,  21,  28,  34,  39,  43,  46,  50,  53,  56,  59,  61,  64,  66,  68,  70,
@@ -40,8 +41,10 @@ static const uchar gamma22[256] = {
 };
 
 static void
-unpack_raw10(const uchar *src, int bpl)
+unpack_raw10_analyze(const uchar *src, int bpl, uint64 sum[3])
 {
+  sum[R] = sum[G] = sum[B] = 0;
+  memset(hist, 0, sizeof(hist));
   for(int y = 0; y < H; y++){
     const uchar *s = src + y * bpl;
     ushort *d = px + y * W;
@@ -49,7 +52,12 @@ unpack_raw10(const uchar *src, int bpl)
       uchar lo = s[4];
       for(int i = 0; i < 4; i++){
         int v = (s[i] << 2) | ((lo >> (2 * i)) & 3);
-        d[x + i] = v > BLACK ? v - BLACK : 0;
+        v = v > BLACK ? v - BLACK : 0;
+        d[x + i] = v;
+        int c = bayer[((x + i) & 1) + 2 * (y & 1)];
+        sum[c] += v;
+        if(c == G)
+          hist[v]++;
       }
     }
   }
@@ -91,16 +99,42 @@ set_bayer(uint format)
 static void
 demosaic(int x, int y, int *r, int *g, int *b)
 {
-  int cross = (P(x-1,y) + P(x+1,y) + P(x,y-1) + P(x,y+1)) / 4;
-  int diag  = (P(x-1,y-1) + P(x+1,y-1) + P(x-1,y+1) + P(x+1,y+1)) / 4;
-  int horiz = (P(x-1,y) + P(x+1,y)) / 2;
-  int vert  = (P(x,y-1) + P(x,y+1)) / 2;
-  int c = P(x, y);
+  int c, cross, diag, horiz, vert;
+  int type = colour(x, y);
 
-  switch(colour(x, y)){
-  case R: *r = c; *g = cross; *b = diag; break;
-  case B: *b = c; *g = cross; *r = diag; break;
-  default:
+  // Almost every output pixel is interior.  Address its three rows directly
+  // instead of calling P() 5--9 times (each P has four border branches and a
+  // y*W multiply).  Border pixels retain the reflected-coordinate path below.
+  if(x > 0 && x + 1 < W && y > 0 && y + 1 < H){
+    const ushort *up = px + (y - 1) * W;
+    const ushort *row = up + W;
+    const ushort *down = row + W;
+    c = row[x];
+    if(type == R || type == B){
+      cross = (row[x-1] + row[x+1] + up[x] + down[x]) / 4;
+      diag = (up[x-1] + up[x+1] + down[x-1] + down[x+1]) / 4;
+      if(type == R){ *r = c; *g = cross; *b = diag; }
+      else { *b = c; *g = cross; *r = diag; }
+    } else {
+      horiz = (row[x-1] + row[x+1]) / 2;
+      vert = (up[x] + down[x]) / 2;
+      *g = c;
+      if(colour(x + 1, y) == R){ *r = horiz; *b = vert; }
+      else { *b = horiz; *r = vert; }
+    }
+    return;
+  }
+
+  c = P(x, y);
+  if(type == R || type == B){
+    cross = (P(x-1,y) + P(x+1,y) + P(x,y-1) + P(x,y+1)) / 4;
+    diag = (P(x-1,y-1) + P(x+1,y-1) +
+            P(x-1,y+1) + P(x+1,y+1)) / 4;
+    if(type == R){ *r = c; *g = cross; *b = diag; }
+    else { *b = c; *g = cross; *r = diag; }
+  } else {
+    horiz = (P(x-1,y) + P(x+1,y)) / 2;
+    vert = (P(x,y-1) + P(x,y+1)) / 2;
     *g = c;
     if(colour(x + 1, y) == R){ *r = horiz; *b = vert; }
     else { *b = horiz; *r = vert; }
@@ -109,9 +143,6 @@ demosaic(int x, int y, int *r, int *g, int *b)
 
 struct convert {
   int half;
-  uint gain_r;
-  uint gain_b;
-  uint level;
 };
 
 static void
@@ -129,30 +160,33 @@ output_pixel(void *arg, int x, int y, uchar *red, uchar *green, uchar *blue)
   } else {
     demosaic(x, y, &r, &g, &b);
   }
-  uint lr = ((uint)r * c->gain_r / 256) * c->level / 256 / 4;
-  uint lg = (uint)g * c->level / 256 / 4;
-  uint lb = ((uint)b * c->gain_b / 256) * c->level / 256 / 4;
-  *red = gamma22[lr > 255 ? 255 : lr];
-  *green = gamma22[lg > 255 ? 255 : lg];
-  *blue = gamma22[lb > 255 ? 255 : lb];
+  // The per-frame gains, level and gamma curve are already folded into these
+  // tables.  This removes six variable multiplies/shifts from every output
+  // pixel while preserving the old integer truncation order exactly.
+  *red = tone[R][r > 1023 ? 1023 : r];
+  *green = tone[G][g > 1023 ? 1023 : g];
+  *blue = tone[B][b > 1023 ? 1023 : b];
 }
 
 static void
-compute_wb_level(int wb, uint *gain_r, uint *gain_b, uint *level)
+build_tone(uint gain_r, uint gain_b, uint level)
 {
-  uint64 sum[3] = { 0, 0, 0 };
+  for(uint v = 0; v < 1024; v++){
+    uint lr = (v * gain_r / 256) * level / 256 / 4;
+    uint lg = v * level / 256 / 4;
+    uint lb = (v * gain_b / 256) * level / 256 / 4;
+    tone[R][v] = gamma22[lr > 255 ? 255 : lr];
+    tone[G][v] = gamma22[lg > 255 ? 255 : lg];
+    tone[B][v] = gamma22[lb > 255 ? 255 : lb];
+  }
+}
+
+static void
+compute_wb_level(int wb, const uint64 sum[3],
+                 uint *gain_r, uint *gain_b, uint *level)
+{
   *gain_r = *gain_b = 256;
   *level = 256;
-  memset(hist, 0, sizeof(hist));
-  for(int y = 0; y < H; y++){
-    for(int x = 0; x < W; x++){
-      int c = colour(x, y);
-      int value = px[y * W + x];      // unpack_raw10 clamps to 0..1023
-      sum[c] += value;
-      if(c == G)
-        hist[value]++;
-    }
-  }
   uint64 sum_r = sum[R], sum_g = sum[G], sum_b = sum[B];
   if(wb && sum_r && sum_b){
     *gain_r = (uint)(sum_g * 128 / sum_r);        // G counts 2 pixels
@@ -196,11 +230,13 @@ camproc_jpeg_raw(uchar *dst, int cap, const struct cam_frame_hdr *hdr,
       return -1;
   }
 
-  unpack_raw10(raw, hdr->bytesperline);
+  uint64 sum[3];
+  unpack_raw10_analyze(raw, hdr->bytesperline, sum);
   uint gain_r, gain_b, level;
-  compute_wb_level(wb, &gain_r, &gain_b, &level);
+  compute_wb_level(wb, sum, &gain_r, &gain_b, &level);
+  build_tone(gain_r, gain_b, level);
   int ow = half ? W / 2 : W, oh = half ? H / 2 : H;
-  struct convert conversion = { half, gain_r, gain_b, level };
+  struct convert conversion = { half };
   return jpeg_encode_mem(dst, cap, ow, oh, quality, output_pixel,
                          &conversion, written);
 }

@@ -772,7 +772,7 @@ main(int argc, char **argv)
   }
   printf("camserver: listening on port %d (%s, quality %d, max %d viewers)\n",
          port, half ? "320x240" : "640x480", quality, maxclients);
-  printf("camserver: pipeline double-buffer-v1, JPEG dctsym-v2\n");
+  printf("camserver: pipeline double-buffer-v1, JPEG/camproc fast-v3\n");
   printf("camserver: open http://<ip>:%d/  (stream: /stream, "
          "snapshot: /snapshot.jpg, status: /status)\n", port);
 

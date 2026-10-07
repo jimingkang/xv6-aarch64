@@ -249,7 +249,18 @@ register_chrdev(int major, char *name, struct file_operations *fops)
   device_core.chrdevs[major].name = name;
   device_core.chrdevs[major].fops = fops;
   release(&device_core.lock);
+  devtmpfs_notify(major);     // late drivers get their /dev node too
   return 0;
+}
+
+// Name under /dev of a registered character device ("console",
+// "input/event0"), or 0.  devtmpfs walks majors 0..NDEV-1 with this.
+char*
+chrdev_name(int major)
+{
+  if(major < 0 || major >= NDEV || !device_core.chrdevs[major].used)
+    return 0;
+  return device_core.chrdevs[major].name;
 }
 
 static struct file_operations *

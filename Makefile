@@ -27,6 +27,13 @@ MKE2FS ?= $(shell if command -v mke2fs >/dev/null 2>&1; then \
 	elif test -x /usr/local/opt/e2fsprogs/sbin/mke2fs; then \
 	echo /usr/local/opt/e2fsprogs/sbin/mke2fs; \
 	else echo mke2fs; fi)
+DEBUGFS ?= $(shell if command -v debugfs >/dev/null 2>&1; then \
+	command -v debugfs; \
+	elif test -x /opt/homebrew/opt/e2fsprogs/sbin/debugfs; then \
+	echo /opt/homebrew/opt/e2fsprogs/sbin/debugfs; \
+	elif test -x /usr/local/opt/e2fsprogs/sbin/debugfs; then \
+	echo /usr/local/opt/e2fsprogs/sbin/debugfs; \
+	else echo debugfs; fi)
 WIFI_FIRMWARE_DIR ?= firmware
 SUDO ?= sudo
 
@@ -80,6 +87,9 @@ OBJS = \
   $K/sdhost.o \
 	$K/fat32.o \
 	$K/rootdev.o \
+	$K/blkdev.o \
+	$K/cmdline.o \
+	$K/do_mounts.o \
 	$K/rootupdate.o \
 	$K/ext2.o \
 	$K/xjournal.o \
@@ -185,7 +195,7 @@ install-tftp: $(KERNEL_IMAGE) fs.img
 	@echo "installed fs.img -> $(TFTPBOOT_FS)"
 
 .PHONY: install-rpi3
-install-rpi3: $(KERNEL_IMAGE) fs.img config.txt
+install-rpi3: $(KERNEL_IMAGE) fs.img config.txt cmdline_xv6.txt
 	@test -d "$(RPI3_BOOTFS)" || { \
 		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
 		exit 1; \
@@ -202,6 +212,7 @@ install-rpi3: $(KERNEL_IMAGE) fs.img config.txt
 		echo "warning: fs.img not installed; set RPI3_XV6_DEV to the raw xv6 partition" 1>&2; \
 	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
+	$(SUDO) cp -f cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline_xv6.txt"   # xv6 root=; cmdline.txt stays the firmware's
 	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
 		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; \
 		exit 1; \
@@ -281,6 +292,33 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 	$(SUDO) dd if=$(EXT2_IMAGE) of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
 	sync
 	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 partition)"
+
+# Make an existing ext2 partition bootable as the root filesystem
+# (cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2).  debugfs writes
+# /init and /bin/<program> into the partition WITHOUT reformatting it; files
+# already there are replaced, everything else on the partition is untouched.
+.PHONY: install-rpi3-ext2root
+install-rpi3-ext2root: $(UPROGS)
+	@test -n "$(RPI3_EXT2_DEV)" || { \
+		echo "error: set RPI3_EXT2_DEV to the ext2 partition, never the whole disk" 1>&2; \
+		echo "example: make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3" 1>&2; \
+		exit 1; \
+	}
+	@case "$(RPI3_EXT2_DEV)" in \
+	  /dev/disk*s[0-9]*|/dev/rdisk*s[0-9]*) ;; \
+	  *) echo "error: RPI3_EXT2_DEV must be a partition device, never a whole disk" 1>&2; exit 1 ;; \
+	esac
+	@test -e "$(RPI3_EXT2_DEV)" || { \
+		echo "error: $(RPI3_EXT2_DEV) does not exist" 1>&2; \
+		exit 1; \
+	}
+	@{ echo "mkdir bin"; \
+	   for f in $(UPROGS); do n=$${f#$U/_}; echo "rm bin/$$n"; echo "write $$f bin/$$n"; done; \
+	   echo "rm init"; echo "write $U/_init init"; } > ext2root.debugfs
+	$(SUDO) $(DEBUGFS) -w -f ext2root.debugfs "$(RPI3_EXT2_DEV)" > ext2root.log 2>&1
+	sync
+	@echo "installed /init and $(words $(UPROGS)) programs in /bin of $(RPI3_EXT2_DEV)"
+	@echo "boot it with cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2"
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
@@ -411,7 +449,7 @@ clean: clean-t113
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
-	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) \
+	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
 	$(UPROGS)

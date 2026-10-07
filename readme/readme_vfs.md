@@ -529,34 +529,44 @@ pty/会话 -> 密钥与密码学 -> sshd。
 
 ## 根块设备 rootdev.c 与 FAT32 的分工
 
-xv6 根文件系统（superblock/inode/目录）与 FAT32 是两种不同的格式。为避免“根文件系统要经过 FAT32”
+xv6 根文件系统（superblock/inode/目录）与 FAT32 是两种不同的格式。为避免”根文件系统要经过 FAT32”
 这种误解，根设备代码单独放在 `kernel/rootdev.c`：
 
 | 文件 | 职责 |
 |---|---|
-| `kernel/rootdev.c` | `rootdev_init()` 扫描 MBR、`setup_raw_root()` 用块 1 超级块识别 xv6 分区、挂起 bootfs；`rootdev_rw()` 把 xv6 块号换算成两个 SD 扇区；`rootdev_raw_info()`、`rootdev_update_begin()` 供 `/dev/sdroot` 和 ext2 外置日志使用 |
-| `kernel/fat32.c` | 只有 FAT32 本身：`fat32mount()` 解析 BPB，目录、长文件名、簇分配、读写；`fat32mapfile()`/`fat32mapsector()` 把根目录中某个文件的扇区号换成卡上扇区号 |
+| `kernel/rootdev.c` | `rootdev_init()` 扫描 MBR，为每个有效主分区调用 `blkdev_register()` 注册为 `mmcblk0pN`；`setup_raw_root()` 用块 1 超级块识别 xv6 根分区；`root_blk_rw()` 是根设备的 blkdev 回调，把 xv6 块号换算成 SD 扇区；`rootdev_update_begin()` 供 `/dev/sdroot` 在线更新使用 |
+| `kernel/blkdev.c` | 通用块设备表（NBLKDEV=10），`blk_rw()` 取代原来的 `rootdev_rw()`，bio.c 的所有读写都走这里 |
+| `kernel/fat32.c` | 只有 FAT32 本身：`fat32mount()` 解析 BPB，目录、长文件名、簇分配、读写；`fat32mapsector()` 把 FS.IMG 文件的扇区号换成卡上扇区号（旧卡兼容） |
 
-块缓存的调用链：
+块缓存的调用链（新）：
 
 ```text
-bread(ROOTDEV, B) / bwrite(b)
-  -> rootdev_rw(b, write)                     kernel/rootdev.c
-       -> root_sector_lba(2B + i)             i = 0, 1
-            raw   : root.lba + 2B + i         正常情况：p2 原始分区
-            fsimg : fat32mapsector(2B + i)    旧卡兼容：FS.IMG 文件
-            bare  : 2B + i                    QEMU 直接挂 fs.img
-       -> sdsector(lba, data, write)
+bread(dev, B) / bwrite(b)
+  -> blk_rw(b, write)                         kernel/blkdev.c
+       -> blkdev_get(b->dev)                  按设备号查表
+       -> bd->rw(bd, block*spb, data, spb)    设备回调
+            ROOTDEV  -> root_blk_rw()         kernel/rootdev.c
+                          -> root_sector_lba(2B+i)
+                               raw   : root.lba + 2B+i    p2 原始分区
+                               fsimg : fat32mapsector()   旧卡兼容
+                               bare  : 2B+i               QEMU
+                          -> sdsector(lba, data, write)
+            mmcblk0/pN -> mmc_rw()            直接 sdsector
+            ram0/ram1  -> ram_rw()            内存 RAM 盘
 ```
 
-只有在旧卡兼容（FS.IMG）模式下才会调用 FAT32，而且只是查“文件第 n 个扇区在卡上的位置”，
-块里的内容始终是 xv6 自己的格式。启动日志对应：
+启动日志对应：
 
 ```text
 rootdev: raw xv6 root p2 lba=133120 sectors=81920 size=40 MiB
 rootdev: bootfs p1 lba=2048 mounted as FAT32
 rootdev: using FAT32 FS.IMG compatibility mapping, 65536 sectors   (旧卡)
 rootdev: no MBR; using bare xv6 image                              (QEMU 裸镜像)
+blkdev: dev 1 root start=0 sectors=65536 block=1024
+blkdev: dev 2 mmcblk0 start=0 sectors=0 block=512
+blkdev: dev 3 mmcblk0p1 start=2048 sectors=131072 block=512
+blkdev: dev 4 mmcblk0p2 start=133120 sectors=81920 block=512
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
 ```
 
 
@@ -595,3 +605,220 @@ $ cd t/../t/./                            -> 原生目录的 . / .. 正常
 
 已知边界：`cwdpath` 是文字路径，如果当前目录本身被别的进程改名或删除，`cwdpath` 不会跟着变，
 之后的相对路径会解析失败（Linux 会保留目录对象本身）。
+
+---
+
+## Linux 式启动命名空间（blkdev / cmdline / do_mounts）
+
+这批改动把 xv6 的单根设备启动流程升级为接近嵌入式 Linux 的命名空间引导序列：先在内存中建立
+临时根（rootfs），再把真正的磁盘根覆盖过来，最后 chroot 到真实根。涉及文件：
+`kernel/blkdev.c/h`（新）、`kernel/cmdline.c`（新）、`kernel/do_mounts.c`（新），
+以及对 `kernel/fs.c`、`kernel/bio.c`、`kernel/log.c`、`kernel/rootdev.c`、
+`kernel/proc.c`、`kernel/trapasm.S`、`kernel/vfs.c` 的改动。
+
+### 块设备层（blkdev.c）
+
+原来 `bio.c` 的 `bread`/`bwrite` 直接调用 `rootdev_rw()`，只支持一个设备。现在引入通用块设备表：
+
+```c
+#define NBLKDEV 10
+struct blkdev {
+  int      dev;        // 设备号（ROOTDEV=1, BLKDEV_MMC=2, BLKDEV_MMC_PART(n)=2+n）
+  char     name[16];   // "root", "mmcblk0", "mmcblk0p2", "ram0", "ram1" ...
+  uint32   start;      // 分区起始扇区（整卡/裸镜像 = 0）
+  uint32   nsect;      // 分区扇区数（0 = 未知，不做越界检查）
+  uint32   bsize;      // 块大小（512/1024/4096 B）
+  blk_rw_fn rw;        // 设备 I/O 回调，NULL 时用通用 mmc_rw
+};
+```
+
+`rootdev_init()` 扫描 MBR 后对每个有效主分区调用 `blkdev_register(BLKDEV_MMC_PART(n), "mmcblk0pN", ...)`；`do_mounts.c` 对两个 RAM 盘调用它。`bio.c` 的读写入口从 `rootdev_rw()` 改为 `blk_rw(b, write)`，它通过 `b->dev` 查表并调对应的回调。
+
+`buf.data` 也从静态数组改为 `kalloc()` 分配的页（支持 4 KiB ext2 块），`NBUF` 从 `MAXOPBLOCKS×3=30` 扩到 64。新增 `buf.error` 字段：非根设备的 I/O 错误不 panic，而是置位由调用者检查（根设备错误仍 panic）。
+
+固定设备号分配：
+
+| 设备号 | 名称 | 说明 |
+|--------|------|------|
+| 1 | root | xv6 根（原始分区 / 裸镜像 / FS.IMG） |
+| 2 | mmcblk0 | 整张 SD 卡 |
+| 3–6 | mmcblk0p1–p4 | 各主分区 |
+| 7 | ram0 | rootfs（临时根 RAM 盘） |
+| 8 | ram1 | devtmpfs RAM 盘 |
+
+`blkdev_selftest()` 在第一个进程里运行：读 mmcblk0 扇区 0 两次，验证第二次命中缓存，确认
+MBR 签名。结果打印到启动日志。
+
+### 内核命令行（cmdline.c）
+
+启动分区上的 `cmdline.txt` 属于树莓派 VideoCore 固件（`start.elf` 会把它放进设备树交给
+Linux 内核），xv6 不动它，而是用自己的 `cmdline_xv6.txt`，与它并排放在 BOOTFS 根目录。
+`cmdline_init()` 在 `rootdev_init()` 挂上 FAT32 启动分区后读取 `/cmdline_xv6.txt`；
+文件不存在或没有启动分区（QEMU 裸镜像）时使用编译时内置的 `CONFIG_CMDLINE`（默认空，
+即自动探测）。文件内容规范化为单行（换行→空格，去尾空格）。
+
+仓库根目录的 `cmdline_xv6.txt` 默认内容是 `root=/dev/mmcblk0p2 rootfstype=xv6fs`，
+`make install-rpi3` 会把它和 `config.txt` 一起复制到 BOOTFS。
+
+```c
+char *cmdline_get_all(void);                    // 完整字符串，供 /proc/cmdline
+int   cmdline_get(char *key, char *val, int n); // 取 key=value 的值
+```
+
+`rootdev_init()` 用 `cmdline_get("root", spec, ...)` 选择根分区，支持三种格式：
+
+- `/dev/mmcblk0p2` 或 `mmcblk0p2`：按分区号选
+- `PARTUUID=SSSSSSSS-02`：按 MBR 磁盘签名（小端 32 位十六进制）加分区号选
+- 未指定：自动探测（type 0x7f 优先，其次任何有 xv6 superblock 魔数的分区）
+
+`rootfstype=` 可以是 `xv6fs`（默认）或 `ext2`，其他值打印警告后按 xv6fs 启动。
+
+**ext2 作根**：`cmdline_xv6.txt` 写 `root=/dev/mmcblk0p3 rootfstype=ext2`。ext2 在 vfs.c 的路径前缀
+表里，不是 inode 文件系统，所以流程是：rootfs、devtmpfs 照常建立，devtmpfs 挂到 rootfs 的 `/dev`，
+然后 `vfsmount("/dev/mmcblk0p3", "/", "ext2")`。`findmount()` 把 `/` 挂载当作最低优先级：更长的前缀
+（`/proc`、`/boot`、`/mnt/ext2`）先匹配；`fs_native_covers()` 判定在 inode 层挂载点下的路径（`/dev`）
+不交给 ext2。因为 rootfs 除了 `/dev` 外都被遮住，不需要 MS_MOVE/chroot。xv6 分区（p2）仍被注册为
+ROOTDEV，供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic。
+
+把程序装进 ext2（不格式化，只写 `/init` 和 `/bin/*`）：
+
+```sh
+make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
+```
+
+限制：ext2 上没有设备节点和硬链接；fstab 仍把同一个 ext2 挂到 `/mnt/ext2`；`ls /` 不列出 `dev`
+（它在 rootfs 里），但 `/dev` 可正常访问。
+`root=` 指向的分区没有 xv6 文件系统时也只打印原因，然后退回自动探测。
+
+启动日志示例（真机，有 cmdline_xv6.txt）：
+
+```text
+Kernel command line: root=/dev/mmcblk0p2 rootfstype=xv6fs
+rootdev: root=/dev/mmcblk0p2 -> mmcblk0p2 lba=133120 sectors=81920 size=40 MiB
+```
+
+### 命名空间引导（do_mounts.c：prepare_namespace）
+
+`forkret()` 里的 `fsinit(ROOTDEV)` 改为 `prepare_namespace()`，完成以下步骤（对应
+Linux 的 `init_mount_tree` → `devtmpfs_init` → `prepare_namespace`）：
+
+```text
+prepare_namespace()
+  ① ramfs_mkfs(ram0, 32块, 16 inode)    内存中格式化 rootfs
+     fs_readsuper(ram0)                  读超级块到 sbs[7]
+     fs_set_root(ram0 根目录)            "/" 指向 ram0
+     p->cwd = ram0 根目录
+     kmknod("/dev", T_DIR, ...)
+     kmknod("/dev/console", CONSOLE, 0)
+     kmknod("/root", T_DIR, ...)
+
+  ② devtmpfs_init()
+     ramfs_mkfs(ram1, 64块, 48 inode)    devtmpfs RAM 盘
+     devtmpfs_populate()                 扫描已注册驱动，逐一 mknod
+       /dev/console, /dev/ttyS0, /dev/video0,
+       /dev/mmcblk0, /dev/mmcblk0p1, /dev/mmcblk0p2, ...
+
+  ③ kmknod("/dev/root", BLOCKDEV, ROOTDEV)
+     mount_root("/dev/root", "/root")
+       fsinit(ROOTDEV)                   读磁盘超级块，日志恢复
+       fs_mount(/root, ROOTDEV, "xv6fs") 把磁盘根挂在 /root
+     kchdir("/root")
+     devtmpfs_mount("dev", "/root/dev")  devtmpfs 挂在 /root/dev
+
+  ④ fs_move_mount(/root, /, MS_MOVE)    磁盘根从 /root 移到 /
+     fs_set_root(p->cwd)                chroot 到真实根
+     p->cwdpath = "/"
+```
+
+完成后 `/dev` 里已有所有驱动对应的节点。`init` 只需检查节点是否存在，不需要再手动 `mknod`：
+
+```c
+// user/init.c（新）
+if(open("/dev/ttyS0", O_RDWR) < 0 && open("/dev/console", O_RDWR) < 0){
+  // devtmpfs 未工作（旧内核或没有 /dev 目录），退回到手动创建
+  mkdir("dev"); mknod("dev/console", CONSOLE, 0); ...
+}
+```
+
+### inode 层挂载表（fs.c fsmount 与 follow_mount/follow_dotdot）
+
+vfs.c 的路径前缀表管 ext2、FAT32、procfs 等**非原生**文件系统。`fs.c` 新增了一张针对
+xv6-inode 文件系统的挂载表，让 `namex()` 能穿越挂载点：
+
+```c
+#define NFSMOUNT 8
+struct fsmount {
+  int          used;
+  struct inode *mp;          // 被覆盖的目录（持引用）
+  uint         dev;          // 挂载上来的文件系统设备号
+  char         path[MAXPATH]; // 显示用路径（/proc/mounts）
+};
+static struct { struct spinlock lock; struct fsmount m[NFSMOUNT]; } mtab;
+```
+
+`namex()` 在两处使用挂载信息：
+
+```c
+// ① 向下穿越：lookup 到一个被覆盖的目录 -> 替换为被挂载文件系统的根目录
+ip = follow_mount(next);    // 返回 iget(mounted_dev, ROOTINO)
+
+// ② 向上穿越：".." 从被挂载文件系统的根目录向上 -> 替换为挂载点目录
+if(namecmp(name, "..") == 0)
+    ip = follow_dotdot(ip); // 如果 ip 是某设备的 ROOTINO，返回挂载点 inode
+```
+
+多设备超级块：原来只有一个全局 `struct superblock sb`，现在改为 `sbs[NBLKDEV]`。
+`fs_readsuper(dev)` 读块 1、验证魔数、存入 `sbs[dev]`（相当于 Linux 的 `fill_super`）。
+`getsb(dev)` 在所有需要超级块信息的地方（`balloc`、`bfree`、`ialloc`、`iupdate`、`ilock`）
+替换原来的全局 `sb`。
+
+`loginit()` 从 `initlog()` 中独立出来，在 `iinit()` 里调用，使锁在 rootfs 和 devtmpfs
+写入之前就存在。RAM 盘的 `log_write()` 分支（`log.size==0 || b->dev!=log.dev`）直接
+`bwrite()` 直写，不进日志——RAM 盘内容重启即消失，不需要持久化。
+
+`fs_create()` 从 `sysfile.c` 的 `create()` 提取出来，供 `do_mounts.c` 的 `kmknod()` 和
+`sysfile.c` 共用，避免重复逻辑。
+
+`fs_move_mount()` 实现 MS_MOVE：把某个文件系统的挂载点从 from 移到 to，同时递归修正
+`mtab` 里所有子挂载的 path 字段（devtmpfs 挂在旧路径 `/root/dev` 下，移动后变成 `/dev`）。
+
+### /proc/mounts 与 /proc/cmdline
+
+`vfs.c` 新增两个 procfs 虚拟文件：
+
+- **`/proc/cmdline`**：`cmdline_get_all()` 的内容加换行符，用于调试和脚本读取启动参数。
+- **`/proc/mounts`**：先输出 `fs.c` 里的 xv6-inode 挂载（`fs_mounts_format()`），再输出
+  `vfs.c` 里的路径前缀挂载（ext2、FAT32、procfs、netfs）。
+
+示例输出：
+
+rootfs（ram0）被磁盘根盖住后不再列出，和新版 Linux 一致。
+
+```sh
+$ cat /proc/cmdline
+root=/dev/mmcblk0p2 rootfstype=xv6fs
+
+$ cat /proc/mounts
+/dev/root / xv6fs rw 0 0
+devtmpfs /dev devtmpfs rw 0 0
+proc /proc procfs ro 0 0
+bootfs /boot fat32 rw 0 0
+ext2 /mnt/ext2 ext2 rw 0 0
+```
+
+### trapasm.S：forkret 中断竞争修复
+
+`trapret` 路径：`urestorereg` 加载 `ELR_EL1`/`SPSR_EL1`，然后 `eret` 返回用户态。
+如果在这两条指令之间进来一个 EL1 IRQ，它会覆盖 `ELR_EL1`/`SPSR_EL1`，eret 就会
+"返回"到错误的 EL1 地址，`sp` 指向内核栈顶，后果是崩溃。
+
+`forkret()` 通过 `trapret` 跳进用户态；`prepare_namespace()` 内部多次 `release()`
+会重新开中断，所以这个窗口在真机上可以触发。修复是在 `urestorereg` 前无条件屏蔽中断：
+
+```asm
+trapret:
+    // 屏蔽四类中断：ELR_EL1/SPSR_EL1 加载到 eret 之间不能有 EL1 IRQ
+    msr daifset, #0xf
+    urestorereg
+    eret
+```

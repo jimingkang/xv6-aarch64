@@ -20,30 +20,52 @@
 #include "fs.h"
 #include "buf.h"
 #include "file.h"
+#include "blkdev.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
-// there should be one superblock per disk device, but we run with
-// only one device
-struct superblock sb; 
+// One superblock per mounted xv6 filesystem, indexed by block device number:
+// the root on dev 1 and the RAM-disk instances (rootfs, devtmpfs).
+static struct superblock sbs[NBLKDEV];
+void fs_mountinit(void);
 
-// Read the super block.
-static void
-readsb(int dev, struct superblock *sb)
+static struct superblock*
+getsb(uint dev)
 {
-  struct buf *bp;
-
-  bp = bread(dev, 1);
-  memmove(sb, bp->data, sizeof(*sb));
-  brelse(bp);
+  if(dev >= NBLKDEV || sbs[dev].magic != FSMAGIC)
+    panic("getsb: device has no xv6 filesystem");
+  return &sbs[dev];
 }
 
-// Init fs
-void
+// Read and check the superblock of dev (the "fill_super" step of a mount).
+int
+fs_readsuper(int dev)
+{
+  struct buf *bp;
+  struct superblock s;
+
+  if(dev <= 0 || dev >= NBLKDEV)
+    return -1;
+  bp = bread(dev, 1);
+  if(bp->error){
+    brelse(bp);
+    return -1;
+  }
+  memmove(&s, bp->data, sizeof(s));
+  brelse(bp);
+  if(s.magic != FSMAGIC)
+    return -1;
+  sbs[dev] = s;
+  return 0;
+}
+
+// Mount-time work for the disk root: superblock, then log recovery.
+// Only the root has a log; RAM-disk instances write through (log_write()).
+int
 fsinit(int dev) {
-  readsb(dev, &sb);
-  if(sb.magic != FSMAGIC)
-    panic("invalid file system");
-  initlog(dev, &sb);
+  if(fs_readsuper(dev) < 0)
+    return -1;
+  initlog(dev, &sbs[dev]);
+  return 0;
 }
 
 // Zero a block.
@@ -67,10 +89,11 @@ balloc(uint dev)
   int b, bi, m;
   struct buf *bp;
 
+  struct superblock *sb = getsb(dev);
   bp = 0;
-  for(b = 0; b < sb.size; b += BPB){
-    bp = bread(dev, BBLOCK(b, sb));
-    for(bi = 0; bi < BPB && b + bi < sb.size; bi++){
+  for(b = 0; b < sb->size; b += BPB){
+    bp = bread(dev, BBLOCK(b, (*sb)));
+    for(bi = 0; bi < BPB && b + bi < sb->size; bi++){
       m = 1 << (bi % 8);
       if((bp->data[bi/8] & m) == 0){  // Is block free?
         bp->data[bi/8] |= m;  // Mark block in use.
@@ -92,7 +115,7 @@ bfree(int dev, uint b)
   struct buf *bp;
   int bi, m;
 
-  bp = bread(dev, BBLOCK(b, sb));
+  bp = bread(dev, BBLOCK(b, (*getsb(dev))));
   bi = b % BPB;
   m = 1 << (bi % 8);
   if((bp->data[bi/8] & m) == 0)
@@ -185,6 +208,8 @@ iinit()
   for(i = 0; i < NINODE; i++) {
     initsleeplock(&itable.inode[i].lock, "inode");
   }
+  loginit();
+  fs_mountinit();
 }
 
 static struct inode* iget(uint dev, uint inum);
@@ -199,8 +224,9 @@ ialloc(uint dev, short type)
   struct buf *bp;
   struct dinode *dip;
 
-  for(inum = 1; inum < sb.ninodes; inum++){
-    bp = bread(dev, IBLOCK(inum, sb));
+  struct superblock *sb = getsb(dev);
+  for(inum = 1; inum < sb->ninodes; inum++){
+    bp = bread(dev, IBLOCK(inum, (*sb)));
     dip = (struct dinode*)bp->data + inum%IPB;
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
@@ -224,7 +250,7 @@ iupdate(struct inode *ip)
   struct buf *bp;
   struct dinode *dip;
 
-  bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+  bp = bread(ip->dev, IBLOCK(ip->inum, (*getsb(ip->dev))));
   dip = (struct dinode*)bp->data + ip->inum%IPB;
   dip->type = ip->type;
   dip->major = ip->major;
@@ -297,7 +323,7 @@ ilock(struct inode *ip)
   acquiresleep(&ip->lock);
 
   if(ip->valid == 0){
-    bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+    bp = bread(ip->dev, IBLOCK(ip->inum, (*getsb(ip->dev))));
     dip = (struct dinode*)bp->data + ip->inum%IPB;
     ip->type = dip->type;
     ip->major = dip->major;
@@ -621,6 +647,253 @@ skipelem(char *path, char *name)
   return path;
 }
 
+// Mounts of xv6 filesystems (compare Linux struct mount / vfsmount).
+//
+// A mount says "the directory mp is covered by the root directory of the
+// filesystem on dev".  namex() crosses a mount when a lookup lands on a
+// covered directory (follow_mount) and climbs back out of a mounted root
+// on ".." (follow_dotdot).  fs_root is the namespace root "/": at boot it is
+// the rootfs RAM disk; do_mounts.c later moves the real root over it and
+// chroots there, exactly like Linux's prepare_namespace().  xv6 has one
+// mount namespace, so "chroot" changes the root for every process.
+//
+// ext2, FAT32, procfs and netfs are not xv6 inode filesystems; they stay in
+// the path-prefix table in vfs.c, which the system calls consult first.
+
+#define NFSMOUNT 8
+
+static struct {
+  struct spinlock lock;
+  struct fsmount {
+    int used;
+    struct inode *mp;       // covered directory (holds a reference)
+    uint dev;               // mounted filesystem; its root is (dev, ROOTINO)
+    char fstype[12];
+    char source[24];
+    char path[MAXPATH];     // where it appears in the namespace, for display
+  } m[NFSMOUNT];
+} mtab;
+
+static struct inode *fs_root;   // "/", see above
+
+void
+fs_mountinit(void)
+{
+  initlock(&mtab.lock, "mtab");
+}
+
+// The inode namex() starts absolute paths from.  Before do_mounts.c has
+// set up the namespace (and for the legacy path), it is the disk root.
+static struct inode*
+rootdir(void)
+{
+  return fs_root ? idup(fs_root) : iget(ROOTDEV, ROOTINO);
+}
+
+static struct fsmount*
+mount_covering(uint dev, uint inum)
+{
+  for(int i = 0; i < NFSMOUNT; i++)
+    if(mtab.m[i].used && mtab.m[i].mp->dev == dev &&
+       mtab.m[i].mp->inum == inum)
+      return &mtab.m[i];
+  return 0;
+}
+
+static struct fsmount*
+mount_of_dev(uint dev)
+{
+  for(int i = 0; i < NFSMOUNT; i++)
+    if(mtab.m[i].used && mtab.m[i].dev == dev)
+      return &mtab.m[i];
+  return 0;
+}
+
+// If ip is covered by a mount, replace it with the mounted root (repeat for
+// stacked mounts).  Consumes the caller's reference to ip.
+static struct inode*
+follow_mount(struct inode *ip)
+{
+  for(;;){
+    acquire(&mtab.lock);
+    struct fsmount *m = mount_covering(ip->dev, ip->inum);
+    uint dev = m ? m->dev : 0;
+    release(&mtab.lock);
+    if(m == 0)
+      return ip;
+    iput(ip);
+    ip = iget(dev, ROOTINO);
+  }
+}
+
+// Before looking up "..": stay put at the namespace root; at the root of a
+// mounted filesystem, step down to the covered directory first so ".." is
+// looked up in the parent filesystem.  Consumes the reference to ip.
+static struct inode*
+follow_dotdot(struct inode *ip)
+{
+  for(;;){
+    if(fs_root && ip->dev == fs_root->dev && ip->inum == fs_root->inum)
+      return ip;
+    if(ip->inum != ROOTINO)
+      return ip;
+    acquire(&mtab.lock);
+    struct fsmount *m = mount_of_dev(ip->dev);
+    struct inode *mp = m ? idup(m->mp) : 0;
+    release(&mtab.lock);
+    if(mp == 0)
+      return ip;
+    iput(ip);
+    ip = mp;
+  }
+}
+
+// Is path at or below a native (xv6-inode) mount other than "/"?  With an
+// ext2 root mounted on "/" in vfs.c, such paths (devtmpfs on /dev) must not
+// be routed to ext2.
+int
+fs_native_covers(char *path)
+{
+  int r = 0;
+  acquire(&mtab.lock);
+  for(int i = 0; i < NFSMOUNT && !r; i++){
+    struct fsmount *m = &mtab.m[i];
+    int n = strlen(m->path);
+    if(m->used && n > 1 && strncmp(path, m->path, n) == 0 &&
+       (path[n] == 0 || path[n] == '/'))
+      r = 1;
+  }
+  release(&mtab.lock);
+  return r;
+}
+
+// Root directory of the xv6 filesystem on dev (referenced, unlocked).
+struct inode*
+fs_dev_root(int dev)
+{
+  return iget(dev, ROOTINO);
+}
+
+int
+fs_is_mountpoint(struct inode *ip)
+{
+  acquire(&mtab.lock);
+  int r = mount_covering(ip->dev, ip->inum) != 0 ||
+          (ip->inum == ROOTINO && mount_of_dev(ip->dev) != 0);
+  release(&mtab.lock);
+  return r;
+}
+
+// Attach the xv6 filesystem on dev (superblock already read) at directory
+// mp.  Takes over the caller's reference to mp.
+int
+fs_mount(struct inode *mp, int dev, char *fstype, char *source, char *path)
+{
+  ilock(mp);
+  int isdir = mp->type == T_DIR;
+  iunlock(mp);
+  if(!isdir)
+    return -1;
+  acquire(&mtab.lock);
+  if(mount_covering(mp->dev, mp->inum) || mount_of_dev(dev)){
+    release(&mtab.lock);
+    return -1;
+  }
+  for(int i = 0; i < NFSMOUNT; i++){
+    struct fsmount *m = &mtab.m[i];
+    if(m->used)
+      continue;
+    m->used = 1;
+    m->mp = mp;
+    m->dev = dev;
+    safestrcpy(m->fstype, fstype, sizeof(m->fstype));
+    safestrcpy(m->source, source, sizeof(m->source));
+    safestrcpy(m->path, path, sizeof(m->path));
+    release(&mtab.lock);
+    return 0;
+  }
+  release(&mtab.lock);
+  return -1;
+}
+
+// MS_MOVE: the filesystem whose root directory is "from" is detached from
+// where it is mounted and re-attached on directory "to", which is reached
+// as topath.  Mounts below it (devtmpfs on /root/dev) move along; only
+// their display paths change.  Consumes the reference to "to".
+int
+fs_move_mount(struct inode *from, struct inode *to, char *topath)
+{
+  struct inode *old;
+  char oldpath[MAXPATH];
+  acquire(&mtab.lock);
+  struct fsmount *m = from->inum == ROOTINO ? mount_of_dev(from->dev) : 0;
+  if(m == 0 || mount_covering(to->dev, to->inum)){
+    release(&mtab.lock);
+    return -1;
+  }
+  old = m->mp;
+  m->mp = to;
+  safestrcpy(oldpath, m->path, sizeof(oldpath));
+  int n = strlen(oldpath);
+  for(int i = 0; i < NFSMOUNT; i++){
+    struct fsmount *c = &mtab.m[i];
+    if(!c->used || strncmp(c->path, oldpath, n) != 0 ||
+       (c->path[n] != 0 && c->path[n] != '/'))
+      continue;
+    char rest[MAXPATH];
+    safestrcpy(rest, c->path + n, sizeof(rest));
+    safestrcpy(c->path, topath, sizeof(c->path));
+    if(rest[0]){
+      int t = strlen(c->path);
+      if(t == 1)                  // topath "/": avoid "//dev"
+        t = 0;
+      safestrcpy(c->path + t, rest, sizeof(c->path) - t);
+    }
+  }
+  release(&mtab.lock);
+  iput(old);
+  return 0;
+}
+
+// chroot for the (single) namespace.
+void
+fs_set_root(struct inode *ip)
+{
+  struct inode *old = fs_root;
+  fs_root = idup(ip);
+  if(old)
+    iput(old);
+}
+
+static char*
+mstr(char *p, char *e, char *s)
+{
+  while(*s && p < e)
+    *p++ = *s++;
+  return p;
+}
+
+// /proc/mounts lines for the xv6-inode mounts ("source target type opts").
+int
+fs_mounts_format(char *buf, int n)
+{
+  char *p = buf, *e = buf + n;
+  acquire(&mtab.lock);
+  for(int i = 0; i < NFSMOUNT; i++){
+    struct fsmount *m = &mtab.m[i];
+    if(!m->used)
+      continue;
+    p = mstr(p, e, m->source);
+    p = mstr(p, e, " ");
+    p = mstr(p, e, m->path);
+    p = mstr(p, e, " ");
+    p = mstr(p, e, m->fstype);
+    p = mstr(p, e, " rw 0 0\n");
+  }
+  release(&mtab.lock);
+  return p - buf;
+}
+
 // Look up and return the inode for a path name.
 // If parent != 0, return the inode for the parent and copy the final
 // path element into name, which must have room for DIRSIZ bytes.
@@ -631,11 +904,13 @@ namex(char *path, int nameiparent, char *name)
   struct inode *ip, *next;
 
   if(*path == '/')
-    ip = iget(ROOTDEV, ROOTINO);
+    ip = rootdir();
   else
     ip = idup(myproc()->cwd);
 
   while((path = skipelem(path, name)) != 0){
+    if(namecmp(name, "..") == 0)
+      ip = follow_dotdot(ip);
     ilock(ip);
     if(ip->type != T_DIR){
       iunlockput(ip);
@@ -651,7 +926,7 @@ namex(char *path, int nameiparent, char *name)
       return 0;
     }
     iunlockput(ip);
-    ip = next;
+    ip = follow_mount(next);
   }
   if(nameiparent){
     iput(ip);
@@ -671,4 +946,50 @@ struct inode*
 nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
+}
+
+// Create name in directory dp (a referenced, unlocked inode; the reference
+// is consumed).  Returns the new inode locked, or for T_FILE an existing
+// file/device; 0 on failure.  Shared by open(O_CREATE)/mkdir/mknod and the
+// kernel's own node creation (rootfs, devtmpfs).  Caller is in a
+// transaction.
+struct inode*
+fs_create(struct inode *dp, char *name, short type, short major, short minor)
+{
+  struct inode *ip;
+
+  ilock(dp);
+
+  if((ip = dirlookup(dp, name, 0)) != 0){
+    iunlockput(dp);
+    ilock(ip);
+    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
+      return ip;
+    iunlockput(ip);
+    return 0;
+  }
+
+  if((ip = ialloc(dp->dev, type)) == 0)
+    panic("create: ialloc");
+
+  ilock(ip);
+  ip->major = major;
+  ip->minor = minor;
+  ip->nlink = 1;
+  iupdate(ip);
+
+  if(type == T_DIR){  // Create . and .. entries.
+    dp->nlink++;  // for ".."
+    iupdate(dp);
+    // No ip->nlink++ for ".": avoid cyclic ref count.
+    if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
+      panic("create dots");
+  }
+
+  if(dirlink(dp, name, ip->inum) < 0)
+    panic("create: dirlink");
+
+  iunlockput(dp);
+
+  return ip;
 }

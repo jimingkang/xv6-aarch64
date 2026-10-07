@@ -76,6 +76,7 @@ int platform_device_register(struct device *dev);
 int platform_driver_register(struct device_driver *drv);
 extern struct bus_type platform_bus;
 int register_chrdev(int major, char *name, struct file_operations *fops);
+char *chrdev_name(int major);
 int chrdev_open(struct file *f);
 void chrdev_release(struct file *f);
 int chrdev_read(struct file *f, int user_dst, uint64 dst, int n);

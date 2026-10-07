@@ -49,3 +49,4 @@ struct inode {
 #define INPUT   4   // input subsystem evdev (/dev/input/event0)
 #define CAMERA  5   // Unicam CSI-2 camera (/dev/video0)
 #define ROOTUPDATE 6 // guarded raw-root updater (/dev/sdroot)
+#define BLOCKDEV 7  // block device files, minor = blkdev number (/dev/mmcblk0p2)

@@ -87,21 +87,24 @@ main(void)
 {
   int pid, wpid;
 
-  // Install the Unix device namespace before opening the first user-space
-  // standard descriptors.  Early kernel diagnostics do not need a device
-  // node: kernel printf uses the console subsystem directly.
+  // The kernel has mounted devtmpfs on /dev with a node for every driver
+  // (see kernel/do_mounts.c).  Only if that is missing -- an old kernel or a
+  // root without a /dev directory -- create static nodes on the root disk.
   unlink("/console");  // Remove the obsolete root-level compatibility node.
-  mkdir("dev");
-  mkdir("dev/input");
-  mknod("dev/console", CONSOLE, 0);
-  mknod("dev/tty", TTY, 0);
-  mknod("dev/ttyS0", TTYS0, 0);
-  mknod("dev/input/event0", INPUT, 0);
-  mknod("dev/video0", CAMERA, 0);
-  mknod("dev/sdroot", ROOTUPDATE, 0);
   if(open("/dev/ttyS0", O_RDWR) < 0 &&
-     open("/dev/console", O_RDWR) < 0)
-    exit(1);
+     open("/dev/console", O_RDWR) < 0){
+    mkdir("dev");
+    mkdir("dev/input");
+    mknod("dev/console", CONSOLE, 0);
+    mknod("dev/tty", TTY, 0);
+    mknod("dev/ttyS0", TTYS0, 0);
+    mknod("dev/input/event0", INPUT, 0);
+    mknod("dev/video0", CAMERA, 0);
+    mknod("dev/sdroot", ROOTUPDATE, 0);
+    if(open("/dev/ttyS0", O_RDWR) < 0 &&
+       open("/dev/console", O_RDWR) < 0)
+      exit(1);
+  }
   dup(0);
   dup(0);
 

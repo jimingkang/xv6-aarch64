@@ -52,13 +52,20 @@ struct log log;
 static void recover_from_log(void);
 static void commit();
 
+// The lock exists from boot: rootfs and devtmpfs are written (in
+// transactions) before the disk root and its log are mounted.
+void
+loginit(void)
+{
+  initlock(&log.lock, "log");
+}
+
 void
 initlog(int dev, struct superblock *sb)
 {
   if (sizeof(struct logheader) >= BSIZE)
     panic("initlog: too big logheader");
 
-  initlock(&log.lock, "log");
   log.start = sb->logstart;
   log.size = sb->nlog;
   log.dev = dev;
@@ -243,6 +250,13 @@ void
 log_write(struct buf *b)
 {
   int i;
+
+  // Only the disk root has a log.  Blocks of the RAM-disk filesystems
+  // (rootfs, devtmpfs) have nothing to survive, so they are written through.
+  if(log.size == 0 || b->dev != log.dev){
+    bwrite(b);
+    return;
+  }
 
   acquire(&log.lock);
   if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1)

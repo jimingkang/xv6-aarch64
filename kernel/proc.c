@@ -544,7 +544,7 @@ userinit(void)
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
-  p->cwd = namei("/");
+  p->cwd = 0;              // set by prepare_namespace() in forkret()
   safestrcpy(p->cwdpath, "/", sizeof(p->cwdpath));
 
   make_runnable(p, 0);
@@ -1138,7 +1138,8 @@ forkret(void)
     // regular process (e.g., because it calls sleep), and thus cannot
     // be run from main().
     first = 0;
-    fsinit(ROOTDEV);
+    prepare_namespace();   // rootfs, devtmpfs, mount root=, MS_MOVE, chroot
+    blkdev_selftest();
   }
 
   usertrapret(tf);

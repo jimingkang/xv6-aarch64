@@ -64,7 +64,7 @@ int             filetruncate(struct file*, uint64);
 int             filefsync(struct file*, int);
 
 // fs.c
-void            fsinit(int);
+int             fsinit(int);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
@@ -98,10 +98,51 @@ int             rootupdate_root_frozen(void);
 // fat32.c
 void            fat32init(void);
 
+// blkdev.c
+struct blkdev;
+void            blkdev_init(void);
+int             blkdev_register(int, const char*, uint32, uint32, uint32,
+                                int (*)(struct blkdev*, uint32, uchar*, uint32, int));
+struct blkdev*  blkdev_get(uint);
+int             blkdev_find(const char*);
+int             blkdev_set_bsize(uint, uint32);
+uint32          blkdev_bsize(uint);
+int             blk_rw(struct buf*, int);
+void            blkdev_print(void);
+void            blkdev_selftest(void);
+struct blkdev*  blkdev_at(int);
+uint64          blkdev_size(uint);
+int             ramdisk_create(int, int, char*, uint32, uint32);
+uchar*          ramdisk_ptr(int, uint32);
+
+// cmdline.c
+void            cmdline_init(void);
+int             cmdline_get(char*, char*, int);
+char*           cmdline_get_all(void);
+
+// do_mounts.c
+void            prepare_namespace(void);
+void            devtmpfs_notify(int);
+
+// fs.c (mounts)
+int             fs_readsuper(int);
+struct inode*   fs_dev_root(int);
+int             fs_is_mountpoint(struct inode*);
+int             fs_mount(struct inode*, int, char*, char*, char*);
+int             fs_move_mount(struct inode*, struct inode*, char*);
+void            fs_set_root(struct inode*);
+int             fs_mounts_format(char*, int);
+int             fs_native_covers(char*);
+struct inode*   fs_create(struct inode*, char*, short, short, short);
+
 // rootdev.c
 void            rootdev_init(void);
-void            rootdev_rw(struct buf*, int);
 int             rootdev_raw_info(uint32*, uint32*);
+char*           rootdev_name(void);
+int             rootdev_fstype(void);
+int             rootdev_ext2_part(void);
+#define ROOTFS_XV6  0
+#define ROOTFS_EXT2 1
 int             rootdev_update_begin(void);
 int             rootfs_freeze_for_update(void);   // log.c
 struct fat32_file;
@@ -173,6 +214,7 @@ void            kinit2(void *, void *);
 
 // log.c
 void            initlog(int, struct superblock*);
+void            loginit(void);
 void            log_write(struct buf*);
 void            begin_op(void);
 void            end_op(void);

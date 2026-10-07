@@ -937,6 +937,14 @@ ext2init(void)
     printf("ext2: no MBR; disabled\n");
     return;
   }
+  // rootfstype=ext2 root=...pN names the partition; try it first.
+  int pref = rootdev_ext2_part();
+  if(pref >= 1 && pref <= 4){
+    uchar *p = mbr + 446 + (pref - 1)*16;
+    if(le32(p + 8) != 0 && setup_ext2(le32(p + 8), le32(p + 12), pref) == 0)
+      return;
+    printf("ext2: root partition p%d has no usable ext2\n", pref);
+  }
   // Try every Linux partition. This permits p2 to remain ext4 while a simple
   // ext2 filesystem is placed in p3.
   for(int i = 0; i < 4; i++){

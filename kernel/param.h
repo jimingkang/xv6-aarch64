@@ -10,7 +10,7 @@
 #define USTACKPAGES   4  // mapped user stack pages, excluding guard page
 #define MAXOPBLOCKS  10  // max # of blocks any FS op writes
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
-#define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
+#define NBUF         64   // buffer cache entries, one 4 KiB page each
 #define FSSIZE      32768  // 32 MiB native file system (1024-byte blocks)
 #define MAXPATH      128   // maximum file path name
 #define NSYNC         64   // maximum number of kernel synchronization objects

@@ -619,7 +619,7 @@ camshot [-o OUT.bmp|OUT.jpg] [-q QUALITY] [-r OUT.raw] [-i IN.raw]
 `camshot -t N` 使用 OV5647 内部生成的标准测试图。测试图已经校准，因此转换器采用固定
 1.0 白平衡和固定亮度，不再运行灰世界/直方图统计；这使测试图专门验证 sensor、CSI-2、
 Unicam DMA、RAW10 转换和 FAT32 写盘。只有不带 `-t` 的真实画面才运行自动白平衡和亮度统计。
-启动时的 `camshot: converter jpeg420-dctsym-v2 bmp-batch16` 用来确认根文件系统中的用户程序确实
+启动时的 `camshot: converter jpeg420-fast-v3 bmp-batch16` 用来确认根文件系统中的用户程序确实
 已经更新。
 
 ### camserver：HTTP 推流服务器
@@ -740,9 +740,18 @@ RGB
 | 原 64-multiply dot product | 27.884 ms | 276065 | `3f32a30263bba8fd` |
 | 对称分解 DCT | 15.273 ms | 276065 | `3f32a30263bba8fd` |
 
-测试机上纯 JPEG 编码缩短约 45%，且输出逐字节一致。Raspberry Pi 3 的绝对时间不同，但原先
-`avg jpeg ms=308.2` 是最大瓶颈，预计会明显下降；流水线最终帧率取决于优化后的 JPEG 与约
-199 ms 的网络发送阶段谁更慢。启动日志中的 `JPEG dctsym-v2` 可用于确认新程序已烧录。
+测试机上纯 JPEG 编码缩短约 45%，且输出逐字节一致。第一轮真机流水线从 1.7 fps 提升到 3.4 fps，
+但 `capture/jpeg/send=24.2/287.9/216.2 ms` 表明 `jpeg` 统计还包含 DCT 之外的 RAW10 解包、统计、
+逐像素去马赛克和色调转换，新的稳定周期仍由 287.9 ms 决定。因此 `fast-v3` 又优化了前处理：
+
+- RAW10 解包时同时累计 RGB 总和和绿色直方图，删除随后对 307200 个 mosaic 像素的第二次遍历；
+- interior pixel（占 99% 以上）直接访问相邻三行，边界像素才调用带反射与范围判断的 `P()`；
+- 按 Bayer 类型只计算实际需要的邻域：R/B 为 cross+diagonal，G 为 horizontal+vertical，不再每像素
+  无条件计算四组插值；
+- 每帧预先生成 3×1024 项 WB/level/gamma lookup table，替代每个输出像素的运行时增益乘法。
+
+这些变化保持原来的整数运算次序和双线性去马赛克结果。流水线最终帧率取决于优化后的 JPEG/前处理
+与约 216 ms 的网络发送阶段谁更慢。启动日志中的 `JPEG/camproc fast-v3` 可确认新程序已烧录。
 
 编码器只缓存一个 MCU 和 4 KiB 输出，不建立整张 RGB 图。因此在已有 RAW10 mosaic 之外几乎不增加
 峰值内存，也不会因为 640×480 RGB 缓冲再消耗约 900 KiB。接口通过像素回调取样：

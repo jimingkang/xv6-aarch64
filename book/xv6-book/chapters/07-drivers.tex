@@ -71,7 +71,7 @@ struct file_operations {
   \item \textbf{sdio}：Arasan 枚举出的 SDIO function，按 vendor/device/function 匹配。
 \end{itemize}
 
-字符设备的主设备号见表~\ref{tab:majors}。xv6 没有 devtmpfs/udev，设备节点由 \code{init} 用 \code{mknod} 创建；\code{cat /proc/devices} 可以看到全部总线、设备、资源和已绑定的驱动。
+字符设备的主设备号见表~\ref{tab:majors}。设备节点由内核的 devtmpfs 按已注册的驱动自动创建（\file{do\_mounts.c}），\code{init} 只在 devtmpfs 不可用时才用 \code{mknod} 补建；\code{cat /proc/devices} 可以看到全部总线、设备、资源和已绑定的驱动。
 
 \begin{table}[htbp]
   \centering

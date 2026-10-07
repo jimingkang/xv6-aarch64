@@ -348,7 +348,7 @@ main(int argc, char *argv[])
   int pattern = 0, wb = 1, half = 0, quality = 75, fd, n;
   int video = 0, frames = 30;
 
-  printf("camshot: converter jpeg420-dctsym-v2 bmp-batch16\n");
+  printf("camshot: converter jpeg420-fast-v3 bmp-batch16\n");
 
   for(int i = 1; i < argc; i++){
     if(strcmp(argv[i], "-o") == 0 && i + 1 < argc) out = argv[++i];
