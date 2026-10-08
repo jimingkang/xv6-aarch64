@@ -675,7 +675,7 @@ int   cmdline_get(char *key, char *val, int n); // 取 key=value 的值
 
 **ext2 作根**：`cmdline_xv6.txt` 写 `root=/dev/mmcblk0p3 rootfstype=ext2`。ext2 在 vfs.c 的路径前缀
 表里，不是 inode 文件系统，所以流程是：rootfs、devtmpfs 照常建立，devtmpfs 挂到 rootfs 的 `/dev`，
-然后 `vfsmount("/dev/mmcblk0p3", "/", "ext2")`。`findmount()` 把 `/` 挂载当作最低优先级：更长的前缀
+然后在 rootfs 里建 `/dev/root`（次设备号指向 mmcblk0p3，核对与 ext2 驱动打开的分区一致）并 `vfsmount("/dev/root", "/", "ext2")`。`findmount()` 把 `/` 挂载当作最低优先级：更长的前缀
 （`/proc`、`/boot`、`/mnt/ext2`）先匹配；`fs_native_covers()` 判定在 inode 层挂载点下的路径（`/dev`）
 不交给 ext2。因为 rootfs 除了 `/dev` 外都被遮住，不需要 MS_MOVE/chroot。xv6 分区（p2）仍被注册为
 ROOTDEV，供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic。

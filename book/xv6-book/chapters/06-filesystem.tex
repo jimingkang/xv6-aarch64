@@ -206,7 +206,7 @@ xv6 为什么、以及怎样模仿嵌入式 Linux。
     \toprule
     写法 & 是什么 & 生命周期 \\
     \midrule
-    rootfs（英文） & Linux 里一个\emph{具体}的文件系统实例，名字就叫 rootfs：内核在 \code{init\_mount\_tree()} 中建立的 ramfs/tmpfs，是第一个被挂上的文件系统。initramfs 就解压在它里面 & 开机即有，永远不会被卸载；切换后被压在真正的根文件系统下面，内容被清空或闲置 \\
+    rootfs（英文） & Linux 里一个\emph{具体}的临时文件系统实例，名字就叫 rootfs：内核在 \code{init\_mount\_tree()} 中建立的 ramfs/tmpfs，是第一个被挂上的文件系统。initramfs 就解压在它里面 & 开机即有，永远不会被卸载；切换后被压在真正的根文件系统下面，内容被清空或闲置 \\
     根目录 \code{/} & 名字空间里的一个\emph{位置}：路径解析的起点（Linux 中是进程的 \code{fs->root}） & 一直存在，但“\code{/} 是哪个文件系统的哪个目录”会变：先是 rootfs，切换后是根文件系统的根目录 \\
     根文件系统（中文） & 设备上那个真正的文件系统：\code{/dev/mmcblk0p2} 上的 ext4、xv6 的 p2、本书的 p3 ext2，里面有 \code{/sbin/init}、\code{/bin}、\code{/etc} & 由 \code{root=} 指定，挂上之后才成为 \code{/} \\
     \bottomrule
@@ -214,7 +214,7 @@ xv6 为什么、以及怎样模仿嵌入式 Linux。
 \end{table}
 
 \begin{note}
-  rootfs 这个英文名和“根文件系统”的字面意思几乎一样，正因如此才容易混淆。可以拿 Java 来类比：Java 里有一个类，它的名字就叫 \code{Class}（there is a class named \code{Class}）。同样，Linux 里有一个文件系统，它的名字就叫 rootfs，而它恰恰\emph{不是}我们通常说的根文件系统，只是开机时临时占住 \code{/} 的那一个。本书中，英文 rootfs 只指这个临时文件系统，中文“根文件系统”只指设备上真正的那个，“根目录”或 \code{/} 只指路径的起点。
+  rootfs 这个英文名和“根文件系统”的字面意思几乎一样，正因如此才容易混淆。可以拿 Java 来类比：Java 里有一个类，它的名字就叫 \code{Class}（there is a class named \code{Class}）。同样，Linux 里有一个临时文件系统，它的名字就叫 rootfs，而它恰恰\emph{不是}我们通常说的根文件系统，只是开机时临时占住 \code{/} 的那一个。本书中，英文 rootfs 只指这个临时文件系统，中文“根文件系统”只指设备上真正的那个，“根目录”或 \code{/} 只指路径的起点。
 \end{note}
 
 图~\ref{fig:three-roots} 画出了三者在启动过程中的关系：\code{/} 先指向 rootfs；根文件系统先挂在 rootfs 的 \code{/root} 上；MS\_MOVE 和 chroot 之后，\code{/} 指向根文件系统的根目录，rootfs 被压在下面。
@@ -308,9 +308,7 @@ PC 发行版（Ubuntu、Fedora 等）面对的硬件不可预测：根文件系�
 
 \subsection{xv6 的选择：模仿嵌入式 Linux}
 
-xv6 跑在硬件固定的树莓派 3B+ 上：只有一张 SD 卡，驱动全部编进内核，没有内核模块，也没有 udev、blkid 这样的用户态工具，分区由 MBR 描述。这正是嵌入式 Linux 的处境，所以 xv6 走嵌入式路线：内核自己读 \code{root=}，自己找到分区并挂载。代码在 \file{kernel/do\_mounts.c}（文件名与 Linux 的 \file{init/do\_mounts.c} 相同），由第一个进程在 \code{forkret()} 里调用 \code{prepare\_namespace()} 执行，因为此时才有进程上下文，buffer cache 的睡眠锁才能使用。
-
-表~\ref{tab:linux-xv6-map} 是 Linux 概念与 xv6 实现的对应关系。
+xv6 跑在硬件固定的树莓派 3B+ 上：只有一张 SD 卡，驱动全部编进内核，没有内核模块，也没有 udev、blkid 这样的用户态工具，分区由 MBR 描述。这正是嵌入式 Linux 的处境，所以 xv6 走嵌入式路线：内核自己读 \code{root=}，自己找到分区并挂载。表~\ref{tab:linux-xv6-map} 把上一小节的每一步对应到 xv6 的函数。
 
 \begin{table}[htbp]
   \centering
@@ -327,9 +325,9 @@ xv6 跑在硬件固定的树莓派 3B+ 上：只有一张 SD 卡，驱动全部�
     rootfs（ramfs） & RAM 盘 ram0 上的 xv6 文件系统 \\
     \code{default\_rootfs()} & 在 rootfs 中建 \code{/dev}、\code{/dev/console}、\code{/root} \\
     devtmpfs & RAM 盘 ram1 上的 xv6 文件系统，节点来自 \code{register\_chrdev()} 和块设备表 \\
-    \code{create\_dev("/dev/root")} & \code{kmknod("/dev/root", BLOCKDEV, ROOTDEV)} \\
+    \code{create\_dev("/dev/root")} & \code{kmknod("/dev/root", T\_DEVICE, BLOCKDEV, ROOTDEV)} \\
     \code{mount\_root()} & \code{mount\_root()}：\code{fsinit(ROOTDEV)} 读超级块、恢复日志，挂到 \code{/root} \\
-    \code{devtmpfs\_mount()} & 把 devtmpfs 挂到 \code{/root/dev} \\
+    \code{devtmpfs\_mount()} & \code{devtmpfs\_mount()}：挂到 \code{/root/dev} \\
     \code{mount(".", "/", MS\_MOVE)} & \code{fs\_move\_mount()} \\
     \code{chroot(".")} & \code{fs\_set\_root()} \\
     \code{run\_init\_process()} & initcode 执行 \code{exec("/init")} \\
@@ -344,7 +342,7 @@ xv6 与 Linux 仍有三处不同（表~\ref{tab:do-mounts-diff}）。
   \caption{xv6 与 Linux 根命名空间引导的差别}
   \label{tab:do-mounts-diff}
   \small
-  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+  \begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
     \toprule
     & Linux & xv6 \\
     \midrule
@@ -355,45 +353,174 @@ xv6 与 Linux 仍有三处不同（表~\ref{tab:do-mounts-diff}）。
   \end{tabularx}
 \end{table}
 
-\code{rootfstype=} 可以是 \code{xv6fs}（默认）或 \code{ext2}（\ref{sec:ext2-root} 小节），
-写成别的值只引出一行警告，仍按 xv6fs 启动。
-新做的 \file{fs.img} 里还没有 \code{/dev} 目录（以前由 \code{init} 创建），内核挂 devtmpfs 之前
-发现缺失会先建出这个挂载点。
+\subsection{启动调用链总览}
+\label{sec:ns-callchain}
 
-\subsection{通用块设备层（blkdev.c）}
+Linux 把找根和挂根都放在 \code{prepare\_namespace()} 里，xv6 则分在两个时刻做：\code{main()} 里只能用自旋锁、不能睡眠，所以这里只读 MBR、登记块设备、决定根文件系统在\emph{哪个分区}；真正读根文件系统的超级块、恢复日志、搭建目录树，要用块缓存的睡眠锁，必须等到第一个进程在 \code{forkret()} 里运行。第三个时刻是用户态的 \code{/init}，它按 \file{/etc/fstab} 挂其余的文件系统。
 
-原来 \code{bio.c} 的 \code{bread}/\code{bwrite} 直接调用 \code{rootdev\_rw()}，只能访问一个
-设备。现在引入块设备表 \code{blk.dev[NBLKDEV]}，\code{rootdev\_init()} 注册
-\code{root}、\code{mmcblk0} 和每个 MBR 主分区（\code{mmcblk0pN}），\code{do\_mounts.c}
-注册两个 RAM 盘：
+下面分别给出 xv6fs 根和 ext2 根的完整调用链。左边是函数调用，缩进表示调用关系；右边是这一步做了什么；中间的 (a)--(d) 标出“\code{root=} 这串字符怎样一步步变成真正的扇区”，后文会单独解释。后面四个小节按阶段一、二、三依次展开。
+
+\paragraph{xv6fs 根文件系统.} \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p2 rootfstype=xv6fs}（这也是默认情况）：
+
+\begin{txtcode}
+main()                                 kernel/main.c：只在 CPU 0 上运行，此时
+                                       还没有进程，只能用自旋锁，不能睡眠
+  binit()                              初始化块缓存：64 个缓冲区，每个一页
+  iinit()                              初始化内存 inode 表
+    loginit()                          提前建立日志锁：阶段二在根文件系统的
+                                       日志就绪之前，就要往 RAM 盘里写东西
+    fs_mountinit()                     初始化 inode 层挂载表的锁，表为空
+  fat32init()                          FAT32 驱动的全局状态
+  rootdev_init()                       ======== 阶段一（6.6.6）========
+    blkdev_init()                      建立块设备表；登记主设备号 BLOCKDEV，
+                                       以后块设备才能以 /dev/mmcblk0p2 这样
+                                       的文件出现
+    sdsector(0)                        读 SD 卡第 0 扇区，即 MBR 分区表
+    blkdev_register()                  登记整张卡为块设备 2（mmcblk0），四个
+                                       主分区为块设备 3～6（mmcblk0p1～p4）
+    fat32mount()                       挂上 FAT32 启动分区 p1
+    cmdline_init()                     从启动分区读 /cmdline_xv6.txt
+    check_rootfstype()                 rootfstype=xv6fs：走本图这一支
+    root_param_partition()             把 "/dev/mmcblk0p2" 解析成分区号 2，
+                                       相当于 Linux 的 name_to_dev_t()
+    setup_raw_root(p2)            (a)  确认 p2 的第 1 块是 xv6 超级块，
+                                       记下 p2 的起始扇区 root.lba
+    register_root()               (b)  登记块设备 1（名字 "root"），读写回调
+                                       为 root_blk_rw()：设备 1 的块 B 就是
+                                       卡上扇区 root.lba + 2B（一块 = 两扇区）
+  ext2init()                           ext2 驱动探测 p3，留给 /mnt/ext2 使用
+  vfsinit()                            清空路径前缀挂载表
+  userinit()                           造出第一个进程，当前目录暂时为空
+  scheduler()                          调度第一个进程，它从 forkret() 开始运行
+forkret()                              kernel/proc.c：从这里起可以睡眠，
+                                       可以使用块缓存
+  prepare_namespace()                  ======== 阶段二（6.6.7）========
+    1. ramfs_create(ram0)              分配 32 KiB 内存当作块设备 7，在里面
+                                       格式化出空的 xv6 文件系统：rootfs
+       fs_set_root(rootfs 根目录)      "/" 从此指向 rootfs
+       kmknod(...)                     在 rootfs 里建 /dev、/dev/console、/root
+    2. devtmpfs_init()                 同样建出块设备 8（ram1），按已注册的
+                                       驱动和块设备表逐个建设备节点；此时
+                                       devtmpfs 还没有挂到任何目录上
+    3. kmknod("/dev/root", BLOCKDEV, 1)
+                                  (c)  在 rootfs 里建设备节点 /dev/root：
+                                       主设备号 7（BLOCKDEV），次设备号 1
+       mount_root("/dev/root", "/root")
+         node_to_blkdev("/dev/root")
+                                  (d)  找到节点，读出次设备号 1，
+                                       把名字换成块设备号
+         fsinit(1)                     读设备 1 的超级块并恢复日志：
+                                       bread(1, 1) -> blk_rw() -> root_blk_rw()
+                                       -> sdsector(root.lba + 2)，落在 p2 上
+         fs_mount(/root, 1)            登记一项挂载：设备 1 的根目录盖住
+                                       rootfs 的 /root 目录
+       kchdir("/root")                 当前目录进入根文件系统的根目录
+       devtmpfs_mount("dev")           devtmpfs 挂到根文件系统自己的 /dev 上，
+                                       此时它的路径是 /root/dev
+    4. fs_move_mount(".", "/")         MS_MOVE：根文件系统从 /root 挪到 rootfs
+                                       的根目录上，devtmpfs 的路径随之变为 /dev
+       fs_set_root(当前目录)           chroot(".")："/" 改指根文件系统的
+                                       根目录，rootfs 被压在下面
+  blkdev_selftest()                    读两次整卡第 0 扇区，检查块缓存命中
+  usertrapret()                        回到用户态（6.6.11）
+initcode：exec("/init")                ======== 阶段三（6.6.10）========
+                                       从根文件系统里找到 /init 并执行
+  /init：mount_fstab()                 按 /etc/fstab 挂 /proc、/boot、/mnt/ext2
+\end{txtcode}
+
+\paragraph{\code{/dev/root} 是什么.} 第 3 步里的 \code{mount\_root("/dev/root", "/root")} 很容易被读成“把 \code{/dev/root} 挂到 \code{/root}”，好像挂上去的是 \code{/dev/root} 这个东西本身。其实 \code{/dev/root} 只是 rootfs 里的一个\emph{设备节点}：一个名字加一对设备号（主设备号 \code{BLOCKDEV}，次设备号是块设备表里的编号），它本身既不是文件系统，也不含数据。\code{mount\_root()} 的两个参数，一个说“到哪里找设备”，一个说“挂在哪个目录”，真正的工作由它下面三行完成：\code{node\_to\_blkdev("/dev/root")} 把名字换成设备号 1；\code{fsinit(1)} 从设备 1 读出文件系统的超级块并恢复日志；\code{fs\_mount(/root, 1)} 才把\emph{这个文件系统的根目录}盖到 rootfs 的 \code{/root} 目录上。命令行 \code{mount /dev/root /root} 也是同样的意思：挂上去的是节点所指设备上的文件系统，而不是节点。
+
+\paragraph{xv6fs 根的 (a)--(d).} 阶段一的 (a) 把 \code{root=} 解析成分区 p2，并记下它的起始扇区 \code{root.lba}；(b) \code{register\_root()} 把块设备 1 的读写回调设为 \code{root\_blk\_rw()}，于是“设备 1 的块 $B$”就等于“卡上扇区 \code{root.lba}$+2B$”。阶段二的 (c) 建出节点 \code{/dev/root}，次设备号写 1；(d) \code{mount\_root()} 从节点读出 1，\code{fsinit(1)} 的每次 \code{bread} 经 (b) 落到 p2 上。所以设备 1 与 p2 的联系在阶段一的 (b) 就已建立，\code{/dev/root} 这个名字与设备 1 的联系在阶段二的 (c) 才建立。
+
+\paragraph{ext2 根文件系统.} \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}。与上图相同的步骤从略，只列出不同之处：
+
+\begin{txtcode}
+main()
+  rootdev_init()                       ======== 阶段一 ========
+    blkdev_init() ... fat32mount()     与 xv6fs 根相同：登记 mmcblk0、
+                                       mmcblk0p1～p4，挂上启动分区
+    cmdline_init()                     读到 root=/dev/mmcblk0p3 rootfstype=ext2
+    check_rootfstype()                 rootfstype=ext2：走本图这一支
+    root_param_partition()        (a') "/dev/mmcblk0p3" -> 分区号 3，只记在
+                                       ext2_root_part 里，不检查 xv6 超级块
+    自动探测 xv6 分区                  仍然要找到 xv6 格式的 p2：
+                                       /dev/sdroot 和 ext2 的外置日志都在那里
+    register_root()                    块设备 1 仍然是 p2，与根文件系统无关
+  ext2init()                      (b') 优先尝试 p3：读出 ext2 超级块，把 p3 的
+                                       起始扇区记进 e2.part_lba；此后 ext2 驱动
+                                       直接按这个起点读写 SD 卡
+forkret()
+  prepare_namespace()                  ======== 阶段二 ========
+    1. rootfs  2. devtmpfs             与 xv6fs 根完全相同
+    3'. kmknod("/dev/root", BLOCKDEV, 5)
+                                  (c') 节点 /dev/root 的次设备号是 5，
+                                       即 mmcblk0p3，而不是设备 1
+       mount_ext2_root("/dev/root", "/")
+                                       参数形式与 mount_root() 相同，但目录是
+                                       "/"：ext2 不能 MS_MOVE，只能直接挂到 /
+         node_to_blkdev("/dev/root")   找到节点，读出次设备号 5
+         blkdev_get(5)->start     (d') 核对设备 5 的起始扇区等于 e2.part_lba，
+                                       确认节点和 ext2 驱动指的是同一个分区
+         vfsmount("/dev/root", "/", "ext2")
+                                       在路径前缀表里登记 "/"：优先级最低，
+                                       没有更长前缀匹配的路径都交给 ext2
+       devtmpfs_mount("/dev")          新的根挂好以后再挂 /dev。挂载点只能是
+                                       rootfs 的 /dev（ext2 的目录不是 xv6
+                                       inode）；fs_native_covers() 让 /dev
+                                       开头的路径绕过 ext2，进入 devtmpfs
+    （没有第 4 步）                    rootfs 除 /dev 之外已被 ext2 遮住，
+                                       不需要 MS_MOVE 和 chroot
+  blkdev_selftest()、usertrapret()     与 xv6fs 根相同
+initcode：exec("/init")                ======== 阶段三 ========
+                                       /init 由 ext2 提供，其后与 xv6fs 根相同
+\end{txtcode}
+
+\paragraph{ext2 根的 (a$'$)--(d$'$).} (a$'$) 只记下分区号 3。真正打开分区的是 ext2 驱动自己：(b$'$) \code{ext2init()} 在阶段一就把 p3 的起点记进 \code{e2.part\_lba}，此后 ext2 直接按这个起点读卡，不经过块设备表。阶段二的 (c$'$) 让 \code{/dev/root} 的次设备号指向块设备 5（\code{mmcblk0p3}），(d$'$) \code{mount\_ext2\_root()} 解析这个节点，核对块设备 5 的起点与 ext2 驱动已打开的分区一致，再以 \code{/dev/root} 为来源挂到 \code{/}。
+
+注意 xv6 的“设备 1”和 Linux 的 \code{ROOT\_DEV} 不完全相同：设备 1 名叫 \code{root}，但它永远是 \emph{xv6 格式}的那个分区，供 \code{/dev/sdroot} 和 ext2 的外置日志使用；\code{/dev/root} 才对应 Linux 的 \code{ROOT\_DEV}，即“这次启动用作根文件系统的设备”——xv6fs 根时它是设备 1，ext2 根时它是设备 5。
+
+可以把这三个阶段和图~\ref{fig:three-roots} 对上：阶段一结束时，内核只知道根文件系统在哪个分区，\code{/} 还不存在；阶段二的第 1 步让 \code{/} 指向 rootfs（图中阶段 1），第 3 步把根文件系统挂到 \code{/root}（图中阶段 2），第 4 步 MS\_MOVE 和 chroot 之后 \code{/} 指向根文件系统（图中阶段 3）；ext2 根在第 3$'$ 步直接到达与图中阶段 3 等效的状态。阶段三在这棵树上继续挂其他文件系统。
+
+\subsection{阶段一：\code{main()} 中登记块设备、选出 ROOTDEV}
+\label{sec:ns-stage1}
+
+阶段一的主角是 \code{rootdev\_init()}（\file{rootdev.c}）。它要回答“根文件系统在哪个块设备上”，为此先要有一张块设备表。原来 \code{bio.c} 的 \code{bread}/\code{bwrite} 直接调用 \code{rootdev\_rw()}，只能访问一个设备；现在 \file{blkdev.c} 维护 \code{blk.dev[NBLKDEV]}，每项描述一个设备：
 
 \begin{ccode}
 // kernel/blkdev.h
 struct blkdev {
-  int      dev;      // ROOTDEV=1, BLKDEV_MMC=2, BLKDEV_MMC_PART(n)=2+n
+  int      dev;      // ROOTDEV=1, BLKDEV_MMC=2, BLKDEV_MMC_PART(n)=2+n, BLKDEV_RAM(n)=7+n
   char     name[16]; // "root", "mmcblk0", "mmcblk0p2", "ram0" ...
   uint32   start;    // 分区起始扇区（整卡为 0）
   uint32   nsect;    // 分区扇区数（0 = 未知）
   uint32   bsize;    // 块大小（512 / 1024 / 4096 B）
   blk_rw_fn rw;      // I/O 回调，NULL 时用通用 mmc_rw
+  void     *priv;    // 驱动私有数据（RAM 盘的页）
 };
 \end{ccode}
 
-\code{bio.c} 的读写入口从 \code{rootdev\_rw(b, write)} 改为 \code{blk\_rw(b, write)}，
-后者按 \code{b->dev} 查表并调对应的回调。\code{buf.data} 从静态数组改为
-\code{kalloc()} 分配的页，支持最大 4\,KiB 的 ext2 块；\code{NBUF} 从 30 扩到 64。
-新增 \code{buf.error}：非根设备的 I/O 失败置位而不 panic，调用者检查（根设备失败仍 panic）。
+\code{rootdev\_init()} 按调用链的顺序做五件事：
 
-\code{blkdev\_selftest()} 在第一个进程启动后运行：读 \code{mmcblk0} 扇区 0 两次，
-验证第二次命中缓存并检查 MBR 签名。
+\begin{enumerate}
+  \item \code{blkdev\_init()} 初始化设备表，并注册主设备号 \code{BLOCKDEV}，让块设备以后能以 \code{/dev/mmcblk0p2} 这样的文件出现；
+  \item 读第 0 扇区的 MBR，登记整卡 \code{mmcblk0}（dev 2）和每个主分区 \code{mmcblk0pN}（dev $2+N$）；
+  \item 挂上 FAT32 启动分区，再由 \code{cmdline\_init()} 读出 \file{cmdline\_xv6.txt}（\ref{sec:rootfs} 节）；
+  \item \code{check\_rootfstype()} 和 \code{root\_param\_partition()} 解析 \code{rootfstype=} 与 \code{root=}，\code{setup\_raw\_root()} 确认那个分区的第 1 块是 xv6 超级块；没有 \code{root=} 或分区不对时退回自动探测；
+  \item \code{register\_root()} 把选中的分区登记为 ROOTDEV（dev 1，名字 \code{root}），它的回调 \code{root\_blk\_rw()} 负责块号到扇区的换算和 \code{/dev/sdroot} 更新时的闸门。
+\end{enumerate}
+
+从此 \code{bio.c} 的读写入口是 \code{blk\_rw(b, write)}：按 \code{b->dev} 查表，调用该设备的回调。为了容纳 ext2 的 4\,KiB 块，\code{buf.data} 从静态数组改为 \code{kalloc()} 分配的页，\code{NBUF} 从 30 扩到 64；新增的 \code{buf.error} 让非根设备的 I/O 失败只置位而不 panic，根设备失败仍 panic。
+
+阶段一结束时，ROOTDEV 已经\emph{指向}根文件系统所在的分区，但它的超级块还没有被读过，\code{/} 也还不存在。随后 \code{ext2init()} 用 \code{rootdev\_ext2\_part()} 和 \code{rootdev\_raw\_info()} 找 ext2 分区及其外置日志，\code{vfsinit()} 清空路径前缀挂载表，\code{userinit()} 造出第一个进程，此时它的当前目录还是空的。
 
 \begin{note}
-  块设备文件（\code{/dev/mmcblk0p2} 等）也通过 \code{BLOCKDEV} major 提供给用户态。
-  它们经过 buffer cache，用户态只读（替换根镜像仍用 \code{/dev/sdroot}）；
-  \code{lseek(fd, 0, SEEK\_END)} 返回分区大小。
+  块设备文件（\code{/dev/mmcblk0p2} 等）经过 buffer cache，用户态只读（替换根镜像仍用 \code{/dev/sdroot}）；\code{lseek(fd, 0, SEEK\_END)} 返回分区大小。它们的节点由阶段二的 devtmpfs 建出来。
 \end{note}
 
-\subsection{四步根切换（prepare\_namespace）}
+\subsection{阶段二：\code{forkret()} 中的 \code{prepare\_namespace()}}
+\label{sec:ns-stage2}
+
+第一个进程被调度后进入 \code{forkret()}，它在返回用户态之前调用一次 \code{prepare\_namespace()}（\file{kernel/do\_mounts.c}，文件名与 Linux 的 \file{init/do\_mounts.c} 相同）。这个函数分四步，把图~\ref{fig:three-roots} 的三个阶段依次走一遍（图~\ref{fig:prepare-namespace}）。
 
 \begin{figure}[htbp]
   \centering
@@ -402,26 +529,44 @@ struct blkdev {
                   minimum width=100mm, text width=96mm, align=left, font=\scriptsize\ttfamily,
                   inner sep=3pt},
       arr/.style={-{Stealth[length=2.5mm]}, thick, draw=structurecolor!80!black}]
-    \node[blk] (s1) {1. rootfs (ram0)\quad\textrm{格式化 32 块、16 inode；fs\_set\_root(ram0根目录)}\\ \quad/dev/console\quad /dev\quad /root\quad("/"=ram0)};
-    \node[blk, below=of s1] (s2) {2. devtmpfs\_init() (ram1)\quad\textrm{64 块、48 inode；扫描注册驱动，逐一 mknod}\\ \quad/dev/console\quad /dev/ttyS0\quad /dev/video0\quad /dev/mmcblk0p2 ...};
-    \node[blk, below=of s2] (s3) {3. mount\_root("/dev/root", "/root")\\ \quad fsinit(ROOTDEV)\quad\textrm{// 磁盘超级块 + 日志恢复}\\ \quad fs\_mount(/root, ROOTDEV)\quad devtmpfs\_mount("dev", "/root/dev")};
-    \node[blk, below=of s3, fill=green!10] (s4) {4. MS\_MOVE: fs\_move\_mount(/root $\to$ /)\quad chroot: fs\_set\_root(cwd)\quad cwdpath="/"};
+    \node[blk, fill=orange!12] (s1) {1. ramfs\_create(ram0)\quad fs\_set\_root(ram0 root)\quad\textrm{"/" = rootfs}\\ \quad kmknod: /dev\quad /dev/console\quad /root};
+    \node[blk, below=of s1, fill=green!10] (s2) {2. devtmpfs\_init()\quad\textrm{ram1；按 register\_chrdev() 和块设备表建节点}\\ \quad console\quad ttyS0\quad video0\quad mmcblk0p2 ...};
+    \node[blk, below=of s2] (s3) {3. kmknod("/dev/root", BLOCKDEV, ROOTDEV)\\ \quad mount\_root(): fsinit(ROOTDEV) + fs\_mount(/root)\\ \quad kchdir("/root")\quad devtmpfs\_mount("dev") $\to$ /root/dev};
+    \node[blk, below=of s3, fill=structurecolor!25] (s4) {4. fs\_move\_mount(cwd, "/")\quad\textrm{(MS\_MOVE)}\quad fs\_set\_root(cwd)\quad\textrm{(chroot)}};
     \draw[arr] (s1.south) -- (s2.north);
     \draw[arr] (s2.south) -- (s3.north);
     \draw[arr] (s3.south) -- (s4.north);
   \end{tikzpicture}
-  \caption{\code{prepare\_namespace()} 的四步根切换（对应 Linux 的同名函数）}
+  \caption{\code{prepare\_namespace()} 的四步（颜色与图~\ref{fig:three-roots} 对应）}
   \label{fig:prepare-namespace}
 \end{figure}
 
-完成后 \code{/dev} 里已有所有驱动对应的节点。\code{init} 只需检查节点是否存在，不需要再手动
-\code{mknod}——\code{devtmpfs\_notify()} 钩子确保后续注册的驱动也会自动在 \code{/dev} 里
-出现节点（通过 work queue 异步补填）。
+\paragraph{第 1 步：rootfs 成为 \code{/}.} \code{ramfs\_create()} 先用 \code{ramdisk\_create()} 分配一个 32\,KiB 的 RAM 盘并登记为块设备 ram0（dev 7），再用 \code{ramfs\_mkfs()} 直接在这块内存里写出一个空的 xv6 文件系统（超级块、inode 区、位图、只含 \code{.} 和 \code{..} 的根目录，没有日志区），最后 \code{fs\_readsuper()} 读回超级块。\code{fs\_set\_root()} 让 \code{/} 指向它的根目录，进程的当前目录也设在这里。接着像 Linux 的 \code{default\_rootfs()} 一样建出 \code{/dev}、\code{/dev/console} 和 \code{/root}。
 
-\subsection{inode 层挂载表与 namex 穿越}
+\paragraph{第 2 步：devtmpfs.} \code{devtmpfs\_init()} 用同样的办法建出 ram1（dev 8），遍历已注册的字符设备（\code{chrdev\_name()} 给出 \code{console}、\code{input/event0} 这样的路径）和块设备表，为每个设备建一个节点。之后才注册的驱动由 \code{devtmpfs\_notify()} 交给工作队列补建。此时 devtmpfs 还没挂到任何地方。
 
-\code{vfs.c} 的路径前缀表管 ext2、FAT32、procfs 等\emph{非原生}文件系统。
-\code{fs.c} 另有一张针对 xv6 inode 文件系统的挂载表，使 \code{namex()} 能穿越挂载点：
+\paragraph{第 3 步：挂上根文件系统.} 先在 rootfs 里建设备节点 \code{/dev/root}（主设备号 \code{BLOCKDEV}，次设备号 1，\ref{sec:ns-callchain} 节调用链中的 (c)）。\code{mount\_root()} 用 \code{node\_to\_blkdev()} 找到这个节点，从 inode 的次设备号得到设备号 1 (d)，再调用 \code{fsinit(1)}：读超级块并检查魔数，然后 \code{initlog()} 恢复日志，这一步对应 Linux 的 \code{fill\_super}。这些读操作经 \code{blk\_rw()} 进入阶段一登记的 \code{root\_blk\_rw()}，落到 p2 上。最后 \code{fs\_mount()} 把设备 1 上文件系统的根目录挂到 rootfs 的 \code{/root} 上，启动日志打印：
+
+\begin{txtcode}
+VFS: Mounted root (xv6fs filesystem) on device 1 (/dev/root = mmcblk0p2).
+\end{txtcode}
+
+\code{kchdir("/root")} 之后，相对路径 \code{dev} 指的就是根文件系统里的 \code{/dev}，\code{devtmpfs\_mount("dev")} 把 devtmpfs 挂上去。新做的 \file{fs.img} 里还没有 \code{/dev} 目录（以前由 \code{init} 创建），这里发现缺失会先建出这个挂载点。
+
+\paragraph{第 4 步：MS\_MOVE 与 chroot.} \code{fs\_move\_mount()} 把“挂在 \code{/root}”的根文件系统改为“挂在 rootfs 的根目录上”，挂在它下面的 devtmpfs 随之从 \code{/root/dev} 变成 \code{/dev}；\code{fs\_set\_root()} 再把 \code{/} 改指根文件系统的根目录。rootfs 从此被压在下面，只剩 \code{/dev/root} 这个名字还留在它里面。
+
+\code{prepare\_namespace()} 返回后，\code{forkret()} 运行 \code{blkdev\_selftest()}（读 \code{mmcblk0} 扇区 0 两次，确认第二次命中缓存），然后经 \code{usertrapret()} 回到用户态，执行 initcode。
+
+\subsection{支撑这四步的机制：超级块、日志、挂载表与 \code{namex()}}
+\label{sec:ns-mech}
+
+上面四步调用的 \code{fs\_readsuper()}、\code{fs\_mount()}、\code{fs\_move\_mount()}、\code{fs\_set\_root()} 都在 \file{fs.c}。原来的 xv6 只有一个根文件系统，所以既不需要挂载表，路径解析也直接从常量 \code{iget(ROOTDEV, ROOTINO)} 开始；现在同一时刻有三个 xv6 文件系统（rootfs、devtmpfs、根文件系统），这几处都要改。
+
+\paragraph{每个设备一份超级块（第 1、2、3 步）.} 全局的 \code{struct superblock sb} 改为 \code{sbs[NBLKDEV]}，\code{balloc}、\code{ialloc}、\code{ilock} 等通过 \code{getsb(dev)} 取得对应设备的超级块。\code{fs\_readsuper(dev)} 读块 1、检查魔数并存入 \code{sbs[dev]}；\code{fsinit(dev)} 在它之后再做日志恢复。
+
+\paragraph{只有根文件系统有日志（第 1、2 步先于第 3 步）.} 第 1、2 步在 rootfs 和 devtmpfs 里建目录和节点时，根文件系统的日志还没初始化（那是第 3 步的事）。因此日志锁改由 \code{iinit()} 里的 \code{loginit()} 提前建立，\code{log\_write()} 遇到不属于日志设备的块（\code{log.size==0 || b->dev!=log.dev}）就直接 \code{bwrite()} 写穿。RAM 盘的内容重启即消失，不需要崩溃一致性。
+
+\paragraph{挂载表与路径穿越（第 3、4 步）.} \file{fs.c} 新增一张 inode 层的挂载表，每项记录“目录 \code{mp} 被设备 \code{dev} 的根目录覆盖”：
 
 \begin{ccode}
 // kernel/fs.c
@@ -429,56 +574,46 @@ struct fsmount {
   int          used;
   struct inode *mp;           // 被覆盖的目录（持引用）
   uint         dev;           // 挂载上来的文件系统设备号
+  char         fstype[12], source[24];
   char         path[MAXPATH]; // 显示路径（用于 /proc/mounts）
 };
 \end{ccode}
 
-\code{namex()} 在两处使用：
+\code{namex()} 在两处查这张表：
 
 \begin{ccode}
 // 向下：lookup 到被覆盖的目录 -> 替换为被挂载文件系统的根目录
 ip = follow_mount(next);
 
-// 向上：".." 从被挂载根目录向上 -> 替换为挂载点目录
+// 向上：".." 从被挂载文件系统的根目录出发 -> 先退回挂载点目录
 if(namecmp(name, "..") == 0)
     ip = follow_dotdot(ip);
 \end{ccode}
 
-原来只有一个全局 \code{struct superblock sb}，现改为 \code{sbs[NBLKDEV]}，每个设备独立。
-\code{fs\_readsuper(dev)} 读块 1、验证魔数、存入 \code{sbs[dev]}（等价于 Linux 的
-\code{fill\_super}）；\code{fsinit(dev)} 在其后做日志恢复（仅设备上的根文件系统有日志）。
-RAM 盘的 \code{log\_write()} 分支（\code{log.size==0 || b->dev!=log.dev}）直接写穿，不进日志。
+第 3 步的 \code{fs\_mount()} 往表里加一项，于是解析 \code{/root/...} 时，\code{follow\_mount()} 会在 \code{root} 这一级从 rootfs 跳进 ROOTDEV。第 4 步的 \code{fs\_move\_mount()} 只是把这一项的 \code{mp} 从 rootfs 的 \code{/root} 改成 rootfs 的根目录，并把所有子挂载的显示路径一并改写（\code{/root/dev} $\to$ \code{/dev}）。
 
-\code{fs\_move\_mount()} 实现 MS\_MOVE：把某个文件系统的挂载点从 \emph{from} 移到 \emph{to}，
-同时递归修正 \code{mtab} 里所有子挂载的 \code{path} 字段——devtmpfs 挂在旧路径
-\code{/root/dev} 下，移动后自动变成 \code{/dev}。
+\paragraph{\code{/} 从哪里开始（第 1、4 步）.} \code{namex()} 解析绝对路径时调用 \code{rootdir()}，它返回 \code{fs\_root}——第 1 步设为 rootfs 的根目录，第 4 步由 \code{fs\_set\_root()} 改为根文件系统的根目录。以切换后的两个路径为例：
 
-\code{fs\_create()} 从 \code{sysfile.c} 的 \code{create()} 中提取，供 \code{do\_mounts.c}
-的 \code{kmknod()} 和 \code{sysfile.c} 共用。\code{sys\_unlink()} 新增 \code{fs\_is\_mountpoint()}
-检查，挂载点目录不可删除（返回 EBUSY）。
+\begin{txtcode}
+namei("/bin/sh")    rootdir() = (dev 1, inode 1)  -> bin -> sh        根文件系统
+namei("/dev/tty")   rootdir() = (dev 1, inode 1)  -> dev
+                    follow_mount: dev 被覆盖 -> (dev 8, inode 1) -> tty  devtmpfs
+\end{txtcode}
 
-\subsection{ext2 作为根文件系统}
+\code{follow\_dotdot()} 遇到 \code{fs\_root} 时原地不动，所以 \code{/..} 仍是 \code{/}，进程无法退回被压住的 rootfs。另外，\code{fs\_create()} 从 \file{sysfile.c} 的 \code{create()} 中提取出来，供 \code{kmknod()} 和系统调用共用；\code{sys\_unlink()} 用 \code{fs\_is\_mountpoint()} 拒绝删除挂载点。
+
+\subsection{阶段二的另一条分支：ext2 作为根文件系统}
 \label{sec:ext2-root}
 
-\file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}，p3 上的 ext2
-（第~\ref{chap:optional} 章）就成为 \code{/}。ext2 不是 xv6 inode 文件系统，它挂在 \file{vfs.c}
-的路径前缀表里，所以不能照搬“挂到 \code{/root} 再 MS\_MOVE、chroot”的做法，流程改成：
+\code{rootfstype=} 可以是 \code{xv6fs}（默认）或 \code{ext2}，写成别的值只引出一行警告，仍按 xv6fs 启动。把 \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}，p3 上的 ext2（第~\ref{chap:optional} 章）就成为 \code{/}。调用链在三个地方分叉：
 
 \begin{enumerate}
-  \item \code{rootdev\_init()} 记下 ext2 根所在的分区（\code{rootdev\_ext2\_part()}），但仍然
-    寻找 xv6 分区并注册 ROOTDEV：\code{/dev/sdroot} 和 ext2 的外置日志都在那里；找不到也不 panic；
-  \item \code{ext2init()} 优先尝试这个分区；
-  \item \code{prepare\_namespace()} 照常建 rootfs 和 devtmpfs，把 devtmpfs 挂到 rootfs 的
-    \code{/dev}，然后 \code{vfsmount("/dev/mmcblk0p3", "/", "ext2")}；
-  \item \code{findmount()} 把挂在 \code{/} 的文件系统当作优先级最低的一项：比它长的前缀
-    （\code{/proc}、\code{/boot}、\code{/mnt/ext2}）先匹配；落在 inode 层挂载点下的路径
-    （\code{fs\_native\_covers()}，即 \code{/dev}）不交给 ext2，仍由 \code{namei()} 从 rootfs
-    进入 devtmpfs。
+  \item 阶段一，\code{rootdev\_init()} 记下 ext2 根所在的分区（\code{rootdev\_ext2\_part()}），但仍然寻找 xv6 分区并登记设备 1：\code{/dev/sdroot} 和 ext2 的外置日志都在那里；找不到也不 panic。随后 \code{ext2init()} 优先尝试这个分区，并记下它的起始扇区；
+  \item 阶段二，第 1、2 步照常执行，然后 \code{prepare\_namespace()} 检查 \code{rootdev\_fstype()}，在 rootfs 里建 \code{/dev/root}，次设备号指向 \code{mmcblk0p3}（设备 5），然后调用 \code{mount\_ext2\_root("/dev/root", "/")}：它和 \code{mount\_root()} 一样先用 \code{node\_to\_blkdev()} 把名字换成设备号，核对设备 5 的起点与 ext2 驱动打开的分区一致，再 \code{vfsmount("/dev/root", "/", "ext2")}。新的根文件系统挂好之后，才执行 \code{devtmpfs\_mount("/dev")}，让新根下的 \code{/dev} 由 devtmpfs 提供，相当于 xv6fs 分支里在 \code{/root/dev} 上挂 devtmpfs。不同的是挂载点记在哪里：ext2 的目录不是 xv6 inode，进不了 inode 层挂载表，所以挂载点只能是 rootfs 的 \code{/dev} 目录；路径解析时 \code{fs\_native\_covers()} 让 \code{/dev} 开头的路径绕过 ext2，经 rootfs 进入 devtmpfs。在用户看来，\code{/dev} 就是挂在新根上的 devtmpfs，ext2 里原有的 \code{/dev}（如果有）被遮住。这一支不再执行第 3、4 步。两个函数的参数形式相同，只是目录不同：xv6fs 根先挂到 \code{/root}，因为它是 inode 层的挂载，之后可以 MS\_MOVE 到 \code{/}；ext2 挂在路径前缀表里，不能 MS\_MOVE，所以直接挂到 \code{/}；
+  \item 路径解析时，\code{findmount()} 把挂在 \code{/} 的文件系统当作优先级最低的一项：比它长的前缀（\code{/proc}、\code{/boot}、\code{/mnt/ext2}）先匹配；落在 inode 层挂载点下的路径（\code{fs\_native\_covers()}，即 \code{/dev}）不交给 ext2，仍由 \code{namei()} 从 rootfs 进入 devtmpfs。
 \end{enumerate}
 
-rootfs 仍是 inode 世界的根目录，但除了 \code{/dev} 之外它已完全被 ext2 遮住，因此不需要
-MS\_MOVE 和 chroot。\code{exec} 和当前目录早已走 VFS（\ref{sec:vfs} 节），\code{init}、
-\code{sh}、\code{login} 不用改：
+为什么不走 MS\_MOVE？ext2 不是 xv6 inode 文件系统，它挂在 \file{vfs.c} 的路径前缀表里，无法成为 \code{fs\_set\_root()} 的目标。好在除了 \code{/dev} 之外，rootfs 已被 ext2 完全遮住，效果与切换相同。\code{exec} 和当前目录早已走 VFS（\ref{sec:vfs} 节），\code{init}、\code{sh}、\code{login} 不用改：
 
 \begin{txtcode}
 Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
@@ -486,41 +621,23 @@ rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
 ext2: p3 ready rw start=1884160 sectors=248463360 block=4096 groups=948
 devtmpfs: mounted
 vfs: mounted ext2 at / read-write
-VFS: Mounted root (ext2 filesystem) on /dev/mmcblk0p3; rootfs keeps /dev
-$ cat /proc/mounts
-devtmpfs /dev devtmpfs rw 0 0
-/dev/mmcblk0p3 / ext2 rw 0 0
-proc /proc procfs ro 0 0
-bootfs /boot fat32 rw 0 0
-ext2 /mnt/ext2 ext2 rw 0 0
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
 \end{txtcode}
 
-ext2 分区里要有 \code{/init} 和 \code{/bin} 下的程序。\code{make install-rpi3-ext2root
-RPI3\_EXT2\_DEV=/dev/rdisk4s3} 用 e2fsprogs 的 \code{debugfs} 把它们写进去，不重新格式化，
-分区上原有的文件（如 \code{video/}）不受影响。\code{/etc} 下的配置由 \code{init} 第一次启动时创建。
+ext2 分区里要有 \code{/init} 和 \code{/bin} 下的程序。\code{make install-rpi3-ext2root RPI3\_EXT2\_DEV=/dev/rdisk4s3} 用 e2fsprogs 的 \code{debugfs} 把它们写进去，不重新格式化，分区上原有的文件（如 \code{video/}）不受影响；\code{/etc} 下的配置由 \code{init} 第一次启动时创建。
 
-限制：ext2 上没有设备节点和硬链接，\code{mknod}、\code{link} 只在 \code{/dev} 里有效；
-\file{/etc/fstab} 仍会把同一个 ext2 再挂到 \code{/mnt/ext2}，两处看到的是同一份内容；
-根目录下看不到 \code{dev}（它在 rootfs 里），但 \code{ls /dev}、\code{cd /dev} 都正常。
-回到 xv6fs 根文件系统只需把 \file{cmdline\_xv6.txt} 改回 \code{rootfstype=xv6fs}（或删掉它）。
+限制：ext2 上没有设备节点和硬链接，\code{mknod}、\code{link} 只在 \code{/dev} 里有效；\file{/etc/fstab} 仍会把同一个 ext2 再挂到 \code{/mnt/ext2}，两处看到的是同一份内容；根目录下看不到 \code{dev}（它在 rootfs 里），但 \code{ls /dev}、\code{cd /dev} 都正常。回到 xv6fs 根文件系统只需把 \file{cmdline\_xv6.txt} 改回 \code{rootfstype=xv6fs}（或删掉它）。
 
-\subsection{/proc/mounts 与 /proc/cmdline}
+\subsection{阶段三：\code{/init} 与用户态看到的结果}
+\label{sec:ns-stage3}
 
-\code{vfs.c} 新增两个 procfs 虚拟文件：
-\begin{itemize}
-  \item \textbf{\code{/proc/cmdline}}：\code{cmdline\_get\_all()} 的内容加换行，
-    用于调试和脚本读取启动参数；
-  \item \textbf{\code{/proc/mounts}}：先输出 \code{fs.c} 里的 xv6 inode 挂载
-    （\code{fs\_mounts\_format()}），再输出 \code{vfs.c} 里的路径前缀挂载。
-\end{itemize}
+initcode 执行 \code{exec("/init")}。这时 \code{namex()} 从 \code{fs\_root} 出发，找到的是根文件系统里的 \code{/init}（ext2 分支下则由 \code{findmount()} 交给 ext2）。\code{/init} 先打开 \code{/dev/ttyS0}：devtmpfs 已经提供了节点，它不再 \code{mknod}，只有在打不开时（旧内核、没有 devtmpfs）才退回在根文件系统上建静态节点。然后 \code{mount\_fstab()} 读 \file{/etc/fstab}，经 \code{sys\_mount()} $\to$ \code{vfsmount()} 把 procfs、FAT32 和 ext2 挂到路径前缀表里。
 
-rootfs（ram0）被根文件系统盖住以后不再列出，和新版 Linux 一致；\code{/dev/root} 这个名字只存在于
-rootfs 里，正是 Linux 的习惯。
+两张挂载表的内容都可以从 procfs 看到。\code{/proc/mounts} 先列 inode 层挂载（\code{fs\_mounts\_format()}），再列路径前缀挂载；\code{/proc/cmdline} 是 \code{cmdline\_get\_all()} 的内容：
 
 \begin{txtcode}
 $ cat /proc/cmdline
 root=/dev/mmcblk0p2 rootfstype=xv6fs
-
 $ cat /proc/mounts
 /dev/root / xv6fs rw 0 0
 devtmpfs /dev devtmpfs rw 0 0
@@ -529,20 +646,13 @@ bootfs /boot fat32 rw 0 0
 ext2 /mnt/ext2 ext2 rw 0 0
 \end{txtcode}
 
-\subsection{trapasm.S：forkret 中断竞争修复}
+rootfs（ram0）被根文件系统盖住以后不再列出，和新版 Linux 一致；\code{/dev/root} 这个名字只存在于 rootfs 里，正是 Linux 的习惯。ext2 分支下，第一行是 \code{devtmpfs /dev}，第二行是 \code{/dev/root / ext2}。
 
-\code{trapret} 路径：\code{urestorereg} 加载 \reg{ELR\_EL1}/\reg{SPSR\_EL1}，然后
-\code{eret} 返回用户态。如果这两条指令之间进来一个 EL1 IRQ，它会覆盖这两个寄存器，
-\code{eret} 就会"返回"到错误的 EL1 地址，\code{sp} 指向内核栈顶，后果是崩溃。
+\subsection{回到用户态：\code{trapret} 中的中断竞争}
 
-每个新 fork 出的子进程第一次运行都经过 \code{forkret()}：它先 \code{release(\&p->lock)}，
-而 \code{pop\_off()} 会按调度器当时的状态重新开中断，然后直接 \code{usertrapret()}。
-于是 \code{trapret} 在开中断的情况下装载 \reg{ELR\_EL1}/\reg{SPSR\_EL1}，IRQ 恰好落在
-\code{msr} 与 \code{eret} 之间时，\code{eret} 回到的是 EL1 的 \code{trapret+0x14}，
-此时 \code{sp} 已等于内核栈顶，下一条 \code{ldp} 读到栈上方未映射的保护页。
-这个 bug 早就存在，引入块设备层后时序变化，在 QEMU 上跑 \code{usertests forkfork}/\code{concreate}
-时才暴露出来（\code{elr=trapret+0x14}，\code{far} 正好是内核栈顶）。
-修复是在 \code{urestorereg} 前无条件屏蔽四类中断：
+阶段二的最后一步是 \code{forkret()} 调用 \code{usertrapret()}，经 \code{trapret} 返回用户态。不只是第一个进程，每个新 fork 出的子进程第一次运行都走这条路，而这里藏着一个早就存在的竞争，引入块设备层后时序变化才在 QEMU 上暴露出来。
+
+\code{trapret} 先用 \code{urestorereg} 装载 \reg{ELR\_EL1}/\reg{SPSR\_EL1}，再 \code{eret}。\code{forkret()} 开头的 \code{release(\&p->lock)} 会经 \code{pop\_off()} 按调度器当时的状态重新开中断，于是 \code{trapret} 是在开中断的情况下运行的。IRQ 若恰好落在 \code{msr} 与 \code{eret} 之间，就会把这两个寄存器改写成它自己的 EL1 返回现场，\code{eret} 回到的是 EL1 的 \code{trapret+0x14}，此时 \code{sp} 已等于内核栈顶，下一条 \code{ldp} 读到栈上方未映射的保护页。跑 \code{usertests forkfork}/\code{concreate} 时看到的正是 \code{elr=trapret+0x14}，\code{far} 正好是内核栈顶。修复是在 \code{urestorereg} 前无条件屏蔽中断：
 
 \begin{asmcode}
 trapret:
@@ -552,8 +662,7 @@ trapret:
 \end{asmcode}
 
 \begin{note}
-  \code{daifset} 只屏蔽当前 EL 的中断；\code{eret} 本身会从 \reg{SPSR\_EL1} 恢复 DAIF，
-  回到用户态时中断状态由 SPSR 决定，不受这条屏蔽指令影响。
+  \code{daifset} 只影响 EL1 当前的 PSTATE；\code{eret} 会从 \reg{SPSR\_EL1} 恢复 DAIF，回到用户态后的中断状态由 SPSR 决定，不受这条指令影响。
 \end{note}
 
 % -----------------------------------------------------------------------

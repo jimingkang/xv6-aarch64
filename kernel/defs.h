@@ -165,6 +165,7 @@ int             ext2readfile(char*, uint64, void*, int);
 int             ext2readdir(char*, int, struct ext2_user_dirent*);
 int             ext2stat(char*, uint*, ushort*, uint64*);
 int             ext2ready(void);
+uint32          ext2_part_lba(void);
 int             ext2createfile(char*);
 int             ext2truncatefile(char*, uint64);
 int             ext2writefile(char*, struct fat32_file*, uint64, int, uint64, int);

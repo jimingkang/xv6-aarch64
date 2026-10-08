@@ -964,6 +964,14 @@ ext2ready(void)
   return e2.ready;
 }
 
+// First card sector of the partition the driver mounted (0 if none), so
+// do_mounts.c can check that /dev/root names the same partition.
+uint32
+ext2_part_lba(void)
+{
+  return e2.ready ? e2.part_lba : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Transactions.  With the external journal every mutating operation is one
 // xjournal transaction: metadata sectors are captured, data sectors are

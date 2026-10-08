@@ -261,9 +261,9 @@ devtmpfs_mount(char *path, char *shown)
 
 // ---------------------------------------------------------------------------
 
-// mount_root(): mount the block device named by the node devname on dir.
-static void
-mount_root(char *devname, char *dir)
+// The block device a device node names: /dev/root -> its minor number.
+static int
+node_to_blkdev(char *devname)
 {
   struct inode *ip = klookup(devname);
   int dev = -1;
@@ -275,6 +275,16 @@ mount_root(char *devname, char *dir)
     iunlock(ip);
     kput(ip);
   }
+  return dev;
+}
+
+// mount_root(): mount the xv6 filesystem on the block device named by the
+// node devname on directory dir (an xv6-inode mount, so it can be MS_MOVEd).
+static void
+mount_root(char *devname, char *dir)
+{
+  int dev = node_to_blkdev(devname);
+
   // fill_super: superblock check and log recovery.
   if(dev < 0 || fsinit(dev) < 0)
     panic("VFS: Unable to mount root fs on /dev/root");
@@ -285,22 +295,25 @@ mount_root(char *devname, char *dir)
          "(/dev/root = %s).\n", dev, rootdev_name());
 }
 
-// rootfstype=ext2: ext2 is not an xv6-inode filesystem, it lives in vfs.c's
-// path-prefix table.  So the order changes: devtmpfs is mounted on rootfs's
-// /dev, ext2 is mounted on "/" in vfs.c (lowest priority, every path not
-// under a native mount), and rootfs stays the inode-world root behind it.
-// No MS_MOVE/chroot is needed: nothing of rootfs is visible except /dev.
+// The ext2 counterpart of mount_root(), same arguments.  ext2 is not an
+// xv6-inode filesystem, it lives in vfs.c's path-prefix table, so it cannot
+// be mounted on /root and MS_MOVEd later: the caller passes dir = "/" and
+// ext2 is mounted there directly (lowest priority, every path not under a
+// native mount).  The ext2 driver already opened its partition in
+// ext2init(); here the node is resolved and checked against it.  In xv6,
+// dev 1 ("root") is always the xv6-format partition (kept for /dev/sdroot
+// and the ext2 journal), so /dev/root names mmcblk0pN instead.
 static void
-mount_ext2_root(void)
+mount_ext2_root(char *devname, char *dir)
 {
-  char src[24] = "/dev/mmcblk0p0";
-  int n = rootdev_ext2_part();
-  src[13] = '0' + n;
-  devtmpfs_mount("/dev", "/dev");
-  if(!ext2ready() || vfsmount(src, "/", "ext2", 0) < 0)
-    panic("VFS: Unable to mount root fs (ext2)");
-  printf("VFS: Mounted root (ext2 filesystem) on %s; rootfs keeps /dev\n",
-         src);
+  int dev = node_to_blkdev(devname);
+  struct blkdev *bd = dev > 0 ? blkdev_get(dev) : 0;
+  if(bd == 0 || !ext2ready() || bd->start != ext2_part_lba())
+    panic("VFS: Unable to mount root fs (ext2) on /dev/root");
+  if(vfsmount(devname, dir, "ext2", 0) < 0)
+    panic("VFS: cannot attach ext2 root");
+  printf("VFS: Mounted root (ext2 filesystem) on device %d "
+         "(/dev/root = %s).\n", dev, bd->name);
 }
 
 void
@@ -320,8 +333,17 @@ prepare_namespace(void)
 
   devtmpfs_init();
 
+  // rootfstype=ext2: /dev/root names the ext2 partition and ext2 goes on
+  // "/" directly; devtmpfs covers rootfs's /dev.  rootfs stays the inode-
+  // world root behind ext2, so no MS_MOVE/chroot is needed.
   if(rootdev_fstype() == ROOTFS_EXT2){
-    mount_ext2_root();
+    kmknod("/dev/root", T_DEVICE, BLOCKDEV,
+           BLKDEV_MMC_PART(rootdev_ext2_part()));     // ROOT_DEV = mmcblk0pN
+    mount_ext2_root("/dev/root", "/");
+    // Only after the new root is mounted: /dev under the new "/" becomes
+    // devtmpfs.  The mount point has to be rootfs's /dev (an ext2 directory
+    // is not an xv6 inode); fs_native_covers() routes /dev paths past ext2.
+    devtmpfs_mount("/dev", "/dev");
     return;
   }
 
