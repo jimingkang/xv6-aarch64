@@ -1,46 +1,29 @@
-// Small vnode layer. The native xv6 inode filesystem remains the writable
-// root; init mounts backends named in /etc/fstab through mount(2).
+// Virtual filesystem glue: path-based filesystems (FAT32, procfs, netfs)
+// as VFS inodes, and mount(2).  The VFS core (super blocks, inode
+// operations, the mount table, path lookup) is in fs.c; ext2's inode
+// operations are in ext2.c.
 
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
 #include "aarch64.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "fs.h"
 #include "fcntl.h"
 #include "stat.h"
+#include "file.h"
 #include "ext2.h"
 #include "fat32.h"
 #include "netfs.h"
+#include "blkdev.h"
 #include "defs.h"
 #include "vfs.h"
 #include "device.h"
 
 extern char etext[];
 extern char end[];
-
-struct vnode_ops {
-  int (*stat)(char*, struct stat*);
-  int (*read)(char*, uint64, void*, int);
-  int (*write)(char*, struct fat32_file*, uint64, int, uint64, int);
-  int (*readdir)(char*, int, void*);
-  int (*create)(char*);
-  int (*truncate)(char*, uint64);
-  int (*rename)(char*, char*);
-  int (*unlink)(char*);
-  int (*mkdir)(char*);
-  int (*fsync)(void);
-  // Optional inode-bound file I/O.  A backend that provides open() returns a
-  // handle naming the object itself; later I/O on the vnode uses the handle,
-  // so unlink/rename of the path cannot redirect an open descriptor.
-  int (*open)(char*, uint64*);
-  void (*release)(uint64);
-  int (*hstat)(uint64, struct stat*);
-  int (*hread)(uint64, uint64, void*, int);
-  int (*hwrite)(uint64, uint64, int, uint64, int);
-  int (*htruncate)(uint64, uint64);
-};
 
 struct vfs_dirent {
   uint ino;
@@ -49,101 +32,7 @@ struct vfs_dirent {
   char name[EXT2_NAME_MAX + 1];
 };
 
-struct vnode {
-  int used;
-  int ref;
-  short type;
-  char path[MAXPATH];
-  struct vnode_ops *ops;
-  int readonly;
-  int has_handle;
-  uint64 handle;
-  struct fat32_file fat_file;
-};
-
-static struct {
-  struct spinlock lock;
-  struct vnode nodes[NFILE];
-} vnodes;
-
-#define NMOUNT 8
-struct vfs_mount {
-  int used;
-  char path[MAXPATH];
-  char source[24];          // for /proc/mounts
-  struct vnode_ops *ops;
-  int readonly;
-};
-static struct vfs_mount mounts[NMOUNT];
-
-static int
-ext2_vstat(char *path, struct stat *st)
-{
-  uint ino;
-  uint64 size;
-  ushort mode;
-  if(ext2stat(path, &ino, &mode, &size) < 0)
-    return -1;
-  memset(st, 0, sizeof(*st));
-  st->dev = 2;
-  st->ino = ino;
-  st->type = (mode & 0xf000) == 0x4000 ? T_DIR : T_FILE;
-  st->nlink = 1;
-  st->size = size;
-  return 0;
-}
-
-static int
-ext2_vhstat(uint64 handle, struct stat *st)
-{
-  uint ino;
-  uint64 size;
-  ushort mode;
-  if(ext2statino(handle, &ino, &mode, &size) < 0)
-    return -1;
-  memset(st, 0, sizeof(*st));
-  st->dev = 2;
-  st->ino = ino;
-  st->type = (mode & 0xf000) == 0x4000 ? T_DIR : T_FILE;
-  st->nlink = 1;
-  st->size = size;
-  return 0;
-}
-
-static int
-ext2_vreaddir(char *path, int index, void *arg)
-{
-  struct ext2_user_dirent ede;
-  struct vfs_dirent *de = arg;
-  int r = ext2readdir(path, index, &ede);
-  if(r <= 0)
-    return r;
-  memset(de, 0, sizeof(*de));
-  de->ino = ede.inode;
-  de->size = ede.size;
-  de->type = (ede.mode & 0xf000) == 0x4000 ? T_DIR : T_FILE;
-  safestrcpy(de->name, ede.name, sizeof(de->name));
-  return 1;
-}
-
-static struct vnode_ops ext2_ops = {
-  .stat = ext2_vstat,
-  .read = ext2readfile,
-  .write = ext2writefile,
-  .readdir = ext2_vreaddir,
-  .create = ext2createfile,
-  .truncate = ext2truncatefile,
-  .rename = ext2rename,
-  .unlink = ext2unlink,
-  .mkdir = ext2mkdir,
-  .fsync = ext2fsync,
-  .open = ext2open,
-  .release = ext2release,
-  .hstat = ext2_vhstat,
-  .hread = ext2readino,
-  .hwrite = ext2writeino,
-  .htruncate = ext2truncino,
-};
+static int streq(char *a, char *b);
 
 static int
 fat_vstat(char *path, struct stat *st)
@@ -220,11 +109,6 @@ fat_vreaddir(char *path, int index, void *arg)
   return 1;
 }
 
-static struct vnode_ops fat32_ops = {
-  .stat = fat_vstat, .read = fat_vread, .readdir = fat_vreaddir,
-  .write = fat_vwrite, .create = fat_vcreate, .truncate = fat_vtruncate,
-  .rename = fat_vrename, .fsync = fat_vfsync,
-};
 
 static int
 netfs_vstat(char *path, struct stat *st)
@@ -254,11 +138,6 @@ netfs_vreaddir(char *path, int index, void *arg)
   return 1;
 }
 
-static struct vnode_ops netfs_ops = {
-  .stat = netfs_vstat,
-  .read = netfs_vread,
-  .readdir = netfs_vreaddir,
-};
 
 static int
 parsepid(char *s, int *pid, char **rest)
@@ -467,7 +346,6 @@ proc_vstat(char *path, struct stat *st)
   return 0;
 }
 
-static int vfs_mounts_format(char *buf, int n);
 
 static int
 proc_vread(char *path, uint64 off, void *dst, int n)
@@ -488,7 +366,7 @@ proc_vread(char *path, uint64 off, void *dst, int n)
     if(streq(path, "/devices"))
       len = device_format(page, PGSIZE);
     else if(streq(path, "/mounts"))
-      len = vfs_mounts_format(page, PGSIZE);
+      len = fs_mounts_format(page, PGSIZE);
     else {
       safestrcpy(page, cmdline_get_all(), PGSIZE - 1);
       len = strlen(page);
@@ -601,348 +479,179 @@ proc_vreaddir(char *path, int index, void *arg)
   return 1;
 }
 
-static struct vnode_ops proc_ops = {
-  .stat = proc_vstat,
-  .read = proc_vread,
-  .readdir = proc_vreaddir,
+
+// ---------------------------------------------------------------------------
+// Path-based filesystems.  FAT32 (no inode numbers on disk), procfs
+// (synthetic) and netfs (a network protocol keyed by path) name their
+// objects by path.  The VFS still gives each object a struct inode:
+// ip->path is its path inside the filesystem and ip->inum a hash of it, so
+// these filesystems are mounted, looked up and opened exactly like xv6fs
+// and ext2.  This is the role Linux's simple_* helpers play for small
+// in-kernel filesystems.
+
+struct pathfs_ops {
+  int (*stat)(char*, struct stat*);
+  int (*read)(char*, uint64, void*, int);
+  int (*write)(char*, struct fat32_file*, uint64, int, uint64, int);
+  int (*readdir)(char*, int, void*);
+  int (*create)(char*);
+  int (*mkdir)(char*);
+  int (*unlink)(char*);
+  int (*rename)(char*, char*);
+  int (*truncate)(char*, uint64);
+  int (*openwrite)(char*, struct fat32_file*);
+  int (*fsync)(void);
 };
 
-static int
-mountops(char *path, struct vnode_ops *ops, int readonly, char *source)
+// FNV-1a, 31 bits, never 0 (ls hides inode 0).
+static uint
+pathhash(char *path)
 {
-  if(path[0] != '/')
+  uint h = 2166136261u;
+  for(; *path; path++){
+    h ^= (uchar)*path;
+    h *= 16777619u;
+  }
+  h &= 0x7fffffff;              // ls prints inode numbers as int
+  return h ? h : 1;
+}
+
+static struct pathfs_ops*
+pops(struct inode *ip)
+{
+  return getsuper(ip->dev)->priv;
+}
+
+// out = dir/name, with "." and ".." resolved textually inside the
+// filesystem (".." of its root stays at the root).
+static int
+pathjoin(char *out, char *dir, char *name)
+{
+  if(streq(name, ".")){
+    safestrcpy(out, dir, MAXPATH);
+    return 0;
+  }
+  if(streq(name, "..")){
+    safestrcpy(out, dir, MAXPATH);
+    int n = strlen(out);
+    while(n > 1 && out[n - 1] != '/')
+      n--;
+    if(n > 1)
+      n--;
+    out[n] = 0;
+    return 0;
+  }
+  int a = strlen(dir), b = strlen(name);
+  if(a + 1 + b + 1 > MAXPATH)
     return -1;
-  for(int i = 0; i < NMOUNT; i++)
-    if(mounts[i].used && streq(mounts[i].path, path))
-      return -1;
-  for(int i = 0; i < NMOUNT; i++){
-    if(!mounts[i].used){
-      mounts[i].used = 1;
-      mounts[i].ops = ops;
-      mounts[i].readonly = readonly;
-      safestrcpy(mounts[i].path, path, sizeof(mounts[i].path));
-      safestrcpy(mounts[i].source, source, sizeof(mounts[i].source));
+  memmove(out, dir, a);
+  if(a > 1)
+    out[a++] = '/';
+  memmove(out + a, name, b + 1);
+  return 0;
+}
+
+static int
+pfs_read_inode(struct inode *ip)
+{
+  struct stat st;
+  if(pops(ip)->stat(ip->path, &st) < 0)
+    return -1;
+  ip->type = st.type;
+  ip->size = st.size;
+  ip->nlink = st.nlink ? st.nlink : 1;
+  ip->major = ip->minor = 0;
+  memset(ip->fsdata, 0, sizeof(ip->fsdata));
+  return 0;
+}
+
+static struct inode*
+pfs_lookup(struct inode *dp, char *name)
+{
+  char p[MAXPATH];
+  struct stat st;
+  if(pathjoin(p, dp->path, name) < 0 || pops(dp)->stat(p, &st) < 0)
+    return 0;
+  return iget_path(dp->dev, pathhash(p), p);
+}
+
+static struct inode*
+pfs_create(struct inode *dp, char *name, short type, short major, short minor)
+{
+  char p[MAXPATH];
+  struct stat st;
+  struct pathfs_ops *o = pops(dp);
+  struct inode *ip;
+  uint dev = dp->dev;
+
+  int bad = pathjoin(p, dp->path, name) < 0;
+  iput(dp);
+  if(bad)
+    return 0;
+  if(o->stat(p, &st) == 0){
+    if(type != T_FILE || st.type != T_FILE)
       return 0;
-    }
+  } else if(type == T_FILE){
+    if(o->create == 0 || o->create(p) < 0)
+      return 0;
+  } else if(type == T_DIR){
+    if(o->mkdir == 0 || o->mkdir(p) < 0)
+      return 0;
+  } else {
+    return 0;
   }
-  return -1;
+  ip = iget_path(dev, pathhash(p), p);
+  ilock(ip);
+  return ip;
 }
 
-// /proc/mounts: xv6-inode mounts (fs.c), then the path-prefix mounts here.
 static int
-vfs_mounts_format(char *buf, int n)
+pfs_unlink(struct inode *dp, char *name)
 {
-  int len = fs_mounts_format(buf, n);
-  char *p = buf + len, *e = buf + n;
-  acquire(&vnodes.lock);
-  for(int i = 0; i < NMOUNT; i++){
-    if(!mounts[i].used)
-      continue;
-    struct vnode_ops *ops = mounts[i].ops;
-    char *t = ops == &proc_ops ? "procfs" : ops == &fat32_ops ? "fat32" :
-              ops == &ext2_ops ? "ext2" : ops == &netfs_ops ? "netfs" : "?";
-    p = putstr(p, e, mounts[i].source);
-    p = putstr(p, e, " ");
-    p = putstr(p, e, mounts[i].path);
-    p = putstr(p, e, " ");
-    p = putstr(p, e, t);
-    p = putstr(p, e, mounts[i].readonly ? " ro 0 0\n" : " rw 0 0\n");
-  }
-  release(&vnodes.lock);
-  return p - buf;
+  char p[MAXPATH];
+  if(pops(dp)->unlink == 0 || pathjoin(p, dp->path, name) < 0)
+    return -1;
+  return pops(dp)->unlink(p);
 }
 
-int
-vfsmount(char *source, char *path, char *fstype, int flags)
+static int
+pfs_rename(struct inode *odp, char *oname, struct inode *ndp, char *nname)
 {
-  struct vnode_ops *ops;
-  int readonly = (flags & VFS_MOUNT_RDONLY) != 0;
-  if(flags & ~VFS_MOUNT_RDONLY)
+  char a[MAXPATH], b[MAXPATH];
+  if(pops(odp)->rename == 0 || pathjoin(a, odp->path, oname) < 0 ||
+     pathjoin(b, ndp->path, nname) < 0)
     return -1;
-  if(streq(fstype, "procfs"))
-    ops = &proc_ops;
-  else if(streq(fstype, "fat32") && fat32ready())
-    ops = &fat32_ops;
-  else if(streq(fstype, "ext2") && ext2ready())
-    ops = &ext2_ops;
-  else if(streq(fstype, "netfs") && readonly &&
-          netfs_configure(source) == 0)
-    ops = &netfs_ops;
-  else
-    return -1;
-  if(!readonly && ops != &fat32_ops && ops != &ext2_ops)
-    return -1;
-  acquire(&vnodes.lock);
-  int r = mountops(path, ops, readonly, source);
-  release(&vnodes.lock);
-  if(r == 0)
-    printf("vfs: mounted %s at %s %s\n", fstype, path,
-           readonly ? "read-only" : "read-write");
+  return pops(odp)->rename(a, b);
+}
+
+static int
+pfs_readdir(struct inode *dp, int index, char *name, uint *ino)
+{
+  struct vfs_dirent vde;
+  int r = pops(dp)->readdir(dp->path, index, &vde);
+  if(r > 0){
+    safestrcpy(name, vde.name, NAMEMAX);
+    *ino = vde.ino;
+  }
   return r;
 }
 
-static struct vnode_ops*
-findmount(char *path, char **relative, int *readonly)
+static int
+pfs_read(struct inode *ip, int user_dst, uint64 dst, uint64 off, uint n)
 {
-  struct vfs_mount *best = 0;
-  int bestlen = -1;
-  for(int i = 0; i < NMOUNT; i++){
-    int n;
-    if(!mounts[i].used)
-      continue;
-    n = strlen(mounts[i].path);
-    if(n == 1){
-      // A filesystem mounted on "/" (ext2 root) matches every path, with the
-      // lowest priority.  Paths under a native xv6 mount (/dev, devtmpfs)
-      // stay in the inode world.
-      if(bestlen < 0 && path[0] == '/' && !fs_native_covers(path)){
-        best = &mounts[i];
-        bestlen = 0;
-      }
-      continue;
-    }
-    if(n > bestlen && strncmp(path, mounts[i].path, n) == 0 &&
-       (path[n] == 0 || path[n] == '/')){
-      best = &mounts[i];
-      bestlen = n;
-    }
-  }
-  if(best == 0)
-    return 0;
-  *relative = path[bestlen] ? path + bestlen : "/";
-  if(readonly)
-    *readonly = best->readonly;
-  return best->ops;
-}
-
-void
-vfsinit(void)
-{
-  initlock(&vnodes.lock, "vnodes");
-  memset(mounts, 0, sizeof(mounts));
-  netfsinit();
-  printf("vfs: native root rw; waiting for /etc/fstab mounts\n");
-}
-
-int
-vfsopen(char *path, int omode, struct vnode **out)
-{
-  struct vnode *vn = 0;
-  struct stat st;
-  char *sub;
-  int readonly, exists;
-  int trace_create;
-  struct vnode_ops *ops;
-  ops = findmount(path, &sub, &readonly);
-  if(ops == 0)
-    return 0;
-  trace_create = (omode & O_CREATE) && strncmp(path, "/boot/", 6) == 0;
-  if(trace_create)
-    printf("vfs: boot create begin path=%s sub=%s mode=%x\n",
-           path, sub, omode);
-  exists = ops->stat(sub, &st) == 0;
-  if(trace_create)
-    printf("vfs: boot create stat complete exists=%d\n", exists);
-  int access = omode & (O_WRONLY | O_RDWR);
-  if(access == O_RDONLY){
-    if(!exists)
-      return -1;
-  } else {
-    if(readonly || (access != O_WRONLY && access != O_RDWR) ||
-       (omode & ~(O_WRONLY | O_RDWR | O_CREATE | O_TRUNC | O_NONBLOCK)) ||
-       ops->write == 0 || (!exists && (!(omode & O_CREATE) ||
-                                       ops->create == 0)))
-      return -1;
-    if(exists && ops == &fat32_ops && !(omode & O_TRUNC) &&
-       st.type == T_FILE && st.size != 0)
-      return -1;
-    if(!exists){
-      if(trace_create)
-        printf("vfs: boot create directory-entry begin\n");
-      if(ops->create(sub) < 0)
-        return -1;
-      if(trace_create)
-        printf("vfs: boot create directory-entry complete\n");
-    }
-    if(omode & O_TRUNC){
-      if(trace_create)
-        printf("vfs: boot create truncate begin\n");
-      if(ops->truncate == 0 || ops->truncate(sub, 0) < 0)
-        return -1;
-      if(trace_create)
-        printf("vfs: boot create truncate complete\n");
-    }
-    if(trace_create)
-      printf("vfs: boot create verify-stat begin\n");
-    if(ops->stat(sub, &st) < 0 || st.type != T_FILE)
-      return -1;
-    if(trace_create)
-      printf("vfs: boot create verify-stat complete\n");
-  }
-  acquire(&vnodes.lock);
-  for(int i = 0; i < NFILE; i++){
-    if(!vnodes.nodes[i].used){
-      vn = &vnodes.nodes[i];
-      vn->used = 1;
-      vn->ref = 1;
-      vn->type = st.type;
-      vn->ops = ops;
-      vn->readonly = readonly;
-      safestrcpy(vn->path, sub, sizeof(vn->path));
-      vn->has_handle = 0;
-      vn->handle = 0;
-      memset(&vn->fat_file, 0, sizeof(vn->fat_file));
-      break;
-    }
-  }
-  release(&vnodes.lock);
-  if(vn == 0)
-    return -1;
-  if(vn->type == T_FILE && ops->open){
-    if(ops->open(sub, &vn->handle) < 0){
-      vfsclose(vn);
-      return -1;
-    }
-    vn->has_handle = 1;
-  }
-  if(!readonly && omode != O_RDONLY && vn->ops == &fat32_ops){
-    if(trace_create)
-      printf("vfs: boot create openwrite begin\n");
-    if(fat32openwrite(sub, &vn->fat_file) < 0){
-      vfsclose(vn);
-      return -1;
-    }
-    if(trace_create)
-      printf("vfs: boot create openwrite complete\n");
-  }
-  *out = vn;
-  return 1;
-}
-
-int
-vfsrename(char *oldpath, char *newpath)
-{
-  char *oldsub, *newsub;
-  int oldreadonly, newreadonly;
-  struct vnode_ops *oldops = findmount(oldpath, &oldsub, &oldreadonly);
-  struct vnode_ops *newops = findmount(newpath, &newsub, &newreadonly);
-  if(oldops == 0 && newops == 0)
-    return -1;
-  if(oldops == 0 || oldops != newops || oldreadonly || newreadonly ||
-     oldops->rename == 0)
-    return -1;
-  return oldops->rename(oldsub, newsub);
-}
-
-// -2 means the path belongs to the native root and the syscall should use the
-// native inode implementation. -1 is an error below a VFS mount.
-int
-vfsunlink(char *path)
-{
-  char *sub;
-  int readonly;
-  struct vnode_ops *ops = findmount(path, &sub, &readonly);
-  if(ops == 0) return -2;
-  if(readonly || ops->unlink == 0) return -1;
-  return ops->unlink(sub);
-}
-
-int
-vfsmkdir(char *path)
-{
-  char *sub;
-  int readonly;
-  struct vnode_ops *ops = findmount(path, &sub, &readonly);
-  if(ops == 0) return -2;
-  if(readonly || ops->mkdir == 0) return -1;
-  return ops->mkdir(sub);
-}
-
-int
-vfsstatpath(char *path, struct stat *st)
-{
-  char *sub;
-  struct vnode_ops *ops = findmount(path, &sub, 0);
-  if(ops == 0) return -2;
-  return ops->stat(sub, st);
-}
-
-int
-vfsmounted(char *path)
-{
-  char *sub;
-  return findmount(path, &sub, 0) != 0;
-}
-
-void
-vfsclose(struct vnode *vn)
-{
-  void (*rel)(uint64) = 0;
-  uint64 handle = 0;
-  acquire(&vnodes.lock);
-  if(vn == 0 || !vn->used || vn->ref < 1)
-    panic("vfsclose");
-  if(--vn->ref == 0){
-    if(vn->has_handle){
-      rel = vn->ops->release;
-      handle = vn->handle;
-      vn->has_handle = 0;
-    }
-    vn->used = 0;
-    vn->ops = 0;
-  }
-  release(&vnodes.lock);
-  // The backend may do disk I/O (orphan reclaim) under its own sleeplock.
-  if(rel)
-    rel(handle);
-}
-
-int
-vfsstat(struct vnode *vn, struct stat *st)
-{
-  if(vn->has_handle && vn->ops->hstat)
-    return vn->ops->hstat(vn->handle, st);
-  return vn->ops->stat(vn->path, st);
-}
-
-int
-vfsread(struct vnode *vn, int user_dst, uint64 dst, uint64 off, uint n)
-{
-  struct vfs_dirent vde;
-  struct dirent de;
-  char *page;
-  int got, total = 0;
-
-  if(vn->type == T_DIR){
-    if(n < sizeof(de) || off % sizeof(de))
-      return 0;
-    got = vn->ops->readdir(vn->path, off / sizeof(de), &vde);
-    if(got <= 0)
-      return got;
-    memset(&de, 0, sizeof(de));
-    de.inum = vde.ino > 0xffff ? 0xffff : vde.ino;
-    memmove(de.name, vde.name,
-            strlen(vde.name) < DIRSIZ ? strlen(vde.name) : DIRSIZ);
-    if(either_copyout(user_dst, dst, &de, sizeof(de)) < 0)
-      return -1;
-    return sizeof(de);
-  }
-
-  page = kalloc();
+  if(ip->type == T_DIR)
+    return vfs_dir_read(ip, user_dst, dst, off, n, pfs_readdir);
+  char *page = kalloc();
+  int total = 0;
   if(page == 0)
     return -1;
   while(total < (int)n){
-    int chunk = n - total;
-    if(chunk > PGSIZE)
-      chunk = PGSIZE;
-    if(vn->has_handle && vn->ops->hread)
-      got = vn->ops->hread(vn->handle, off + total, page, chunk);
-    else
-      got = vn->ops->read(vn->path, off + total, page, chunk);
+    int chunk = n - total > PGSIZE ? PGSIZE : n - total;
+    int got = pops(ip)->read(ip->path, off + total, page, chunk);
     if(got <= 0)
       break;
     if(either_copyout(user_dst, dst + total, page, got) < 0){
-      total = -1;
+      total = total ? total : -1;
       break;
     }
     total += got;
@@ -953,32 +662,161 @@ vfsread(struct vnode *vn, int user_dst, uint64 dst, uint64 off, uint n)
   return total;
 }
 
-int
-vfswrite(struct vnode *vn, int user_src, uint64 src, uint64 off, uint n)
+static void
+pfs_refresh_size(struct inode *ip)
 {
-  if(vn == 0 || vn->readonly || vn->type != T_FILE ||
-     vn->ops->write == 0 || off + n < off)
+  struct stat st;
+  if(pops(ip)->stat(ip->path, &st) == 0)
+    ip->size = st.size;
+}
+
+static int
+pfs_write(struct inode *ip, int user_src, uint64 src, uint64 off, uint n)
+{
+  if(ip->type != T_FILE || pops(ip)->write == 0)
     return -1;
-  if(vn->has_handle && vn->ops->hwrite)
-    return vn->ops->hwrite(vn->handle, off, user_src, src, n);
-  return vn->ops->write(vn->path, &vn->fat_file, off, user_src, src, n);
+  int r = pops(ip)->write(ip->path, (struct fat32_file *)ip->fsdata, off,
+                          user_src, src, n);
+  pfs_refresh_size(ip);
+  return r;
+}
+
+static int
+pfs_truncate(struct inode *ip, uint64 size)
+{
+  if(ip->type != T_FILE || pops(ip)->truncate == 0 ||
+     pops(ip)->truncate(ip->path, size) < 0)
+    return -1;
+  pfs_refresh_size(ip);
+  return 0;
+}
+
+// FAT32 cannot overwrite a file in place: a non-empty file can only be
+// opened for writing together with O_TRUNC (sys_open truncates first).
+// Writers need a FAT write handle, kept in the inode.
+static int
+pfs_open(struct inode *ip, int omode)
+{
+  struct pathfs_ops *o = pops(ip);
+  if((omode & (O_WRONLY | O_RDWR)) == 0 || ip->type != T_FILE)
+    return 0;
+  if(o->write == 0)
+    return -1;
+  if(o->openwrite){
+    if(ip->size != 0)
+      return -1;
+    if(o->openwrite(ip->path, (struct fat32_file *)ip->fsdata) < 0)
+      return -1;
+  }
+  return 0;
+}
+
+static int
+pfs_fsync(struct inode *ip)
+{
+  return pops(ip)->fsync ? pops(ip)->fsync() : 0;
+}
+
+static struct inode_ops pathfs_iops = {
+  .read_inode = pfs_read_inode,
+  .lookup = pfs_lookup,
+  .create = pfs_create,
+  .unlink = pfs_unlink,
+  .rename = pfs_rename,
+  .read = pfs_read,
+  .write = pfs_write,
+  .truncate = pfs_truncate,
+  .open = pfs_open,
+  .fsync = pfs_fsync,
+};
+
+static struct pathfs_ops fat32_pops = {
+  .stat = fat_vstat, .read = fat_vread, .write = fat_vwrite,
+  .readdir = fat_vreaddir, .create = fat_vcreate, .truncate = fat_vtruncate,
+  .rename = fat_vrename, .openwrite = fat32openwrite, .fsync = fat_vfsync,
+};
+
+static struct pathfs_ops proc_pops = {
+  .stat = proc_vstat, .read = proc_vread, .readdir = proc_vreaddir,
+};
+
+static struct pathfs_ops netfs_pops = {
+  .stat = netfs_vstat, .read = netfs_vread, .readdir = netfs_vreaddir,
+};
+
+// ---------------------------------------------------------------------------
+// mount(2): every filesystem goes into the one mount table in fs.c.
+
+// The block device that holds the ext2 partition (mmcblk0pN).
+static int
+ext2_blkdev(void)
+{
+  uint32 lba = ext2_part_lba();
+  for(int i = 0; i < NBLKDEV; i++){
+    struct blkdev *bd = blkdev_at(i);
+    if(bd && bd->dev >= BLKDEV_MMC_PART(1) && bd->dev <= BLKDEV_MMC_PART(4) &&
+       bd->start == lba)
+      return bd->dev;
+  }
+  return -1;
 }
 
 int
-vfsftruncate(struct vnode *vn, uint64 size)
+vfsmount(char *source, char *target, char *fstype, int flags)
 {
-  if(vn == 0 || vn->readonly || vn->type != T_FILE ||
-     vn->ops->truncate == 0)
+  int readonly = (flags & VFS_MOUNT_RDONLY) != 0;
+  int dev;
+  struct inode *mp;
+
+  if(flags & ~VFS_MOUNT_RDONLY)
     return -1;
-  if(vn->has_handle && vn->ops->htruncate)
-    return vn->ops->htruncate(vn->handle, size);
-  return vn->ops->truncate(vn->path, size);
+  if(streq(fstype, "procfs")){
+    dev = PROCFS_DEV;
+    readonly = 1;
+    fs_super_register(dev, "procfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
+                      &proc_pops);
+  } else if(streq(fstype, "fat32")){
+    if(!fat32ready())
+      return -1;
+    dev = FATFS_DEV;
+    fs_super_register(dev, "fat32", &pathfs_iops, pathhash("/"), readonly,
+                      0, 1, &fat32_pops);
+  } else if(streq(fstype, "ext2")){
+    if(!ext2ready() || (dev = ext2_blkdev()) < 0)
+      return -1;
+    if(getsuper(dev) == 0 && ext2_register_super(dev, readonly) < 0)
+      return -1;
+  } else if(streq(fstype, "netfs")){
+    if(!readonly || netfs_configure(source) < 0)
+      return -1;
+    dev = NETFS_DEV;
+    fs_super_register(dev, "netfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
+                      &netfs_pops);
+  } else {
+    return -1;
+  }
+
+  begin_op();
+  if((mp = namei(target)) == 0){
+    end_op();
+    return -1;
+  }
+  int r = fs_mount(mp, dev, fstype, source, target);
+  if(r < 0)
+    iput(mp);
+  end_op();
+  if(r == 0)
+    printf("vfs: mounted %s at %s %s\n", fstype, target,
+           readonly ? "read-only" : "read-write");
+  else
+    printf("vfs: cannot mount %s at %s (busy or already mounted)\n",
+           fstype, target);
+  return r;
 }
 
-int
-vfsfsync(struct vnode *vn)
+void
+vfsinit(void)
 {
-  if(vn == 0 || vn->ops->fsync == 0)
-    return -1;
-  return vn->ops->fsync();
+  netfsinit();
+  printf("vfs: one mount table for all filesystems\n");
 }

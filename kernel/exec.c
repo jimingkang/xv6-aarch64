@@ -8,21 +8,21 @@
 #include "elf.h"
 #include "stat.h"
 #include "fcntl.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "vfs.h"
 
-// An executable comes either from the native xv6 root (a locked inode inside
-// a log transaction) or from a VFS mount such as /mnt/ext2 (an open vnode).
+// The executable is a locked inode of any mounted filesystem, read through
+// its filesystem's read operation, inside a log transaction.
 struct execsrc {
   struct inode *ip;
-  struct vnode *vn;
 };
 
 static int
 srcread(struct execsrc *src, uint64 dst, uint off, uint n)
 {
-  if(src->vn)
-    return vfsread(src->vn, 0, dst, off, n);
-  return readi(src->ip, 0, dst, off, n);
+  return src->ip->iop->read(src->ip, 0, dst, off, n);
 }
 
 static void
@@ -32,10 +32,6 @@ srcclose(struct execsrc *src)
     iunlockput(src->ip);
     end_op();
     src->ip = 0;
-  }
-  if(src->vn){
-    vfsclose(src->vn);
-    src->vn = 0;
   }
 }
 
@@ -48,8 +44,7 @@ exec(char *path, char **argv)
   int i, off;
   uint64 argc, sz = 0, sp, ustack[MAXARG], stackbase;
   struct elfhdr elf;
-  struct execsrc src = { 0, 0 };
-  struct stat st;
+  struct execsrc src = { 0 };
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
@@ -66,17 +61,15 @@ exec(char *path, char **argv)
   vm->execing = 1;
   release(&vm->lock);
 
-  int vr = vfsopen(path, O_RDONLY, &src.vn);
-  if(vr > 0 && (vfsstat(src.vn, &st) < 0 || st.type != T_FILE))
+  int vr = 0;
+  begin_op();
+  if((src.ip = namei(path)) == 0){
+    end_op();
     vr = -1;
-  if(vr == 0){
-    begin_op();
-    if((src.ip = namei(path)) == 0){
-      end_op();
+  } else {
+    ilock(src.ip);
+    if(src.ip->type != T_FILE)
       vr = -1;
-    } else {
-      ilock(src.ip);
-    }
   }
   if(vr < 0){
     srcclose(&src);

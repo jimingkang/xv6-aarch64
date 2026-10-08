@@ -1,9 +1,8 @@
-struct vnode;
 struct epoll;
 struct pty;
 
 struct file {
-  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_VNODE, FD_SOCKET,
+  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_SOCKET,
          FD_EPOLL, FD_PTY } type;
   int ref; // reference count
   char readable;
@@ -11,7 +10,6 @@ struct file {
   int flags;          // open-file-description status flags (O_NONBLOCK, ...)
   struct pipe *pipe; // FD_PIPE
   struct inode *ip;  // FD_INODE and FD_DEVICE
-  struct vnode *vn;  // FD_VNODE
   uint64 off;        // shared open-file offset; VFS backends may exceed 4 GiB
   short major;       // FD_DEVICE
   void *private_data; // FD_DEVICE: driver state from file_operations.open
@@ -28,10 +26,16 @@ struct file {
 #define	mkdev(m,n)  ((uint)((m)<<16| (n)))
 
 // in-memory copy of an inode
+struct inode_ops;
+
+// In-memory inode of any mounted filesystem (see vfs.h).  dev names the
+// filesystem instance (its super_block), iop its operations.
 struct inode {
-  uint dev;           // Device number
-  uint inum;          // Inode number
+  uint dev;           // Device number = filesystem instance
+  uint inum;          // Inode number within that filesystem
   int ref;            // Reference count
+  struct inode_ops *iop; // operations of the filesystem (set by iget)
+  char path[MAXPATH]; // path-based filesystems: path inside the filesystem
   struct sleeplock lock; // protects everything below here
   int valid;          // inode has been read from disk?
 
@@ -39,8 +43,9 @@ struct inode {
   short major;
   short minor;
   short nlink;
-  uint size;
-  uint addrs[NDIRECT+1];
+  uint64 size;
+  uint addrs[NDIRECT+1]; // xv6fs only
+  uint32 fsdata[4];   // filesystem private (FAT32 write handle)
 };
 
 #define CONSOLE 1

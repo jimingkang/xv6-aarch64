@@ -108,7 +108,32 @@ sys_rename(void)
      argstr(1, newpath, sizeof(newpath)) < 0 ||
      abspath(oldpath) < 0 || abspath(newpath) < 0)
     return -1;
-  return vfsrename(oldpath, newpath);
+  char oname[NAMEMAX], nname[NAMEMAX];
+  struct inode *odp, *ndp, *t;
+  int r = -1;
+  begin_op();
+  if((odp = nameiparent(oldpath, oname)) == 0){
+    end_op();
+    return -1;
+  }
+  if((ndp = nameiparent(newpath, nname)) == 0){
+    iput(odp);
+    end_op();
+    return -1;
+  }
+  ilock(odp);
+  t = odp->type == T_DIR ? odp->iop->lookup(odp, oname) : 0;
+  iunlock(odp);
+  if(t){
+    int busy = fs_is_mountpoint(t);   // EBUSY: something is mounted on it
+    iput(t);
+    if(!busy)
+      r = fs_rename(odp, oname, ndp, nname);
+  }
+  iput(ndp);
+  iput(odp);
+  end_op();
+  return r;
 }
 
 uint64
@@ -300,14 +325,13 @@ sys_lseek(void)
   int whence;
   long offset;
   uint64 base, result;
-  struct stat st;
 
   if(argfd(0, 0, &f) < 0 || argaddr(1, &raw_offset) < 0 ||
      argint(2, &whence) < 0)
     return -1;
   offset = (long)raw_offset;
   int blk = f->type == FD_DEVICE && f->major == BLOCKDEV;
-  if(f->type != FD_INODE && f->type != FD_VNODE && !blk)
+  if(f->type != FD_INODE && !blk)
     return -1;
   if(whence == 0){
     base = 0;
@@ -317,14 +341,10 @@ sys_lseek(void)
     if(blk){
       if((base = blkdev_size(f->ip->minor)) == 0)
         return -1;
-    } else if(f->type == FD_INODE){
+    } else {
       ilock(f->ip);
       base = f->ip->size;
       iunlock(f->ip);
-    } else {
-      if(vfsstat(f->vn, &st) < 0)
-        return -1;
-      base = st.size;
     }
   } else {
     return -1;
@@ -337,8 +357,7 @@ sys_lseek(void)
     if(base + (uint64)offset < base) return -1;
     result = base + (uint64)offset;
   }
-  if((f->type == FD_INODE && result > 0xffffffffULL) ||
-     result > 0x7fffffffffffffffULL)
+  if(result > 0x7fffffffffffffffULL)
     return -1;
   f->off = result;
   return result;
@@ -571,13 +590,11 @@ sys_fstat(void)
 uint64
 sys_link(void)
 {
-  char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
+  char name[NAMEMAX], new[MAXPATH], old[MAXPATH];
   struct inode *dp, *ip;
 
   if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0 ||
      abspath(old) < 0 || abspath(new) < 0)
-    return -1;
-  if(vfsmounted(old) || vfsmounted(new))   // hard links are native-only
     return -1;
 
   begin_op();
@@ -585,127 +602,52 @@ sys_link(void)
     end_op();
     return -1;
   }
-
-  ilock(ip);
-  if(ip->type == T_DIR){
-    iunlockput(ip);
+  if((dp = nameiparent(new, name)) == 0){
+    iput(ip);
     end_op();
     return -1;
   }
-
-  ip->nlink++;
-  iupdate(ip);
-  iunlock(ip);
-
-  if((dp = nameiparent(new, name)) == 0)
-    goto bad;
-  ilock(dp);
-  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
-    iunlockput(dp);
-    goto bad;
-  }
-  iunlockput(dp);
+  int r = fs_link(dp, name, ip);
+  iput(dp);
   iput(ip);
-
   end_op();
-
-  return 0;
-
-bad:
-  ilock(ip);
-  ip->nlink--;
-  iupdate(ip);
-  iunlockput(ip);
-  end_op();
-  return -1;
-}
-
-// Is the directory dp empty except for "." and ".." ?
-static int
-isdirempty(struct inode *dp)
-{
-  int off;
-  struct dirent de;
-
-  for(off=2*sizeof(de); off<dp->size; off+=sizeof(de)){
-    if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-      panic("isdirempty: readi");
-    if(de.inum != 0)
-      return 0;
-  }
-  return 1;
+  return r;
 }
 
 uint64
 sys_unlink(void)
 {
   struct inode *ip, *dp;
-  struct dirent de;
-  char name[DIRSIZ], path[MAXPATH];
-  uint off;
+  char name[NAMEMAX], path[MAXPATH];
+  int r = -1;
 
   if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
-
-  int vr = vfsunlink(path);
-  if(vr != -2)
-    return vr;
 
   begin_op();
   if((dp = nameiparent(path, name)) == 0){
     end_op();
     return -1;
   }
-
   ilock(dp);
-
-  // Cannot unlink "." or "..".
-  if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
-    goto bad;
-
-  if((ip = dirlookup(dp, name, &off)) == 0)
-    goto bad;
-  if(fs_is_mountpoint(ip)){       // EBUSY: something is mounted on it
+  ip = dp->type == T_DIR ? dp->iop->lookup(dp, name) : 0;
+  iunlock(dp);
+  if(ip){
+    int busy = fs_is_mountpoint(ip);    // EBUSY: something is mounted on it
     iput(ip);
-    goto bad;
+    if(!busy)
+      r = fs_unlink(dp, name);
   }
-  ilock(ip);
-
-  if(ip->nlink < 1)
-    panic("unlink: nlink < 1");
-  if(ip->type == T_DIR && !isdirempty(ip)){
-    iunlockput(ip);
-    goto bad;
-  }
-
-  memset(&de, 0, sizeof(de));
-  if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-    panic("unlink: writei");
-  if(ip->type == T_DIR){
-    dp->nlink--;
-    iupdate(dp);
-  }
-  iunlockput(dp);
-
-  ip->nlink--;
-  iupdate(ip);
-  iunlockput(ip);
-
+  iput(dp);
   end_op();
-
-  return 0;
-
-bad:
-  iunlockput(dp);
-  end_op();
-  return -1;
+  return r;
 }
 
 static struct inode*
 create(char *path, short type, short major, short minor)
 {
   struct inode *dp;
-  char name[DIRSIZ];
+  char name[NAMEMAX];
 
   if((dp = nameiparent(path, name)) == 0)
     return 0;
@@ -719,34 +661,11 @@ sys_open(void)
   int fd, omode;
   struct file *f;
   struct inode *ip;
-  struct vnode *vn;
   int n;
-  int vr;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0 ||
      abspath(path) < 0)
     return -1;
-
-  vr = vfsopen(path, omode, &vn);
-  if(vr != 0){
-    if(vr < 0)
-      return -1;
-    if((f = filealloc()) == 0){
-      vfsclose(vn);
-      return -1;
-    }
-    f->type = FD_VNODE;
-    f->vn = vn;
-    f->off = 0;
-    f->readable = !(omode & O_WRONLY);
-    f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
-    f->flags = omode;
-    if((fd = fdalloc(f)) < 0){
-      fileclose(f);
-      return -1;
-    }
-    return fd;
-  }
 
   begin_op();
 
@@ -773,6 +692,19 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  // Filesystem side of open: read-only mounts, O_TRUNC, and the
+  // filesystem's own open hook (FAT32 needs a write handle).
+  if(ip->type == T_FILE){
+    int wr = (omode & (O_WRONLY | O_RDWR)) != 0;
+    if(((wr || (omode & O_TRUNC)) && fs_is_readonly(ip)) ||
+       ((omode & O_TRUNC) && ip->iop->truncate(ip, 0) < 0) ||
+       (ip->iop->open && ip->iop->open(ip, omode) < 0)){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -806,10 +738,6 @@ sys_open(void)
     return -1;
   }
 
-  if((omode & O_TRUNC) && ip->type == T_FILE){
-    itrunc(ip);
-  }
-
   iunlock(ip);
   end_op();
 
@@ -824,10 +752,6 @@ sys_mkdir(void)
 
   if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
-  int vr = vfsmkdir(path);
-  if(vr != -2)
-    return vr;
-
   begin_op();
   if((ip = create(path, T_DIR, 0, 0)) == 0){
     end_op();
@@ -845,8 +769,7 @@ sys_mknod(void)
   char path[MAXPATH];
   int major, minor;
 
-  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0 ||
-     vfsmounted(path))                     // device nodes are native-only
+  if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
   begin_op();
   if(argint(1, &major) < 0 ||
@@ -866,21 +789,9 @@ sys_chdir(void)
   char path[MAXPATH];
   struct inode *ip;
   struct proc *p = myproc();
-  
-  struct stat st;
 
   if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
-  // Below a VFS mount the directory exists only as a path.  The native cwd
-  // inode is left alone; relative names are resolved through cwdpath.
-  int vr = vfsstatpath(path, &st);
-  if(vr != -2){
-    if(vr < 0 || st.type != T_DIR)
-      return -1;
-    safestrcpy(p->cwdpath, path, sizeof(p->cwdpath));
-    return 0;
-  }
-
   begin_op();
   if((ip = namei(path)) == 0){
     end_op();

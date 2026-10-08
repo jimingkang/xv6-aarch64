@@ -13,6 +13,7 @@
 #define NBUF         64   // buffer cache entries, one 4 KiB page each
 #define FSSIZE      32768  // 32 MiB native file system (1024-byte blocks)
 #define MAXPATH      128   // maximum file path name
+#define NAMEMAX      128   // maximum length of one path component (VFS)
 #define NSYNC         64   // maximum number of kernel synchronization objects
 #define NUDPPORT      16   // maximum number of bound UDP ports
 #define NUDPQUEUE     16   // datagrams queued per UDP port

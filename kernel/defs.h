@@ -132,8 +132,14 @@ int             fs_mount(struct inode*, int, char*, char*, char*);
 int             fs_move_mount(struct inode*, struct inode*, char*);
 void            fs_set_root(struct inode*);
 int             fs_mounts_format(char*, int);
-int             fs_native_covers(char*);
 struct inode*   fs_create(struct inode*, char*, short, short, short);
+int             fs_unlink(struct inode*, char*);
+int             fs_link(struct inode*, char*, struct inode*);
+int             fs_rename(struct inode*, char*, struct inode*, char*);
+int             fs_is_readonly(struct inode*);
+struct inode*   iget(uint, uint);
+struct inode*   iget_path(uint, uint, char*);
+int             ext2_register_super(int, int);
 
 // rootdev.c
 void            rootdev_init(void);

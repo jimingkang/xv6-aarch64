@@ -94,7 +94,7 @@ static int
 kmknod(char *path, short type, short major, short minor)
 {
   struct inode *dp, *ip;
-  char name[DIRSIZ];
+  char name[NAMEMAX];
 
   begin_op();
   if((dp = nameiparent(path, name)) == 0){
@@ -278,42 +278,34 @@ node_to_blkdev(char *devname)
   return dev;
 }
 
-// mount_root(): mount the xv6 filesystem on the block device named by the
-// node devname on directory dir (an xv6-inode mount, so it can be MS_MOVEd).
+// mount_root(): mount the filesystem on the block device named by the node
+// devname on directory dir.  rootfstype= picks the filesystem: xv6fs is read
+// by fsinit() (superblock + log recovery), ext2 was opened by ext2init() and
+// is checked against the node.  Both become an ordinary entry of the one
+// mount table, so both are MS_MOVEd and chrooted the same way afterwards.
 static void
 mount_root(char *devname, char *dir)
 {
   int dev = node_to_blkdev(devname);
-
-  // fill_super: superblock check and log recovery.
-  if(dev < 0 || fsinit(dev) < 0)
-    panic("VFS: Unable to mount root fs on /dev/root");
-  struct inode *mp = klookup(dir);
-  if(mp == 0 || fs_mount(mp, dev, "xv6fs", devname, dir) < 0)
-    panic("VFS: cannot attach root");
-  printf("VFS: Mounted root (xv6fs filesystem) on device %d "
-         "(/dev/root = %s).\n", dev, rootdev_name());
-}
-
-// The ext2 counterpart of mount_root(), same arguments.  ext2 is not an
-// xv6-inode filesystem, it lives in vfs.c's path-prefix table, so it cannot
-// be mounted on /root and MS_MOVEd later: the caller passes dir = "/" and
-// ext2 is mounted there directly (lowest priority, every path not under a
-// native mount).  The ext2 driver already opened its partition in
-// ext2init(); here the node is resolved and checked against it.  In xv6,
-// dev 1 ("root") is always the xv6-format partition (kept for /dev/sdroot
-// and the ext2 journal), so /dev/root names mmcblk0pN instead.
-static void
-mount_ext2_root(char *devname, char *dir)
-{
-  int dev = node_to_blkdev(devname);
+  char *type;
   struct blkdev *bd = dev > 0 ? blkdev_get(dev) : 0;
-  if(bd == 0 || !ext2ready() || bd->start != ext2_part_lba())
-    panic("VFS: Unable to mount root fs (ext2) on /dev/root");
-  if(vfsmount(devname, dir, "ext2", 0) < 0)
-    panic("VFS: cannot attach ext2 root");
-  printf("VFS: Mounted root (ext2 filesystem) on device %d "
-         "(/dev/root = %s).\n", dev, bd->name);
+
+  if(rootdev_fstype() == ROOTFS_EXT2){
+    if(bd == 0 || !ext2ready() || bd->start != ext2_part_lba() ||
+       ext2_register_super(dev, 0) < 0)
+      panic("VFS: Unable to mount root fs (ext2) on /dev/root");
+    type = "ext2";
+  } else {
+    // fill_super: superblock check and log recovery.
+    if(dev < 0 || fsinit(dev) < 0)
+      panic("VFS: Unable to mount root fs on /dev/root");
+    type = "xv6fs";
+  }
+  struct inode *mp = klookup(dir);
+  if(mp == 0 || fs_mount(mp, dev, type, devname, dir) < 0)
+    panic("VFS: cannot attach root");
+  printf("VFS: Mounted root (%s filesystem) on device %d (/dev/root = %s).\n",
+         type, dev, rootdev_fstype() == ROOTFS_EXT2 ? bd->name : rootdev_name());
 }
 
 void
@@ -333,22 +325,11 @@ prepare_namespace(void)
 
   devtmpfs_init();
 
-  // rootfstype=ext2: /dev/root names the ext2 partition and ext2 goes on
-  // "/" directly; devtmpfs covers rootfs's /dev.  rootfs stays the inode-
-  // world root behind ext2, so no MS_MOVE/chroot is needed.
-  if(rootdev_fstype() == ROOTFS_EXT2){
-    kmknod("/dev/root", T_DEVICE, BLOCKDEV,
-           BLKDEV_MMC_PART(rootdev_ext2_part()));     // ROOT_DEV = mmcblk0pN
-    mount_ext2_root("/dev/root", "/");
-    // Only after the new root is mounted: /dev under the new "/" becomes
-    // devtmpfs.  The mount point has to be rootfs's /dev (an ext2 directory
-    // is not an xv6 inode); fs_native_covers() routes /dev paths past ext2.
-    devtmpfs_mount("/dev", "/dev");
-    return;
-  }
-
-  // mount_root(): ROOT_DEV is dev 1, chosen by rootdev_init() from root=.
-  kmknod("/dev/root", T_DEVICE, BLOCKDEV, ROOTDEV);
+  // mount_root(): ROOT_DEV, chosen by rootdev_init() from root=, is dev 1
+  // for an xv6fs root and the ext2 partition (mmcblk0pN) for an ext2 root.
+  int rootdev = rootdev_fstype() == ROOTFS_EXT2 ?
+                BLKDEV_MMC_PART(rootdev_ext2_part()) : ROOTDEV;
+  kmknod("/dev/root", T_DEVICE, BLOCKDEV, rootdev);
   mount_root("/dev/root", "/root");
   if(kchdir("/root") < 0)
     panic("prepare_namespace: chdir /root");

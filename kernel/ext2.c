@@ -19,6 +19,9 @@
 #include "fs.h"
 #include "ext2.h"
 #include "fat32.h"
+#include "stat.h"
+#include "file.h"
+#include "vfs.h"
 
 #define SECTOR 512
 #define EXT2_MAGIC 0xef53
@@ -1186,18 +1189,14 @@ ext2statino(uint64 handle, uint *ino, ushort *mode, uint64 *size)
   return r;
 }
 
-int
-ext2readdir(char *path, int index, struct ext2_user_dirent *out)
+// The index-th entry of directory dp (e2.lock held).  1: found, 0: end.
+static int
+readdir_core(struct einode *dpp, int index, struct ext2_user_dirent *out)
 {
-  struct einode dp, child;
-  uint32 ino;
+  struct einode dp = *dpp, child;
   uint64 pos = 0, loaded = (uint64)-1;
   int seen = 0;
-  if(index < 0) return -1;
-  acquiresleep(&e2.lock);
-  if(lookup(path, &ino, &dp) < 0 || (dp.mode & EXT2_S_IFMT) != EXT2_S_IFDIR){
-    releasesleep(&e2.lock); return -1;
-  }
+  if(index < 0 || (dp.mode & EXT2_S_IFMT) != EXT2_S_IFDIR) return -1;
   while(pos + 8 <= dp.size){
     uint64 logical = pos / e2.block_size;
     uint32 inblock = pos % e2.block_size;
@@ -1219,34 +1218,59 @@ ext2readdir(char *path, int index, struct ext2_user_dirent *out)
         memmove(out->name, de + 8, nlen);
         out->name[nlen] = 0;
         if(readinode(deino, &child) == 0){ out->size = child.size; out->mode = child.mode; }
-        releasesleep(&e2.lock); return 1;
+        return 1;
       }
     }
     pos += reclen;
   }
-  releasesleep(&e2.lock);
   return 0;
+}
+
+int
+ext2readdir(char *path, int index, struct ext2_user_dirent *out)
+{
+  struct einode dp;
+  uint32 ino;
+  int r = -1;
+  acquiresleep(&e2.lock);
+  if(lookup(path, &ino, &dp) == 0)
+    r = readdir_core(&dp, index, out);
+  releasesleep(&e2.lock);
+  return r;
 }
 
 // ---------------------------------------------------------------------------
 // Mutations.  Each public entry point is lock + transaction + *_locked().
 
+// Create regular file name in directory *parent (e2.lock held, in a
+// transaction); the new inode number goes to *out.
+static int
+create_core(struct einode *parent, const char *name, int namelen, uint32 *out)
+{
+  struct einode child;
+  uint32 ino;
+  if(!e2.ready || e2dirlookup(parent, name, namelen, &ino) == 0 ||
+     mark_write_session_dirty() < 0)
+    return -1;
+  uint32 group = (parent->ino - 1) / e2.inodes_per_group;
+  if(alloc_inode(group, EXT2_S_IFREG | 0644, &child) < 0 ||
+     e2diradd(parent, name, namelen, child.ino, 1) < 0)
+    return -1;               // the aborted transaction also undoes alloc_inode
+  *out = child.ino;
+  return 0;
+}
+
 static int
 create_locked(char *path)
 {
-  struct einode parent, existing, child;
+  struct einode parent, existing;
   uint32 ino;
   char name[EXT2_NAME_MAX + 1];
   int namelen;
   if(!e2.ready || lookup(path, &ino, &existing) == 0 ||
-     lookupparent(path, &parent, name, &namelen) < 0 ||
-     mark_write_session_dirty() < 0)
+     lookupparent(path, &parent, name, &namelen) < 0)
     return -1;
-  uint32 group = (parent.ino - 1) / e2.inodes_per_group;
-  if(alloc_inode(group, EXT2_S_IFREG | 0644, &child) < 0 ||
-     e2diradd(&parent, name, namelen, child.ino, 1) < 0)
-    return -1;               // the aborted transaction also undoes alloc_inode
-  return 0;
+  return create_core(&parent, name, namelen, &ino);
 }
 
 int
@@ -1371,14 +1395,11 @@ ext2writeino(uint64 handle, uint64 off, int user_src, uint64 src, int n)
 }
 
 static int
-mkdir_locked(char *path)
+mkdir_core(struct einode *pp, const char *name, int namelen, uint32 *out)
 {
-  struct einode parent, existing, child;
+  struct einode parent = *pp, child;
   uint32 ino, bno;
-  char name[EXT2_NAME_MAX + 1];
-  int namelen;
-  if(!e2.ready || lookup(path, &ino, &existing) == 0 ||
-     lookupparent(path, &parent, name, &namelen) < 0 ||
+  if(!e2.ready || e2dirlookup(&parent, name, namelen, &ino) == 0 ||
      mark_write_session_dirty() < 0)
     return -1;
   uint32 group = (parent.ino - 1) / e2.inodes_per_group;
@@ -1403,7 +1424,21 @@ mkdir_locked(char *path)
   if(readinode(parent.ino, &parent) < 0)   // e2diradd may have grown it
     return -1;
   parent.links++;
+  *out = child.ino;
   return writeinode(&parent);
+}
+
+static int
+mkdir_locked(char *path)
+{
+  struct einode parent, existing;
+  uint32 ino;
+  char name[EXT2_NAME_MAX + 1];
+  int namelen;
+  if(!e2.ready || lookup(path, &ino, &existing) == 0 ||
+     lookupparent(path, &parent, name, &namelen) < 0)
+    return -1;
+  return mkdir_core(&parent, name, namelen, &ino);
 }
 
 int
@@ -1417,14 +1452,11 @@ ext2mkdir(char *path)
 }
 
 static int
-unlink_locked(char *path)
+unlink_core(struct einode *pp, const char *name, int namelen)
 {
-  struct einode parent, child;
+  struct einode parent = *pp, child;
   uint32 ino;
-  char name[EXT2_NAME_MAX + 1];
-  int namelen;
-  if(lookupparent(path, &parent, name, &namelen) < 0 ||
-     (namelen == 1 && name[0] == '.') ||
+  if((namelen == 1 && name[0] == '.') ||
      (namelen == 2 && name[0] == '.' && name[1] == '.') ||
      e2dirlookup(&parent, name, namelen, &ino) < 0 ||
      readinode(ino, &child) < 0 || child.links == 0)
@@ -1440,6 +1472,17 @@ unlink_locked(char *path)
     if(writeinode(&parent) < 0) return -1;
   }
   return drop_link(&child);
+}
+
+static int
+unlink_locked(char *path)
+{
+  struct einode parent;
+  char name[EXT2_NAME_MAX + 1];
+  int namelen;
+  if(lookupparent(path, &parent, name, &namelen) < 0)
+    return -1;
+  return unlink_core(&parent, name, namelen);
 }
 
 int
@@ -1470,15 +1513,12 @@ is_ancestor(uint32 dir, uint32 ino)
 }
 
 static int
-rename_locked(char *oldpath, char *newpath)
+rename_core(struct einode *op, const char *oldname, int oldlen,
+            struct einode *np, const char *newname, int newlen)
 {
-  struct einode oldparent, newparent, child, target;
+  struct einode oldparent = *op, newparent = *np, child, target;
   uint32 ino, tino;
-  char oldname[EXT2_NAME_MAX + 1], newname[EXT2_NAME_MAX + 1];
-  int oldlen, newlen;
-  if(lookupparent(oldpath, &oldparent, oldname, &oldlen) < 0 ||
-     lookupparent(newpath, &newparent, newname, &newlen) < 0 ||
-     (oldlen == 1 && oldname[0] == '.') ||
+  if((oldlen == 1 && oldname[0] == '.') ||
      (oldlen == 2 && oldname[0] == '.' && oldname[1] == '.') ||
      (newlen == 1 && newname[0] == '.') ||
      (newlen == 2 && newname[0] == '.' && newname[1] == '.') ||
@@ -1530,6 +1570,18 @@ rename_locked(char *oldpath, char *newpath)
   return 0;
 }
 
+static int
+rename_locked(char *oldpath, char *newpath)
+{
+  struct einode oldparent, newparent;
+  char oldname[EXT2_NAME_MAX + 1], newname[EXT2_NAME_MAX + 1];
+  int oldlen, newlen;
+  if(lookupparent(oldpath, &oldparent, oldname, &oldlen) < 0 ||
+     lookupparent(newpath, &newparent, newname, &newlen) < 0)
+    return -1;
+  return rename_core(&oldparent, oldname, oldlen, &newparent, newname, newlen);
+}
+
 int
 ext2rename(char *oldpath, char *newpath)
 {
@@ -1551,4 +1603,229 @@ ext2fsync(void)
   r = sdflush();
   releasesleep(&e2.lock);
   return r;
+}
+
+// ---------------------------------------------------------------------------
+// VFS inode operations (vfs.h).  The VFS keeps one struct inode per ext2
+// inode in use, with ip->inum = the ext2 inode number, so ext2 is mounted
+// like any other filesystem and can be the root.  Each in-memory inode holds
+// a slot in e2.open, which is what keeps an unlinked-but-open file alive
+// (drop_link() marks it orphan); evict() releases the slot.
+
+static void
+e2fill(struct inode *ip, struct einode *e)
+{
+  ip->type = (e->mode & EXT2_S_IFMT) == EXT2_S_IFDIR ? T_DIR : T_FILE;
+  ip->nlink = e->links;
+  ip->size = e->size;
+  ip->major = ip->minor = 0;
+}
+
+static int
+e2_read_inode(struct inode *ip)
+{
+  struct einode e;
+  int r = -1;
+  acquiresleep(&e2.lock);
+  if(readinode(ip->inum, &e) == 0){
+    int s = open_slot(ip->inum);
+    if(s < 0)
+      for(int i = 0; i < NFILE; i++)
+        if(e2.open[i].ref == 0){
+          s = i;
+          e2.open[s].ino = ip->inum;
+          e2.open[s].orphan = 0;
+          break;
+        }
+    if(s >= 0){
+      e2.open[s].ref++;
+      e2fill(ip, &e);
+      r = 0;
+    }
+  }
+  releasesleep(&e2.lock);
+  return r;
+}
+
+static void
+e2_evict(struct inode *ip)
+{
+  acquiresleep(&e2.lock);
+  int s = open_slot(ip->inum);
+  releasesleep(&e2.lock);
+  if(s >= 0)
+    ext2release(ip->inum);       // reclaims the inode if it is an orphan
+}
+
+static struct inode*
+e2_lookup(struct inode *dp, char *name)
+{
+  struct einode d;
+  uint32 ino;
+  acquiresleep(&e2.lock);
+  int ok = readinode(dp->inum, &d) == 0 &&
+           (d.mode & EXT2_S_IFMT) == EXT2_S_IFDIR &&
+           e2dirlookup(&d, name, strlen(name), &ino) == 0;
+  releasesleep(&e2.lock);
+  return ok ? iget(dp->dev, ino) : 0;
+}
+
+static struct inode*
+e2_create(struct inode *dp, char *name, short type, short major, short minor)
+{
+  struct inode *ip;
+  struct einode d;
+  uint32 ino;
+
+  ilock(dp);
+  ip = e2_lookup(dp, name);
+  iunlock(dp);
+  if(ip){
+    iput(dp);
+    ilock(ip);
+    if(type == T_FILE && ip->type == T_FILE)
+      return ip;                 // open(O_CREATE) of an existing file
+    iunlockput(ip);
+    return 0;
+  }
+  if(type != T_FILE && type != T_DIR){
+    iput(dp);                    // no device nodes on ext2
+    return 0;
+  }
+  acquiresleep(&e2.lock);
+  tx_begin();
+  int ok = readinode(dp->inum, &d) == 0 &&
+           (type == T_DIR ? mkdir_core(&d, name, strlen(name), &ino)
+                          : create_core(&d, name, strlen(name), &ino)) == 0;
+  int r = tx_end(ok);
+  int fresh = r == 0 && readinode(dp->inum, &d) == 0;
+  releasesleep(&e2.lock);
+  if(fresh){                     // directory grew / gained a link
+    ilock(dp);                   // (lock order: inode lock before e2.lock)
+    e2fill(dp, &d);
+    iunlock(dp);
+  }
+  iput(dp);
+  if(r < 0)
+    return 0;
+  ip = iget(dp->dev, ino);
+  ilock(ip);
+  return ip;
+}
+
+static int
+e2_unlink(struct inode *dp, char *name)
+{
+  struct einode d;
+  acquiresleep(&e2.lock);
+  tx_begin();
+  int ok = readinode(dp->inum, &d) == 0 &&
+           unlink_core(&d, name, strlen(name)) == 0;
+  int r = tx_end(ok);
+  releasesleep(&e2.lock);
+  return r;
+}
+
+static int
+e2_rename(struct inode *odp, char *oname, struct inode *ndp, char *nname)
+{
+  struct einode o, n;
+  acquiresleep(&e2.lock);
+  tx_begin();
+  int ok = readinode(odp->inum, &o) == 0 && readinode(ndp->inum, &n) == 0 &&
+           rename_core(&o, oname, strlen(oname), &n, nname, strlen(nname)) == 0;
+  int r = tx_end(ok);
+  releasesleep(&e2.lock);
+  return r;
+}
+
+static int
+e2_readdir(struct inode *dp, int index, char *name, uint *ino)
+{
+  static struct ext2_user_dirent de;   // protected by e2.lock
+  struct einode d;
+  int r = -1;
+  acquiresleep(&e2.lock);
+  if(readinode(dp->inum, &d) == 0 && (r = readdir_core(&d, index, &de)) > 0){
+    safestrcpy(name, de.name, NAMEMAX);
+    *ino = de.inode;
+  }
+  releasesleep(&e2.lock);
+  return r;
+}
+
+static int
+e2_read(struct inode *ip, int user_dst, uint64 dst, uint64 off, uint n)
+{
+  if(ip->type == T_DIR)
+    return vfs_dir_read(ip, user_dst, dst, off, n, e2_readdir);
+  char *page = kalloc();
+  int total = 0;
+  if(page == 0)
+    return -1;
+  while(total < (int)n){
+    int chunk = n - total > PGSIZE ? PGSIZE : n - total;
+    int got = ext2readino(ip->inum, off + total, page, chunk);
+    if(got <= 0)
+      break;
+    if(either_copyout(user_dst, dst + total, page, got) < 0){
+      total = total ? total : -1;
+      break;
+    }
+    total += got;
+    if(got < chunk)
+      break;
+  }
+  kfree(page);
+  return total;
+}
+
+static int
+e2_write(struct inode *ip, int user_src, uint64 src, uint64 off, uint n)
+{
+  if(ip->type != T_FILE)
+    return -1;
+  int r = ext2writeino(ip->inum, off, user_src, src, n);
+  if(r > 0 && off + r > ip->size)
+    ip->size = off + r;
+  return r;
+}
+
+static int
+e2_truncate(struct inode *ip, uint64 size)
+{
+  if(ip->type != T_FILE || ext2truncino(ip->inum, size) < 0)
+    return -1;
+  ip->size = size;
+  return 0;
+}
+
+static int
+e2_fsync(struct inode *ip)
+{
+  return ext2fsync();
+}
+
+static struct inode_ops ext2_iops = {
+  .read_inode = e2_read_inode,
+  .evict = e2_evict,
+  .lookup = e2_lookup,
+  .create = e2_create,
+  .unlink = e2_unlink,
+  .rename = e2_rename,
+  .read = e2_read,
+  .write = e2_write,
+  .truncate = e2_truncate,
+  .fsync = e2_fsync,
+};
+
+// Make the ext2 partition known to the VFS as the filesystem on block
+// device dev (mmcblk0pN).
+int
+ext2_register_super(int dev, int readonly)
+{
+  if(!e2.ready)
+    return -1;
+  return fs_super_register(dev, "ext2", &ext2_iops, EXT2_ROOT_INO,
+                           readonly, 0, 0, 0);
 }

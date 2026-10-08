@@ -10,6 +10,7 @@
 #include "spinlock.h"
 #include "sleeplock.h"
 #include "file.h"
+#include "vfs.h"
 #include "stat.h"
 #include "proc.h"
 #include "device.h"
@@ -91,8 +92,6 @@ fileclose(struct file *f)
     begin_op();
     iput(ff.ip);
     end_op();
-  } else if(ff.type == FD_VNODE){
-    vfsclose(ff.vn);
   } else if(ff.type == FD_SOCKET){
     if(ff.socket >= 0)
       net_tcp_close(ff.socket);
@@ -118,12 +117,6 @@ filestat(struct file *f, uint64 addr)
     if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;
-  } else if(f->type == FD_VNODE){
-    if(vfsstat(f->vn, &st) < 0)
-      return -1;
-    if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
-      return -1;
-    return 0;
   }
   return -1;
 }
@@ -143,19 +136,14 @@ fileread(struct file *f, uint64 addr, int n)
   } else if(f->type == FD_DEVICE){
     r = chrdev_read(f, 1, addr, n);
   } else if(f->type == FD_INODE){
-    if(f->off > 0xffffffffULL || (uint64)n > 0x100000000ULL - f->off)
-      return -1;
     ilock(f->ip);
-    if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
+    if((r = f->ip->iop->read(f->ip, 1, addr, f->off, n)) > 0)
       f->off += r;
     iunlock(f->ip);
   } else if(f->type == FD_PTY){
     r = ptyread(f->pty, f->pty_master, addr, n);
   } else if(f->type == FD_SOCKET){
     r = net_tcp_read(f->socket, addr, n, (f->flags & O_NONBLOCK) != 0);
-  } else if(f->type == FD_VNODE){
-    if((r = vfsread(f->vn, 1, addr, f->off, n)) > 0)
-      f->off += r;
   } else {
     panic("fileread");
   }
@@ -163,12 +151,44 @@ fileread(struct file *f, uint64 addr, int n)
   return r;
 }
 
+// Write n bytes from user address addr at offset off through the inode's
+// filesystem; returns the bytes written.  xv6fs writes go through the log a
+// few blocks per transaction (inode, indirect block, allocation blocks and
+// 2 blocks of slop for non-aligned writes must fit in one transaction);
+// other filesystems take the whole request.
+static int
+inode_write(struct inode *ip, uint64 addr, uint64 off, int n)
+{
+  struct super_block *sb = getsuper(ip->dev);
+  int max = (sb && sb->logged) ? ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE : n;
+  int i = 0;
+
+  if(ip->iop->write == 0)
+    return -1;
+  while(i < n){
+    int n1 = n - i;
+    if(n1 > max)
+      n1 = max;
+    begin_op();
+    ilock(ip);
+    int r = ip->iop->write(ip, 1, addr + i, off + i, n1);
+    iunlock(ip);
+    end_op();
+    if(r <= 0)
+      break;
+    i += r;
+    if(r != n1)
+      break;
+  }
+  return i;
+}
+
 // Write to file f.
 // addr is a user virtual address.
 int
 filewrite(struct file *f, uint64 addr, int n)
 {
-  int r, ret = 0;
+  int ret = 0;
 
   if(f->writable == 0)
     return -1;
@@ -178,38 +198,10 @@ filewrite(struct file *f, uint64 addr, int n)
   } else if(f->type == FD_DEVICE){
     ret = chrdev_write(f, 1, addr, n);
   } else if(f->type == FD_INODE){
-    if(f->off > 0xffffffffULL || (uint64)n > 0x100000000ULL - f->off)
-      return -1;
-    // write a few blocks at a time to avoid exceeding
-    // the maximum log transaction size, including
-    // i-node, indirect block, allocation blocks,
-    // and 2 blocks of slop for non-aligned writes.
-    // this really belongs lower down, since writei()
-    // might be writing a device like the console.
-    int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
-    int i = 0;
-    while(i < n){
-      int n1 = n - i;
-      if(n1 > max)
-        n1 = max;
-
-      begin_op();
-      ilock(f->ip);
-      if ((r = writei(f->ip, 1, addr + i, f->off, n1)) > 0)
-        f->off += r;
-      iunlock(f->ip);
-      end_op();
-
-      if(r != n1){
-        // error from writei
-        break;
-      }
-      i += r;
-    }
-    ret = (i == n ? n : -1);
-  } else if(f->type == FD_VNODE){
-    if((ret = vfswrite(f->vn, 1, addr, f->off, n)) > 0)
-      f->off += ret;
+    int done = inode_write(f->ip, addr, f->off, n);
+    if(done > 0)
+      f->off += done;
+    ret = (done == n ? n : -1);
   } else if(f->type == FD_SOCKET){
     ret = net_tcp_write(f->socket, addr, n, (f->flags & O_NONBLOCK) != 0);
   } else if(f->type == FD_PTY){
@@ -225,79 +217,48 @@ int
 filepread(struct file *f, uint64 addr, int n, uint64 off)
 {
   int r;
-  if(n < 0 || !f->readable)
+  if(n < 0 || !f->readable || f->type != FD_INODE)
     return -1;
-  if(f->type == FD_INODE){
-    if(off > 0xffffffffULL || (uint64)n > 0x100000000ULL - off)
-      return -1;
-    ilock(f->ip);
-    r = readi(f->ip, 1, addr, off, n);
-    iunlock(f->ip);
-    return r;
-  }
-  if(f->type == FD_VNODE)
-    return vfsread(f->vn, 1, addr, off, n);
-  return -1;
+  ilock(f->ip);
+  r = f->ip->iop->read(f->ip, 1, addr, off, n);
+  iunlock(f->ip);
+  return r;
 }
 
 int
 filepwrite(struct file *f, uint64 addr, int n, uint64 off)
 {
-  int r, done = 0;
-  if(n < 0 || !f->writable)
+  if(n < 0 || !f->writable || f->type != FD_INODE)
     return -1;
-  if(f->type == FD_VNODE)
-    return vfswrite(f->vn, 1, addr, off, n);
-  if(f->type != FD_INODE || off > 0xffffffffULL ||
-     (uint64)n > 0x100000000ULL - off)
-    return -1;
-  int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
-  while(done < n){
-    int chunk = n - done;
-    if(chunk > max) chunk = max;
-    begin_op();
-    ilock(f->ip);
-    r = writei(f->ip, 1, addr + done, off + done, chunk);
-    iunlock(f->ip);
-    end_op();
-    if(r != chunk)
-      return -1;
-    done += r;
-  }
-  return done;
+  int done = inode_write(f->ip, addr, off, n);
+  return done == n ? n : -1;
 }
 
 int
 filetruncate(struct file *f, uint64 size)
 {
-  if(!f->writable)
-    return -1;
-  if(f->type == FD_VNODE)
-    return vfsftruncate(f->vn, size);
-  if(f->type != FD_INODE || size != 0)
+  int r = -1;
+  if(!f->writable || f->type != FD_INODE)
     return -1;
   begin_op();
   ilock(f->ip);
-  if(f->ip->type != T_FILE){
-    iunlock(f->ip);
-    end_op();
-    return -1;
-  }
-  itrunc(f->ip);
+  if(f->ip->iop->truncate)
+    r = f->ip->iop->truncate(f->ip, size);
   iunlock(f->ip);
   end_op();
-  return 0;
+  return r;
 }
 
 int
 filefsync(struct file *f, int dataonly)
 {
+  int r = 0;
   (void)dataonly;
-  if(f->type == FD_VNODE)
-    return vfsfsync(f->vn);
-  if(f->type == FD_INODE)
-    // Native-root writes commit synchronously in filewrite(); this waits for
-    // the card's programming state and creates the storage ordering barrier.
-    return sdflush();
-  return -1;
+  if(f->type != FD_INODE)
+    return -1;
+  ilock(f->ip);
+  if(f->ip->iop->fsync)
+    r = f->ip->iop->fsync(f->ip);
+  iunlock(f->ip);
+  return r;
 }
