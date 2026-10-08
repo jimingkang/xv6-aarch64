@@ -8,8 +8,8 @@
   \item 块设备：从 ramdisk 到 SD 卡；\file{blkdev.c} 通用块设备层
   \item 根文件系统放在哪里；内核命令行 \code{root=} 与 PARTUUID
   \item Linux 式命名空间引导：rootfs、根目录 \code{/} 与根文件系统；PC（initramfs）与嵌入式 Linux 的对比；xv6 的 rootfs $\to$ devtmpfs $\to$ 根文件系统 $\to$ MS\_MOVE $\to$ chroot
-  \item inode 层挂载表：多设备 superblock、\code{fsmount}、\code{follow\_mount}/\code{follow\_dotdot}
-  \item VFS 中间层：procfs、ext2、FAT32、\code{/proc/mounts}、\code{/proc/cmdline}
+  \item 挂载表：多设备 superblock、\code{fsmount}、\code{follow\_mount}/\code{follow\_dotdot}
+  \item 统一 VFS：\code{super\_block}、\code{inode\_ops}、一张挂载表；xv6fs、ext2 与按路径的 FAT32/procfs/netfs
   \item FAT32 与启动分区：bootfs、BPB、FAT 表、目录项与长文件名
   \item xv6 根文件系统：superblock、inode、目录、路径查找与在线更新
   \item 烧录 SD 卡
@@ -17,16 +17,16 @@
 
 \section{分层结构}
 
-xv6 的文件系统是一叠职责单一的层（图~\ref{fig:fslayers}）。本项目保留了中间各层不动，在上面加了一层 VFS，在下面把块设备从 VirtIO 磁盘换成了真正的 SD 卡。
+xv6 的文件系统是一叠职责单一的层（图~\ref{fig:fslayers}）。本项目保留了日志、块缓存这些中间层，在 inode 层之上加了一层 Linux 式的 VFS（每个文件系统一张 \code{inode\_ops} 函数表），在下面把块设备从 VirtIO 磁盘换成了真正的 SD 卡。
 
 \begin{figure}[htbp]
   \centering
   \begin{tikzpicture}[node distance=2mm]
     \tikzset{layer/.style={box, minimum width=78mm, text width=74mm, align=left}}
     \node[layer] (sys) {\textbf{系统调用}\quad \code{open/read/write/mkdir/mount}};
-    \node[layer, below=of sys] (file) {\textbf{文件描述符}\quad \code{struct file}：inode、设备、管道、vnode、socket、PTY};
-    \node[layer, below=of file, fill=structurecolor!22] (vfs) {\textbf{VFS}\quad 路径前缀挂载表、\code{vnode\_ops}：procfs、ext2、FAT32};
-    \node[layer, below=of vfs] (path) {\textbf{路径名}\quad \code{namei}、\code{follow\_mount}/\code{follow\_dotdot}、inode 层挂载表};
+    \node[layer, below=of sys] (file) {\textbf{文件描述符}\quad \code{struct file}：inode、设备、管道、socket、PTY};
+    \node[layer, below=of file, fill=structurecolor!22] (vfs) {\textbf{VFS}\quad \code{super\_block}、\code{inode\_ops}：xv6fs、ext2、FAT32、procfs、netfs};
+    \node[layer, below=of vfs] (path) {\textbf{路径名}\quad \code{namex}$\to$\code{iop->lookup}、\code{follow\_mount}/\code{follow\_dotdot}、唯一的挂载表};
     \node[layer, below=of path] (inode) {\textbf{inode}\quad \code{ilock/readi/writei}、inode 缓存、多设备 superblock \code{sbs[]}};
     \node[layer, below=of inode] (log) {\textbf{日志}\quad \code{begin\_op/log\_write/end\_op}（RAM 盘直写，设备上的根文件系统走日志）};
     \node[layer, below=of log] (bio) {\textbf{块缓存}\quad \code{bread/bwrite}，\code{NBUF}=64，动态 4\,KiB 页};
@@ -369,7 +369,9 @@ main()                                 kernel/main.c：只在 CPU 0 上运行，
   iinit()                              初始化内存 inode 表
     loginit()                          提前建立日志锁：阶段二在根文件系统的
                                        日志就绪之前，就要往 RAM 盘里写东西
-    fs_mountinit()                     初始化 inode 层挂载表的锁，表为空
+    fs_mountinit()                     初始化挂载表的锁，表为空；所有文件系统
+                                       （xv6fs、ext2、FAT32、procfs）都登记在
+                                       这一张表里
   fat32init()                          FAT32 驱动的全局状态
   rootdev_init()                       ======== 阶段一（6.6.6）========
     blkdev_init()                      建立块设备表；登记主设备号 BLOCKDEV，
@@ -389,7 +391,7 @@ main()                                 kernel/main.c：只在 CPU 0 上运行，
                                        为 root_blk_rw()：设备 1 的块 B 就是
                                        卡上扇区 root.lba + 2B（一块 = 两扇区）
   ext2init()                           ext2 驱动探测 p3，留给 /mnt/ext2 使用
-  vfsinit()                            清空路径前缀挂载表
+  vfsinit()                            初始化 netfs；VFS 不再有自己的挂载表
   userinit()                           造出第一个进程，当前目录暂时为空
   scheduler()                          调度第一个进程，它从 forkret() 开始运行
 forkret()                              kernel/proc.c：从这里起可以睡眠，
@@ -411,7 +413,9 @@ forkret()                              kernel/proc.c：从这里起可以睡眠�
                                        把名字换成块设备号
          fsinit(1)                     读设备 1 的超级块并恢复日志：
                                        bread(1, 1) -> blk_rw() -> root_blk_rw()
-                                       -> sdsector(root.lba + 2)，落在 p2 上
+                                       -> sdsector(root.lba + 2)，落在 p2 上；
+                                       同时登记 super_block：类型 xv6fs，
+                                       函数表 xv6_iops，根 inode 号 1
          fs_mount(/root, 1)            登记一项挂载：设备 1 的根目录盖住
                                        rootfs 的 /root 目录
        kchdir("/root")                 当前目录进入根文件系统的根目录
@@ -452,34 +456,37 @@ main()
 forkret()
   prepare_namespace()                  ======== 阶段二 ========
     1. rootfs  2. devtmpfs             与 xv6fs 根完全相同
-    3'. kmknod("/dev/root", BLOCKDEV, 5)
+    3. kmknod("/dev/root", BLOCKDEV, 5)
                                   (c') 节点 /dev/root 的次设备号是 5，
                                        即 mmcblk0p3，而不是设备 1
-       mount_ext2_root("/dev/root", "/")
-                                       参数形式与 mount_root() 相同，但目录是
-                                       "/"：ext2 不能 MS_MOVE，只能直接挂到 /
+       mount_root("/dev/root", "/root")
+                                       与 xv6fs 根是同一个函数、同样的参数
          node_to_blkdev("/dev/root")   找到节点，读出次设备号 5
+         rootdev_fstype() == EXT2      按 rootfstype= 选择文件系统类型
          blkdev_get(5)->start     (d') 核对设备 5 的起始扇区等于 e2.part_lba，
                                        确认节点和 ext2 驱动指的是同一个分区
-         vfsmount("/dev/root", "/", "ext2")
-                                       在路径前缀表里登记 "/"：优先级最低，
-                                       没有更长前缀匹配的路径都交给 ext2
-       devtmpfs_mount("/dev")          新的根挂好以后再挂 /dev。挂载点只能是
-                                       rootfs 的 /dev（ext2 的目录不是 xv6
-                                       inode）；fs_native_covers() 让 /dev
-                                       开头的路径绕过 ext2，进入 devtmpfs
-    （没有第 4 步）                    rootfs 除 /dev 之外已被 ext2 遮住，
-                                       不需要 MS_MOVE 和 chroot
+         ext2_register_super(5)        登记 super_block：类型 ext2，函数表
+                                       ext2_iops，根 inode 号 2（EXT2_ROOT_INO）
+         fs_mount(/root, 5)            登记一项挂载：设备 5 的根目录盖住
+                                       rootfs 的 /root 目录
+       kchdir("/root")                 当前目录进入 ext2 的根目录
+       kmknod("dev")                   ext2 上没有 /dev 就建一个空目录
+                                       （经 e2_create()，作挂载点用）
+       devtmpfs_mount("dev")           devtmpfs 挂到 ext2 自己的 /dev 上，
+                                       此时它的路径是 /root/dev
+    4. fs_move_mount(".", "/")         MS_MOVE 与 chroot，与 xv6fs 根完全相同：
+       fs_set_root(当前目录)           "/" 改指 ext2 的根目录
   blkdev_selftest()、usertrapret()     与 xv6fs 根相同
 initcode：exec("/init")                ======== 阶段三 ========
-                                       /init 由 ext2 提供，其后与 xv6fs 根相同
+                                       namex() 经 e2_lookup() 在 ext2 里找到
+                                       /init，其后与 xv6fs 根相同
 \end{txtcode}
 
-\paragraph{ext2 根的 (a$'$)--(d$'$).} (a$'$) 只记下分区号 3。真正打开分区的是 ext2 驱动自己：(b$'$) \code{ext2init()} 在阶段一就把 p3 的起点记进 \code{e2.part\_lba}，此后 ext2 直接按这个起点读卡，不经过块设备表。阶段二的 (c$'$) 让 \code{/dev/root} 的次设备号指向块设备 5（\code{mmcblk0p3}），(d$'$) \code{mount\_ext2\_root()} 解析这个节点，核对块设备 5 的起点与 ext2 驱动已打开的分区一致，再以 \code{/dev/root} 为来源挂到 \code{/}。
+\paragraph{ext2 根的 (a$'$)--(d$'$).} (a$'$) 只记下分区号 3。真正打开分区的是 ext2 驱动自己：(b$'$) \code{ext2init()} 在阶段一就把 p3 的起点记进 \code{e2.part\_lba}，此后 ext2 直接按这个起点读卡，不经过块设备表。阶段二的 (c$'$) 让 \code{/dev/root} 的次设备号指向块设备 5（\code{mmcblk0p3}），(d$'$) \code{mount\_root()} 解析这个节点，核对块设备 5 的起点与 ext2 驱动已打开的分区一致，然后登记 ext2 的 \code{super\_block} 并把它挂到 \code{/root}。从这里开始，ext2 根与 xv6fs 根走的是同一条路：\code{kchdir}、在新根的 \code{/dev} 上挂 devtmpfs、MS\_MOVE、chroot。两张调用链图的差别只剩阶段一里“分区由谁打开”和 \code{mount\_root()} 里“用哪个文件系统读它”。
 
 注意 xv6 的“设备 1”和 Linux 的 \code{ROOT\_DEV} 不完全相同：设备 1 名叫 \code{root}，但它永远是 \emph{xv6 格式}的那个分区，供 \code{/dev/sdroot} 和 ext2 的外置日志使用；\code{/dev/root} 才对应 Linux 的 \code{ROOT\_DEV}，即“这次启动用作根文件系统的设备”——xv6fs 根时它是设备 1，ext2 根时它是设备 5。
 
-可以把这三个阶段和图~\ref{fig:three-roots} 对上：阶段一结束时，内核只知道根文件系统在哪个分区，\code{/} 还不存在；阶段二的第 1 步让 \code{/} 指向 rootfs（图中阶段 1），第 3 步把根文件系统挂到 \code{/root}（图中阶段 2），第 4 步 MS\_MOVE 和 chroot 之后 \code{/} 指向根文件系统（图中阶段 3）；ext2 根在第 3$'$ 步直接到达与图中阶段 3 等效的状态。阶段三在这棵树上继续挂其他文件系统。
+可以把这三个阶段和图~\ref{fig:three-roots} 对上：阶段一结束时，内核只知道根文件系统在哪个分区，\code{/} 还不存在；阶段二的第 1 步让 \code{/} 指向 rootfs（图中阶段 1），第 3 步把根文件系统挂到 \code{/root}（图中阶段 2），第 4 步 MS\_MOVE 和 chroot 之后 \code{/} 指向根文件系统（图中阶段 3）。xv6fs 根和 ext2 根都完整地走这三个阶段。阶段三在这棵树上继续挂其他文件系统。
 
 \subsection{阶段一：\code{main()} 中登记块设备、选出 ROOTDEV}
 \label{sec:ns-stage1}
@@ -511,7 +518,7 @@ struct blkdev {
 
 从此 \code{bio.c} 的读写入口是 \code{blk\_rw(b, write)}：按 \code{b->dev} 查表，调用该设备的回调。为了容纳 ext2 的 4\,KiB 块，\code{buf.data} 从静态数组改为 \code{kalloc()} 分配的页，\code{NBUF} 从 30 扩到 64；新增的 \code{buf.error} 让非根设备的 I/O 失败只置位而不 panic，根设备失败仍 panic。
 
-阶段一结束时，ROOTDEV 已经\emph{指向}根文件系统所在的分区，但它的超级块还没有被读过，\code{/} 也还不存在。随后 \code{ext2init()} 用 \code{rootdev\_ext2\_part()} 和 \code{rootdev\_raw\_info()} 找 ext2 分区及其外置日志，\code{vfsinit()} 清空路径前缀挂载表，\code{userinit()} 造出第一个进程，此时它的当前目录还是空的。
+阶段一结束时，ROOTDEV 已经\emph{指向}根文件系统所在的分区，但它的超级块还没有被读过，\code{/} 也还不存在。随后 \code{ext2init()} 用 \code{rootdev\_ext2\_part()} 和 \code{rootdev\_raw\_info()} 找 ext2 分区及其外置日志，\code{vfsinit()} 初始化 netfs，\code{userinit()} 造出第一个进程，此时它的当前目录还是空的。
 
 \begin{note}
   块设备文件（\code{/dev/mmcblk0p2} 等）经过 buffer cache，用户态只读（替换根镜像仍用 \code{/dev/sdroot}）；\code{lseek(fd, 0, SEEK\_END)} 返回分区大小。它们的节点由阶段二的 devtmpfs 建出来。
@@ -545,7 +552,7 @@ struct blkdev {
 
 \paragraph{第 2 步：devtmpfs.} \code{devtmpfs\_init()} 用同样的办法建出 ram1（dev 8），遍历已注册的字符设备（\code{chrdev\_name()} 给出 \code{console}、\code{input/event0} 这样的路径）和块设备表，为每个设备建一个节点。之后才注册的驱动由 \code{devtmpfs\_notify()} 交给工作队列补建。此时 devtmpfs 还没挂到任何地方。
 
-\paragraph{第 3 步：挂上根文件系统.} 先在 rootfs 里建设备节点 \code{/dev/root}（主设备号 \code{BLOCKDEV}，次设备号 1，\ref{sec:ns-callchain} 节调用链中的 (c)）。\code{mount\_root()} 用 \code{node\_to\_blkdev()} 找到这个节点，从 inode 的次设备号得到设备号 1 (d)，再调用 \code{fsinit(1)}：读超级块并检查魔数，然后 \code{initlog()} 恢复日志，这一步对应 Linux 的 \code{fill\_super}。这些读操作经 \code{blk\_rw()} 进入阶段一登记的 \code{root\_blk\_rw()}，落到 p2 上。最后 \code{fs\_mount()} 把设备 1 上文件系统的根目录挂到 rootfs 的 \code{/root} 上，启动日志打印：
+\paragraph{第 3 步：挂上根文件系统.} 先在 rootfs 里建设备节点 \code{/dev/root}（主设备号 \code{BLOCKDEV}，次设备号 1，\ref{sec:ns-callchain} 节调用链中的 (c)；ext2 根时是 5）。\code{mount\_root()} 用 \code{node\_to\_blkdev()} 找到这个节点，从 inode 的次设备号得到设备号 1 (d)，再调用 \code{fsinit(1)}：读超级块并检查魔数，然后 \code{initlog()} 恢复日志，这一步对应 Linux 的 \code{fill\_super}。这些读操作经 \code{blk\_rw()} 进入阶段一登记的 \code{root\_blk\_rw()}，落到 p2 上。\code{fsinit()} 同时为设备 1 登记一个 \code{super\_block}（\ref{sec:vfs} 节），记下它是 xv6fs、用 \code{xv6\_iops}。最后 \code{fs\_mount()} 把设备 1 上文件系统的根目录挂到 rootfs 的 \code{/root} 上，启动日志打印：
 
 \begin{txtcode}
 VFS: Mounted root (xv6fs filesystem) on device 1 (/dev/root = mmcblk0p2).
@@ -560,13 +567,13 @@ VFS: Mounted root (xv6fs filesystem) on device 1 (/dev/root = mmcblk0p2).
 \subsection{支撑这四步的机制：超级块、日志、挂载表与 \code{namex()}}
 \label{sec:ns-mech}
 
-上面四步调用的 \code{fs\_readsuper()}、\code{fs\_mount()}、\code{fs\_move\_mount()}、\code{fs\_set\_root()} 都在 \file{fs.c}。原来的 xv6 只有一个根文件系统，所以既不需要挂载表，路径解析也直接从常量 \code{iget(ROOTDEV, ROOTINO)} 开始；现在同一时刻有三个 xv6 文件系统（rootfs、devtmpfs、根文件系统），这几处都要改。
+上面四步调用的 \code{fs\_readsuper()}、\code{fs\_mount()}、\code{fs\_move\_mount()}、\code{fs\_set\_root()} 都在 \file{fs.c}。原来的 xv6 只有一个根文件系统，所以既不需要挂载表，路径解析也直接从常量 \code{iget(ROOTDEV, ROOTINO)} 开始；现在同一时刻有三个文件系统（rootfs、devtmpfs、根文件系统，都用 xv6fs 磁盘格式），这几处都要改。
 
-\paragraph{每个设备一份超级块（第 1、2、3 步）.} 全局的 \code{struct superblock sb} 改为 \code{sbs[NBLKDEV]}，\code{balloc}、\code{ialloc}、\code{ilock} 等通过 \code{getsb(dev)} 取得对应设备的超级块。\code{fs\_readsuper(dev)} 读块 1、检查魔数并存入 \code{sbs[dev]}；\code{fsinit(dev)} 在它之后再做日志恢复。
+\paragraph{每个设备一份超级块（第 1、2、3 步）.} 全局的 \code{struct superblock sb} 改为 \code{sbs[NBLKDEV]}，\code{balloc}、\code{ialloc} 等通过 \code{getsb(dev)} 取得对应设备的 xv6 磁盘超级块。\code{fs\_readsuper(dev)} 读块 1、检查魔数并存入 \code{sbs[dev]}，同时在 VFS 的 \code{supers[]} 里登记一个内存中的 \code{super\_block}（类型、函数表、根 inode 号，\ref{sec:vfs} 节）；\code{fsinit(dev)} 在它之后再做日志恢复。前者是 xv6fs 自己的磁盘格式，后者是所有文件系统共用的“实例描述”，相当于 Linux 里 \code{struct ext2\_sb\_info} 与 \code{struct super\_block} 的关系。
 
 \paragraph{只有根文件系统有日志（第 1、2 步先于第 3 步）.} 第 1、2 步在 rootfs 和 devtmpfs 里建目录和节点时，根文件系统的日志还没初始化（那是第 3 步的事）。因此日志锁改由 \code{iinit()} 里的 \code{loginit()} 提前建立，\code{log\_write()} 遇到不属于日志设备的块（\code{log.size==0 || b->dev!=log.dev}）就直接 \code{bwrite()} 写穿。RAM 盘的内容重启即消失，不需要崩溃一致性。
 
-\paragraph{挂载表与路径穿越（第 3、4 步）.} \file{fs.c} 新增一张 inode 层的挂载表，每项记录“目录 \code{mp} 被设备 \code{dev} 的根目录覆盖”：
+\paragraph{挂载表与路径穿越（第 3、4 步）.} \file{fs.c} 新增一张挂载表，每项记录“目录 \code{mp} 被设备 \code{dev} 的根目录覆盖”。这是系统里\emph{唯一}的挂载表：rootfs 上的根文件系统、devtmpfs，以及阶段三挂上的 procfs、FAT32、ext2 都是其中的一项：
 
 \begin{ccode}
 // kernel/fs.c
@@ -590,7 +597,7 @@ if(namecmp(name, "..") == 0)
     ip = follow_dotdot(ip);
 \end{ccode}
 
-第 3 步的 \code{fs\_mount()} 往表里加一项，于是解析 \code{/root/...} 时，\code{follow\_mount()} 会在 \code{root} 这一级从 rootfs 跳进 ROOTDEV。第 4 步的 \code{fs\_move\_mount()} 只是把这一项的 \code{mp} 从 rootfs 的 \code{/root} 改成 rootfs 的根目录，并把所有子挂载的显示路径一并改写（\code{/root/dev} $\to$ \code{/dev}）。
+第 3 步的 \code{fs\_mount()} 往表里加一项，于是解析 \code{/root/...} 时，\code{follow\_mount()} 会在 \code{root} 这一级从 rootfs 跳进 ROOTDEV。“是不是某个文件系统的根目录”由 \code{isfsroot()} 判断：比较的是该设备 \code{super\_block} 里的 \code{rootino}（xv6fs 为 1，ext2 为 2），所以同样的跳转对 ext2 也成立。同一个文件系统不能挂两次，\code{fs\_mount()} 发现设备已在表里就拒绝。第 4 步的 \code{fs\_move\_mount()} 只是把这一项的 \code{mp} 从 rootfs 的 \code{/root} 改成 rootfs 的根目录，并把所有子挂载的显示路径一并改写（\code{/root/dev} $\to$ \code{/dev}）。
 
 \paragraph{\code{/} 从哪里开始（第 1、4 步）.} \code{namex()} 解析绝对路径时调用 \code{rootdir()}，它返回 \code{fs\_root}——第 1 步设为 rootfs 的根目录，第 4 步由 \code{fs\_set\_root()} 改为根文件系统的根目录。以切换后的两个路径为例：
 
@@ -600,40 +607,45 @@ namei("/dev/tty")   rootdir() = (dev 1, inode 1)  -> dev
                     follow_mount: dev 被覆盖 -> (dev 8, inode 1) -> tty  devtmpfs
 \end{txtcode}
 
-\code{follow\_dotdot()} 遇到 \code{fs\_root} 时原地不动，所以 \code{/..} 仍是 \code{/}，进程无法退回被压住的 rootfs。另外，\code{fs\_create()} 从 \file{sysfile.c} 的 \code{create()} 中提取出来，供 \code{kmknod()} 和系统调用共用；\code{sys\_unlink()} 用 \code{fs\_is\_mountpoint()} 拒绝删除挂载点。
+\code{follow\_dotdot()} 遇到 \code{fs\_root} 时原地不动，所以 \code{/..} 仍是 \code{/}，进程无法退回被压住的 rootfs。另外，\code{fs\_create()} 是 \code{kmknod()} 和系统调用共用的入口，它检查文件系统是否可写，再调用目录所在文件系统的 \code{iop->create}；\code{sys\_unlink()}、\code{sys\_rename()} 用 \code{fs\_is\_mountpoint()} 拒绝删除或移走挂载点。
 
 \subsection{阶段二的另一条分支：ext2 作为根文件系统}
 \label{sec:ext2-root}
 
-\code{rootfstype=} 可以是 \code{xv6fs}（默认）或 \code{ext2}，写成别的值只引出一行警告，仍按 xv6fs 启动。把 \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}，p3 上的 ext2（第~\ref{chap:optional} 章）就成为 \code{/}。调用链在三个地方分叉：
+\code{rootfstype=} 可以是 \code{xv6fs}（默认）或 \code{ext2}，写成别的值只引出一行警告，仍按 xv6fs 启动。把 \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}，p3 上的 ext2（第~\ref{chap:optional} 章）就成为 \code{/}。有了统一的 VFS（\ref{sec:vfs} 节），ext2 根和 xv6fs 根只在两个地方不同：
 
 \begin{enumerate}
   \item 阶段一，\code{rootdev\_init()} 记下 ext2 根所在的分区（\code{rootdev\_ext2\_part()}），但仍然寻找 xv6 分区并登记设备 1：\code{/dev/sdroot} 和 ext2 的外置日志都在那里；找不到也不 panic。随后 \code{ext2init()} 优先尝试这个分区，并记下它的起始扇区；
-  \item 阶段二，第 1、2 步照常执行，然后 \code{prepare\_namespace()} 检查 \code{rootdev\_fstype()}，在 rootfs 里建 \code{/dev/root}，次设备号指向 \code{mmcblk0p3}（设备 5），然后调用 \code{mount\_ext2\_root("/dev/root", "/")}：它和 \code{mount\_root()} 一样先用 \code{node\_to\_blkdev()} 把名字换成设备号，核对设备 5 的起点与 ext2 驱动打开的分区一致，再 \code{vfsmount("/dev/root", "/", "ext2")}。新的根文件系统挂好之后，才执行 \code{devtmpfs\_mount("/dev")}，让新根下的 \code{/dev} 由 devtmpfs 提供，相当于 xv6fs 分支里在 \code{/root/dev} 上挂 devtmpfs。不同的是挂载点记在哪里：ext2 的目录不是 xv6 inode，进不了 inode 层挂载表，所以挂载点只能是 rootfs 的 \code{/dev} 目录；路径解析时 \code{fs\_native\_covers()} 让 \code{/dev} 开头的路径绕过 ext2，经 rootfs 进入 devtmpfs。在用户看来，\code{/dev} 就是挂在新根上的 devtmpfs，ext2 里原有的 \code{/dev}（如果有）被遮住。这一支不再执行第 3、4 步。两个函数的参数形式相同，只是目录不同：xv6fs 根先挂到 \code{/root}，因为它是 inode 层的挂载，之后可以 MS\_MOVE 到 \code{/}；ext2 挂在路径前缀表里，不能 MS\_MOVE，所以直接挂到 \code{/}；
-  \item 路径解析时，\code{findmount()} 把挂在 \code{/} 的文件系统当作优先级最低的一项：比它长的前缀（\code{/proc}、\code{/boot}、\code{/mnt/ext2}）先匹配；落在 inode 层挂载点下的路径（\code{fs\_native\_covers()}，即 \code{/dev}）不交给 ext2，仍由 \code{namei()} 从 rootfs 进入 devtmpfs。
+  \item 阶段二，\code{prepare\_namespace()} 让 \code{/dev/root} 指向 \code{mmcblk0p3}（设备 5），\code{mount\_root()} 按 \code{rootdev\_fstype()} 选择 ext2：核对分区后调用 \code{ext2\_register\_super(5)}，而不是 \code{fsinit()}。
 \end{enumerate}
 
-为什么不走 MS\_MOVE？ext2 不是 xv6 inode 文件系统，它挂在 \file{vfs.c} 的路径前缀表里，无法成为 \code{fs\_set\_root()} 的目标。好在除了 \code{/dev} 之外，rootfs 已被 ext2 完全遮住，效果与切换相同。\code{exec} 和当前目录早已走 VFS（\ref{sec:vfs} 节），\code{init}、\code{sh}、\code{login} 不用改：
+其余步骤完全相同：ext2 先挂到 rootfs 的 \code{/root}，\code{kchdir("/root")}，在 ext2 自己的 \code{/dev} 上挂 devtmpfs（目录不存在时内核经 \code{e2\_create()} 建出它），再 MS\_MOVE 和 chroot。
+
+\begin{note}
+  早先的实现不是这样。那时 ext2 只能挂在 \file{vfs.c} 的“路径前缀挂载表”里，它的目录不是 xv6 inode，既进不了 \file{fs.c} 的挂载表，也不能成为 MS\_MOVE 和 chroot 的对象，只好用 \code{mount\_ext2\_root()} 直接挂到 \code{/}，devtmpfs 则挂在被遮住的 rootfs 的 \code{/dev} 上，再靠 \code{fs\_native\_covers()} 让 \code{/dev} 开头的路径绕过 ext2。两张挂载表、两套路径解析，正是把 VFS 改成 Linux 那样“每个文件系统一张函数表、一张挂载表”的直接原因；改完以后这些特殊处理全部删掉了。
+\end{note}
+
+\code{exec} 和当前目录本来就按 inode 工作（\ref{sec:vfs-cwd} 节），\code{init}、\code{sh}、\code{login} 不用改。启动日志：
 
 \begin{txtcode}
 Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
 rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
 ext2: p3 ready rw start=1884160 sectors=248463360 block=4096 groups=948
-devtmpfs: mounted
-vfs: mounted ext2 at / read-write
 VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
 \end{txtcode}
 
 ext2 分区里要有 \code{/init} 和 \code{/bin} 下的程序。\code{make install-rpi3-ext2root RPI3\_EXT2\_DEV=/dev/rdisk4s3} 用 e2fsprogs 的 \code{debugfs} 把它们写进去，不重新格式化，分区上原有的文件（如 \code{video/}）不受影响；\code{/etc} 下的配置由 \code{init} 第一次启动时创建。
 
-限制：ext2 上没有设备节点和硬链接，\code{mknod}、\code{link} 只在 \code{/dev} 里有效；\file{/etc/fstab} 仍会把同一个 ext2 再挂到 \code{/mnt/ext2}，两处看到的是同一份内容；根目录下看不到 \code{dev}（它在 rootfs 里），但 \code{ls /dev}、\code{cd /dev} 都正常。回到 xv6fs 根文件系统只需把 \file{cmdline\_xv6.txt} 改回 \code{rootfstype=xv6fs}（或删掉它）。
+限制：ext2 驱动没有实现设备节点和硬链接（\code{ext2\_iops} 里没有 \code{link}，\code{create} 拒绝 \code{T\_DEVICE}），所以 \code{mknod} 只在 devtmpfs 的 \code{/dev} 里有效；\file{/etc/fstab} 里“ext2 挂到 \code{/mnt/ext2}”那一行会失败，因为同一个文件系统已经挂在 \code{/}，挂载表不允许挂两次，启动时会看到一行 \code{vfs: cannot mount ext2 at /mnt/ext2}，不影响使用。回到 xv6fs 根文件系统只需把 \file{cmdline\_xv6.txt} 改回 \code{rootfstype=xv6fs}（或删掉它）。
 
 \subsection{阶段三：\code{/init} 与用户态看到的结果}
 \label{sec:ns-stage3}
 
-initcode 执行 \code{exec("/init")}。这时 \code{namex()} 从 \code{fs\_root} 出发，找到的是根文件系统里的 \code{/init}（ext2 分支下则由 \code{findmount()} 交给 ext2）。\code{/init} 先打开 \code{/dev/ttyS0}：devtmpfs 已经提供了节点，它不再 \code{mknod}，只有在打不开时（旧内核、没有 devtmpfs）才退回在根文件系统上建静态节点。然后 \code{mount\_fstab()} 读 \file{/etc/fstab}，经 \code{sys\_mount()} $\to$ \code{vfsmount()} 把 procfs、FAT32 和 ext2 挂到路径前缀表里。
+initcode 执行 \code{exec("/init")}。这时 \code{namex()} 从 \code{fs\_root} 出发，用根文件系统自己的 \code{lookup}（xv6fs 是 \code{xv6\_lookup()}，ext2 是 \code{e2\_lookup()}）找到 \code{/init}。\code{/init} 先打开 \code{/dev/ttyS0}：devtmpfs 已经提供了节点，它不再 \code{mknod}，只有在打不开时（旧内核、没有 devtmpfs）才退回在根文件系统上建静态节点。然后 \code{mount\_fstab()} 读 \file{/etc/fstab}，经 \code{sys\_mount()} $\to$ \code{vfsmount()} 为 procfs、FAT32 和 ext2 登记 \code{super\_block}，再用 \code{fs\_mount()} 挂进同一张挂载表。
 
-两张挂载表的内容都可以从 procfs 看到。\code{/proc/mounts} 先列 inode 层挂载（\code{fs\_mounts\_format()}），再列路径前缀挂载；\code{/proc/cmdline} 是 \code{cmdline\_get\_all()} 的内容：
+挂载表的内容可以从 procfs 看到：\code{/proc/mounts} 就是 \code{fs\_mounts\_format()} 的输出，\code{ro}/\code{rw} 取自各自的 \code{super\_block}；\code{/proc/cmdline} 是 \code{cmdline\_get\_all()} 的内容：
 
 \begin{txtcode}
 $ cat /proc/cmdline
@@ -646,7 +658,205 @@ bootfs /boot fat32 rw 0 0
 ext2 /mnt/ext2 ext2 rw 0 0
 \end{txtcode}
 
-rootfs（ram0）被根文件系统盖住以后不再列出，和新版 Linux 一致；\code{/dev/root} 这个名字只存在于 rootfs 里，正是 Linux 的习惯。ext2 分支下，第一行是 \code{devtmpfs /dev}，第二行是 \code{/dev/root / ext2}。
+rootfs（ram0）被根文件系统盖住以后不再列出，和新版 Linux 一致；\code{/dev/root} 这个名字只存在于 rootfs 里，正是 Linux 的习惯。ext2 分支下，第一行是 \code{/dev/root / ext2 rw 0 0}，第二行同样是 \code{devtmpfs /dev}，只是少了 \code{/mnt/ext2} 那一行。
+
+\subsection{用 fs-trace 看三个文件系统}
+\label{sec:fs-trace}
+
+前面几节讲的是代码怎么走，这一节换个角度：打开 \file{kernel/fs\_trace.h} 里的跟踪开关，启动一次，把内核打印的 \code{fs-trace:} 日志整理出来，看看启动结束时三个文件系统在“磁盘”上到底是什么样子。日志里有这几类记录：
+
+\begin{itemize}
+  \item \code{fill\_super}：读块 1 得到的磁盘 superblock 各字段；\code{register\_super}：登记到 VFS 的 \code{super\_block}；
+  \item \code{iget\_path}/\code{xv6\_read\_inode}：inode 缓存是否命中，以及 dinode 在哪个磁盘块的第几个位置；
+  \item \code{bmap}：文件块号经 \code{addrs[]} 换成磁盘块号；
+  \item \code{dirlookup}：逐项读出的目录项（偏移、名字、inode 号），以及命中或未命中。
+\end{itemize}
+
+这次启动用的是 xv6fs 根（\code{root=/dev/mmcblk0p2}），日志共 4408 行。下面只看三个文件系统：rootfs（dev 7）、devtmpfs（dev 8）和根文件系统（dev 1）。它们是三个不同的文件系统：rootfs 和 devtmpfs 是内核在启动时用 \code{ramfs\_mkfs()} 在内存盘 ram0、ram1 上现做出来的，内容随启动生成、重启即消失，各有自己的用途；根文件系统是 \code{mkfs} 预先做好、烧在 SD 卡 p2 上的 \file{fs.img}。三者只是借用了同一种磁盘格式（xv6fs）和同一张函数表 \code{xv6\_iops}，所以日志里的 \code{type} 都是 \code{xv6fs}，superblock 的字段也一样。表~\ref{tab:fstrace-sb} 是三者的 superblock。
+
+\begin{table}[htbp]
+  \centering
+  \caption{日志中三个文件系统的 superblock（\code{fill\_super} 与 \code{register\_super}）}
+  \label{tab:fstrace-sb}
+  \small
+  \begin{tabular}{@{}lrrrl@{}}
+    \toprule
+    字段 & rootfs（dev 7） & devtmpfs（dev 8） & 根文件系统（dev 1） & 含义 \\
+    \midrule
+    \code{magic}      & \code{10203040} & \code{10203040} & \code{10203040} & 格式标识 \\
+    \code{size}       & 32 & 64 & 32768 & 总块数 \\
+    \code{nblocks}    & 27 & 57 & 32718 & 数据块数 \\
+    \code{ninodes}    & 16 & 48 & 200 & inode 数 \\
+    \code{nlog}       & 0 & 0 & 30 & 日志块数 \\
+    \code{logstart}   & 2 & 2 & 2 & 日志起始块 \\
+    \code{inodestart} & 2 & 2 & 32 & inode 区起始块 \\
+    \code{bmapstart}  & 4 & 6 & 45 & 位图起始块 \\
+    \midrule
+    来源 & ram0 & ram1 & mmcblk0p2 & \\
+    \code{rootino}    & 1 & 1 & 1 & VFS 根 inode 号 \\
+    日志所在行 & 1 & 215 & 2182 & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+每块 1024 字节，dinode 64 字节，所以一块放 16 个 dinode；inode 区占 $\lfloor\code{ninodes}/16\rfloor+1$ 块，位图占 $\lfloor\code{size}/8192\rfloor+1$ 块，其后才是数据区。按这个规则算出的区间见表~\ref{tab:fstrace-layout}。数据区的第一块分别是 5、7、50，正好是三个根目录 inode 的 \code{addrs[0]}——日志里 \code{root inode loaded} 之后打印的就是这个值，两边对得上，说明 \code{ramfs\_mkfs()} 和 \code{mkfs} 都是按同一个布局写的。
+
+\begin{table}[htbp]
+  \centering
+  \caption{按 superblock 算出的块区间}
+  \label{tab:fstrace-layout}
+  \small
+  \begin{tabular}{@{}lllllll@{}}
+    \toprule
+    & boot & super & 日志 & inode 区 & 位图 & 数据区 \\
+    \midrule
+    rootfs（dev 7）   & 0 & 1 & -- & 2--3 & 4 & 5--31 \\
+    devtmpfs（dev 8） & 0 & 1 & -- & 2--5 & 6 & 7--63 \\
+    根文件系统（dev 1） & 0 & 1 & 2--31 & 32--44 & 45--49 & 50--32767 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+由 inode 号也能直接算出 dinode 的位置：块号 $=\code{inodestart}+\lfloor\code{ino}/16\rfloor$，块内第 $\code{ino} \bmod 16$ 个，字节偏移再乘 64。例如根文件系统的 \code{/bin/wifi} 是 ino 25，日志里 \code{xv6\_read\_inode: dev=1 ino=25 disk-block=33 slot-in-block=9}，正是 $32+1$ 块的第 9 个。
+
+下面三张图把日志里读到过的 inode 和块画在一起。左边是 inode 区，每行一个 dinode：槽号、inode 号、路径和类型；右边是数据区，目录块逐项列出目录项。黑色箭头是 inode 的 \code{addrs[]} 指向数据块，蓝色箭头是目录项里的 inode 号指回 inode 区；绿色底的目录项是这次启动时新建的。读法和 ext2 的 inode 块映射图一样，只是 xv6 的 inode 只有 12 个直接块和 1 个一级间接块。
+
+\paragraph{rootfs（dev 7）.} 这是 \code{prepare\_namespace()} 第 1 步在 ram0 上造出的临时根，只有 32 块。图~\ref{fig:fstrace-dev7} 里能看到整棵树：
+
+\begin{txtcode}
+/          ino 1   块 5    目录项：dev -> 2（off 64）  root -> 4（off 96）
+  dev/     ino 2   块 6    目录项：console -> 3（off 64）  root -> 5（off 96）
+    console  ino 3   T_DEVICE   第 1 步建出的 /dev/console
+    root     ino 5   T_DEVICE   第 3 步建出的 /dev/root，次设备号 1
+  root/    ino 4   块 7    只有 . 和 ..，后来被根文件系统盖住
+\end{txtcode}
+
+五个 dinode 都在 inode 块 2 的第 1～5 个位置，三个目录各占一个数据块。所有目录项都是这次启动建的：日志里每次建立都先是一次 \code{dirlookup: miss}，然后 \code{ialloc} 分配新 inode，新目录还会接着写入自己的 \code{.} 和 \code{..}。\code{nlog=0}，没有日志区：\code{log\_write()} 发现块不属于日志设备，直接写穿，这正是 \ref{sec:ns-mech} 节说的 RAM 盘不走日志。
+
+\begin{figure}[htbp]
+  \centering
+  \input{chapters/fig-fstrace-dev7}
+  \caption{rootfs（dev 7）的磁盘映射：/、/dev、/root 三个目录块与 inode 块 2}
+  \label{fig:fstrace-dev7}
+\end{figure}
+
+\paragraph{读图~\ref{fig:fstrace-dev7}：inode 号、槽号与目录项偏移.} 图里有三种编号，初读容易混在一起。
+
+\emph{inode 号}是 inode 的编号。\code{fs.h} 定义 \code{ROOTINO} 为 1：编号 0 不用，因为目录项里 \code{inum==0} 表示空槽，所以根目录取第一个可用号 1。\code{ramfs\_mkfs()} 把根写在 ino 1，之后 \code{ialloc()} 从 1 往上找第一个空闲 dinode，编号就按创建顺序发出：\code{/dev} 是 2，\code{/dev/console} 是 3，\code{/root} 是 4，第 3 步的 \code{/dev/root} 是 5。ext2 的约定不同，inode 1 留给坏块表，根是 2；所以 VFS 判断“是不是根目录”时比较的是各自 \code{super\_block} 的 \code{rootino}，而不是写死的 1。
+
+\emph{槽号}（图左的 \code{\#N}）是 dinode 在 inode 块里的位置，完全由 inode 号算出，dinode 自己并不存编号：
+\[
+  \text{块号} = \code{inodestart} + \lfloor \text{ino}/16 \rfloor,\qquad
+  \text{槽号} = \text{ino} \bmod 16,\qquad
+  \text{块内字节} = \text{槽号}\times 64 .
+\]
+rootfs 只有 16 个 inode，全在块 2，所以 \code{\#N} 恰好等于 ino $N$；\code{\#0} 对应 ino 0，不用。inode 区从哪一块开始看 \code{inodestart}：rootfs、devtmpfs 是块 2（前面只有 boot 和 superblock），SD 卡上的根文件系统是块 32（块 2--31 是日志），那里 ino 1 就在块 32 的第 1 个槽。
+
+\emph{目录项偏移}（图右的 \code{off N}）是目录项在目录数据块里的位置，每项 32 字节，按写入顺序排。每个目录创建时先写 \code{.}（指自己）和 \code{..}（指父目录），所以 \code{/dev} 的块 6 第一项 \code{.} 指向 ino 2，第二项 \code{..} 指向 ino 1；根目录没有父目录，它的 \code{..} 指回自己。目录项和槽号靠目录项里写的 inode 号连起来，两者顺序并不一致：块 6 的 off 32 对应 \code{\#1}，off 96 对应 \code{\#5}。
+
+还要注意图里有两个都叫 \code{root} 的目录项：块 5（\code{/} 的内容）off 96 的 \code{root} 是目录 \code{/root}（ino 4，挂根文件系统用的挂载点），块 6（\code{/dev} 的内容）off 96 的 \code{root} 是设备节点 \code{/dev/root}（ino 5）。inode 只用 \code{addrs[]} 指向数据块，指向 inode 的只有目录项，所以从 ino 1 到 ino 5 要走两层，这正是日志第 2127 行查找 \code{/dev/root} 的过程：
+\begin{center}
+  ino 1 $\to$ \code{addrs[0]} $\to$ 块 5 $\to$ \code{dev} $\to$ ino 2 $\to$ \code{addrs[0]} $\to$ 块 6 $\to$ \code{root} $\to$ ino 5
+\end{center}
+
+\paragraph{dinode 的 64 字节.} “inode 1”同时指三样东西：编号 1；磁盘块 2 第 1 个槽里的 64 字节 \code{struct dinode}；\code{ilock} 之后 \code{itable[]} 里的内存副本 \code{struct inode}（多了 \code{dev}、\code{ref}、锁和 \code{iop}）。\code{iget(7, 1)} 只在 \code{itable} 里记下 dev 7、ino 1，置 \code{valid=0}，并不读盘；\code{ilock} 发现 \code{valid==0} 才调用 \code{xv6\_read\_inode()}，按上面的公式读块 2、取出偏移 64 处的 dinode：
+
+\begin{ccode}
+struct dinode {            // kernel/fs.h
+  short type;              // 2 B
+  short major;             // 2 B
+  short minor;             // 2 B
+  short nlink;             // 2 B
+  uint  size;              // 4 B
+  uint  addrs[NDIRECT+1];  // 13 x 4 = 52 B：addrs[0..11] 直接块，addrs[12] 一级间接块
+};                         // 共 64 B，IPB = 1024 / 64 = 16
+\end{ccode}
+
+rootfs 的 ino 1 在启动结束时（4 个目录项，\code{size}=128）逐字段如表~\ref{tab:fstrace-dinode}。\code{nlink} 是 3：\code{ramfs\_mkfs()} 做好时为 1（日志第 23 行的 dump 是在建 \code{/dev} 之前打印的，那时 \code{size} 还是 64、\code{nlink} 还是 1），之后 \code{xv6\_create()} 每建一个子目录就给父目录 \code{nlink++}，因为子目录的 \code{..} 也指向它；建了 \code{/dev}、\code{/root} 两个子目录，就是 $1+2=3$。根目录由两部分组成：ino 1 这 64 字节是关于它的信息，块 5 的 1024 字节是它的内容（目录项表），两者靠 \code{addrs[0]=5} 连起来；图~\ref{fig:fstrace-dev7} 右边写“块 5 · 目录 /”，意思是“ino 1 的 \code{addrs[0]} 指向的内容块”。
+
+\begin{table}[htbp]
+  \centering
+  \caption{rootfs 中 ino 1 的 dinode（块 2，偏移 64--127）}
+  \label{tab:fstrace-dinode}
+  \small
+  \begin{tabular}{@{}rrlll@{}}
+    \toprule
+    dinode 内偏移 & 块 2 内偏移 & 字段 & 值 & 小端字节 \\
+    \midrule
+    0  & 64  & \code{type}     & 1（\code{T\_DIR}） & \code{01 00} \\
+    2  & 66  & \code{major}    & 0 & \code{00 00} \\
+    4  & 68  & \code{minor}    & 0 & \code{00 00} \\
+    6  & 70  & \code{nlink}    & 3 & \code{03 00} \\
+    8  & 72  & \code{size}     & 128 & \code{80 00 00 00} \\
+    \textbf{12} & \textbf{76} & \textbf{\code{addrs[0]}} & \textbf{5} & \textbf{\code{05 00 00 00}} \\
+    16 & 80  & \code{addrs[1]} & 0 & \code{00 00 00 00} \\
+    $\vdots$ & $\vdots$ & $\vdots$ & 0 & $\vdots$ \\
+    60 & 124 & \code{addrs[12]} & 0（无间接块） & \code{00 00 00 00} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+把块 2 从偏移 64 开始 dump 出来就是：
+
+\begin{txtcode}
+块2+64:  01 00 00 00 00 00 03 00  80 00 00 00 05 00 00 00
+块2+80:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+块2+96:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+块2+112: 00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+\end{txtcode}
+
+\code{addrs[0]=5} 就在块 2 内第 76--79 字节，即整个 ram0 的第 $2\times1024+76=2124$ 字节。\code{xv6\_read\_inode()} 用 \code{memmove} 把 \code{addrs[]} 拷进内存 inode 之后，它就有了两份：日志里 \code{root inode loaded} 下面打印的、\code{bmap()} 查块号时用的，都是内存那一份。
+
+\paragraph{块 2 的全部 16 个槽.} inode 区不按目录分组，它是整个文件系统一张平铺的表，dinode 放在哪一块只看 inode 号。rootfs 的 \code{ninodes} 是 16，\code{ialloc()} 只会发出 ino 1--15，所以整个 rootfs 的对象，不论在第几层目录，都在块 2；按公式算出的块 3 对应 ino 16--31，这些号不存在，块 3 一直为空。\code{/dev/console} 在块 2，只因为它的号是 3。表~\ref{tab:fstrace-blk2} 是 \code{prepare\_namespace()} 结束时块 2 的全部内容：\code{type}=0 的槽是空闲的，\code{ialloc()} 找的就是它们；两个设备节点只有 \code{major}/\code{minor}，没有数据块；目录的 \code{size} 等于目录项数乘 32。层级关系只记在数据区的目录项里，dinode 本身没有“父目录”字段，表中的路径是从目录树反推出来标上的。
+
+\begin{table}[htbp]
+  \centering
+  \caption{rootfs 块 2 的 16 个 dinode（\code{prepare\_namespace()} 结束时）}
+  \label{tab:fstrace-blk2}
+  \small
+  \begin{tabular}{@{}llllllrrr@{}}
+    \toprule
+    槽 & 块内偏移 & inode & 路径 & \code{type} & \code{major} & \code{minor} & \code{nlink} & \code{size} \\
+    \midrule
+    \#0 & 0--63 & 0 & 不用 & 0 & 0 & 0 & 0 & 0 \\
+    \#1 & 64--127 & 1 & \code{/} & 1 \code{T\_DIR} & 0 & 0 & 3 & 128 \\
+    \#2 & 128--191 & 2 & \code{/dev} & 1 \code{T\_DIR} & 0 & 0 & 1 & 128 \\
+    \#3 & 192--255 & 3 & \code{/dev/console} & 3 \code{T\_DEVICE} & 1 \code{CONSOLE} & 0 & 1 & 0 \\
+    \#4 & 256--319 & 4 & \code{/root} & 1 \code{T\_DIR} & 0 & 0 & 1 & 64 \\
+    \#5 & 320--383 & 5 & \code{/dev/root} & 3 \code{T\_DEVICE} & 7 \code{BLOCKDEV} & 1 & 1 & 0 \\
+    \#6--\#15 & 384--1023 & 6--15 & 空闲 & 0 & 0 & 0 & 0 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\code{addrs[0]} 只有三个目录非零：\#1 为 5，\#2 为 6，\#4 为 7，其余全为 0。
+
+\paragraph{devtmpfs（dev 8）.} \code{devtmpfs\_init()} 在 64 块的 ram1 上为 12 个设备建节点（图~\ref{fig:fstrace-dev8}）。根目录块 7 里依次是 \code{console}、\code{tty}、\code{ttyS0}、\code{input}、\code{video0}、\code{sdroot}、\code{mmcblk0}、\code{mmcblk0p1}～\code{p3}、\code{ram0}、\code{ram1}，共 14 项 448 字节；\code{input} 是唯一的子目录（ino 5，块 8），里面只有 \code{event0}。设备节点都是 \code{T\_DEVICE}，不占数据块，只在 dinode 里记 \code{major}/\code{minor}。
+
+日志还暴露了一个原版 xv6 就有的现象：建每个节点时，根目录 8:1 都是 \code{iget} 未命中、重新从块 2 读 dinode，前后 12 次。原因是每建完一个节点，根目录的引用就降到 0，而 xv6 的 inode 表只认 \code{ref>0} 的项，引用为 0 的槽下次就被当作空槽重新初始化，不保留缓存的内容。
+
+\begin{figure}[htbp]
+  \centering
+  \input{chapters/fig-fstrace-dev8}
+  \caption{devtmpfs（dev 8）的磁盘映射：14 个节点都在 inode 块 2，根目录块 7 与 input 目录块 8}
+  \label{fig:fstrace-dev8}
+\end{figure}
+
+\paragraph{根文件系统（dev 1）.} 根文件系统有 3 万多块，图~\ref{fig:fstrace-dev1} 只画日志里读到过的部分：inode 块 32、33、35、36，\code{/}、\code{/bin}、\code{/mnt}、\code{/etc}、\code{/usr} 的目录块，以及被打开或执行过的五个文件的数据块。可以读出这几件事：
+
+\begin{itemize}
+  \item 根目录（块 50）的 11 项里，\code{dev}、\code{proc}、\code{boot} 和 \code{/mnt} 下的 \code{ext2}、\code{net} 是空目录（ino 54、55、56、58、59），启动后分别被 devtmpfs、procfs、FAT32、ext2、netfs 盖住，正是挂载表里各项的 \code{cover}；
+  \item 根目录 off 96 的 \code{init} 和 \code{/bin} off 192 的 \code{init} 都指向 ino 7，是同一个文件的两个硬链接，\code{exec("/init")} 读到它的 5 个数据块 130--134；
+  \item 目录查找是线性的：\code{/bin/wifi} 要从 \code{/bin} 的 off 0 读到 off 768，逐项比较 25 次才命中；整份日志约 770 次 \code{readi}，绝大多数是这种 32 字节的目录项读取，都命中块缓存；
+  \item \code{/etc} 下的五个配置文件（ino 64～68）都在 inode 块 36，内容各只有一块：\code{fstab} 119 字节在块 1670，\code{wifi.conf} 33 字节在块 1671。
+\end{itemize}
+
+\begin{figure}[p]
+  \centering
+  \input{chapters/fig-fstrace-dev1}
+  \caption{根文件系统（dev 1）中日志读到过的 inode 块与数据块（\code{/bin} 的 25 项只列出用到的 3 项）}
+  \label{fig:fstrace-dev1}
+\end{figure}
 
 \subsection{回到用户态：\code{trapret} 中的中断竞争}
 
@@ -669,44 +879,137 @@ trapret:
 \section{VFS 中间层}
 \label{sec:vfs}
 
-\subsection{动机}
+\subsection{从路径前缀表到统一 VFS}
 
-最初的 ext2 驱动只能通过两个专用系统调用 \code{ext2read}、\code{ext2readdir} 访问，普通的 \code{ls}、\code{cat} 完全不知道它的存在。VFS 层把非原生文件系统包装成 \emph{vnode}，让它们通过统一的文件描述符接口工作：
+最初的 ext2 驱动只能通过两个专用系统调用 \code{ext2read}、\code{ext2readdir} 访问，普通的 \code{ls}、\code{cat} 完全不知道它的存在。第一版 VFS 的办法是在 xv6 原有的路径解析\emph{外面}再包一层：\file{vfs.c} 维护一张“路径前缀挂载表”，\code{sys\_open()} 先用 \code{findmount()} 做最长前缀匹配，命中 \code{/boot}、\code{/mnt/ext2} 这样的挂载点就把相对路径交给后端的 \code{vnode\_ops}（参数都是路径），打开结果是一种新的描述符 \code{FD\_VNODE}；不命中才走原生的 \code{namei()}。
+
+这个方案让 \code{ls}、\code{cat}、\code{mv} 很快就能访问其他文件系统，但系统里从此有两套东西并存：两张挂载表（\file{vfs.c} 的路径前缀表和 \file{fs.c} 的 inode 层挂载表）、两种打开的文件（\code{FD\_INODE} 与 \code{FD\_VNODE}）、两条路径解析（\code{findmount()} 与 \code{namex()}）。\code{open}、\code{mkdir}、\code{chdir}、\code{exec} 每个系统调用都要先问一句“这个路径归谁”。到了要把 ext2 当根文件系统时问题就暴露出来了：ext2 的目录不是 xv6 inode，进不了 inode 层挂载表，也就不能 MS\_MOVE、不能 chroot（\ref{sec:ext2-root} 节）。
+
+Linux 的做法是反过来：\emph{所有}文件系统，包括“原生”的那个，都通过同一组函数表接入；路径解析只有一条，每走一级就调用当前目录所在文件系统的 \code{lookup}；挂载表也只有一张。本项目最终也改成了这种结构。对照如下：
+
+\begin{table}[htbp]
+  \centering
+  \caption{xv6 统一 VFS 与 Linux VFS 的对应}
+  \label{tab:vfs-linux}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXl@{}}
+    \toprule
+    xv6 & 作用 & Linux \\
+    \midrule
+    \code{struct super\_block}（\code{supers[]}） & 一个已挂上的文件系统实例：类型、函数表、根 inode 号、只读 & \code{struct super\_block} \\
+    \code{struct inode\_ops} & 每种文件系统一张函数表 & \code{inode\_operations} + \code{file\_operations} \\
+    \code{struct inode}（\code{itable}） & 内存中的文件对象，带 \code{iop} 指针 & \code{struct inode} \\
+    \code{struct fsmount}（\code{mtab}） & “目录 X 被文件系统 Y 的根盖住” & \code{struct mount} \\
+    \code{namex()} + \code{iop->lookup} & 逐级解析路径 & \code{link\_path\_walk()} + \code{->lookup} \\
+    \code{pathfs\_iops} & 按路径工作的小文件系统的通用实现 & \code{simple\_*}、\code{libfs} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+xv6 没有 dentry 缓存：目录项不单独缓存，\code{lookup} 每次都到文件系统里查；也没有把 \code{file\_operations} 单独分出来，读写操作和目录操作放在同一张表里。
+
+\subsection{\code{super\_block} 与 \code{inode\_ops}}
+
+\file{kernel/vfs.h} 定义了两个结构。\code{super\_block} 按设备号索引，一个设备号就是一个文件系统实例：
 
 \begin{ccode}
-struct vnode_ops {                       // kernel/vfs.c，参数是挂载点内的相对路径
-  int (*stat)(char*, struct stat*);
-  int (*read)(char*, uint64 off, void*, int n);
-  int (*write)(char*, struct fat32_file*, uint64 off, int user_src, uint64 src, int n);
-  int (*readdir)(char*, int index, void*);
-  int (*create)(char*);
-  int (*truncate)(char*, struct fat32_file*);
-  int (*rename)(char*, char*);
+// kernel/vfs.h
+struct super_block {
+  int    used;
+  int    dev;          // 设备号，即这个实例的编号
+  char   type[12];     // "xv6fs" "ext2" "fat32" "procfs" "netfs"
+  struct inode_ops *iop;
+  uint   rootino;      // 根目录的 inode 号：xv6fs 1，ext2 2，按路径的为 hash("/")
+  int    readonly;
+  int    logged;       // 写操作要分批走 xv6 日志（只有 xv6fs）
+  int    pathbased;    // 对象以路径命名（FAT32、procfs、netfs）
+  void   *priv;        // 文件系统私有数据
 };
 \end{ccode}
 
-这些操作以路径为参数而不是以 inode 为参数，后端每次按路径重新查找。这是一个极简的 VFS：没有 dentry 缓存，也没有把原生 xv6 inode 纳入 vnode，但足以让 \code{ls}、\code{cat}、\code{mv} 等普通命令透明地访问其他文件系统。
+块设备上的文件系统用块设备号（xv6fs 根 1、rootfs 7、devtmpfs 8、ext2 分区 3～6 之一），没有块设备的文件系统用 \code{vfs.h} 里的伪设备号（\code{PROCFS\_DEV} 20、\code{FATFS\_DEV} 21、\code{NETFS\_DEV} 22）。登记由各文件系统自己完成：\code{fs\_readsuper()} 登记 xv6fs，\code{ext2\_register\_super()} 登记 ext2，\code{vfsmount()} 登记按路径的文件系统。
 
-\code{struct file} 增加了 \code{FD\_VNODE} 类型，\code{fileread()}、\code{filestat()}、\code{fileclose()} 遇到它就转发给对应的 \code{vnode\_ops}。
+\code{inode\_ops} 是每种文件系统的函数表，\code{struct inode} 增加一个 \code{iop} 指针指向它：
 
-\subsection{挂载表与路径路由}
+\begin{ccode}
+struct inode_ops {
+  int  (*read_inode)(struct inode*);             // ilock() 第一次加锁时填充 inode
+  void (*evict)(struct inode*);                  // iput() 放掉最后一个引用时
+  struct inode *(*lookup)(struct inode *dp, char *name);   // dp 已加锁
+  struct inode *(*create)(struct inode *dp, char *name,
+                          short type, short major, short minor);
+  int  (*unlink)(struct inode *dp, char *name);
+  int  (*link)(struct inode *dp, char *name, struct inode *ip);
+  int  (*rename)(struct inode *odp, char *oname, struct inode *ndp, char *nname);
+  int  (*read)(struct inode*, int user_dst, uint64 dst, uint64 off, uint n);
+  int  (*write)(struct inode*, int user_src, uint64 src, uint64 off, uint n);
+  int  (*truncate)(struct inode*, uint64 size);
+  int  (*open)(struct inode*, int omode);        // 可选：打开时的文件系统检查
+  int  (*fsync)(struct inode*);
+};
 
-\code{sys\_open()} 先调用 \code{vfsopen()}，它在挂载表里做\emph{最长前缀匹配}：
+struct inode {                   // kernel/file.h
+  uint dev, inum;  int ref;
+  struct inode_ops *iop;         // 所属文件系统的函数表
+  char path[MAXPATH];            // 只用于按路径的文件系统
+  struct sleeplock lock;  int valid;
+  short type, major, minor, nlink;  uint64 size;
+  uint addrs[NDIRECT+1];         // xv6fs 的块地址
+  uint32 fsdata[4];              // 其他文件系统的私有数据
+};
+\end{ccode}
+
+\code{size} 扩成 64 位，因为 ext2 和 FAT32 上的文件可以超过 4\,GiB；文件名分量的上限 \code{NAMEMAX} 是 128，xv6fs 自己仍只存 14 个字符。
+
+xv6 的 inode 缓存原样保留，只在三个地方挂上钩子：
+
+\begin{itemize}
+  \item \code{iget(dev, inum)} 在 \code{itable} 里找或分配一项，并设 \code{ip->iop = getsuper(dev)->iop}；
+  \item \code{ilock()} 发现 \code{valid==0} 时调用 \code{iop->read\_inode()}，原来那段读 \code{dinode} 的代码成了 \code{xv6\_read\_inode()}；
+  \item \code{iput()} 放掉最后一个引用时调用 \code{iop->evict()}，原来“链接数为 0 就截断并释放”的代码成了 \code{xv6\_evict()}。
+\end{itemize}
+
+\subsection{一次跨文件系统的路径解析}
+
+\code{namex()} 只改了一行：原来调用 \code{dirlookup()}，现在调用 \code{ip->iop->lookup(ip, name)}。挂载点的穿越仍由 \ref{sec:ns-mech} 节的 \code{follow\_mount()}/\code{follow\_dotdot()} 完成，判断“是不是文件系统的根”改用 \code{isfsroot()}：比较 \code{ip->inum} 与该设备 \code{super\_block} 的 \code{rootino}。以 xv6fs 根上的 \code{/mnt/ext2/d/a.txt} 和 \code{/proc/1/status} 为例（inode 号仅作示意）：
 
 \begin{txtcode}
-open("/boot/config.txt")
-  -> findmount(): 绝对路径 /boot/config.txt，匹配挂载点 /boot，相对路径 /config.txt
-  -> fat32_ops.stat("/config.txt")
+namei("/mnt/ext2/d/a.txt")
+  rootdir()             (dev 1, ino 1)      xv6fs 根
+  xv6_lookup("mnt")     (dev 1, ino 25)
+  xv6_lookup("ext2")    (dev 1, ino 26)     follow_mount: 被设备 5 盖住
+                     -> (dev 5, ino 2)      fs_dev_root(5)：ext2 的根，rootino = 2
+  e2_lookup("d")        (dev 5, ino 12)     查 ext2 的目录块
+  e2_lookup("a.txt")    (dev 5, ino 13)
+namei("/proc/1/status")
+  xv6_lookup("proc")    (dev 1, ino 27)     follow_mount: 被设备 20 盖住
+                     -> (dev 20, hash("/"))           procfs 的根
+  pfs_lookup("1")       (dev 20, hash("/1"))          path = "/1"
+  pfs_lookup("status")  (dev 20, hash("/1/status"))   path = "/1/status"
 \end{txtcode}
 
-返回值约定是这一层设计的关键：\code{1} 表示 VFS 已打开；\code{-1} 表示路径属于某个挂载点但打开失败（不能退回原生根文件系统，否则会打开挂载点下面被遮住的同名文件）；\code{0} 表示不属于任何挂载点，继续走原生的 \code{namei()}。
+反方向的 \code{..} 也一样：在 \code{(dev 5, ino 2)} 上遇到 \code{..}，\code{isfsroot()} 为真，\code{follow\_dotdot()} 先退回挂载点 \code{(dev 1, ino 26)}，再由 xv6fs 查它的 \code{..}。
+
+\subsection{文件描述符与系统调用}
+
+打开任何文件系统上的普通文件，得到的都是 \code{FD\_INODE}；\code{FD\_VNODE} 和 \code{vnode} 一起删掉了。各系统调用只做与文件系统无关的事，具体工作交给函数表：
+
+\begin{itemize}
+  \item \code{fileread()}、\code{filepread()} 调用 \code{iop->read}；\code{exec()} 读 ELF 也一样，\code{struct execsrc} 只剩一个 inode 指针；
+  \item 写操作由 \code{inode\_write()} 统一处理：xv6fs（\code{sb->logged}）照原来的办法每次只写几块、每批一个日志事务，其他文件系统有自己的一致性机制，整段交给 \code{iop->write}；
+  \item \code{sys\_open()} 对普通文件依次检查：要写而文件系统只读则失败；有 \code{O\_TRUNC} 就调用 \code{iop->truncate(ip, 0)}；最后调用可选的 \code{iop->open}，FAT32 在这里取得写句柄；
+  \item 目录读取：xv6fs 的目录本来就是 \code{struct dirent} 数组。其他文件系统通过 \code{vfs\_dir\_read()} 把自己的目录项“翻译”成 xv6 的 dirent 流，每 16 字节偏移一项，\code{ls} 不用改。名字超过 14 字符时截断显示，\code{open} 时仍可用全名；
+  \item \code{fs\_create()}、\code{fs\_unlink()}、\code{fs\_link()}、\code{fs\_rename()} 先检查文件系统是否可写、是否提供该操作；\code{link}、\code{rename} 还要求两端在同一设备上，跨文件系统一律拒绝（与 Linux 的 \code{EXDEV} 相同）；\code{unlink}、\code{rename} 遇到挂载点返回失败（\code{EBUSY}）。
+\end{itemize}
+
+顺带补上了 xv6fs 自己的 \code{rename}：\code{xv6\_rename()} 在同一个日志事务里先加新名字、再清掉旧目录项，目前只支持普通文件，目标已存在时拒绝。
 
 \subsection{当前目录与 \code{exec}}
 \label{sec:vfs-cwd}
 
-最长前缀匹配只认绝对路径，而原生 xv6 的当前目录是一个 inode 指针 \code{p->cwd}，\code{namex()} 遇到相对路径就从它开始走。两者合在一起，最初有两个明显的漏洞：\code{cd /mnt/ext2} 只会进入原生根文件系统里那个被挂载点遮住的空目录，之后的相对路径全部落在空目录里；\code{exec()} 只调用 \code{namei()} 和 \code{readi()}，挂载点上的程序根本无法运行。
+第一版 VFS 里，最长前缀匹配只认绝对路径，而原生 xv6 的当前目录是一个 inode 指针 \code{p->cwd}，两者合在一起有两个明显的漏洞：\code{cd /mnt/ext2} 只会进入原生根文件系统里那个被挂载点遮住的空目录；\code{exec()} 只调用 \code{namei()} 和 \code{readi()}，挂载点上的程序根本无法运行。
 
-修复的办法是让路径在进入系统调用时就变成绝对路径。\code{struct proc} 增加一个字段 \code{cwdpath}，记录当前目录的规范化绝对路径（\code{fork}、\code{clone} 复制它，\code{userinit} 置为 \code{/}）。\file{sysfile.c} 的 \code{abspath()} 把相对路径接在 \code{cwdpath} 后面，再逐段处理 \code{.} 和 \code{..}：
+当时的修复是让路径在进入系统调用时就变成绝对路径。\code{struct proc} 增加一个字段 \code{cwdpath}，记录当前目录的规范化绝对路径（\code{fork}、\code{clone} 复制它，\code{prepare\_namespace()} 在 chroot 之后置为 \code{/}）。\file{sysfile.c} 的 \code{abspath()} 把相对路径接在 \code{cwdpath} 后面，再逐段处理 \code{.} 和 \code{..}：
 
 \begin{txtcode}
 cwdpath = /mnt/ext2/d      输入 ../a.txt     ->  /mnt/ext2/a.txt
@@ -714,26 +1017,21 @@ cwdpath = /bin             输入 ../etc       ->  /etc
 cwdpath = /                输入 mnt/ext2/d/e ->  /mnt/ext2/d/e
 \end{txtcode}
 
-xv6 没有符号链接，所以按文字处理 \code{..} 与沿目录树向上走的结果完全相同。\code{open}、\code{mkdir}、\code{unlink}、\code{rename}、\code{link}、\code{mknod}、\code{mount}、\code{chdir}、\code{exec} 一进来就调用它，此后原生 \code{namei()} 和 VFS 挂载表看到的是同一个绝对名字。原生的 \code{p->cwd} 仍然保留，但相对路径已不再经过它。
+xv6 没有符号链接，所以按文字处理 \code{..} 与沿目录树向上走的结果完全相同。统一 VFS 之后这层处理仍然保留：\code{open}、\code{mkdir}、\code{unlink}、\code{rename}、\code{link}、\code{mknod}、\code{mount}、\code{chdir}、\code{exec} 一进来就调用 \code{abspath()}。不同的是，现在所有文件系统上的目录都有 inode，\code{chdir()} 只剩一条路：\code{namei()} 找到目录、检查类型、换掉 \code{p->cwd}、更新 \code{cwdpath}，不再需要“目录只以路径存在”的特殊情况。
 
-\code{chdir()} 先用 \code{vfsstatpath()} 判断目标是否在挂载点下：如果是，只要后端报告它是目录，就记下新的 \code{cwdpath}，不需要原生 inode；否则照原来的方式用 \code{namei()} 找到目录 inode，换掉 \code{p->cwd}，同时更新 \code{cwdpath}。硬链接和设备节点只存在于原生文件系统，\code{link()} 和 \code{mknod()} 遇到挂载点下的路径直接返回错误，以免在被遮住的原生目录里留下看不见的文件。
-
-\code{exec()} 则把“从哪里读 ELF”抽象成一个小结构：
+\code{exec()} 读 ELF 的来源也只剩一种：
 
 \begin{ccode}
 struct execsrc {                 // kernel/exec.c
-  struct inode *ip;              // 原生根：已加锁的 inode，处在日志事务中
-  struct vnode *vn;              // 挂载点：只读打开的 vnode
+  struct inode *ip;              // 任何文件系统上已加锁的 inode
 };
 
 static int srcread(struct execsrc *src, uint64 dst, uint off, uint n) {
-  if(src->vn)
-    return vfsread(src->vn, 0, dst, off, n);   // 例如 ext2 的 hread
-  return readi(src->ip, 0, dst, off, n);
+  return src->ip->iop->read(src->ip, 0, dst, off, n);   // xv6_read / e2_read / pfs_read
 }
 \end{ccode}
 
-\code{exec()} 先调用 \code{vfsopen(path, O\_RDONLY, …)}：返回 1 且对象是普通文件，就从 vnode 读；返回 0 才进入原来的 \code{begin\_op()} → \code{namei()} → \code{ilock()} 路径。读 ELF 头、程序头和 \code{loadseg()} 都改调 \code{srcread()}，结束时由 \code{srcclose()} 统一释放 inode 或 vnode。这样 \code{/mnt/ext2} 和 \code{/boot} 上的程序都能直接运行：
+\code{begin\_op()} $\to$ \code{namei()} $\to$ \code{ilock()} 之后检查是普通文件，读 ELF 头、程序头和 \code{loadseg()} 都调用 \code{srcread()}。这样 \code{/mnt/ext2} 和 \code{/boot} 上的程序都能直接运行，ext2 当根文件系统时 \code{/init} 也是这样被加载的：
 
 \begin{shcode}
 $ cd /mnt/ext2/d
@@ -745,17 +1043,35 @@ $ mnt/ext2/d/e relative exec
 relative exec
 \end{shcode}
 
-\subsection{三个后端}
+\subsection{三类实现}
+
+\paragraph{xv6fs（\code{xv6\_iops}）.} 原来 \file{fs.c} 和 \file{sysfile.c} 里的代码几乎原样搬进函数表：\code{xv6\_lookup()} 就是 \code{dirlookup()}，\code{xv6\_create()} 是原来 \code{create()} 的主体，\code{xv6\_unlink()}、\code{xv6\_link()} 是原来 \code{sys\_unlink()}、\code{sys\_link()} 的中段，\code{xv6\_read()}/\code{xv6\_write()} 就是 \code{readi()}/\code{writei()}（多一个 4\,GiB 的边界检查），\code{xv6\_fsync()} 调用 \code{sdflush()}。根文件系统、rootfs、devtmpfs 都用这一张表。
+
+\paragraph{ext2（\code{ext2\_iops}）.} ext2 本来就有 inode 号，直接对上：\code{e2\_lookup()} 在目录块里查名字，返回 \code{iget(dev, ino)}；\code{e2\_read\_inode()} 读出磁盘 inode 填进内存 inode，并在 \code{e2.open[]} 表里给这个 inode 号占一个引用；\code{e2\_evict()} 释放这个引用。于是“删除仍被打开的文件”的语义（第~\ref{chap:optional} 章）由 inode 缓存自然驱动：只要还有进程持有这个 inode，它就只是孤儿；最后一个 \code{iput()} 时 \code{evict} 才真正回收。目录读取经 \code{vfs\_dir\_read()}，写入与截断仍走 ext2 自己的外置日志。
+
+\paragraph{按路径的文件系统（\code{pathfs\_iops}）.} FAT32 的磁盘上没有 inode 号，procfs 的对象是现场生成的，netfs 的协议以路径为键。它们共用 \file{vfs.c} 里的一套通用实现：内存 inode 的 \code{path} 字段记下对象在该文件系统内的路径，inode 号取路径的 31 位 FNV 哈希；\code{iget\_path()} 对这类文件系统除了比较 inode 号还比较路径，哈希冲突也不会认错对象。\code{pfs\_lookup()} 把目录路径和名字拼起来（处理 \code{.} 与 \code{..}），问后端 \code{stat} 是否存在；读写、建立、删除、改名都转成后端按路径的调用。三个后端各提供一张小表：
+
+\begin{ccode}
+static struct pathfs_ops fat32_pops = {      // kernel/vfs.c
+  .stat = fat_vstat, .read = fat_vread, .write = fat_vwrite,
+  .readdir = fat_vreaddir, .create = fat_vcreate, .truncate = fat_vtruncate,
+  .rename = fat_vrename, .openwrite = fat32openwrite, .fsync = fat_vfsync,
+};
+static struct pathfs_ops proc_pops  = { .stat = proc_vstat,  .read = proc_vread,  .readdir = proc_vreaddir };
+static struct pathfs_ops netfs_pops = { .stat = netfs_vstat, .read = netfs_vread, .readdir = netfs_vreaddir };
+\end{ccode}
+
+FAT32 不能原地改写文件，只能追加：\code{pfs\_open()} 要求以写方式打开的文件长度为 0（新建的，或带 \code{O\_TRUNC} 已被截断的），然后用 \code{fat32openwrite()} 取得写句柄，存在 inode 的 \code{fsdata} 里供之后的追加写使用。procfs 和 netfs 只读。
 
 \begin{itemize}
-  \item \textbf{procfs}（\code{/proc}）：没有磁盘数据，打开目录时遍历进程表生成每个 PID 的目录，读 \code{status} 时持锁生成快照。另有 \code{/proc/meminfo}、\code{/proc/iomem}、\code{/proc/devices} 等诊断文件；
-  \item \textbf{ext2}（\code{/mnt/ext2}）：支持 1/2/4\,KiB 块，遇到 ext4 extent 等不兼容特性就拒绝挂载，可以和 Linux 交换文件。最初只能读、只支持一级间接块；后来补成了可读写、带外置事务日志的后端，见第~\ref{chap:optional} 章；
+  \item \textbf{procfs}（\code{/proc}）：没有磁盘数据，列目录时遍历进程表生成每个 PID 的目录，读 \code{status} 时持锁生成快照。另有 \code{/proc/mounts}、\code{/proc/cmdline}、\code{/proc/meminfo}、\code{/proc/iomem}、\code{/proc/devices} 等诊断文件；
+  \item \textbf{ext2}（\code{/mnt/ext2} 或 \code{/}）：支持 1/2/4\,KiB 块，遇到 ext4 extent 等不兼容特性就拒绝挂载，可以和 Linux 交换文件；可读写，带外置事务日志，见第~\ref{chap:optional} 章；
   \item \textbf{FAT32}（\code{/boot}）：挂载启动分区，支持根目录的读、创建、截断、顺序写和重命名，支持 ASCII 长文件名。这让系统可以在运行时更新自己的内核：\code{tftp} 下载 \code{kernel8-xv6\_wifi.img} 到 \code{/boot}，重启即生效。
 \end{itemize}
 
 \subsection{由用户态决定挂载}
 
-挂载策略仿照嵌入式 Linux：内核只负责探测驱动，\code{init} 读取 \code{/etc/fstab} 决定挂载什么。首次启动时 \code{init} 创建：
+挂载策略仿照嵌入式 Linux：内核只负责探测驱动和挂根，\code{init} 读取 \code{/etc/fstab} 决定其余的挂载。首次启动时 \code{init} 创建：
 
 \begin{txtcode}
 proc    /proc      procfs ro 0 0
@@ -763,7 +1079,7 @@ bootfs  /boot      fat32  rw 0 0
 ext2    /mnt/ext2  ext2   rw 0 0
 \end{txtcode}
 
-然后逐行调用 \code{mount(source, target, fstype, flags)}。启动日志出现 “vfs: mounted fat32 at /boot read-write” 才说明 FAT32 真的挂上了；否则 \code{/boot} 只是 \code{init} 创建的空目录。
+然后逐行调用 \code{mount(source, target, fstype, flags)}。内核里的 \code{vfsmount()} 分两步：先按类型登记 \code{super\_block}（procfs 强制只读；ext2 找到起点与 \code{e2.part\_lba} 相同的分区块设备，用它的设备号），再 \code{namei(target)} 找到挂载点目录，调用与 \code{prepare\_namespace()} 相同的 \code{fs\_mount()} 挂进那一张挂载表。启动日志出现 “vfs: mounted fat32 at /boot read-write” 才说明 FAT32 真的挂上了；挂载点忙、或者同一个文件系统已经挂在别处时，打印 “vfs: cannot mount … (busy or already mounted)”，\code{/boot} 就仍是一个空目录。
 
 \section{FAT32 与启动分区}
 \label{sec:fat32}
@@ -1012,7 +1328,7 @@ static uint32 fat_next(uint32 cluster) {
 
 \begin{itemize}
   \item \textbf{挂载}：\code{fat32mount(lba, sectors)} 解析 BPB、读 FSInfo 里的空闲簇提示；\code{fat32\_is\_boot\_sector()} 判断一个扇区是不是 FAT32 引导扇区，\file{rootdev.c} 用它识别“没有分区表、整张卡就是一个 FAT32”的 superfloppy 格式；\code{fat32init()} 只初始化 \code{fat32\_lock}。分区表扫描和 xv6 根分区识别都不在这个文件里。
-  \item \textbf{对外接口}：只读的 \code{fat32openroot()}、\code{fat32openpath()}、\code{fat32statpath()}、\code{fat32readdirroot()}、\code{fat32pread()}、\code{fat32readerinit()}/\code{fat32readnext()}；写入的 \code{fat32createfile()}、\code{fat32openwrite()}、\code{fat32writefile()}、\code{fat32truncatefile()}、\code{fat32renamefile()}。VFS 的 \code{fat32\_ops} 把它们包装成 \code{/boot} 上的 vnode 操作。
+  \item \textbf{对外接口}：只读的 \code{fat32openroot()}、\code{fat32openpath()}、\code{fat32statpath()}、\code{fat32readdirroot()}、\code{fat32pread()}、\code{fat32readerinit()}/\code{fat32readnext()}；写入的 \code{fat32createfile()}、\code{fat32openwrite()}、\code{fat32writefile()}、\code{fat32truncatefile()}、\code{fat32renamefile()}。VFS 的 \code{fat32\_pops} 把它们包装成按路径的操作，再经 \code{pathfs\_iops} 成为 \code{/boot} 上的 inode 操作（\ref{sec:vfs} 节）。
   \item \textbf{目录与 FAT}：上一小节的查找和 LFN 函数，以及 \code{fat\_next()}、\code{fat\_set\_next()}、\code{fat\_alloc\_cluster()}、\code{fat\_free\_chain()}、\code{fat\_mark\_fsinfo\_unknown()}。
   \item \textbf{文件扇区映射}：\code{fat32mapfile()} 记下根目录中某个文件的整条簇链，\code{fat32mapsector()} 把“文件内第 $s$ 个扇区”换成卡上的扇区号。它们只为兼容早期把根镜像存成 \code{FS.IMG} 文件的旧卡而保留，调用者是 \file{rootdev.c}。FAT32 只回答“这个扇区在哪里”，从不解释扇区里的 xv6 数据。
 \end{itemize}
@@ -1282,7 +1598,7 @@ while((path = skipelem(path, name)) != 0){           // 依次取出 "bin"、"ls
 
 注意加锁的顺序：每一步只锁当前目录，查到下一级以后先 \code{iunlockput()} 当前目录再进入下一级，任何时刻最多持有一把 inode 锁，所以不会因为两个进程以相反顺序查找路径而死锁。\code{nameiparent()} 在最后一个分量之前停下，返回父目录并把最后一个名字留给调用者——\code{create}、\code{unlink}、\code{link} 都需要它。
 
-根目录的内容分两部分：\code{mkfs} 写入的 \code{.}、\code{..}、\code{bin}、\code{init}；以及 \code{init} 首次启动时创建的 \code{dev}（含 \code{console}、\code{ttyS0}、\code{input/event0}、\code{video0}、\code{sdroot} 等设备节点）、\code{etc}（\code{fstab} 等配置）、\code{proc}、\code{boot}、\code{mnt/ext2}、\code{root}、\code{usr/bin}。其中 \code{proc}、\code{boot}、\code{mnt/ext2} 只是空目录，挂载以后会被 VFS 的挂载表“盖住”（\ref{sec:vfs} 节）。设备节点是 \code{type=3} 的 inode，不占数据块，只在 \code{major}/\code{minor} 里记下交给哪个驱动。
+根目录的内容分两部分：\code{mkfs} 写入的 \code{.}、\code{..}、\code{bin}、\code{init}；以及启动时创建的 \code{dev}（内核在 \code{prepare\_namespace()} 里建出这个空目录，再把 devtmpfs 挂上去，\code{console}、\code{ttyS0}、\code{input/event0}、\code{video0}、\code{sdroot} 等设备节点都在 devtmpfs 里）、由 \code{init} 首次启动时创建的 \code{etc}（\code{fstab} 等配置）、\code{proc}、\code{boot}、\code{mnt/ext2}、\code{root}、\code{usr/bin}。其中 \code{dev}、\code{proc}、\code{boot}、\code{mnt/ext2} 只是空目录，挂载以后会被挂载表“盖住”（\ref{sec:vfs} 节）。设备节点是 \code{type=3} 的 inode，不占数据块，只在 \code{major}/\code{minor} 里记下交给哪个驱动。
 
 \subsection{从路径到 SD 扇区}
 

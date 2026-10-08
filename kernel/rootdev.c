@@ -34,6 +34,7 @@
 #include "defs.h"
 #include "fat32.h"
 #include "blkdev.h"
+#include "fs_trace.h"
 
 #define SECTOR_SIZE        512
 #define SECTORS_PER_BLOCK  (BSIZE / SECTOR_SIZE)
@@ -97,6 +98,8 @@ setup_raw_root(uint32 start, uint32 sectors)
      sdsector(start + SECTORS_PER_BLOCK, sector, 0) < 0 ||
      le32(sector) != FSMAGIC || le32(sector + 4) != FSSIZE)
     return -1;
+  FSTRACE("root probe: xv6fs lba=%d super-sector=%d magic=%x blocks=%d\n",
+          start, start + SECTORS_PER_BLOCK, le32(sector), le32(sector + 4));
   root.mode = ROOT_RAW;
   root.lba = start;
   root.sectors = sectors;
@@ -244,6 +247,8 @@ rootdev_init(void)
       entries[i][j] = sector[446 + i * 16 + j];
 
   printf("rootdev: MBR partition table\n");
+  FSTRACE("MBR loaded: sector=0 signature=%x disk-signature=%x\n",
+          (uint)sector[510] | ((uint)sector[511] << 8), disksig);
   for(int i = 0; i < 4; i++){
     const uchar *part = entries[i];
     uint32 start = le32(part + 8);

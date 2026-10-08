@@ -161,6 +161,59 @@ waltest recover
 立即检查 `e2fsck` 报错），重启重放后全部无错误；其余 11 次断电前后都无错误。拆分 `kernel/rootdev.c` 之后又随机断电 4 次：1 次重放
 （`xjournal: replayed seq=85 (27 sectors)`），4 次 `e2fsck -fn` 全部无错误。
 
+## mini SQLite 风格页式数据库压力测试
+
+`/bin/minisqlite` 不是完整 SQLite，也不解析 SQL。它是为了验证 ext2/VFS 持久化语义而实现的
+小型页式键值数据库：数据库由一个 4 KiB header page 和 256 个 4 KiB 数据页组成，每页
+64 个固定大小的槽；整数主键使用开放寻址查找。数据库文件约 1 MiB，随机 key 会落到不同
+页，从而覆盖 ext2 的随机 `pread/pwrite`、首次数据块分配、间接块映射和 `fsync`。
+
+每次 `put/delete` 都使用一页 redo WAL，提交顺序与 SQLite WAL 的核心持久化原则相同：
+
+```text
+构造完整 WAL record
+  -> pwrite(main.wal)
+  -> fsync(main.wal)                 WAL 成为恢复依据
+  -> pwrite(main.db slot + header)
+  -> fsync(main.db)                  数据库页持久化
+  -> ftruncate(main.wal, 0)
+  -> fsync(main.wal)                 完成 checkpoint
+```
+
+常用命令：
+
+```sh
+minisqlite init
+minisqlite put 10 1234
+minisqlite get 10
+minisqlite delete 10
+minisqlite scan                       # 输出所有行及 page/slot
+minisqlite insert 11 5678             # put 的 SQL 风格别名
+minisqlite select 11                  # get 的 SQL 风格别名
+minisqlite select all                 # scan 的 SQL 风格别名
+minisqlite check                      # 校验 header、所有 slot checksum 和行数
+minisqlite stress 1000                # 70% put、20% get、10% delete
+```
+
+`stress` 使用固定随机种子和 512 个 key 的内存真值表。每个事务完成后都经过 WAL 和两个
+`fsync` 边界，最后逐 key 重读并全表扫描，检测丢写、错误覆盖、哈希冲突处理和 header 行数
+不一致。因为它会执行大量同步 SD 写，真机速度较慢是预期行为；可先运行 `stress 100`。
+
+断电恢复测试：
+
+```sh
+minisqlite init
+minisqlite prepare 7 777
+# 看到 "WAL durable" 后直接断电，不要正常关机
+# 重启并重新挂载 ext2：
+minisqlite recover
+minisqlite get 7
+```
+
+`prepare` 只持久化 redo WAL，不修改 `main.db`。`recover` 校验 WAL 后把目标 slot 和 header
+幂等重放到数据库，再执行 `fsync(main.db)` 并清空 WAL。数据库自身的 WAL 测试应用层事务；
+ext2 的 xjournal 同时保护目录、inode、位图和间接块等文件系统元数据，两层日志职责不同。
+
 ## 当前边界
 
 当前实现仍是小型 ext2 后端，不等同于 Linux ext2：

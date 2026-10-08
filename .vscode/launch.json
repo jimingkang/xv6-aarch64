@@ -5,15 +5,14 @@
             "name": "Debug xv6-arm64",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/Users/jimingkang/CLionProjects/xv6-aarch64/kernel/kernel",
+            "program": "${workspaceFolder}/kernel/kernel",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
             "miDebuggerPath": "/opt/homebrew/bin/aarch64-elf-gdb",
-            "miDebuggerServerAddress": "localhost:26000",
+            "miDebuggerServerAddress": "127.0.0.1:25501",
             "useExtendedRemote": true,
             "setupCommands": [
-                { "description": "设置 ARM64 架构", "text": "set architecture aarch64", "ignoreFailures": false },
-                { "description": "加载内核符号表", "text": "file /Users/jimingkang/CLionProjects/xv6-aarch64/kernel/kernel", "ignoreFailures": false }
+                { "description": "设置 ARM64 架构", "text": "set architecture aarch64", "ignoreFailures": false }
             ],
             "externalConsole": false,
             "logging": {

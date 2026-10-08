@@ -1622,7 +1622,7 @@ $ /bin/camshot -t 1 -s -o /boot/cam02.bmp
 
 \paragraph{\ding{176} 数字对得上.} \code{read()} 返回 \code{384040} 字节：40 字节帧头加 $640\times480\times10/8=384000$ 字节 RAW10。测试图案模式下 \code{camshot} 用固定的 1.0 白平衡和电平，所以下一行直接是 \code{fixed WB/level}。
 
-\paragraph{\ding{177} 创建输出文件.} 这一段同时有用户态和内核两个来源的输出，所以第一行被“切开”了：\code{camshot} 的 \code{printf} 在用户态逐字符 \code{write(1, \&c, 1)}，打到 \code{"/bo"} 时进程陷入 \code{open()}，VFS 的内核 \code{printf} 插了一整行进来，返回用户态后才接着打出 \code{"ot/cam02.bmp (230454 bytes)..."}。传给内核的路径并没有坏，\code{path=/boot/cam02.bmp} 写得清清楚楚。之后各行对应 \code{vfsopen()} 的创建流程：
+\paragraph{\ding{177} 创建输出文件.} 这一段同时有用户态和内核两个来源的输出，所以第一行被“切开”了：\code{camshot} 的 \code{printf} 在用户态逐字符 \code{write(1, \&c, 1)}，打到 \code{"/bo"} 时进程陷入 \code{open()}，VFS 的内核 \code{printf} 插了一整行进来，返回用户态后才接着打出 \code{"ot/cam02.bmp (230454 bytes)..."}。传给内核的路径并没有坏，\code{path=/boot/cam02.bmp} 写得清清楚楚。之后各行对应当时 \code{vfsopen()} 的创建流程（这份日志录于第一版 VFS；统一 VFS 之后同样的步骤由 \code{sys\_open()} $\to$ \code{pfs\_create()} $\to$ \code{O\_TRUNC} 截断 $\to$ \code{pfs\_open()} 完成，见 \ref{sec:vfs} 节）：
 
 \begin{itemize}
   \item \code{mode=601}：$\code{0x001}\,|\,\code{0x200}\,|\,\code{0x400}$，即 \code{O\_WRONLY|O\_CREATE|O\_TRUNC}；
@@ -1630,7 +1630,7 @@ $ /bin/camshot -t 1 -s -o /boot/cam02.bmp
   \item \code{fat32: create lookup}：\code{fat32createfile()} 内部再查一次，确认不重名；
   \item \code{reserve begin slots=2}：\code{cam02.bmp} 本身就是合法的 8.3 名字，不需要 LFN，所以只要 2 个目录项——一个短名项，加一个全 0 的结束标记；根目录尾部空位够用，不必扩展目录簇；
   \item \code{truncate}：对刚建的空文件截断，首簇为 0，什么都不用释放；
-  \item \code{verify-stat}、\code{openwrite}：重新确认目录项，并把首簇、大小装进 vnode 的 \code{fat32\_file}，供之后的追加写使用。
+  \item \code{verify-stat}、\code{openwrite}：重新确认目录项，并把首簇、大小装进 \code{fat32\_file} 写句柄（当时在 vnode 里，现在在 inode 的 \code{fsdata} 里），供之后的追加写使用。
 \end{itemize}
 
 最后一行的 \code{230454} 是 54 字节 BMP 头加 $320\times240\times3=230400$ 字节像素；\code{frame 31} 是帧头里的序号，即帧结束计数——30 帧预热之后的第 31 帧。输出是 320$\times$240，是因为 \code{-s} 把每个 2$\times$2 Bayer 块合成一个像素，不是 Unicam 丢了一半分辨率。

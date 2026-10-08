@@ -135,6 +135,11 @@ CFLAGS += -I.
 CFLAGS += -Iinclude
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 
+# Verbose filesystem teaching trace.  Use `make FS_TRACE=1` to print the
+# superblock, inode-cache and pathname-walk call chain (for example `ls /`).
+FS_TRACE ?= 0
+CFLAGS += -DFS_TRACE=$(FS_TRACE)
+
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
 CFLAGS += -fno-pie -no-pie
@@ -398,6 +403,7 @@ UPROGS=\
 	$U/_dhcp\
 	$U/_dd\
 	$U/_waltest\
+	$U/_minisqlite\
 	$U/_tcpd\
 	$U/_epollserver\
 	$U/_ptytest\

@@ -217,31 +217,30 @@ for(uint32 bit = 0; bit < count; bit++){
 
 inode 的分配（\code{alloc\_inode()}）和释放（\code{free\_inode()}）是同样的三步，只是改的是 inode 位图和空闲 inode 数；目录还要维护组描述符里的目录计数。
 
-\subsection{接入 VFS：按 inode 打开}
+\subsection{接入 VFS：按 inode 工作}
 
 第~\ref{sec:vfs} 节的 VFS 最初是“按路径”的：每次 \code{read}、\code{write} 都把路径传给后端重新查找。对 ext2 这会带来两个问题：每次读写都要从根目录走一遍；更糟的是，文件被重命名或删除以后，已经打开的描述符会突然指向别的文件，或者失效。Unix 的语义是：打开的是 inode，而不是名字。
 
-为此 \code{vnode\_ops} 增加了一组可选的\emph{句柄}操作：
+过渡阶段的办法是给 \code{vnode\_ops} 加一组\emph{句柄}操作（\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate}），ext2 的句柄就是 inode 号。改成统一 VFS 以后，这组句柄操作连同 vnode 一起删掉了：ext2 直接以 \code{ext2\_iops} 接入 inode 缓存，内存中的 \code{struct inode} 本身就是“打开的 ext2 inode”：
 
 \begin{ccode}
-struct vnode_ops {
-  ...                                                       // 原来的按路径操作
-  int  (*open)(char*, uint64*);                  // 解析一次路径，返回句柄
-  void (*release)(uint64);                       // 最后一次 close
-  int  (*hstat)(uint64, struct stat*);
-  int  (*hread)(uint64, uint64, void*, int);     // 句柄、偏移、缓冲、长度
-  int  (*hwrite)(uint64, uint64, int, uint64, int);
-  int  (*htruncate)(uint64, uint64);
+static struct inode_ops ext2_iops = {        // kernel/ext2.c
+  .read_inode = e2_read_inode,   // 读磁盘 inode，并在 e2.open[] 里占一个引用
+  .evict      = e2_evict,        // 最后一个 iput()：ext2release()，孤儿在此回收
+  .lookup     = e2_lookup,       // 查目录块，返回 iget(dev, ino)
+  .create     = e2_create,  .unlink = e2_unlink,  .rename = e2_rename,
+  .read       = e2_read,         // 目录经 vfs_dir_read()，文件经 ext2readino()
+  .write      = e2_write,   .truncate = e2_truncate,  .fsync = e2_fsync,
 };
 \end{ccode}
 
-\code{vfsopen()} 打开普通文件时，如果后端提供了 \code{open}，就调用它得到句柄并记在 vnode 里，之后的 \code{read}/\code{write}/\code{fstat}/\code{ftruncate} 都走句柄版本。ext2 的句柄就是 inode 号；\code{ext2open()} 还在一个小表 \code{e2.open[]} 里给这个 inode 记一个引用计数。
+原来按路径的实现拆成了“核心函数 + 外壳”：\code{create\_core()}、\code{mkdir\_core()}、\code{unlink\_core()}、\code{rename\_core()}、\code{readdir\_core()} 以父目录的 \code{einode} 和名字为参数，\code{e2\_*} 操作直接调用它们；按路径的外壳只留给 \code{ext2read}、\code{ext2readdir} 两个老系统调用。\code{e2.open[]} 表仍然存在，只是不再由 \code{open}/\code{close} 驱动，而由 inode 缓存驱动：\code{ilock()} 第一次填充 inode 时占一个引用，\code{iput()} 放掉最后一个引用时释放它。
 
-有了引用计数，就能实现“删除仍被打开的文件”：\code{unlink} 或被 \code{rename} 覆盖时，目录项立即消失；如果 inode 的链接数降到 0 而它还被打开着，\code{drop\_link()} 只把它标成\emph{孤儿}，块不释放。旧描述符照常读写原来的数据，最后一次 \code{close} 时 \code{ext2release()} 才在一个事务里截断并释放 inode。
+有了引用计数，就能实现“删除仍被打开的文件”：\code{unlink} 或被 \code{rename} 覆盖时，目录项立即消失；如果 inode 的链接数降到 0 而它还被打开着，\code{drop\_link()} 只把它标成\emph{孤儿}，块不释放。旧描述符照常读写原来的数据，最后一次 \code{close} 让 inode 的引用降到 0，\code{e2\_evict()} 调用 \code{ext2release()}，这时才在一个事务里截断并释放 inode。
 
 \code{rename} 也补全了 POSIX 语义：目标已存在时原子地替换它（类型必须相同，目录必须为空）；把目录移进它自己的子树会被 \code{is\_ancestor()} 拒绝——否则这棵子树会从根上脱落，形成一个环。
 
-\paragraph{锁.} 所有 ext2 操作由睡眠锁 \code{e2.lock} 串行化。最初用的是自旋锁，但 SD 卡是轮询 PIO，一次 \code{fsync} 最长可能等 5 秒，持自旋锁期间 CPU 一直关着中断，键盘和网络都会卡住。换成睡眠锁后，等待的进程会让出 CPU。
+\paragraph{锁.} 所有 ext2 操作由睡眠锁 \code{e2.lock} 串行化。它与 inode 的睡眠锁有固定的顺序：先 inode 锁、后 \code{e2.lock}。\code{e2\_create()} 在目录里加了新项以后，要先放掉 \code{e2.lock}，再加锁父目录 inode 刷新它的大小和链接数，否则会和持有目录 inode 锁再进入 ext2 的路径解析形成反序。最初用的是自旋锁，但 SD 卡是轮询 PIO，一次 \code{fsync} 最长可能等 5 秒，持自旋锁期间 CPU 一直关着中断，键盘和网络都会卡住。换成睡眠锁后，等待的进程会让出 CPU。
 
 \subsection{持久化：\code{sdflush()} 写屏障}
 
@@ -382,7 +381,7 @@ int ext2rename(char *oldpath, char *newpath) {
 \subsection{源码组织与编译}
 \label{sec:ext2-build}
 
-ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（表~\ref{tab:ext2-files}）。除了 \file{ext2.c} 和 \file{xjournal.c}，另外几处改动是为了让 ext2 真正可用：块设备层要提供写屏障，VFS 要支持按 inode 打开，\code{exec} 和当前目录要能跨过挂载点（第~\ref{sec:vfs-cwd} 节）。
+ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（表~\ref{tab:ext2-files}）。除了 \file{ext2.c} 和 \file{xjournal.c}，另外几处改动是为了让 ext2 真正可用：块设备层要提供写屏障，VFS 要能按 inode 工作，\code{exec} 和当前目录要能跨过挂载点（第~\ref{sec:vfs-cwd} 节）。
 
 \begin{table}[htbp]
   \centering
@@ -397,8 +396,8 @@ ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（
     \file{kernel/xjournal.c} & 外置事务日志：事务缓冲、四步提交、启动恢复 \\
     \file{kernel/rootdev.c} & \code{rootdev\_raw\_info()} 告诉 ext2 p2 的位置，日志就放在 xv6 镜像之后 \\
     \file{kernel/sd.c} & \code{sdflush()}：\code{dsb} 加 CMD13 轮询，作为持久化边界 \\
-    \file{kernel/vfs.c} & 句柄型 vnode：\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate} \\
-    \file{kernel/exec.c}、\file{kernel/sysfile.c} & \code{exec} 从 vnode 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
+    \file{kernel/ext2.c}（VFS 部分） & \code{ext2\_iops}、\code{ext2\_register\_super()}：作为统一 VFS 的一种文件系统，可挂在 \code{/mnt/ext2} 或作根文件系统 \\
+    \file{kernel/exec.c}、\file{kernel/sysfile.c} & \code{exec} 经 \code{iop->read} 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
     \file{user/waltest.c} & WAL 示例与语义、压力、断电测试 \\
     \file{Makefile} & \code{xjournal.o}、\code{rootdev.o}；\code{fs\_ext2.img} 与 \code{install-rpi3-ext2} 目标 \\
     \bottomrule

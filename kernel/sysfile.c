@@ -20,6 +20,24 @@
 #include "epoll.h"
 #include "vfs.h"
 #include "socket.h"
+#include "fs_trace.h"
+
+// Keep open tracing useful on a serial console without turning a long-running
+// camera/server workload into an unbounded log stream.
+#if FS_TRACE
+static int vfs_open_trace_budget = 0x7fffffff;
+
+static int
+vfs_open_trace_take(void)
+{
+  // Diagnostic only: a race can print one extra line but cannot affect VFS
+  // state.  Avoid libgcc atomic helpers in this freestanding kernel.
+  if(vfs_open_trace_budget <= 0)
+    return 0;
+  vfs_open_trace_budget--;
+  return 1;
+}
+#endif
 
 static uint16
 net16(uint16 value)
@@ -726,6 +744,16 @@ sys_open(void)
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
   f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
+
+#if FS_TRACE
+  if(vfs_open_trace_take()){
+    struct super_block *sb = getsuper(ip->dev);
+    printf("fs-trace: sys_open: path=%s -> fd=%d fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
+           path, fd, sb ? sb->type : "unknown", ip->dev, ip->inum,
+           ip->type, omode, ip->type == T_DEVICE ? "file_operations" :
+           "inode_ops(read/write)");
+  }
+#endif
 
   // Give the driver a chance to attach per-open state.  On failure the
   // driver's release() must not run, so detach f as a plain FD_NONE file.

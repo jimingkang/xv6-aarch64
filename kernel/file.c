@@ -16,11 +16,37 @@
 #include "device.h"
 #include "epoll.h"
 #include "fcntl.h"
+#include "fs_trace.h"
 
 struct {
   struct spinlock lock;
   struct file file[NFILE];
 } ftable;
+
+// Trace only the first operations after boot.  This diagnostic counter is
+// deliberately approximate on SMP: a race may print one extra line, but it
+// avoids pulling libgcc atomic helpers into the freestanding kernel.
+#if FS_TRACE
+static int vfs_io_trace_budget = 0x7fffffff;
+
+static int
+vfs_io_trace_take(void)
+{
+  if(vfs_io_trace_budget <= 0)
+    return 0;
+  vfs_io_trace_budget--;
+  return 1;
+}
+#endif
+
+static void
+vfs_io_trace(char *op, struct inode *ip, uint64 off, int requested, int result)
+{
+  struct super_block *sb = getsuper(ip->dev);
+  printf("fs-trace: file_%s: inode_ops->%s fs=%s dev=%d ino=%d off=%p requested=%d result=%d\n",
+         op, op, sb ? sb->type : "unknown", ip->dev, ip->inum, off,
+         requested, result);
+}
 
 void
 fileinit(void)
@@ -113,6 +139,8 @@ filestat(struct file *f, uint64 addr)
   if(f->type == FD_INODE || f->type == FD_DEVICE){
     ilock(f->ip);
     stati(f->ip, &st);
+    FSTRACE("filestat: fd file -> dev=%d ino=%d type=%d nlink=%d size=%p\n",
+            st.dev, st.ino, st.type, st.nlink, st.size);
     iunlock(f->ip);
     if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
@@ -127,6 +155,11 @@ int
 fileread(struct file *f, uint64 addr, int n)
 {
   int r = 0;
+  uint64 oldoff = f->off;
+  int trace = 0;
+#if FS_TRACE
+  trace = f->type == FD_INODE && vfs_io_trace_take();
+#endif
 
   if(f->readable == 0)
     return -1;
@@ -147,6 +180,9 @@ fileread(struct file *f, uint64 addr, int n)
   } else {
     panic("fileread");
   }
+
+  if(trace)
+    vfs_io_trace("read", f->ip, oldoff, n, r);
 
   return r;
 }
@@ -189,6 +225,11 @@ int
 filewrite(struct file *f, uint64 addr, int n)
 {
   int ret = 0;
+  uint64 oldoff = f->off;
+  int trace = 0;
+#if FS_TRACE
+  trace = f->type == FD_INODE && vfs_io_trace_take();
+#endif
 
   if(f->writable == 0)
     return -1;
@@ -209,6 +250,9 @@ filewrite(struct file *f, uint64 addr, int n)
   } else {
     panic("filewrite");
   }
+
+  if(trace)
+    vfs_io_trace("write", f->ip, oldoff, n, ret);
 
   return ret;
 }

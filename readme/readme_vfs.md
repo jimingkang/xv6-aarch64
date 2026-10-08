@@ -1,6 +1,866 @@
 # xv6 AArch64 VFS 中间层
 
-## 目标
+> **现状说明（统一 VFS）**：VFS 已改成 Linux 式的统一结构——每个文件系统一张
+> `inode_ops` 函数表、一个 `super_block`、一张挂载表、一条路径解析。下面
+> “统一 VFS” 一节描述当前设计；其后标注为 *[历史]* 的小节（路径前缀挂载表、
+> `vnode_ops`、`FD_VNODE`、`findmount()`、`fs_native_covers()`、`mount_ext2_root()`）
+> 记录的是第一版实现，代码里已经删除，保留下来说明演进过程。书中对应章节：
+> 第 6.6 节（命名空间引导）、第 6.7 节（VFS 中间层）、第 9 章（ext2 接入 VFS）。
+
+## 统一 VFS（当前设计）
+
+### 为什么要改
+
+第一版 VFS 在原生路径解析外面再包一层：`vfs.c` 有一张路径前缀挂载表，
+`sys_open()` 先 `findmount()` 做最长前缀匹配，命中就交给按路径的 `vnode_ops`，
+得到 `FD_VNODE`；不命中才走 `namei()`。结果是两张挂载表（`vfs.c` 的路径前缀表、
+`fs.c` 的 inode 层挂载表）、两种打开文件、两条路径解析。ext2 的目录不是 xv6 inode，
+进不了 `fs.c` 的挂载表，于是 ext2 当根时不能 MS_MOVE、不能 chroot，只能
+`mount_ext2_root()` 直接挂 `/`，再靠 `fs_native_covers()` 让 `/dev` 绕过 ext2。
+
+### 与 Linux 的对应
+
+| xv6 | 作用 | Linux |
+|---|---|---|
+| `struct super_block`（`supers[NSUPER]`，按 dev 索引） | 文件系统实例：类型、函数表、根 inode 号、只读、是否走日志、是否按路径 | `struct super_block` |
+| `struct inode_ops` | 每种文件系统一张函数表 | `inode_operations` + `file_operations` |
+| `struct inode`（`itable`，增加 `iop`、`path`、`fsdata`，`size` 为 64 位） | 内存中的文件对象 | `struct inode` |
+| `struct fsmount`（`fs.c` 的 `mtab`） | 唯一的挂载表 | `struct mount` |
+| `namex()` → `ip->iop->lookup()` | 逐级解析路径 | `link_path_walk()` → `->lookup` |
+| `pathfs_iops`（`vfs.c`） | 按路径工作的小文件系统的通用实现 | `simple_*` / libfs |
+
+没有 dentry 缓存；读写操作和目录操作放在同一张表里。
+
+### 核心结构（kernel/vfs.h）
+
+```c
+struct inode_ops {
+  int  (*read_inode)(struct inode*);          // ilock() 首次加锁时
+  void (*evict)(struct inode*);               // iput() 最后一个引用时
+  struct inode *(*lookup)(struct inode *dp, char *name);   // dp 已加锁
+  struct inode *(*create)(struct inode *dp, char *name, short type, short major, short minor);
+                                              // 消耗 dp 的引用，返回加锁的 inode
+  int  (*unlink)(struct inode*, char*);       // 目录不加锁传入
+  int  (*link)(struct inode*, char*, struct inode*);
+  int  (*rename)(struct inode*, char*, struct inode*, char*);
+  int  (*read)(struct inode*, int user_dst, uint64 dst, uint64 off, uint n);
+  int  (*write)(struct inode*, int user_src, uint64 src, uint64 off, uint n);
+  int  (*truncate)(struct inode*, uint64);
+  int  (*open)(struct inode*, int omode);     // 可选
+  int  (*fsync)(struct inode*);
+};
+
+struct super_block { int used; int dev; char type[12]; struct inode_ops *iop;
+  uint rootino; int readonly; int logged; int pathbased; void *priv; };
+```
+
+### 设备号 = 文件系统实例
+
+| dev | 实例 | 类型 / 函数表 | rootino |
+|---|---|---|---|
+| 1 | xv6 根分区（ROOTDEV） | xv6fs / `xv6_iops`，logged | 1 |
+| 7 | rootfs（ram0） | xv6fs / `xv6_iops` | 1 |
+| 8 | devtmpfs（ram1） | xv6fs / `xv6_iops` | 1 |
+| 3–6 | mmcblk0p1–p4 上的 ext2（通常 p3 = 5） | ext2 / `ext2_iops` | 2 |
+| 20 | `PROCFS_DEV` | procfs / `pathfs_iops`，只读 | hash("/") |
+| 21 | `FATFS_DEV` | fat32 / `pathfs_iops` | hash("/") |
+| 22 | `NETFS_DEV` | netfs / `pathfs_iops`，只读 | hash("/") |
+
+登记者：`fs_readsuper()`（xv6fs）、`ext2_register_super(dev, ro)`（ext2）、`vfsmount()`（按路径的文件系统）。
+
+### inode 缓存的三个钩子（fs.c）
+
+- `iget_path(dev, inum, path)` / `iget(dev, inum)`：设 `ip->iop = getsuper(dev)->iop`；按路径的文件系统还比较 `ip->path`，哈希冲突不会认错对象。
+- `ilock()`：`valid==0` 时调用 `iop->read_inode()`；失败（对象已消失）时呈现为空的、已删除的普通文件。
+- `iput()`：最后一个引用时调用 `iop->evict()`（xv6fs 释放 nlink==0 的 inode；ext2 释放 `e2.open[]` 引用并回收孤儿）。
+
+### 路径解析与挂载
+
+- `namex()` 每一级调用 `ip->iop->lookup()`，穿越挂载点仍由 `follow_mount()` / `follow_dotdot()` 完成。
+- `isfsroot(ip)` 比较 `ip->inum == getsuper(ip->dev)->rootino`；`fs_dev_root(dev) = iget_path(dev, rootino, "/")`。
+- 只有一张挂载表：`prepare_namespace()` 的根、devtmpfs 与 `/etc/fstab` 里的 procfs、FAT32、ext2 都是 `fs_mount()` 登记的一项。同一个 dev 不能挂两次。
+- `/proc/mounts` 就是 `fs_mounts_format()`，`ro`/`rw` 取自 `super_block`。
+
+示例（inode 号示意）：
+
+```text
+namei("/mnt/ext2/d/a.txt")
+  (dev 1, ino 1) -xv6_lookup-> mnt -> ext2 (dev 1, ino 26)
+  follow_mount -> (dev 5, ino 2) -e2_lookup-> d -> a.txt
+namei("/proc/1/status")
+  (dev 1) proc -> follow_mount -> (dev 20, hash "/") -pfs_lookup-> "/1" -> "/1/status"
+```
+
+### 三类实现
+
+- **xv6fs `xv6_iops`**（fs.c）：`xv6_lookup`=dirlookup，`xv6_create`（原 `create()` 主体），`xv6_unlink`、`xv6_link`，
+  `xv6_rename`（新增：只支持普通文件、同一事务内加新名再清旧项、目标已存在则拒绝），`xv6_read/write`（readi/writei + 4 GiB 检查），
+  `xv6_truncate`（只支持截到 0），`xv6_fsync`（`sdflush()`）。
+- **ext2 `ext2_iops`**（ext2.c）：`e2_read_inode` 在 `e2.open[]` 占一个引用，`e2_evict` 调 `ext2release()`（孤儿此时回收）；
+  `e2_lookup/create/unlink/rename/read/write/truncate/fsync`。原按路径代码拆成 `create_core/mkdir_core/unlink_core/rename_core/readdir_core`，
+  路径外壳只留给 `ext2read`/`ext2readdir` 旧系统调用。锁顺序：inode 锁 → `e2.lock`（`e2_create` 放掉 `e2.lock` 后再刷新父目录）。
+  不支持设备节点和硬链接。
+- **按路径 `pathfs_iops`**（vfs.c）：`ip->path` 记对象路径，inum = 31 位 FNV 哈希（非 0）；`pathjoin()` 处理 `.`/`..`；
+  后端表 `fat32_pops`、`proc_pops`、`netfs_pops`。FAT32 只能追加：`pfs_open()` 要求写打开时文件长度为 0（新建或已 `O_TRUNC`），
+  用 `fat32openwrite()` 取得写句柄存进 `ip->fsdata`。
+
+### 系统调用层
+
+- 只有 `FD_INODE`；`FD_VNODE`、`vnode`、`vfsopen/vfsread/vfsstat/...` 全部删除。
+- `fileread`/`filepread`/`exec` 的 `srcread` → `iop->read`；`struct execsrc` 只剩 `ip`。
+- 写：`inode_write()`——`sb->logged`（xv6fs）每批几块一个日志事务，其他文件系统整段交给 `iop->write`。
+- `sys_open()`：普通文件先查只读，`O_TRUNC` → `iop->truncate(ip,0)`，再调用可选的 `iop->open`。
+- 目录：非 xv6 目录经 `vfs_dir_read()` 合成 xv6 `struct dirent` 流（名字截断到 14 字符显示）。
+- `fs_create/fs_unlink/fs_link/fs_rename`：检查可写与操作是否存在；`link`/`rename` 跨设备拒绝；`unlink`/`rename` 遇挂载点拒绝（EBUSY）。
+- `sys_chdir()`：只剩 `namei()` → 检查目录 → 换 `p->cwd`、更新 `cwdpath`。`abspath()` 保留。
+- 路径分量上限 `NAMEMAX` = 128（`param.h`），xv6fs 磁盘上仍是 14 字符。
+
+### `inode_operations` 与 `file_operations`：当前实现和 Linux 的关系
+
+Linux 把“目录名字如何变成 inode”和“打开后如何操作 file”分成两层：
+
+```text
+pathname -> dentry -> inode->i_op              lookup/create/unlink/rename
+open     -> struct file->f_op                  read/write/mmap/fsync/release
+```
+
+`inode_operations` 属于 inode，描述目录和元数据操作；`file_operations` 属于一次
+`open()` 产生的 open-file-description，可以保存独立偏移和 `private_data`。多个 fd 经
+`dup()` 可以引用同一 `struct file`，而多个独立 `open()` 可以引用同一 inode、拥有不同
+file 状态。
+
+当前 xv6 普通文件还处在过渡状态：`struct inode_ops` 同时包含
+`lookup/create/unlink/rename` 和 `read/write/truncate/fsync`，`struct file` 保存 inode 与
+偏移，`fileread/filewrite` 直接调用 `f->ip->iop->read/write`。字符设备和块设备已经有
+独立的 `kernel/device.h:struct file_operations`，`sys_open()` 建立 `FD_DEVICE` 后由
+`chrdev_open/read/write/release` 分派，驱动可使用 `f->private_data`。因此启动跟踪会明确打印：
+
+```text
+dispatch=inode_ops(read/write)   普通文件、目录
+dispatch=file_operations        /dev 下的设备文件
+```
+
+下一步完全按 Linux 拆分时，应给普通 inode 增加默认 `i_fop`，在 `sys_open()` 时复制到
+`file->f_op`；届时目录操作仍走 `i_op`，已打开文件的数据操作只走 `f_op`。
+
+### 从 MBR、superblock、根 inode 到文件读写的完整链路
+
+当前没有真正的 `struct dentry` 或 dentry cache。“根 dentry 加载”在本实现中对应的是：
+`fsmount.mp` 保存被覆盖目录 inode，`super_block.rootino` 标识被挂载文件系统的根，
+`fs_dev_root()` 用 `(dev, rootino)` 从 inode cache 取得根 inode。日志因此使用
+`dentry-like`，避免误认为已经存在 Linux dentry 对象。
+
+```text
+main
+  -> sd_driver_init
+  -> rootdev_init
+       -> sdsector(0)                         读取 MBR
+       -> 解析四个 16-byte primary entries
+       -> blkdev_register(mmcblk0pN)          分区成为块设备
+       -> setup_raw_root
+            读取 partition_start + 2 扇区    xv6fs block 1
+            检查 FSMAGIC/FSSIZE
+       -> blkdev_register(ROOTDEV, "root")
+
+first process: prepare_namespace
+  -> 建立临时 ram0 rootfs
+  -> mount_root("/dev/root", "/root")
+       -> fsinit(ROOTDEV)
+            -> fs_readsuper
+                 bread(dev, 1)                buffer cache 读取 superblock
+                 sbs[dev] = on-disk superblock
+                 fs_super_register(... xv6_iops, ROOTINO=1)
+            -> initlog                         日志恢复
+       -> fs_mount
+            mtab: covered /root inode -> (dev, rootino)
+  -> kchdir("/root")
+  -> devtmpfs mount
+  -> fs_move_mount("/root", "/")
+  -> fs_set_root                              实盘根成为命名空间 /
+
+open("/etc/fstab")
+  -> sys_open
+  -> namei/namex
+       rootdir() -> fs_root
+       ip->iop->lookup("etc")
+       ip->iop->lookup("fstab")
+  -> ilock
+       valid == 0 -> ip->iop->read_inode
+  -> filealloc + fdalloc
+       file->ip = inode
+       file->off = 0
+
+read(fd)
+  -> sys_read
+  -> fileread
+  -> inode sleeplock
+  -> inode_ops.read(ip, off)
+       xv6fs: xv6_read -> readi -> bmap -> bread -> blk_rw -> sdsector
+       ext2:  e2_read  -> ext2readino -> ext2 block mapping -> sdsector
+  -> file->off += bytes
+
+write(fd)
+  -> sys_write
+  -> filewrite -> inode_write
+  -> begin_op/end_op（仅 super_block.logged，例如 xv6fs）
+  -> inode_ops.write
+       xv6fs: writei -> bmap/balloc -> log_write -> commit -> sdflush
+       ext2:  ext2writeino -> ordered data write + xjournal metadata commit
+```
+
+### `FS_TRACE`：超级块、inode cache 和路径查找完整跟踪
+
+文件系统教学日志由一个编译参数统一控制，默认关闭：
+
+```sh
+# 正常内核，不包含热路径日志
+make FS_TRACE=0
+
+# 调试内核；修改参数后应 clean，避免复用另一组 CFLAGS 生成的 .o
+make clean
+make FS_TRACE=1
+```
+
+`FS_TRACE=1` 会输出 `fs-trace:` 前缀。它会显著增加串口输出并改变时序，只应在分析
+文件系统时启用。camera、Wi-Fi 等设备数据本身不属于这组日志。
+
+加载 xv6fs 磁盘超级块时逐项打印：
+
+| 字段 | 含义 |
+|---|---|
+| `magic` | 格式标识，必须等于 `FSMAGIC` |
+| `size` | 文件系统总块数，包含元数据和数据区 |
+| `nblocks` | 可用于文件内容的数据块数量 |
+| `ninodes` | 磁盘 inode 容量 |
+| `nlog` | 日志区域块数 |
+| `logstart` | 日志区域首块 |
+| `inodestart` | 磁盘 inode 表首块 |
+| `bmapstart` | 空闲块位图首块 |
+
+随后 `register_super` 打印内存 `struct super_block` 的每个成员：`used/dev/type/iop/rootino`、
+`readonly/logged/pathbased/priv`。前者是 xv6fs 的磁盘布局，后者是统一 VFS 挂载实例，
+两者不是同一个对象。
+
+根 inode 第一次由 `iget_path()` 放入 `itable[]` 时只有身份字段：`dev/ino/ref=1/valid=0/iop`。
+第一次 `ilock()` 才执行 `iop->read_inode()`，随后打印完整内存 inode：
+
+- 通用字段 `dev/ino/ref/valid/iop/path/type/major/minor/nlink/size`；
+- `addrs[0..11]`：xv6fs 的 12 个直接数据块入口；
+- `addrs[12]`：xv6fs 的一级间接块入口；
+- `fsdata[0..3]`：统一 inode 留给具体文件系统的私有缓存字段。
+
+ext2/FAT32 等后端不把磁盘块树放进 xv6fs 的 `addrs[]`，因此这些后端的 `addrs[]` 为零
+并不表示文件没有内容；它们通过各自的 inode 实现和 `fsdata[]` 查找数据。
+
+执行 `ls /` 时，日志可以按下面的因果链阅读：
+
+```text
+user ls("/")
+  -> open("/")
+     -> namei                         公共路径查找入口
+        -> namex                      选择绝对路径的 namespace root
+           -> rootdir                 fs_root 增加引用
+           -> skipelem                "/" 没有子分量，直接返回 root inode
+     -> ilock                         命中/装入 inode 元数据
+     -> sys_open                      建立 file 和 fd，off=0
+  -> fstat(fd)                        读取根 inode 的 type/ino/size
+  -> read(fd, struct dirent) 循环
+     -> fileread
+        -> inode_ops->read             xv6fs 根目录被当作 dirent 文件读取
+  -> 对每个 dirent 调用 stat("/<name>")
+     -> namei -> namex -> skipelem
+     -> inode_ops->lookup
+        -> dirlookup                   从根目录 offset=0 开始扫描 dirent
+           -> readi                    读取目录数据块
+           -> iget                     命中时增加 ref；未命中时占用 itable 槽
+     -> ilock -> read_inode             首次访问该子 inode 时加载磁盘元数据
+     -> stati                           返回给用户 ls
+```
+
+对应的关键日志含义：
+
+- `namei/namex begin`：一次完整路径解析开始；
+- `rootdir`：绝对路径从当前命名空间根开始，而不是通过名为 `/` 的磁盘目录项查找；
+- `skipelem`：切出一个路径分量，并显示剩余字符串；
+- `dispatch lookup through inode_ops`：按当前目录所属文件系统选择 lookup 实现；
+- `dirlookup: dirent`：xv6fs 逐个检查磁盘目录项；
+- `iget_path: cache hit/miss`：查找或建立内存 inode 外壳；
+- `ilock: metadata cache hit/miss`：判断是否需要从磁盘装入 inode 内容；
+- `follow_mount/follow_dotdot`：跨入挂载文件系统，或从挂载根处理 `..`；
+- `sys_open`：路径 inode 转成进程 fd；
+- `file_read/file_write`：显示 inode 操作表读写的偏移、请求量和结果。
+
+因为 `ls` 会对目录中的每一项再次执行 `stat()`，所以一次 `ls /` 会看到多轮
+`namei → namex → lookup → dirlookup → iget → ilock`，这是预期行为，不是重复查找故障。
+
+#### 一次 RPi3 启动日志的实际对象关系
+
+这次 `FS_TRACE=1` 日志中出现了七个文件系统实例。`dev` 是内核块设备/伪设备号，
+不是 SD 卡分区号本身：
+
+| dev | 文件系统 | 命名空间位置 | 磁盘格式 superblock | 内存 VFS superblock |
+|---:|---|---|---|---|
+| 7 | 临时 rootfs（xv6fs） | 切换根之前的 `/` | RAM 块设备中的 xv6 superblock：`size=32, nblocks=27, ninodes=16, inodestart=2, bmapstart=4` | `rootino=1, logged=1, pathbased=0` |
+| 8 | devtmpfs（xv6fs） | `/dev` | RAM 块设备中的 xv6 superblock：`size=64, nblocks=57, ninodes=48, inodestart=2, bmapstart=6` | `rootino=1, logged=1, pathbased=0` |
+| 1 | 实际 xv6fs 根 | 最终 `/`，来自 `mmcblk0p2` | `magic=0x10203040, size=32768, nblocks=32718, ninodes=200, nlog=30, logstart=2, inodestart=32, bmapstart=45` | `rootino=1, logged=1, pathbased=0` |
+| 20 | procfs | `/proc` | 无磁盘 superblock | `rootino=pathhash("/")=705468254, readonly=1, pathbased=1` |
+| 21 | FAT32 | `/boot` | FAT32 BPB/FSInfo；本段 trace 没有重复打印 BPB 数值 | `rootino=pathhash("/")=705468254, readonly=0, pathbased=1` |
+| 5 | ext2 | `/mnt/ext2`，对应 ext2 分区块设备 | 分区偏移 1024 字节处的 ext2 superblock | `rootino=2, readonly=0, pathbased=0` |
+| 22 | netfs | `/mnt/net` | 无本地磁盘 superblock | `rootino=pathhash("/")=705468254, readonly=1, pathbased=1` |
+
+```mermaid
+flowchart TB
+  SD[SD card / mmcblk0]
+  P1[p1 FAT32 bootfs]
+  P2[p2 raw xv6fs]
+  P3[p3 ext2]
+  R7[dev 7 temporary rootfs in RAM]
+  R8[dev 8 devtmpfs in RAM]
+  SB1[dev 1 VFS super_block\nxv6fs rootino 1]
+  SB5[dev 5 VFS super_block\next2 rootino 2]
+  SB20[dev 20 procfs\npath-based]
+  SB21[dev 21 FAT32\npath-based]
+  SB22[dev 22 netfs\npath-based]
+
+  SD --> P1 --> SB21
+  SD --> P2 --> SB1
+  SD --> P3 --> SB5
+  R7 -->|early namespace root| OLDROOT[/root mount cover]
+  SB1 -->|move mount| ROOT[final /]
+  R8 --> DEV[/dev]
+  SB20 --> PROC[/proc]
+  SB21 --> BOOT[/boot]
+  SB5 --> EXT[/mnt/ext2]
+  SB22 --> NET[/mnt/net]
+```
+
+这里有两种“超级块”，必须区分：磁盘 superblock/BPB 描述某种文件系统自己的
+磁盘布局；`struct super_block` 是 VFS 的统一内存对象，保存 `dev/type/iop/rootino` 和
+挂载属性。procfs/netfs 没有前者，但仍然有后者。
+
+日志中的 `itable` 填充顺序为：
+
+```mermaid
+sequenceDiagram
+  participant V as VFS/prepare_namespace
+  participant I as itable[]
+  participant O as inode_ops
+  participant D as block device
+  V->>I: iget_path(dev=7, ino=1)
+  I-->>V: slot 0, ref=1, valid=0
+  V->>I: ilock(rootfs root)
+  I->>O: xv6_read_inode
+  O->>D: read block 2, dinode slot 1
+  D-->>I: type=DIR size=64 addrs[0]=5
+  Note over I: slot 0 becomes valid=1
+  V->>I: iget_path(dev=8, ino=1)
+  I-->>V: slot 1, valid=0
+  V->>O: read devtmpfs block 2, slot 1
+  O-->>I: DIR, addrs[0]=7
+  V->>I: iget_path(dev=1, ino=1)
+  I-->>V: slot 2, valid=0
+  V->>O: read real-root block 32, slot 1
+  O-->>I: DIR size=1024 addrs[0]=50
+  V->>I: iget_path(dev=5, ino=2)
+  I-->>V: recycled slot 6, valid=0
+  V->>O: e2_read_inode(root inode 2)
+  O-->>I: DIR size=4096 nlink=5
+```
+
+`itable[n]` 不是 inode 的固定位置。当前实现更接近“正在使用的 inode 表”：当
+`ref` 变成 0，该槽可以马上被另一个 `(dev, ino)` 复用。因此日志里 dev 8 root 多次在
+`itable[1]` 重新加载是正常的回收结果，并不表示磁盘上存在多个 root inode。
+
+这次日志还暴露了一个诊断问题：ext2 root 使用的 `itable[6]` 以前装过 xv6fs inode 57，
+所以曾打印出 `addrs[0]=1660`。`e2_read_inode()` 并不使用公共 `addrs[]`，该数值是回收槽
+遗留值，不是 ext2 root 的真实块指针。现在 `iget_path()` 复用槽时会清零公共元数据、
+`addrs[]` 和 `fsdata[]`；sleeplock 保持不动，因为它只在 `iinit()` 初始化一次。
+
+#### 路径名如何落到具体磁盘位置
+
+xv6fs 的计算规则是：
+
+```text
+磁盘 inode 所在块 = inodestart + inum / IPB
+块内 dinode 槽位 = inum % IPB
+IPB = 1024 / sizeof(struct dinode) = 16
+
+文件逻辑块 0..11 -> inode.addrs[0..11]
+文件逻辑块 12 以后 -> addrs[12] 指向的一级间接块
+
+SD 物理扇区 = 分区起始 LBA + xv6fs块号 * (1024 / 512)
+              = p2_start + xv6fs块号 * 2
+```
+
+日志没有包含本次 SD 卡 `p2_start` 的数值，所以不能从这份文本安全地写死最终 LBA；
+但块号和上面的换算关系已经完整。例如 root 目录数据块 50 位于
+`p2_start + 100` 与 `p2_start + 101` 两个 512 字节扇区。
+
+```mermaid
+flowchart LR
+  PATH[/etc/wifi.conf]
+  RINO[root inode 1\ndinode block 32 slot 1]
+  RDATA[root directory\ndata block 50]
+  ETCENT[dirent offset 256\netc -> inode 60]
+  ETCINO[inode 60\ndinode block 35 slot 12]
+  ETCDATA[etc directory\ndata block 1663]
+  WENT[dirent offset 192\nwifi.conf -> inode 68]
+  WINO[inode 68\ndinode block 36 slot 4]
+  WDATA[file data block 1671\n33 bytes]
+
+  PATH --> RINO --> RDATA --> ETCENT --> ETCINO --> ETCDATA --> WENT --> WINO --> WDATA
+```
+
+几个日志中已经能完全还原的例子：
+
+| 路径 | 目录项查找 | inode 磁盘位置 | 文件数据块 |
+|---|---|---|---|
+| `/etc/fstab` | root block 50: `etc`@256→ino60；block 1663: `fstab`@160→ino67 | ino60=`block35/slot12`；ino67=`block36/slot3` | 1670 |
+| `/etc/wifi.conf` | root block 50: `etc`@256→ino60；block 1663: `wifi.conf`@192→ino68 | ino68=`block36/slot4` | 1671 |
+| `/bin/login` | root block 50: `bin`@64→ino2；bin block 51: `login`@288→ino10 | ino2=`block32/slot2`；ino10=`block32/slot10` | 199、200、201、202… |
+| `/bin/wifi` | root block 50: `bin`@64→ino2；bin block 51: `wifi`@768→ino25 | ino25=`block33/slot9` | 533、534、535、536… |
+| `/mnt/ext2/video` | root `mnt`@224→ino57；block1660 `ext2`@64→ino58；随后穿越 mount | xv6 mountpoint ino58=`block35/slot10`；ext2 root=ino2；目标创建为 ext2 ino12 | 由 ext2 group descriptor、inode table 和 `i_block[15]` 计算，不使用 xv6 `bmap()` |
+
+#### 按日志中的三个 xv6fs 根实例分开表示
+
+日志中有三个使用 xv6fs 磁盘格式的根 inode。它们不是三个同时可见的 `/`：dev7 是
+启动早期的临时 rootfs，dev8 是稍后挂到 `/dev` 的 devtmpfs，dev1 才是最后移动到 `/`
+的 SD 卡 xv6fs。下面分别画出它们，避免把不同设备上相同的 `ino=1` 混在一起。
+
+注意，log、inode table、bitmap 和 data 并不是“装在 superblock 里面”；superblock
+保存这些区域的起点和容量，下面的数组方格表示它所描述的同一块设备地址空间。
+
+##### 1. dev7：临时 rootfs（ram0）
+
+| superblock 字段 | 值 |
+|---|---:|
+| `magic` | `0x10203040` |
+| `size / nblocks / ninodes` | `32 / 27 / 16` |
+| `nlog / logstart` | `0 / 2` |
+| `inodestart / bmapstart` | `2 / 4` |
+| VFS root | `rootino=1, logged=1, pathbased=0` |
+
+```text
+dev7 / ram0 block[]
+┌─────────┬─────────┬─────────────────┬───────────┬────────────────┐
+│ block 0 │ block 1 │   block 2..3    │  block 4  │  block 5..31  │
+│  boot   │  super  │ inode_table[2]  │ bitmap[1] │    data[27]    │
+└─────────┴────┬────┴────────┬────────┴───────────┴────────┬───────┘
+               │             │                             │
+               │             ├─ block2/slot1: root ino1 ───┼─ addrs[0]=5 ─→ block5: / dirent[]
+               │             ├─ block2/slot2: dev  ino2 ───┼─ addrs[0]=6 ─→ block6: /dev dirent[]
+               │             ├─ block2/slot3: console ino3 │                 T_DEVICE, no data
+               │             ├─ block2/slot4: /root ino4 ──┼─ addrs[0]=7 ─→ block7: /root mountpoint
+               │             └─ block2/slot5: /dev/root ino5                 T_DEVICE, no data
+               │                                           └─ data[] 从 block5 开始
+               ├─ rootino=1 ─→ block2/slot1
+               └─ nlog=0；logstart=2 不占用额外磁盘块
+
+物理块号从左向右递增 →
+
+nlog=0：不存在位于 block1 与 block2 之间的日志块；logstart=2 只是空日志区的起点值。
+```
+
+dev7 只在启动早期作为临时 `/`。最终根挂载完成且 devtmpfs 覆盖 `/dev` 后，用户看到的
+`/dev/console` 已经位于下面的 dev8，而不是 dev7 的 block6。完整路径只在 dev8 小节画
+一次，避免把启动早期节点和最终可见节点混在同一张图里。
+
+##### 2. dev8：devtmpfs（ram1，挂载为 `/dev`）
+
+| superblock 字段 | 值 |
+|---|---:|
+| `magic` | `0x10203040` |
+| `size / nblocks / ninodes` | `64 / 57 / 48` |
+| `nlog / logstart` | `0 / 2` |
+| `inodestart / bmapstart` | `2 / 6` |
+| VFS root | `rootino=1, logged=1, pathbased=0` |
+
+```text
+dev8 / ram1 block[]
+┌─────────┬─────────┬─────────────────┬───────────┬────────────────┐
+│ block 0 │ block 1 │   block 2..5    │  block 6  │  block 7..63  │
+│  boot   │  super  │ inode_table[4]  │ bitmap[1] │    data[57]    │
+└─────────┴────┬────┴────────┬────────┴───────────┴────────┬───────┘
+               │             │                             │
+               │             ├─ block2/slot1: root  ino1 ──┼─ addrs[0]=7 ─→ block7: /dev dirent[]
+               │             ├─ block2/slot5: input ino5 ──┼─ addrs[0]=8 ─→ block8: /dev/input dirent[]
+               │             └─ block2/slot6: event0 ino6  │                 T_DEVICE, no data
+               │                                           └─ data[] 从 block7 开始
+               ├─ rootino=1 ─→ block2/slot1
+               └─ nlog=0；logstart=2 不占用额外磁盘块
+
+物理块号从左向右递增 →
+
+nlog=0：不存在独立日志块；block2 立即就是 inode table 的第一个块。
+```
+
+dev8 的根 inode 是 `block2/slot1`，`addrs[0]=7`。下面只用一张图画当前系统执行
+`open("/dev/console")` 时，从最终根文件系统、挂载点、目录项和 inode 一直到驱动的
+完整链路。图中的 “dentry-like” 是磁盘 `struct dirent` 加路径解析中的临时名字关系；
+当前 xv6 **没有 Linux 的 `struct dentry` 和 dentry cache**。
+
+```mermaid
+flowchart LR
+  PATH["open(/dev/console)"]
+
+  subgraph DEV1["dev1：最终 xv6fs 根"]
+    direction TB
+    SB1["super_block<br/>rootino=1"]
+    I1["inode table<br/>block32 / slot1<br/>root ino1, addrs[0]=50"]
+    B50["data block50：/ dirent[]<br/>[4] off128<br/>dev : ino54"]
+    I54["inode table<br/>block35 / slot6<br/>/dev ino54, addrs[0]=1657"]
+    B1657["data block1657<br/>原 /dev 目录 / mountpoint"]
+    SB1 -->|"rootino"| I1
+    I1 -->|"addrs[0]"| B50
+    B50 -->|"dirent[4].inum=54<br/>dentry-like: dev → inode54"| I54
+    I54 -->|"addrs[0]"| B1657
+  end
+
+  subgraph MOUNT["VFS mount table"]
+    FM["follow_mount()<br/>covered=(dev1,ino54)<br/>mounted=(dev8,rootino1)"]
+  end
+
+  subgraph DEV8["dev8：挂载到 /dev 的 devtmpfs"]
+    direction TB
+    SB8["super_block<br/>rootino=1"]
+    DI1["inode table<br/>block2 / slot1<br/>root ino1, addrs[0]=7"]
+    B7["data block7：/dev dirent[]<br/>[2] off64<br/>console : ino2"]
+    DI2["inode table<br/>block2 / slot2<br/>console ino2, T_DEVICE<br/>major=1 minor=0"]
+    NODATA["没有普通文件 data block<br/>设备 inode 不使用 addrs[] 保存内容"]
+    SB8 -->|"rootino"| DI1
+    DI1 -->|"addrs[0]"| B7
+    B7 -->|"dirent[2].inum=2<br/>dentry-like: console → inode2"| DI2
+    DI2 -.-> NODATA
+  end
+
+  subgraph DRIVER["字符设备数据路径"]
+    direction TB
+    OPEN["sys_open<br/>FD_DEVICE, major=1"]
+    FOPS["register_chrdev(CONSOLE)<br/>file_operations"]
+    RW["consoleread / consolewrite"]
+    UART["Mini UART + console input queue<br/>真正的字符数据"]
+    OPEN --> FOPS --> RW --> UART
+  end
+
+  PATH --> SB1
+  B1657 --> FM --> SB8
+  DI2 -->|"设备分派"| OPEN
+```
+
+这里目录的 data block 是 block50、block1657 和 block7；最后的 console inode 本身
+没有文件数据块。对 `/dev/console` 的 `read/write` 不会通过 `bmap()` 读取磁盘，而是
+根据 `major=1` 找到 `register_chrdev()` 注册的 `file_operations`，再进入
+`consoleread()` / `consolewrite()`。
+
+block7 中其余非空根目录项仍然按 32 字节连续排列；它们都是设备 inode，因而没有
+文件数据块：
+
+| block7 索引 / 偏移 | 目录项 | inode 磁盘位置 |
+|---|---|---|
+| `[2] / 64` | `console : ino2` | block2 / slot2 |
+| `[3] / 96` | `tty : ino3` | block2 / slot3 |
+| `[4] / 128` | `ttyS0 : ino4` | block2 / slot4 |
+| `[6] / 192` | `video0 : ino7` | block2 / slot7 |
+| `[7] / 224` | `sdroot : ino8` | block2 / slot8 |
+| `[8] / 256` | `mmcblk0 : ino9` | block2 / slot9 |
+| `[9] / 288` | `mmcblk0p1 : ino10` | block2 / slot10 |
+| `[10] / 320` | `mmcblk0p2 : ino11` | block2 / slot11 |
+| `[11] / 352` | `mmcblk0p3 : ino12` | block2 / slot12 |
+| `[12] / 384` | `ram0 : ino13` | block2 / slot13 |
+| `[13] / 416` | `ram1 : ino14` | block2 / slot14 |
+
+`ram1` 是最后创建的节点，所以现有日志先显示查找 `ram1` 失败、分配 ino14；创建完成后
+它位于下一个 32 字节槽 `off416`。日志打印的 `devtmpfs: initialized on ram1, 12 nodes`
+按注册设备名计数，其中 `input/event0` 虽然创建一个目录和一个设备 inode，仍算一个设备名。
+
+##### 3. dev1：`itable[2] = (dev=1, ino=1)` 对应的最终 xv6fs 根
+
+日志里的 `itable[2]` 只是这一次启动中选中的**内存 inode cache 槽位**。真正稳定的身份是
+`(dev=1, ino=1)`：`dev=1` 是 raw xv6 根块设备，`ino=1` 是该文件系统的 root inode。
+它们经过下面三层对象才最终落到目录内容：
+
+```mermaid
+flowchart LR
+  SB[block 1\nxv6fs disk superblock]
+  DIN[block 32, slot 1\non-disk dinode ino 1]
+  IC[itable slot 2\nin-memory inode cache]
+  DB[block 50\nroot directory data]
+  DE[32-byte dirent stream\ninum + name]
+
+  SB -->|inodestart=32, IPB=16| DIN
+  DIN -->|ilock/read_inode copies metadata| IC
+  IC -->|addrs[0]=50| DB
+  DB --> DE
+```
+
+磁盘 superblock 的值可以还原出整个 xv6fs 布局：
+
+| 字段 | 本次值 | 含义和推导 |
+|---|---:|---|
+| `magic` | `0x10203040` | xv6fs 格式标识；不匹配就不能按 xv6fs 挂载 |
+| `size` | 32768 | 文件系统共 32768 个 1 KiB 块，即 32 MiB |
+| `nblocks` | 32718 | 可供文件内容使用的数据块数 |
+| `ninodes` | 200 | 最多 200 个磁盘 inode |
+| `nlog` / `logstart` | 30 / 2 | block 2..31 是日志区 |
+| `inodestart` | 32 | inode table 从 block 32 开始；每块 16 个 `dinode` |
+| `bmapstart` | 45 | block 45..49 是块分配 bitmap |
+
+因此实际布局是：
+
+```text
+block 0       boot/reserved
+block 1       superblock
+block 2..31   log（30 blocks）
+block 32..44  inode table（13 blocks，16 dinodes/block）
+block 45..49  allocation bitmap
+block 50..    data blocks；block 50 恰好是根目录的第一个数据块
+```
+
+下面用数组方格表示分区内的块号。箭头表示磁盘地址递增，不表示文件内容引用；
+从 inode 到 data block 的引用关系在下一张图中单独表示：
+
+```mermaid
+flowchart LR
+  B0["[ block 0 ]<br/>boot / reserved"]
+  B1["[ block 1 ]<br/>superblock"]
+  BL["[ block 2 .. 31 ]<br/>log[30]"]
+  BI["[ block 32 .. 44 ]<br/>dinode_block[13]<br/>16 dinodes/block"]
+  BM["[ block 45 .. 49 ]<br/>bitmap[5]"]
+  BD["[ block 50 .. 32767 ]<br/>data_block[32718]"]
+
+  B0 -->|+1 block| B1
+  B1 -->|logstart=2| BL
+  BL -->|inodestart=32| BI
+  BI -->|bmapstart=45| BM
+  BM -->|first data block=50| BD
+```
+
+```text
+xv6fs block[]
+┌─────────┬─────────┬────────────────┬──────────────────┬────────────────┬─────────────────────┐
+│    0    │    1    │     2..31      │      32..44      │     45..49     │      50..32767      │
+│  boot   │  super  │    log[30]     │ inode_table[13]  │   bitmap[5]    │ data_block[32718]   │
+└────┬────┴────┬────┴───────┬────────┴────────┬─────────┴───────┬────────┴──────────┬──────────┘
+     └─────────┴────────────┴─────────────────┴─────────────────┴───────────────────┘
+                                  物理块号递增 →
+```
+
+root dinode 的日志值是 `type=T_DIR, nlink=8, size=1024, addrs[0]=50`。`size=1024`
+表示根目录是一个完整的 1 KiB 目录文件，共可容纳 `1024/32=32` 个目录槽；日志中只有
+前 11 个槽非空，其余槽的 `inum=0`。每个目录项本身只保存 `ushort inum + char name[30]`，
+它并不直接保存目标数据块号；必须再用 `inum` 到 inode table 读取目标 `dinode`。
+
+下表把本次运行日志中的每个非空根目录项都展开到实际 xv6fs 块。`dirent` 一栏的偏移
+是 block 50 内的字节偏移；`dinode` 一栏是目标 inode 的磁盘位置；最后一栏是目标对象
+自己的数据块。`dev/proc/boot` 后续会被其它文件系统覆盖，但表中仍列出它们作为 xv6fs
+mount point 时占用的原始块。
+
+| 根目录名 | dirent 位置 | 目标 inode | dinode 位置 | xv6fs 数据块 |
+|---|---:|---:|---|---|
+| `.` | block50 + 0 | 1 | block32 / slot1 | block50（仍是根目录） |
+| `..` | block50 + 32 | 1 | block32 / slot1 | block50；根的父仍指向自身 |
+| `bin` | block50 + 64 | 2 | block32 / slot2 | block51、876（`/bin` 目录流） |
+| `init` | block50 + 96 | 7 | block32 / slot7 | direct block130..141；block142 是一级间接表，指向 block143..159 |
+| `dev` | block50 + 128 | 54 | block35 / slot6 | block1657；随后被 devtmpfs 的 dev8/ino1 覆盖 |
+| `proc` | block50 + 160 | 55 | block35 / slot7 | block1658；随后被 procfs 覆盖 |
+| `boot` | block50 + 192 | 56 | block35 / slot8 | block1659；随后被 FAT32 bootfs 覆盖 |
+| `mnt` | block50 + 224 | 57 | block35 / slot9 | block1660，内含 `ext2→ino58`、`net→ino59` |
+| `etc` | block50 + 256 | 60 | block35 / slot12 | block1663 |
+| `root` | block50 + 288 | 61 | block35 / slot13 | block1664 |
+| `usr` | block50 + 320 | 62 | block35 / slot14 | block1665，内含 `bin→ino63` |
+
+根目录 block50 本身又是一个 `dirent[32]` 数组。下面每个上层方格是一个 32 字节
+目录项，纵向箭头依次表示“目录项取得 inode 号 → inode table 取得 `addrs[]` → 找到数据块”：
+
+```mermaid
+flowchart TB
+  R["root dinode ino1<br/>block32 / slot1<br/>size=1024"] -->|"addrs[0]=50"| RB["xv6fs data block50<br/>root dirent[32]"]
+
+  subgraph A["data block 50 = root dirent[32]"]
+    direction LR
+    D0["[0]<br/>off 0<br/>. : ino1"] ~~~ D1["[1]<br/>off 32<br/>.. : ino1"]
+    D1 ~~~ D2["[2]<br/>off 64<br/>bin : ino2"]
+    D2 ~~~ D3["[3]<br/>off 96<br/>init : ino7"]
+    D3 ~~~ D4["[4]<br/>off 128<br/>dev : ino54"]
+    D4 ~~~ D5["[5]<br/>off 160<br/>proc : ino55"]
+    D5 ~~~ D6["[6]<br/>off 192<br/>boot : ino56"]
+    D6 ~~~ D7["[7]<br/>off 224<br/>mnt : ino57"]
+    D7 ~~~ D8["[8]<br/>off 256<br/>etc : ino60"]
+    D8 ~~~ D9["[9]<br/>off 288<br/>root : ino61"]
+    D9 ~~~ D10["[10]<br/>off 320<br/>usr : ino62"]
+    D10 ~~~ DE["[11..31]<br/>off 352..992<br/>empty: ino0"]
+  end
+
+  RB -->|"contains"| D0
+
+  D0 -->|"inum=1"| I1A["dinode[1]<br/>block32 / slot1"] -->|"addrs[0]"| DATA1A["xv6fs block50<br/>root directory"]
+  D1 -->|"inum=1"| I1B["dinode[1]<br/>block32 / slot1"] -->|"addrs[0]"| DATA1B["xv6fs block50<br/>root directory"]
+  D2 -->|"inum=2"| I2["dinode[2]<br/>block32 / slot2"] -->|"addrs[0..1]"| DATA2["xv6fs blocks51,876<br/>/bin directory"]
+  D3 -->|"inum=7"| I7["dinode[7]<br/>block32 / slot7"] -->|"addrs[]"| DATA7["xv6fs blocks130..141<br/>indirect table block142<br/>xv6fs blocks143..159"]
+  D4 -->|"inum=54"| I54["dinode[54]<br/>block35 / slot6"] -->|"addrs[0]"| DATA54["xv6fs block1657<br/>/dev mount point"]
+  D5 -->|"inum=55"| I55["dinode[55]<br/>block35 / slot7"] -->|"addrs[0]"| DATA55["xv6fs block1658<br/>/proc mount point"]
+  D6 -->|"inum=56"| I56["dinode[56]<br/>block35 / slot8"] -->|"addrs[0]"| DATA56["xv6fs block1659<br/>/boot mount point"]
+  D7 -->|"inum=57"| I57["dinode[57]<br/>block35 / slot9"] -->|"addrs[0]"| DATA57["xv6fs block1660<br/>/mnt directory"]
+  D8 -->|"inum=60"| I60["dinode[60]<br/>block35 / slot12"] -->|"addrs[0]"| DATA60["xv6fs block1663<br/>/etc directory"]
+  D9 -->|"inum=61"| I61["dinode[61]<br/>block35 / slot13"] -->|"addrs[0]"| DATA61["xv6fs block1664<br/>/root directory"]
+  D10 -->|"inum=62"| I62["dinode[62]<br/>block35 / slot14"] -->|"addrs[0]"| DATA62["xv6fs block1665<br/>/usr directory"]
+```
+
+把数组下标写成公式就是：
+
+```text
+root_dirent[i] 的位置 = block 50 * 1024 + i * 32
+root_dirent[i].inum   = 目标 inode 号
+inode_block           = 32 + inum / 16
+inode_slot            = inum % 16
+target_data_block     = dinode[inode_slot].addrs[0..12]
+```
+
+这里 block1657..1665 的顺序来自启动时的实际创建顺序：内核先为 devtmpfs 建立 `/dev`
+mount point；随后 `init` 依次建立 `/proc`、`/boot`、`/mnt`、`/mnt/ext2`、`/mnt/net`、
+`/etc`、`/root`、`/usr`、`/usr/bin`。因此 inode 58/59 和 data block1661/1662 属于
+`/mnt/ext2`、`/mnt/net`，inode 63 和 block1666 属于 `/usr/bin`，它们不是根目录的直接项。
+
+以当前分区文档中的 `p2_start=208896` 为例，xv6 block 与 SD 物理扇区的关系是：
+
+```text
+first_sector(block) = 208896 + block * 2
+partition_byte      = block * 1024
+absolute_byte       = 208896 * 512 + block * 1024
+```
+
+所以 root dinode 所在 block32 对应 LBA 208960..208961；root dir block50 对应
+LBA 208996..208997。目录项 `etc` 的绝对位置是 block50 起点再加 256 字节，即
+`partition + 51456` 字节。读取到 `ino=60` 后，再定位 block35/slot12：该 dinode 位于
+分区内 `35*1024 + 12*64 = 36608` 字节；它的 `addrs[0]=1663`，所以 `/etc` 目录内容
+位于 LBA 212222..212223。
+
+```mermaid
+flowchart LR
+  ROOT[block50 root dir]
+  E[+256 dirent\netc, ino60]
+  EI[block35 slot12\ndinode ino60]
+  ED[block1663\netc dir data]
+  W[+192 dirent\nwifi.conf, ino68]
+  WI[block36 slot4\ndinode ino68]
+  WD[block1671\nwifi.conf bytes]
+
+  ROOT --> E --> EI -->|addrs0=1663| ED --> W --> WI -->|addrs0=1671| WD
+```
+
+如果使用旧卡布局（例如 p2 从 LBA 1064960 开始），只替换公式里的 `p2_start`；
+xv6fs 内部 block32、block50、block1663 等编号不变。也就是说，superblock 和 inode
+记录的是**分区内块号**，块设备层才把它加上分区起始 LBA。
+
+##### 4. 其它挂载文件系统的根不能套用 xv6fs 块数组
+
+日志还登记了 procfs、FAT32、ext2 和 netfs 的文件系统根，但只有 dev7/dev8/dev1 使用
+上面那种 xv6fs superblock。它们必须分开理解：
+
+| dev | 根 | 自己的存储布局 | 是否有 xv6 log/bitmap/data |
+|---:|---|---|---|
+| 20 procfs | `rootino=hash("/")` | 运行时动态生成 | 否；没有本地磁盘块 |
+| 21 FAT32 | `rootino=hash("/")` | BPB、FAT、cluster data | 否；没有 xv6 inode table/log |
+| 5 ext2 | `rootino=2` | ext2 superblock、group descriptor、block bitmap、inode bitmap、inode table、data | 没有 xv6 log；VFS `logged=0`，自定义 xjournal 在 ext2 布局之外处理元数据事务 |
+| 22 netfs | `rootino=hash("/")` | 远端服务器对象 | 否；没有本地磁盘块 |
+
+```mermaid
+flowchart LR
+  E0["[ partition offset 0 ]<br/>boot/reserved"] --> E1["[ offset 1024 bytes ]<br/>ext2 superblock"]
+  E1 --> EGD["[ group descriptor table ]"]
+  EGD --> EBB["[ block bitmap ]"]
+  EBB --> EIB["[ inode bitmap ]"]
+  EIB --> EIT["[ inode table ]"]
+  EIT --> ED["[ data blocks ]"]
+```
+
+这张 ext2 图只表达区域关系；准确块号必须由 ext2 superblock 的 `block_size`、
+`blocks_per_group`、`inodes_per_group` 和各 group descriptor 计算，不能使用 xv6fs 的
+`inodestart=32` 或 `bmapstart=45`。
+
+日志里的 `/mnt/ext2/video` 查找跨越两个不同块格式：前半段仍从 dev1 的 xv6fs 块读取
+mount point，`follow_mount()` 后才切换到 dev5 的 ext2 inode/block 算法：
+
+```mermaid
+flowchart TB
+  N[namex /mnt/ext2/video]
+  A[root dev1 ino1\nblock50]
+  B[mnt dev1 ino57\nblock1660]
+  C[covered mountpoint\ndev1 ino58]
+  FM[follow_mount]
+  ER[ext2 root\ndev5 ino2]
+  EL[e2_lookup / e2dirlookup]
+  EI[ext2 inode 12]
+
+  N -->|mnt| A --> B
+  B -->|ext2| C --> FM --> ER
+  ER -->|video| EL --> EI
+```
+
+其他后端到物理介质的规则不同：FAT32 根据目录项取得首 cluster，再按
+`data_lba + (cluster-2)*sectors_per_cluster + sector_in_cluster` 定位；ext2 先用
+`(ino-1)/inodes_per_group` 找 block group，从 group descriptor 取 inode-table block，
+再通过 inode 的 12 个直接、一级、二级和三级间接入口定位数据块；procfs/netfs 没有
+对应的本地 SD 数据块。
+
+### mount(2)
+
+`vfsmount(source, target, fstype, flags)`：先登记 `super_block`（procfs 强制只读；netfs 必须只读；ext2 用起点等于
+`e2.part_lba` 的分区块设备号），再 `begin_op` → `namei(target)` → `fs_mount()`。成功打印
+`vfs: mounted <type> at <target> read-write|read-only`，失败打印 `vfs: cannot mount <type> at <target> (busy or already mounted)`。
+`vfsinit()` 只初始化 netfs，打印 `vfs: one mount table for all filesystems`。
+
+### 根文件系统：xv6fs 与 ext2 走同一条路
+
+```text
+prepare_namespace()
+  1. rootfs (ram0) 成为 /，建 /dev /dev/console /root
+  2. devtmpfs_init() (ram1)
+  3. kmknod("/dev/root", BLOCKDEV, rootdev)      rootdev = 1（xv6fs）或 BLKDEV_MMC_PART(n)（ext2）
+     mount_root("/dev/root", "/root")
+       node_to_blkdev -> dev
+       ext2: 核对 blkdev start == ext2_part_lba(); ext2_register_super(dev, 0)
+       xv6fs: fsinit(dev)                       （读超级块、恢复日志、登记 super_block）
+       fs_mount(/root, dev)
+     kchdir("/root"); 新根上没有 dev 就建（ext2 经 e2_create）
+     devtmpfs_mount("dev")                      → /root/dev
+  4. fs_move_mount(".", "/")  (MS_MOVE);  fs_set_root(cwd)  (chroot)
+```
+
+ext2 根启动日志：
+
+```text
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
+```
+
+ext2 为根时 fstab 里 `ext2 /mnt/ext2` 一行会失败（同一文件系统不能挂两次），属预期。
+
+### 改动的文件
+
+`kernel/vfs.h`（重写）、`kernel/vfs.c`（重建：pathfs + procfs/FAT32/netfs 后端 + `vfsmount`）、`kernel/fs.c`
+（`supers[]`、钩子、`xv6_iops`、通用 `fs_*`、`vfs_dir_read`）、`kernel/ext2.c`（`*_core` + `ext2_iops` + `ext2_register_super`）、
+`kernel/file.h`（`struct inode` 新字段，删 `FD_VNODE`）、`kernel/file.c`、`kernel/sysfile.c`、`kernel/exec.c`、
+`kernel/do_mounts.c`（`mount_root` 支持两种类型，删 `mount_ext2_root`）、`kernel/defs.h`、`kernel/param.h`（`NAMEMAX`）。
+
+### 测试状态
+
+QEMU 上通过：
+- xv6fs 根：`ls /`、`/proc`、`cat /proc/mounts`（单表）、`/mnt/ext2` 上建文件/写/mkdir/rm、xv6fs 上 `mv`。
+- ext2 根：`/root` → MS_MOVE → chroot，devtmpfs 挂在 ext2 的 `/dev`（内核建出该目录），`stressfs`；之后 `e2fsck` 干净。
+
+尚未解决 / 未测：
+- 新内核跑完整 `usertests`（xv6fs 根）时：`rwsbrk` 报 `open(rwsbrk) failed`（原因未明，可能是回归）；
+  `copyout` 报 `open(README) failed`（fs.img 里没有 README，可能本来就失败，未核实）；`forkforkfork` 超过 8 分钟像是挂住。
+  需要和旧内核对比确认。（`opentest` 在新旧内核上都失败，属既有问题。）
+- FAT32 写入（测试用 bootfs 为空）、netfs 未测；未在真机上验证。
+
+---
+
+*以下为第一版（路径前缀表 + vnode）的设计记录，标注 [历史] 的内容已不在代码中。*
+
+## 目标 [历史]
 
 原来的 ext2 驱动只能通过 `ext2read`、`ext2readdir` 两个专用系统调用访问，普通的
 `open/read/fstat/close` 完全不知道 ext2。现在增加 `kernel/vfs.c`，把非原生文件系统包装成
@@ -17,7 +877,7 @@ vnode，并在统一文件描述符层分派操作。
 
 挂载点是内核路径路由，不要求 xv6 根目录中事先创建真实的 `mnt/ext2` inode。
 
-## 数据结构
+## 数据结构 [历史]
 
 ```text
 struct file
@@ -63,14 +923,14 @@ $ ext2ls /
 $ ext2cat /path/to/file
 ```
 
-## 当前文件接口
+## 文件接口 [历史]
 
 文件描述符偏移已经扩展为 64 位。ext2 vnode 支持 `pread/pwrite/ftruncate/fsync/fdatasync`，
 并支持 `mkdir/unlink/rename`。`pread/pwrite` 不修改共享 open-file offset，适合 WAL 和数据库页
 访问；普通 `read/write/lseek` 继续使用共享 offset。原生 xv6fs 的磁盘格式仍是 32 位大小，
 因此只有 ext2 vnode 能实际使用超过 4 GiB 的偏移。
 
-## 当前限制
+## 限制 [历史]
 
 - ext2 rename 目前不覆盖已经存在的目标，尚未实现 POSIX 的原子替换语义。
 - `chdir()` 和 `exec()` 仍使用原生 inode 路径，暂时不能把 VFS 目录设为 cwd，也不能直接
@@ -334,7 +1194,7 @@ bootfs /boot fat32 rw 0 0
                       -> mountops("/boot", &fat32_ops)
 ```
 
-#### 3. VFS 按最长挂载点匹配路由路径
+#### 3. VFS 按最长挂载点匹配路由路径 [历史：现由 namex + follow_mount 完成]
 
 普通 `open()` 最终先进入 `vfsopen()`。`findmount()` 遍历 mount table，并采用最长挂载点
 匹配：`/boot` 和 `/boot/CONFIG.TXT` 都匹配 `/boot`，但传给 FAT32 后端的相对路径分别是
@@ -354,7 +1214,7 @@ open("/boot/CONFIG.TXT", O_RDONLY)
 这个返回值约定很重要：`1` 表示 VFS 已成功打开，`-1` 表示路径属于某个挂载文件系统但打开
 失败，`0` 表示不属于任何 VFS 挂载点，应继续尝试原生根文件系统。
 
-#### 4. FAT32 vnode 操作
+#### 4. FAT32 vnode 操作 [历史：现为 pathfs_iops + fat32_pops]
 
 `kernel/vfs.c` 新增 `fat32_ops`，与 ext2、procfs 使用相同的 `vnode_ops` 接口：
 
@@ -570,7 +1430,7 @@ blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, seco
 ```
 
 
-## 当前目录（cwdpath）与 exec 走 VFS
+## 当前目录（cwdpath）与 exec 走 VFS [部分历史：exec 现经 iop->read，chdir 只走 namei]
 
 VFS 挂载表按绝对路径做最长前缀匹配，而原生的当前目录是 inode 指针 `p->cwd`。以前因此有两个限制：
 `cd /mnt/ext2` 只进入被挂载点遮住的原生空目录，相对路径看不到 ext2；`exec()` 只走 `namei()`/`readi()`，
@@ -673,12 +1533,13 @@ int   cmdline_get(char *key, char *val, int n); // 取 key=value 的值
 
 `rootfstype=` 可以是 `xv6fs`（默认）或 `ext2`，其他值打印警告后按 xv6fs 启动。
 
-**ext2 作根**：`cmdline_xv6.txt` 写 `root=/dev/mmcblk0p3 rootfstype=ext2`。ext2 在 vfs.c 的路径前缀
-表里，不是 inode 文件系统，所以流程是：rootfs、devtmpfs 照常建立，devtmpfs 挂到 rootfs 的 `/dev`，
-然后在 rootfs 里建 `/dev/root`（次设备号指向 mmcblk0p3，核对与 ext2 驱动打开的分区一致）并 `vfsmount("/dev/root", "/", "ext2")`。`findmount()` 把 `/` 挂载当作最低优先级：更长的前缀
-（`/proc`、`/boot`、`/mnt/ext2`）先匹配；`fs_native_covers()` 判定在 inode 层挂载点下的路径（`/dev`）
-不交给 ext2。因为 rootfs 除了 `/dev` 外都被遮住，不需要 MS_MOVE/chroot。xv6 分区（p2）仍被注册为
-ROOTDEV，供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic。
+**ext2 作根**：`cmdline_xv6.txt` 写 `root=/dev/mmcblk0p3 rootfstype=ext2`。统一 VFS 之后 ext2 根与 xv6fs 根
+走同一条路（见文首“根文件系统：xv6fs 与 ext2 走同一条路”）：`/dev/root` 次设备号指向 mmcblk0p3，
+`mount_root()` 核对分区后 `ext2_register_super()`，挂到 `/root`，在 ext2 的 `/dev` 上挂 devtmpfs，
+再 MS_MOVE + chroot。xv6 分区（p2）仍被注册为 ROOTDEV（设备 1），供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic。
+
+*[历史]* 第一版里 ext2 在 vfs.c 的路径前缀表里，只能 `vfsmount("/dev/root", "/", "ext2")` 直接挂 `/`，
+devtmpfs 挂在 rootfs 的 `/dev`，靠 `fs_native_covers()` 让 `/dev` 绕过 ext2，没有 MS_MOVE/chroot。
 
 把程序装进 ext2（不格式化，只写 `/init` 和 `/bin/*`）：
 
@@ -686,8 +1547,7 @@ ROOTDEV，供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic�
 make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
 ```
 
-限制：ext2 上没有设备节点和硬链接；fstab 仍把同一个 ext2 挂到 `/mnt/ext2`；`ls /` 不列出 `dev`
-（它在 rootfs 里），但 `/dev` 可正常访问。
+限制：ext2 上没有设备节点和硬链接；fstab 里把同一个 ext2 挂到 `/mnt/ext2` 的那行会失败（同一文件系统不能挂两次）。
 `root=` 指向的分区没有 xv6 文件系统时也只打印原因，然后退回自动探测。
 
 启动日志示例（真机，有 cmdline_xv6.txt）：
@@ -740,7 +1600,7 @@ if(open("/dev/ttyS0", O_RDWR) < 0 && open("/dev/console", O_RDWR) < 0){
 }
 ```
 
-### inode 层挂载表（fs.c fsmount 与 follow_mount/follow_dotdot）
+### 挂载表（fs.c fsmount 与 follow_mount/follow_dotdot；现为唯一的挂载表）
 
 vfs.c 的路径前缀表管 ext2、FAT32、procfs 等**非原生**文件系统。`fs.c` 新增了一张针对
 xv6-inode 文件系统的挂载表，让 `namex()` 能穿越挂载点：
@@ -787,8 +1647,8 @@ if(namecmp(name, "..") == 0)
 `vfs.c` 新增两个 procfs 虚拟文件：
 
 - **`/proc/cmdline`**：`cmdline_get_all()` 的内容加换行符，用于调试和脚本读取启动参数。
-- **`/proc/mounts`**：先输出 `fs.c` 里的 xv6-inode 挂载（`fs_mounts_format()`），再输出
-  `vfs.c` 里的路径前缀挂载（ext2、FAT32、procfs、netfs）。
+- **`/proc/mounts`**：`fs_mounts_format()` 的输出——唯一的挂载表，包括 ext2、FAT32、procfs、netfs；
+  `ro`/`rw` 取自各自的 `super_block`。
 
 示例输出：
 

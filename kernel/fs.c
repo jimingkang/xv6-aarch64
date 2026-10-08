@@ -22,6 +22,7 @@
 #include "file.h"
 #include "blkdev.h"
 #include "vfs.h"
+#include "fs_trace.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 // One on-disk xv6 superblock per mounted xv6 filesystem, indexed by block
@@ -63,6 +64,11 @@ fs_super_register(int dev, char *type, struct inode_ops *iop, uint rootino,
   sb->priv = priv;
   __sync_synchronize();
   sb->used = 1;
+  FSTRACE("register_super: memory superblock installed\n");
+  FSTRACE("  used=%d dev=%d type=%s iop=%p rootino=%d\n",
+          sb->used, sb->dev, sb->type, (uint64)sb->iop, sb->rootino);
+  FSTRACE("  readonly=%d logged=%d pathbased=%d priv=%p\n",
+          sb->readonly, sb->logged, sb->pathbased, (uint64)sb->priv);
   return 0;
 }
 
@@ -93,6 +99,15 @@ fs_readsuper(int dev)
   if(s.magic != FSMAGIC)
     return -1;
   sbs[dev] = s;
+  FSTRACE("fill_super: read xv6fs disk block 1 into memory, dev=%d\n", dev);
+  FSTRACE("  magic=%x (format identifier)\n", s.magic);
+  FSTRACE("  size=%d (total filesystem blocks)\n", s.size);
+  FSTRACE("  nblocks=%d (data blocks)\n", s.nblocks);
+  FSTRACE("  ninodes=%d (inode capacity)\n", s.ninodes);
+  FSTRACE("  nlog=%d (log region blocks)\n", s.nlog);
+  FSTRACE("  logstart=%d (first log block)\n", s.logstart);
+  FSTRACE("  inodestart=%d (first on-disk inode block)\n", s.inodestart);
+  FSTRACE("  bmapstart=%d (first allocation-bitmap block)\n", s.bmapstart);
   fs_super_register(dev, "xv6fs", &xv6_iops, ROOTINO, 0, 1, 0, 0);
   return 0;
 }
@@ -321,7 +336,13 @@ iget_path(uint dev, uint inum, char *path)
     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum &&
        (!bypath || strncmp(ip->path, path, MAXPATH) == 0)){
       ip->ref++;
+      int slot = ip - itable.inode;
+      int ref = ip->ref;
+      int valid = ip->valid;
       release(&itable.lock);
+      FSTRACE("iget_path: cache hit slot=%d fs=%s dev=%d ino=%d ref=%d valid=%d path=%s\n",
+              slot, sb ? sb->type : "unknown", dev, inum, ref, valid,
+              bypath ? path : "<inode-keyed>");
       return ip;
     }
     if(empty == 0 && ip->ref == 0)    // Remember empty slot.
@@ -338,11 +359,31 @@ iget_path(uint dev, uint inum, char *path)
   ip->ref = 1;
   ip->valid = 0;
   ip->iop = sb ? sb->iop : &xv6_iops;
+  // The slot may previously have represented an inode from another
+  // filesystem.  valid=0 prevents normal users from consuming old metadata,
+  // but clearing it here also keeps diagnostics honest and prevents a backend
+  // that only fills its common fields (for example ext2) from exposing stale
+  // xv6fs block pointers in addrs[].  Do not clear the sleeplock itself: it is
+  // initialized once by iinit().
+  ip->type = 0;
+  ip->major = 0;
+  ip->minor = 0;
+  ip->nlink = 0;
+  ip->size = 0;
+  memset(ip->addrs, 0, sizeof(ip->addrs));
+  memset(ip->fsdata, 0, sizeof(ip->fsdata));
   if(bypath)
     safestrcpy(ip->path, path, MAXPATH);
   else
     ip->path[0] = 0;
+  int slot = ip - itable.inode;
   release(&itable.lock);
+  FSTRACE("iget_path: cache miss -> initialize itable[%d] fs=%s dev=%d ino=%d ref=1 valid=0 path=%s\n",
+          slot, sb ? sb->type : "unknown", dev, inum,
+          bypath ? path : "<inode-keyed>");
+
+  if(sb && inum == sb->rootino)
+    FSTRACE("iget_path: this itable slot is filesystem root; disk metadata remains lazy until ilock\n");
 
   return ip;
 }
@@ -374,6 +415,9 @@ xv6_read_inode(struct inode *ip)
 
   bp = bread(ip->dev, IBLOCK(ip->inum, (*getsb(ip->dev))));
   dip = (struct dinode*)bp->data + ip->inum%IPB;
+  FSTRACE("xv6_read_inode: dev=%d ino=%d disk-block=%d slot-in-block=%d\n",
+          ip->dev, ip->inum, IBLOCK(ip->inum, (*getsb(ip->dev))),
+          ip->inum % IPB);
   ip->type = dip->type;
   ip->major = dip->major;
   ip->minor = dip->minor;
@@ -395,6 +439,10 @@ ilock(struct inode *ip)
   acquiresleep(&ip->lock);
 
   if(ip->valid == 0){
+    struct super_block *sb = getsuper(ip->dev);
+    int root = sb && ip->inum == sb->rootino;
+    FSTRACE("ilock: metadata cache miss -> iop->read_inode fs=%s dev=%d ino=%d\n",
+            sb ? sb->type : "unknown", ip->dev, ip->inum);
     if(ip->iop->read_inode(ip) < 0){
       // The object vanished behind our back (path-based filesystems):
       // present an empty, unlinked file instead of crashing.
@@ -404,6 +452,26 @@ ilock(struct inode *ip)
       ip->major = ip->minor = 0;
     }
     ip->valid = 1;
+    if(root){
+      FSTRACE("root inode loaded into itable[%d]\n",
+              (int)(ip - itable.inode));
+      FSTRACE("  dev=%d ino=%d ref=%d valid=%d iop=%p path=%s\n",
+              ip->dev, ip->inum, ip->ref, ip->valid, (uint64)ip->iop,
+              ip->path[0] ? ip->path : "<not stored: inode-keyed fs>");
+      FSTRACE("  type=%d major=%d minor=%d nlink=%d size=%p\n",
+              ip->type, ip->major, ip->minor, ip->nlink, ip->size);
+      for(int i = 0; i < NDIRECT; i++)
+        FSTRACE("  addrs[%d]=%d (direct data-block pointer)\n", i,
+                ip->addrs[i]);
+      FSTRACE("  addrs[%d]=%d (single-indirect block pointer)\n",
+              NDIRECT, ip->addrs[NDIRECT]);
+      for(int i = 0; i < 4; i++)
+        FSTRACE("  fsdata[%d]=%d (filesystem-private cached value)\n",
+                i, ip->fsdata[i]);
+    }
+  } else {
+    FSTRACE("ilock: metadata cache hit dev=%d ino=%d type=%d size=%p\n",
+            ip->dev, ip->inum, ip->type, ip->size);
   }
 }
 
@@ -483,10 +551,13 @@ bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
+  uint filebn = bn;
 
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
+    FSTRACE("bmap: dev=%d ino=%d file-block=%d -> disk-block=%d via addrs[%d] direct\n",
+            ip->dev, ip->inum, filebn, addr, bn);
     return addr;
   }
   bn -= NDIRECT;
@@ -502,6 +573,8 @@ bmap(struct inode *ip, uint bn)
       log_write(bp);
     }
     brelse(bp);
+    FSTRACE("bmap: dev=%d ino=%d file-block=%d -> disk-block=%d via addrs[%d] indirect[%d]\n",
+            ip->dev, ip->inum, filebn, addr, NDIRECT, bn);
     return addr;
   }
 
@@ -567,8 +640,14 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
   if(off + n > ip->size)
     n = ip->size - off;
 
+  FSTRACE("readi: dev=%d ino=%d off=%d bytes=%d destination=%s\n",
+          ip->dev, ip->inum, off, n, user_dst ? "user" : "kernel");
+
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    uint diskblock = bmap(ip, off/BSIZE);
+    FSTRACE("readi: bread dev=%d disk-block=%d block-offset=%d\n",
+            ip->dev, diskblock, off % BSIZE);
+    bp = bread(ip->dev, diskblock);
     m = min(n - tot, BSIZE - off%BSIZE);
     if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
       brelse(bp);
@@ -639,20 +718,32 @@ dirlookup(struct inode *dp, char *name, uint *poff)
   if(dp->type != T_DIR)
     panic("dirlookup not DIR");
 
+  FSTRACE("dirlookup: scan directory dev=%d ino=%d size=%p for name='%s'\n",
+          dp->dev, dp->inum, dp->size, name);
+
   for(off = 0; off < dp->size; off += sizeof(de)){
     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
       panic("dirlookup read");
     if(de.inum == 0)
       continue;
+    char dename[DIRSIZ + 1];
+    memmove(dename, de.name, DIRSIZ);
+    dename[DIRSIZ] = 0;
+    FSTRACE("dirlookup: dirent off=%d name='%s' ino=%d\n",
+            off, dename, de.inum);
     if(namecmp(name, de.name) == 0){
       // entry matches path element
       if(poff)
         *poff = off;
       inum = de.inum;
+      FSTRACE("dirlookup: match name='%s' -> iget(dev=%d, ino=%d)\n",
+              name, dp->dev, inum);
       return iget(dp->dev, inum);
     }
   }
 
+  FSTRACE("dirlookup: miss name='%s' in dev=%d ino=%d\n",
+          name, dp->dev, dp->inum);
   return 0;
 }
 
@@ -720,6 +811,8 @@ skipelem(char *path, char *name)
   name[len] = 0;
   while(*path == '/')
     path++;
+  FSTRACE("skipelem: component='%s' remaining='%s'\n", name,
+          *path ? path : "<end>");
   return path;
 }
 
@@ -764,7 +857,10 @@ fs_mountinit(void)
 static struct inode*
 rootdir(void)
 {
-  return fs_root ? idup(fs_root) : iget(ROOTDEV, ROOTINO);
+  struct inode *ip = fs_root ? idup(fs_root) : iget(ROOTDEV, ROOTINO);
+  FSTRACE("rootdir: namespace '/' -> dev=%d ino=%d source=%s\n",
+          ip->dev, ip->inum, fs_root ? "fs_root" : "ROOTDEV fallback");
+  return ip;
 }
 
 // Is ip the root directory of its filesystem?
@@ -806,6 +902,8 @@ follow_mount(struct inode *ip)
     release(&mtab.lock);
     if(m == 0)
       return ip;
+    FSTRACE("follow_mount: covered dev=%d ino=%d -> mounted dev=%d root\n",
+            ip->dev, ip->inum, dev);
     iput(ip);
     ip = fs_dev_root(dev);
   }
@@ -818,8 +916,11 @@ static struct inode*
 follow_dotdot(struct inode *ip)
 {
   for(;;){
-    if(fs_root && ip->dev == fs_root->dev && ip->inum == fs_root->inum)
+    if(fs_root && ip->dev == fs_root->dev && ip->inum == fs_root->inum){
+      FSTRACE("follow_dotdot: already namespace root, stay dev=%d ino=%d\n",
+              ip->dev, ip->inum);
       return ip;
+    }
     if(!isfsroot(ip))
       return ip;
     acquire(&mtab.lock);
@@ -828,6 +929,8 @@ follow_dotdot(struct inode *ip)
     release(&mtab.lock);
     if(mp == 0)
       return ip;
+    FSTRACE("follow_dotdot: mounted root dev=%d ino=%d -> cover dev=%d ino=%d\n",
+            ip->dev, ip->inum, mp->dev, mp->inum);
     iput(ip);
     ip = mp;
   }
@@ -877,6 +980,11 @@ fs_mount(struct inode *mp, int dev, char *fstype, char *source, char *path)
     safestrcpy(m->source, source, sizeof(m->source));
     safestrcpy(m->path, path, sizeof(m->path));
     release(&mtab.lock);
+    struct super_block *sb = getsuper(dev);
+    (void)sb;
+    FSTRACE("mount: path=%s cover=(dev=%d ino=%d) root=(fs=%s dev=%d ino=%d)\n",
+            path, mp->dev, mp->inum, sb ? sb->type : fstype, dev,
+            sb ? sb->rootino : ROOTINO);
     return 0;
   }
   release(&mtab.lock);
@@ -970,6 +1078,11 @@ static struct inode*
 namex(char *path, int nameiparent, char *name)
 {
   struct inode *ip, *next;
+  char *original = path;
+  (void)original;
+
+  FSTRACE("namex: begin path='%s' mode=%s\n", original,
+          nameiparent ? "lookup-parent" : "lookup-object");
 
   if(*path == '/')
     ip = rootdir();
@@ -977,29 +1090,45 @@ namex(char *path, int nameiparent, char *name)
     ip = idup(myproc()->cwd);
 
   while((path = skipelem(path, name)) != 0){
+    FSTRACE("namex: component='%s' current=(dev=%d ino=%d) remaining='%s'\n",
+            name, ip->dev, ip->inum, *path ? path : "<end>");
     if(namecmp(name, "..") == 0)
       ip = follow_dotdot(ip);
     ilock(ip);
     if(ip->type != T_DIR){
+      FSTRACE("namex: fail component='%s': current inode is type=%d, not directory\n",
+              name, ip->type);
       iunlockput(ip);
       return 0;
     }
     if(nameiparent && *path == '\0'){
       // Stop one level early.
+      FSTRACE("namex: parent result dev=%d ino=%d final-name='%s'\n",
+              ip->dev, ip->inum, name);
       iunlock(ip);
       return ip;
     }
+    FSTRACE("namex: dispatch lookup through inode_ops fs=%s directory=(%d,%d) name='%s'\n",
+            getsuper(ip->dev) ? getsuper(ip->dev)->type : "unknown",
+            ip->dev, ip->inum, name);
     if((next = ip->iop->lookup(ip, name)) == 0){
+      FSTRACE("namex: lookup miss path='%s' component='%s'\n", original, name);
       iunlockput(ip);
       return 0;
     }
+    FSTRACE("namex: lookup hit component='%s' -> dev=%d ino=%d; release parent\n",
+            name, next->dev, next->inum);
     iunlockput(ip);
     ip = follow_mount(next);
   }
   if(nameiparent){
+    FSTRACE("namex: fail path='%s': no final component for parent lookup\n",
+            original);
     iput(ip);
     return 0;
   }
+  FSTRACE("namex: success path='%s' -> dev=%d ino=%d\n",
+          original, ip->dev, ip->inum);
   return ip;
 }
 
@@ -1007,13 +1136,22 @@ struct inode*
 namei(char *path)
 {
   char name[NAMEMAX];
-  return namex(path, 0, name);
+  FSTRACE("namei: public pathname lookup path='%s'\n", path);
+  struct inode *ip = namex(path, 0, name);
+  FSTRACE("namei: return path='%s' result=%s dev=%d ino=%d\n", path,
+          ip ? "inode" : "NULL", ip ? ip->dev : 0, ip ? ip->inum : 0);
+  return ip;
 }
 
 struct inode*
 nameiparent(char *path, char *name)
 {
-  return namex(path, 1, name);
+  FSTRACE("nameiparent: public parent lookup path='%s'\n", path);
+  struct inode *ip = namex(path, 1, name);
+  FSTRACE("nameiparent: return parent=%s dev=%d ino=%d final-name='%s'\n",
+          ip ? "inode" : "NULL", ip ? ip->dev : 0, ip ? ip->inum : 0,
+          ip ? name : "<none>");
+  return ip;
 }
 
 // Create name in directory dp (a referenced, unlocked inode; the reference
@@ -1068,7 +1206,13 @@ xv6_create(struct inode *dp, char *name, short type, short major, short minor)
 static struct inode*
 xv6_lookup(struct inode *dp, char *name)
 {
-  return dirlookup(dp, name, 0);
+  FSTRACE("xv6_lookup: inode_ops lookup directory=(dev=%d ino=%d) name='%s'\n",
+          dp->dev, dp->inum, name);
+  struct inode *ip = dirlookup(dp, name, 0);
+  FSTRACE("xv6_lookup: result name='%s' -> %s dev=%d ino=%d\n",
+          name, ip ? "inode" : "NULL", ip ? ip->dev : 0,
+          ip ? ip->inum : 0);
+  return ip;
 }
 
 // Is the directory dp empty except for "." and ".." ?
