@@ -328,8 +328,16 @@ dwc2_irq()                         hard IRQ / HCD 快速路径
 
 DWC2 completion work               HCD可调度上下文
   -> 读取HCINT/HCTSIZ和DMA实际长度
-  -> NAK/本轮无数据时按bInterval重新调度，URB保持submitted
+  -> NAK/本轮无数据时把retry_work登记到delayed_head
   -> 最终完成时usb_hcd_giveback_urb()
+
+CPU0 10 ms timer                   delayed-work时钟
+  -> workqueue_timer_tick()推进work_jiffies
+  -> retry_work到期后移入dwc2_periodic_wq
+
+dwc2_periodic_wq                   DWC2专用kworker
+  -> dwc2_interrupt_retry_work()
+  -> 从新的SSPLIT重新arm channel 6，URB保持submitted
 
 usbkbd_irq_complete()              URB completion
   -> 通过urb->context取得usbkbd_state
@@ -354,6 +362,9 @@ usbkbd_wq                          进程上下文下半部
   channel 6，避免普通 kworker 的毫秒级调度延迟；
 - 最终完成、超出split窗口或错误才屏蔽channel 6，并调度DWC2自己的URB
   completion work；
+- NAK或超出CSPLIT窗口不再在公共`system_wq`中用`udelay(bInterval)`忙等；
+  completion work通过`mod_delayed_work()`把`retry_work`登记到全局到期队列，
+  到期后才移入专用`dwc2_periodic_wq`并重新arm channel 6；
 - HCD完成处理调用`usb_hcd_giveback_urb()`；键盘的URB completion仅排入
   `rx_work`；
 - `rx_work`读取`urb->status/actual_length`，解析成功报告并重新提交URB。
@@ -374,8 +385,60 @@ workqueue 自己的链表、`pending/running/rerun` 已由 `wq->lock` 保护；
 `usbkbd_state.lock` 保护设备的 `active` 和生命周期状态。IRQ 上半部不解析
 HID、不调用 console、不访问文件系统；为了满足 split microframe 时序，它会
 在HCD内最多短暂等待500 us并重启channel。DMA cache invalidate和
-`bInterval`等待在DWC2 completion work中完成；HID解析、`consoleintr()`与
+NAK判定在DWC2 completion work中完成；毫秒级`bInterval`等待由delayed work
+计时，不占用任何kworker；HID解析、`consoleintr()`与
 新一轮URB提交在`usbkbd_wq`中完成。
+
+### `system_wq`、延迟队列与 `dwc2_periodic_wq`
+
+ch6最终IRQ仍用`schedule_work(&interrupt_rx.work)`把HCD完成任务立即加入
+公共`system_wq`。`dwc2_interrupt_urb_work()`调用
+`dwc2_interrupt_rx_complete()`读取并清除`HCINT`；只有确认本轮结果为NAK，
+或者CSPLIT已经越过有效窗口，才执行：
+
+```c
+mod_delayed_work(&dwc2_periodic_wq,
+                 &interrupt_rx.retry_work,
+                 interval_jiffies);
+```
+
+这条调用不会立刻把任务放入`dwc2_periodic_wq`。`retry_work`先进入
+workqueue核心的全局`delayed_head`，按`expires`排序。CPU0每10 ms调用
+`workqueue_timer_tick()`；任务到期后，其内嵌的普通`work_struct`才通过
+`queue_work()`进入`dwc2_periodic_wq`，唤醒该队列唯一的专用kworker并执行
+`dwc2_interrupt_retry_work()`。因此原来的`system_wq`机制没有改变，同时
+空闲键盘的`bInterval`等待不再占住公共worker和CPU。
+
+```mermaid
+sequenceDiagram
+    participant HW as DWC2 ch6 / TT / keyboard
+    participant IRQ as dwc2_irq (hard IRQ)
+    participant SYS as system_wq kworker
+    participant DELAY as delayed_head + CPU0 timer
+    participant PWQ as dwc2_periodic_wq kworker
+    participant USB as USB core / usbkbd_wq
+
+    HW->>IRQ: ch6最终IRQ（NAK/超窗NYET/XFERCOMPL）
+    IRQ->>SYS: schedule_work(interrupt_rx.work)
+    SYS->>SYS: dwc2_interrupt_urb_work<br/>dwc2_interrupt_rx_complete
+    alt NAK或本轮无数据
+        SYS->>DELAY: mod_delayed_work(retry_work, bInterval ticks)
+        Note over SYS: completion work立即返回<br/>不再udelay忙等
+        DELAY->>DELAY: CPU0 timer推进work_jiffies
+        DELAY->>PWQ: 到期后queue_work(retry_work.work)
+        PWQ->>HW: dwc2_interrupt_retry_work<br/>新的SSPLIT，重新arm ch6
+        Note over HW,PWQ: 原URB始终保持submitted，不归还类驱动
+    else 收到完整HID report
+        SYS->>USB: usb_hcd_giveback_urb
+        USB->>USB: usbkbd completion -> rx_work<br/>解析报告并提交下一URB
+    end
+```
+
+`usb_kill_urb()`和DWC2 remove路径先在`usb_lock`下把`interrupt_rx.active`
+清零并停止/屏蔽ch6，再在锁外调用
+`cancel_delayed_work_sync(&interrupt_rx.retry_work)`。锁外同步取消很重要：到期
+回调本身会取得`usb_lock`；如果持锁等待回调退出就会死锁。取消返回后才能
+释放URB和USB设备私有状态。
 
 ### IRQ 接收时序图
 
@@ -387,6 +450,7 @@ sequenceDiagram
     participant KB as Low-speed USB Keyboard
     participant IRQ as BCM2837 USB IRQ 9
     participant HCW as DWC2 URB completion work
+    participant DELAY as delayed_head / dwc2_periodic_wq
     participant URB as USB core / URB completion
     participant WQ as usbkbd_wq
     participant C as console / input event
@@ -412,8 +476,8 @@ sequenceDiagram
             IRQ->>H: 下一 microframe 重试 CSPLIT
         else 已超过 CSPLIT 窗口
             IRQ->>HCW: schedule HCD completion work
-            HCW->>HCW: 等待 bInterval
-            HCW->>H: 从新的 SSPLIT 重新调度，URB保持submitted
+            HCW->>DELAY: mod_delayed_work(retry_work, bInterval)
+            DELAY->>H: 到期后由dwc2_periodic_wq<br/>从新的SSPLIT重新调度
         end
     else Transaction Translator 尚未完成
         TT-->>H: NYET
@@ -597,8 +661,9 @@ flowchart TD
     S -->|CSPLIT NYET 0x42<br/>仍在本 frame| D[IRQ 内等待下一 microframe]
     D --> C
     S -->|CSPLIT 超出窗口| W[屏蔽 channel 6<br/>schedule HCD URB work]
-    W --> P[HCD等待 bInterval]
-    P --> R[重新提交 SSPLIT]
+    W --> P[mod_delayed_work<br/>登记bInterval期限]
+    P --> Q[CPU0 timer判定到期]
+    Q --> R[dwc2_periodic_wq<br/>重新提交SSPLIT]
     S -->|XFERCOMPL| X[schedule HCD URB work]
     X --> G[cache invalidate + giveback URB]
     G --> H[URB completion queue kbd rx_work<br/>HID report解析]
@@ -723,7 +788,9 @@ dwc2: HID boot mouse handed to usb bus
 
 ```text
 dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
-dwc2: event-driven hub hotplug armed on channel 7
+dwc2: event-driven hub hotplug v2 scheduled on channel 7
+dwc2: hub ch7 scheduler alive active=0 urb-state=0
+dwc2: hub ch7 first IRQ hcint=... hctsiz=...
 dwc2: hub IRQ change=... connected=...->...; reprobe
 ```
 
@@ -733,6 +800,40 @@ interrupt-IN channel，因此支持“键盘或鼠标”的拔出/替换，但�
 使用Hub interrupt endpoint，但拓扑改变后仍整棵重枚举。完整Linux式多设备
 支持下一步应把`usb_child`、interrupt request和host channel按端口/接口数组化，
 并为EP0控制请求增加统一队列，做到只增删发生变化的port/device。
+
+重枚举后的第一次Hub interrupt-IN还需要可靠启动。channel 7现在按当前
+`HFNUM`选择下一USB frame的`HCCHAR.ODDFRM`，并在每次提交时建立一个
+`bInterval`期限的delayed-work watchdog。正常NAK IRQ会把该期限向后移动；
+如果控制器复位后的首个事务没有产生完成IRQ，watchdog会重新启动channel 7。
+它只恢复Hub interrupt URB，不执行`GET_STATUS`，因此不是旧式端口轮询。
+新一代Hub监控还会先延迟一个`bInterval`再首次提交，以保证触发重枚举的旧URB
+completion已经完全退出。一次性的`scheduler alive`与`first IRQ`日志分别证明
+delayed work和DWC2 host-channel两段链路都在运行。
+
+拔键盘后、Hub事件到达前可能短暂出现：
+
+```text
+dwc2: keyboard ch6 error intr=82 ...
+usbkbd: channel 6 transfer error; rearming
+```
+
+`0x82=CHHLTD|XACTERR`表示channel 6仍在访问已经离线的低速endpoint。这是Hub
+状态endpoint的下一个周期到来前的正常窗口；随后看到`hub IRQ change`与
+`event0 disconnected`，说明remove生命周期已经收敛，不是键盘驱动残留。
+
+若插回键盘时连续打印：
+
+```text
+dwc2: control data failed req=0 addr=1 result=-1
+```
+
+其中`req=0, addr=1`是事件worker向根Hub发送端口`GET_STATUS`，不是周期性
+拓扑轮询。早期实现把4字节端口状态数组放在worker内核栈上，却把它直接交给
+DWC2 DMA；cache维护函数按64字节cache line向外取整，invalidate时可能覆盖同一
+栈cache line中的局部变量，而且这个短生命周期缓冲也不适合作为DMA对象。
+现在端口状态使用独立的、静态存续且64字节对齐的
+`dwc2_hub_port_status[64]`，控制传输仍只接收前4字节。Hub状态bitmap、端口状态
+DMA缓冲和枚举使用的`ctrl_buf`彼此分离，避免DMA/cache ownership互相污染。
 
 ## 热插键盘真机日志与完整通信流程（2a7a:8a47）
 
@@ -928,8 +1029,9 @@ Ctrl+C及命令历史。可用`/bin/evtest /dev/input/event0`验证按下、`SYN
 - Linux只增删发生变化的port/device；当前拓扑变化会重新初始化整个DWC2。
 - Linux为每个设备/endpoint动态调度多个host channel；当前channel 7固定给Hub
   URB、channel 6固定给唯一HID数据URB，所以键盘和鼠标仍不能同时长期接收。
-- 当前空闲NAK路径会在HCD worker中`udelay(bInterval)`；功能正确但占用worker。
-  后续应改成基于USB frame期限的delayed work/periodic scheduler。
+- 空闲NAK路径已经使用`retry_work + dwc2_periodic_wq`按`bInterval`重排，
+  不再占用公共HCD worker自旋；当前10 ms delayed-work粒度适合该低速键盘，
+  更通用的HCD仍应按USB frame/SOF为不同端点维护周期调度表。
 - 当前为满足低速split的125 us microframe期限，在IRQ快速路径内短暂等待并推进
   CSPLIT；Linux DWC2使用更完整的SOF/periodic schedule状态机，可进一步减少
   hard IRQ中的忙等。
