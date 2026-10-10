@@ -115,5 +115,7 @@ void usb_kill_urb(struct urb *urb);
 void usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length);
 void usbkbd_driver_init(void);
 void usbkbd_driver_exit(void);
+void usbmouse_driver_init(void);
+void usbmouse_driver_exit(void);
 
 #endif

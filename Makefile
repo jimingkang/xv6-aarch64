@@ -3,6 +3,7 @@ U=user
 KERNEL_IMAGE = $K/kernel8-xv6_wifi.img
 
 .DEFAULT_GOAL := build
+.SECONDEXPANSION:
 
 RPI3_BOOTFS ?= /Volumes/bootfs
 RPI3_KERNEL_NAME ?= kernel8-xv6_wifi.img
@@ -19,6 +20,7 @@ RPI3_EXT2_DEV ?=
 EXT2_IMAGE ?= fs_ext2.img
 EXT2_SIZE ?= 32M
 EXT2_LABEL ?= xv6-linux
+RPI3_EXT2_CMDLINE ?= cmdline_ext2.txt
 # e2fsprogs is a Homebrew keg whose sbin is not on the default PATH.
 MKE2FS ?= $(shell if command -v mke2fs >/dev/null 2>&1; then \
 	command -v mke2fs; \
@@ -46,6 +48,7 @@ OBJS = \
 	$K/usb.o \
 	$K/input.o \
 	$K/usbkbd.o \
+	$K/usbmouse.o \
 	$K/arasan_sdio.o \
 	$K/mt7601u.o \
 	$K/brcmfmac.o \
@@ -298,12 +301,27 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 	sync
 	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 partition)"
 
-# Make an existing ext2 partition bootable as the root filesystem
-# (cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2).  debugfs writes
-# /init and /bin/<program> into the partition WITHOUT reformatting it; files
-# already there are replaced, everything else on the partition is untouched.
+# Build a fresh, self-contained ext2 root image.  Keeping image construction
+# separate from the raw-device recipe makes it possible to inspect/test the
+# exact bytes which will be installed before touching an SD-card partition.
+.PHONY: ext2root-image
+ext2root-image: $$(UPROGS)
+	truncate -s $(EXT2_SIZE) "$(EXT2_IMAGE)"
+	$(MKE2FS) -F -t ext2 -b 4096 \
+	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
+	  -L $(EXT2_LABEL) "$(EXT2_IMAGE)"
+	@{ echo "mkdir bin"; \
+	   for f in $(UPROGS); do n=$${f#$U/_}; echo "write $$f bin/$$n"; done; \
+	   echo "write $U/_init init"; } > ext2root.debugfs
+	$(DEBUGFS) -w -f ext2root.debugfs "$(EXT2_IMAGE)" > ext2root.log 2>&1
+	@echo "built ext2 root image $(EXT2_IMAGE) ($(EXT2_SIZE))"
+
+# Install a complete ext2-root SD-card setup.  This target deliberately
+# reformats only the explicitly named partition by writing EXT2_IMAGE to it;
+# it never accepts a whole-disk device.  Kernel/config/cmdline/firmware are
+# synchronized to bootfs in the same operation so root and kernel stay paired.
 .PHONY: install-rpi3-ext2root
-install-rpi3-ext2root: $(UPROGS)
+install-rpi3-ext2root: $(KERNEL_IMAGE) config.txt $(RPI3_EXT2_CMDLINE) ext2root-image
 	@test -n "$(RPI3_EXT2_DEV)" || { \
 		echo "error: set RPI3_EXT2_DEV to the ext2 partition, never the whole disk" 1>&2; \
 		echo "example: make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3" 1>&2; \
@@ -317,13 +335,48 @@ install-rpi3-ext2root: $(UPROGS)
 		echo "error: $(RPI3_EXT2_DEV) does not exist" 1>&2; \
 		exit 1; \
 	}
-	@{ echo "mkdir bin"; \
-	   for f in $(UPROGS); do n=$${f#$U/_}; echo "rm bin/$$n"; echo "write $$f bin/$$n"; done; \
-	   echo "rm init"; echo "write $U/_init init"; } > ext2root.debugfs
-	$(SUDO) $(DEBUGFS) -w -f ext2root.debugfs "$(RPI3_EXT2_DEV)" > ext2root.log 2>&1
+	@test -d "$(RPI3_BOOTFS)" || { \
+		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
+		exit 1; \
+	}
+	@echo "WARNING: overwriting ext2 filesystem on $(RPI3_EXT2_DEV) with $(EXT2_IMAGE)"
+	$(SUDO) dd if="$(EXT2_IMAGE)" of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
+	$(SUDO) cp -f $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
+	$(SUDO) cp -f "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline_xv6.txt"
+	@if test -f "$(WIFI_FIRMWARE_DIR)/BCM43430.BIN" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/BCM43430.TXT"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43430.BIN" "$(RPI3_BOOTFS)/BCM43430.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43430.TXT" "$(RPI3_BOOTFS)/BCM43430.TXT"; \
+		test ! -f "$(WIFI_FIRMWARE_DIR)/BCM43430.CLM" || \
+		  $(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43430.CLM" "$(RPI3_BOOTFS)/BCM43430.CLM"; \
+	elif test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" && \
+	     test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" "$(RPI3_BOOTFS)/BCM43430.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt" "$(RPI3_BOOTFS)/BCM43430.TXT"; \
+	else \
+		echo "BCM43430 firmware not installed (BIN/TXT required; set WIFI_FIRMWARE_DIR=...)"; \
+	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/BCM43455.BIN" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/BCM43455.TXT" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/BCM43455.CLM"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43455.BIN" "$(RPI3_BOOTFS)/BCM43455.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43455.TXT" "$(RPI3_BOOTFS)/BCM43455.TXT"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43455.CLM" "$(RPI3_BOOTFS)/BCM43455.CLM"; \
+	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin" "$(RPI3_BOOTFS)/MT7601U.BIN"; \
+	fi
 	sync
-	@echo "installed /init and $(words $(UPROGS)) programs in /bin of $(RPI3_EXT2_DEV)"
-	@echo "boot it with cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2"
+	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
+		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; exit 1; \
+	}
+	@cmp -s "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline_xv6.txt" || { \
+		echo "error: installed ext2 cmdline differs from $(RPI3_EXT2_CMDLINE)" 1>&2; exit 1; \
+	}
+	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 root partition)"
+	@echo "installed /init and $(words $(UPROGS)) programs in /bin"
+	@echo "installed $(KERNEL_IMAGE), config.txt and ext2 cmdline -> $(RPI3_BOOTFS)"
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
@@ -426,6 +479,7 @@ UPROGS=\
 	$U/_nice\
 	$U/_renice\
 	$U/_rtlat\
+	$U/_evtest\
 	$U/_spin\
 	$U/_threadtest\
 	$U/_posixtest\

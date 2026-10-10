@@ -1541,11 +1541,17 @@ int   cmdline_get(char *key, char *val, int n); // 取 key=value 的值
 *[历史]* 第一版里 ext2 在 vfs.c 的路径前缀表里，只能 `vfsmount("/dev/root", "/", "ext2")` 直接挂 `/`，
 devtmpfs 挂在 rootfs 的 `/dev`，靠 `fs_native_covers()` 让 `/dev` 绕过 ext2，没有 MS_MOVE/chroot。
 
-把程序装进 ext2（不格式化，只写 `/init` 和 `/bin/*`）：
+构建新的 `fs_ext2.img`，写入 `/init` 和 `/bin/*`，再将整个镜像烧录到 p3：
 
 ```sh
-make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
+make USB_ENUM_TRACE=1 USB_XFER_TRACE=0 install-rpi3-ext2root \
+  RPI3_EXT2_DEV=/dev/rdisk4s3
 ```
+
+该目标会覆盖 p3 原来的 ext2 文件系统，同时把内核、`config.txt`、Wi-Fi firmware 和
+内容为 `root=/dev/mmcblk0p3 rootfstype=ext2` 的 `cmdline_ext2.txt` 同步到 bootfs。
+目标拒绝 `/dev/disk4` 这种整盘设备，只接受 `/dev/diskNsM` 或 `/dev/rdiskNsM` 分区。
+默认镜像大小由 `EXT2_SIZE=32M` 控制；需要更大的根文件系统时应在烧录前显式覆盖该变量。
 
 限制：ext2 上没有设备节点和硬链接；fstab 里把同一个 ext2 挂到 `/mnt/ext2` 的那行会失败（同一文件系统不能挂两次）。
 `root=` 指向的分区没有 xv6 文件系统时也只打印原因，然后退回自动探测。

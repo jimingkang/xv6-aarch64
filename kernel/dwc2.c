@@ -95,6 +95,9 @@
 #define HUB_PORT_RESET       4
 #define HUB_PORT_POWER       8
 #define HUB_C_PORT_CONNECTION 16
+#define HUB_C_PORT_ENABLE     17
+#define HUB_C_PORT_SUSPEND    18
+#define HUB_C_PORT_OVER_CURRENT 19
 #define HUB_C_PORT_RESET     20
 #define HUB_PORT_CONNECTION  (1U << 0)
 #define HUB_PORT_ENABLE      (1U << 1)
@@ -130,6 +133,7 @@ static struct spinlock usb_lock;
 static int usb_ready;
 static int usb_address;
 static int ep0_mps = 8;
+static uint8 usb_ep0_mps[128];
 static int bulk_in_toggle;
 static int bulk_out_toggle;
 static int rx_armed;
@@ -177,6 +181,27 @@ static struct usb_device usb_child;
 static int usb_child_registered;
 static int usb_next_address = 8;
 static uint32 usb_power_message[8] __attribute__((aligned(64)));
+static struct usb_device dwc2_root_hub;
+static struct urb *dwc2_hub_urb;
+static struct workqueue dwc2_hub_wq;
+static struct work_struct dwc2_hub_event_work;
+static struct delayed_work dwc2_hub_retry_work;
+static int dwc2_hub_ports;
+static uint32 dwc2_hub_bitmap;
+static int dwc2_hub_irq_ep;
+static int dwc2_hub_irq_mps;
+static int dwc2_hub_irq_interval;
+static int dwc2_hub_monitoring;
+static uchar dwc2_hub_status[64] __attribute__((aligned(64)));
+
+static struct dwc2_hub_request {
+  struct urb *urb;
+  struct work_struct work;
+  int active;
+} hub_interrupt_rx;
+
+static void dwc2_init(void);
+static void dwc2_start_hub_monitor(void);
 
 struct hid_selection {
   int found;
@@ -185,6 +210,7 @@ struct hid_selection {
   uint16 vid;
   uint16 pid;
   uint8 interface_number;
+  uint8 protocol;
 };
 
 static inline uint32
@@ -479,7 +505,9 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
   s->value = value;
   s->index = index;
   s->length = len;
-  r = channel_xfer(0, addr, 0, 0, EPTYPE_CONTROL, ep0_mps,
+  int mps = addr >= 0 && addr < 128 && usb_ep0_mps[addr] ?
+            usb_ep0_mps[addr] : ep0_mps;
+  r = channel_xfer(0, addr, 0, 0, EPTYPE_CONTROL, mps,
                    s, sizeof(*s), PID_SETUP, 100000);
   if(r != sizeof(*s)){
     printf("dwc2: control setup failed req=%d addr=%d result=%d\n",
@@ -487,7 +515,7 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
     return -1;
   }
   if(len){
-    r = channel_xfer(0, addr, 0, in, EPTYPE_CONTROL, ep0_mps,
+    r = channel_xfer(0, addr, 0, in, EPTYPE_CONTROL, mps,
                      data, len, PID_DATA1, 100000);
     if(r < 0){
       printf("dwc2: control data failed req=%d addr=%d result=%d\n",
@@ -495,7 +523,7 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
       return -1;
     }
   }
-  r = channel_xfer(0, addr, 0, !in, EPTYPE_CONTROL, ep0_mps,
+  r = channel_xfer(0, addr, 0, !in, EPTYPE_CONTROL, mps,
                    ctrl_buf, 0, PID_DATA1, 100000);
   if(r < 0)
     printf("dwc2: control status failed req=%d addr=%d result=%d\n",
@@ -519,6 +547,8 @@ get_device_descriptor(int addr, uchar *descriptor)
      descriptor[7] != 32 && descriptor[7] != 64)
     return -1;
   ep0_mps = descriptor[7];
+  if(addr >= 0 && addr < 128)
+    usb_ep0_mps[addr] = ep0_mps;
   memset(descriptor, 0, 18);
   if(control(addr, 0x80, USB_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
              descriptor, 18) < 0 || descriptor[0] != 18 ||
@@ -529,7 +559,7 @@ get_device_descriptor(int addr, uchar *descriptor)
 }
 
 static int
-config_has_boot_keyboard(int addr, struct hid_selection *sel)
+config_has_boot_input(int addr, struct hid_selection *sel)
 {
   int total;
 
@@ -546,8 +576,9 @@ config_has_boot_keyboard(int addr, struct hid_selection *sel)
       off += ctrl_buf[off]){
     if(ctrl_buf[off + 1] == 4 && ctrl_buf[off] >= 9 &&
        ctrl_buf[off + 5] == 3 && ctrl_buf[off + 6] == 1 &&
-       ctrl_buf[off + 7] == 1){
+       (ctrl_buf[off + 7] == 1 || ctrl_buf[off + 7] == 2)){
       sel->interface_number = ctrl_buf[off + 2];
+      sel->protocol = ctrl_buf[off + 7];
       return 1;
     }
   }
@@ -557,7 +588,7 @@ config_has_boot_keyboard(int addr, struct hid_selection *sel)
 // Search a configured high-speed hub's downstream ports.  This is bounded to
 // two extra levels so a malformed topology cannot recurse forever during boot.
 static int
-find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
+find_boot_input_below_hub(int hub_addr, int depth, struct hid_selection *sel)
 {
   int total, cfg, nport;
 
@@ -649,12 +680,13 @@ find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
                ctrl_buf, 0) < 0)
       continue;
     udelay(5000);
+    usb_ep0_mps[child_addr] = ep0_mps;
     usb_route[child_addr] = usb_route[0];
     printf("dwc2: nested hub=%d port=%d child class=%d vid=%x pid=%x addr=%d\n",
            hub_addr, port, child_class, vid, pid, child_addr);
 
     memset(sel, 0, sizeof(*sel));
-    if(config_has_boot_keyboard(child_addr, sel)){
+    if(config_has_boot_input(child_addr, sel)){
       sel->found = 1;
       sel->address = child_addr;
       sel->ep0_mps = ep0_mps;
@@ -663,7 +695,7 @@ find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
       return 1;
     }
     if(child_class == 9 &&
-       find_keyboard_below_hub(child_addr, depth + 1, sel))
+       find_boot_input_below_hub(child_addr, depth + 1, sel))
       return 1;
   }
   return 0;
@@ -847,11 +879,166 @@ dwc2_interrupt_rx_irq_fast(void)
   return 0;
 }
 
+// The LAN951x root hub is a high-speed device.  For high-speed interrupt
+// endpoints bInterval is an exponent in 125-us microframes.  The current HCD
+// has no SOF periodic scheduler, so use the ordered delayed-work queue only to
+// re-arm a NAKed interrupt transaction at its USB deadline.  This is not the
+// old GET_STATUS port scan: no control request or topology walk occurs until
+// the hub returns a non-zero change bitmap.
+static uint64
+dwc2_hub_interval_jiffies(void)
+{
+  uint interval = dwc2_hub_irq_interval;
+  uint microframes, milliseconds;
+
+  if(interval < 1)
+    interval = 1;
+  if(interval > 16)
+    interval = 16;
+  microframes = 1U << (interval - 1);
+  milliseconds = (microframes + 7) / 8;
+  return (milliseconds + 9) / 10; // workqueue tick is currently 10 ms
+}
+
+// Caller holds usb_lock.
+static void
+dwc2_hub_interrupt_start(void)
+{
+  struct urb *urb = hub_interrupt_rx.urb;
+  int packets;
+
+  if(!dwc2_hub_monitoring || !hub_interrupt_rx.active || urb == 0)
+    return;
+  packets = (urb->transfer_buffer_length + dwc2_hub_irq_mps - 1) /
+            dwc2_hub_irq_mps;
+  halt_channel(7);
+  wr(HCINT(7), 0x3fff);
+  wr(HCINTMSK(7), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
+                   HCINT_ERRORS);
+  dwc2_irq_pending &= ~(1U << 7);
+  wr(HCSPLT(7), 0); // root hub is directly attached and high-speed
+  wr(HCDMA(7), DWC2_DMA_BUS(urb->transfer_buffer));
+  wr(HCTSIZ(7), HCTSIZ_XFERSIZE(urb->transfer_buffer_length) |
+                  HCTSIZ_PKTCNT(packets) |
+                  HCTSIZ_PID(dwc2_root_hub.interrupt_in_toggle ?
+                             PID_DATA1 : PID_DATA0));
+  wr(HAINTMSK, rd(HAINTMSK) | (1U << 7));
+  wr(HCCHAR(7), HCCHAR_DEVADDR(dwc2_root_hub.address) |
+                  HCCHAR_EPNUM(urb->endpoint) |
+                  HCCHAR_EPTYPE(EPTYPE_INTERRUPT) |
+                  HCCHAR_MPS(dwc2_hub_irq_mps) | HCCHAR_EPDIR_IN |
+                  HCCHAR_CHENA);
+}
+
+static void
+dwc2_hub_retry_worker(struct work_struct *work)
+{
+  int resubmit = 0;
+
+  (void)work;
+  acquire(&usb_lock);
+  if(dwc2_hub_monitoring && hub_interrupt_rx.active)
+    dwc2_hub_interrupt_start();
+  else if(dwc2_hub_monitoring && dwc2_hub_urb != 0)
+    resubmit = 1;
+  release(&usb_lock);
+  if(resubmit && usb_submit_urb(dwc2_hub_urb) < 0)
+    mod_delayed_work(&dwc2_hub_wq, &dwc2_hub_retry_work,
+                     dwc2_hub_interval_jiffies());
+}
+
+static int
+dwc2_submit_hub_urb(struct urb *urb)
+{
+  if(urb == 0 || urb->dev != &dwc2_root_hub || !urb->direction_in ||
+     urb->endpoint != dwc2_hub_irq_ep || urb->transfer_buffer == 0 ||
+     urb->transfer_buffer_length <= 0 || dwc2_hub_irq_mps <= 0)
+    return -1;
+  acquire(&usb_lock);
+  if(!dwc2_hub_monitoring || hub_interrupt_rx.active){
+    release(&usb_lock);
+    return -1;
+  }
+  memset(urb->transfer_buffer, 0, urb->transfer_buffer_length);
+  cache_clean_invalidate_range(urb->transfer_buffer,
+                               urb->transfer_buffer_length);
+  hub_interrupt_rx.urb = urb;
+  hub_interrupt_rx.active = 1;
+  dwc2_hub_interrupt_start();
+  release(&usb_lock);
+  return 0;
+}
+
+static int
+dwc2_hub_interrupt_complete(struct urb *urb)
+{
+  uint32 intr, left;
+  int result, packets;
+
+  acquire(&usb_lock);
+  if(!hub_interrupt_rx.active || hub_interrupt_rx.urb != urb ||
+     !(dwc2_irq_pending & (1U << 7))){
+    release(&usb_lock);
+    return -2;
+  }
+  dwc2_irq_pending &= ~(1U << 7);
+  intr = rd(HCINT(7));
+  wr(HCINT(7), intr);
+  if(intr & HCINT_NAK){
+    // Keep ownership of the submitted URB.  A NAK means "no hub event", not
+    // completion.  The delayed work merely implements the endpoint's periodic
+    // USB schedule and does not inspect any port.
+    wr(HAINTMSK, rd(HAINTMSK) & ~(1U << 7));
+    release(&usb_lock);
+    mod_delayed_work(&dwc2_hub_wq, &dwc2_hub_retry_work,
+                     dwc2_hub_interval_jiffies());
+    return -2;
+  }
+  left = rd(HCTSIZ(7)) & 0x7ffff;
+  if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL) ||
+     left > (uint32)urb->transfer_buffer_length){
+    hub_interrupt_rx.active = 0;
+    release(&usb_lock);
+    return -1;
+  }
+  result = urb->transfer_buffer_length - left;
+  cache_invalidate_range(urb->transfer_buffer, urb->transfer_buffer_length);
+  packets = (result + dwc2_hub_irq_mps - 1) / dwc2_hub_irq_mps;
+  if(result < urb->transfer_buffer_length &&
+     (result % dwc2_hub_irq_mps) == 0)
+    packets++;
+  if(packets & 1)
+    dwc2_root_hub.interrupt_in_toggle ^= 1;
+  hub_interrupt_rx.active = 0;
+  release(&usb_lock);
+  return result;
+}
+
+static void
+dwc2_hub_urb_work(struct work_struct *work)
+{
+  struct dwc2_hub_request *req =
+    (struct dwc2_hub_request *)((char *)work -
+      __builtin_offsetof(struct dwc2_hub_request, work));
+  struct urb *urb = req->urb;
+  int result;
+
+  if(urb == 0)
+    return;
+  result = dwc2_hub_interrupt_complete(urb);
+  if(result == -2)
+    return;
+  usb_hcd_giveback_urb(urb, result < 0 ? -1 : 0,
+                       result < 0 ? 0 : result);
+}
+
 static int
 dwc2_submit_urb(struct urb *urb)
 {
   struct usb_device *udev;
 
+  if(urb && urb->dev == &dwc2_root_hub)
+    return dwc2_submit_hub_urb(urb);
   if(urb == 0 || (udev = urb->dev) == 0 || !urb->direction_in ||
      urb->endpoint <= 0 || urb->endpoint > 15 ||
      urb->transfer_buffer == 0 || urb->transfer_buffer_length <= 0 ||
@@ -998,6 +1185,25 @@ dwc2_interrupt_urb_work(struct work_struct *work)
 static void
 dwc2_kill_urb(struct urb *urb)
 {
+  if(urb && urb->dev == &dwc2_root_hub){
+    cancel_delayed_work_sync(&dwc2_hub_retry_work);
+    acquire(&usb_lock);
+    if(hub_interrupt_rx.urb == urb){
+      hub_interrupt_rx.active = 0;
+      halt_channel(7);
+      wr(HCINTMSK(7), 0);
+      wr(HAINTMSK, rd(HAINTMSK) & ~(1U << 7));
+      wr(HCINT(7), 0x3fff);
+      dwc2_irq_pending &= ~(1U << 7);
+    }
+    release(&usb_lock);
+    cancel_work_sync(&hub_interrupt_rx.work);
+    acquire(&usb_lock);
+    if(hub_interrupt_rx.urb == urb)
+      hub_interrupt_rx.urb = 0;
+    release(&usb_lock);
+    return;
+  }
   acquire(&usb_lock);
   if(interrupt_rx.urb == urb){
     interrupt_rx.active = 0;
@@ -1151,6 +1357,160 @@ static const struct usb_host_ops dwc2_usb_ops = {
   .kill_urb = dwc2_kill_urb,
 };
 
+// The hub interrupt endpoint reports a bitmap: bit zero is hub status and
+// bit N is downstream port N.  Only a non-zero report causes control traffic.
+// Thus an idle bus no longer executes a periodic GET_STATUS topology scan.
+static void
+dwc2_hub_urb_complete(struct urb *urb)
+{
+  uint32 changes = 0;
+  int n;
+
+  if(!dwc2_hub_monitoring || urb != dwc2_hub_urb)
+    return;
+  if(urb->status < 0){
+    mod_delayed_work(&dwc2_hub_wq, &dwc2_hub_retry_work,
+                     dwc2_hub_interval_jiffies());
+    return;
+  }
+  n = urb->actual_length;
+  if(n > 4)
+    n = 4;
+  for(int i = 0; i < n; i++)
+    changes |= (uint32)dwc2_hub_status[i] << (i * 8);
+  if(changes != 0){
+    queue_work(&dwc2_hub_wq, &dwc2_hub_event_work);
+    return;
+  }
+  if(usb_submit_urb(urb) < 0)
+    mod_delayed_work(&dwc2_hub_wq, &dwc2_hub_retry_work,
+                     dwc2_hub_interval_jiffies());
+}
+
+static void
+dwc2_start_hub_monitor(void)
+{
+  int bytes;
+
+  if(dwc2_hub_urb == 0 || dwc2_hub_ports <= 0 ||
+     dwc2_hub_irq_ep <= 0 || dwc2_hub_irq_mps <= 0)
+    return;
+  bytes = (dwc2_hub_ports + 1 + 7) / 8;
+  if(bytes > dwc2_hub_irq_mps)
+    bytes = dwc2_hub_irq_mps;
+  if(bytes > (int)sizeof(dwc2_hub_status))
+    bytes = sizeof(dwc2_hub_status);
+
+  memset(&dwc2_root_hub, 0, sizeof(dwc2_root_hub));
+  dwc2_root_hub.dev.name = "dwc2-hub";
+  dwc2_root_hub.dev.parent = usb_parent;
+  dwc2_root_hub.ops = &dwc2_usb_ops;
+  dwc2_root_hub.class = 9;
+  dwc2_root_hub.address = 1;
+  dwc2_root_hub.ep0_max_packet = usb_ep0_mps[1];
+  dwc2_root_hub.interrupt_in_ep = dwc2_hub_irq_ep;
+  dwc2_root_hub.interrupt_in_max_packet = dwc2_hub_irq_mps;
+  dwc2_root_hub.interrupt_in_interval = dwc2_hub_irq_interval;
+  memset(dwc2_hub_status, 0, sizeof(dwc2_hub_status));
+  usb_fill_int_urb(dwc2_hub_urb, &dwc2_root_hub, dwc2_hub_irq_ep,
+                   dwc2_hub_status, bytes, dwc2_hub_urb_complete, 0,
+                   dwc2_hub_irq_interval);
+  dwc2_hub_monitoring = 1;
+  if(usb_submit_urb(dwc2_hub_urb) < 0){
+    dwc2_hub_monitoring = 0;
+    printf("dwc2: cannot submit hub interrupt URB\n");
+    return;
+  }
+  printf("dwc2: event-driven hub hotplug armed on channel 7\n");
+}
+
+static void
+dwc2_hub_event_worker(struct work_struct *work)
+{
+  uint32 changes = 0, bitmap = 0;
+  int n;
+
+  (void)work;
+  if(!dwc2_hub_monitoring || dwc2_hub_urb == 0)
+    return;
+  n = dwc2_hub_urb->actual_length;
+  if(n > 4)
+    n = 4;
+  for(int i = 0; i < n; i++)
+    changes |= (uint32)dwc2_hub_status[i] << (i * 8);
+
+  // GET_STATUS is issued only for ports named by the hub's interrupt bitmap.
+  // Clear every reported change feature so the interrupt endpoint can become
+  // idle again; connection state forms the new topology bitmap.
+  for(int port = 1; port <= dwc2_hub_ports && port <= 31; port++){
+    uchar status_buf[4] __attribute__((aligned(4)));
+    uint16 status, change;
+
+    if((changes & (1U << port)) == 0){
+      if(dwc2_hub_bitmap & (1U << port))
+        bitmap |= 1U << port;
+      continue;
+    }
+    memset(status_buf, 0, sizeof(status_buf));
+    if(control(1, 0xa3, USB_REQ_GET_STATUS, 0, port,
+               status_buf, sizeof(status_buf)) < 0){
+      // A transient EP0 failure is not proof of disconnect.  Preserve the
+      // previous bit and let the still-asserted hub change endpoint retry.
+      if(dwc2_hub_bitmap & (1U << port))
+        bitmap |= 1U << port;
+      continue;
+    }
+    status = status_buf[0] | ((uint16)status_buf[1] << 8);
+    change = status_buf[2] | ((uint16)status_buf[3] << 8);
+    if(status & HUB_PORT_CONNECTION)
+      bitmap |= 1U << port;
+    if(change & (1U << 0))
+      control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+              HUB_C_PORT_CONNECTION, port, status_buf, 0);
+    if(change & (1U << 1))
+      control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+              HUB_C_PORT_ENABLE, port, status_buf, 0);
+    if(change & (1U << 2))
+      control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+              HUB_C_PORT_SUSPEND, port, status_buf, 0);
+    if(change & (1U << 3))
+      control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+              HUB_C_PORT_OVER_CURRENT, port, status_buf, 0);
+    if(change & (1U << 4))
+      control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+              HUB_C_PORT_RESET, port, status_buf, 0);
+  }
+
+  if(bitmap == dwc2_hub_bitmap){
+    if(usb_submit_urb(dwc2_hub_urb) < 0)
+      mod_delayed_work(&dwc2_hub_wq, &dwc2_hub_retry_work,
+                       dwc2_hub_interval_jiffies());
+    return;
+  }
+  printf("dwc2: hub IRQ change=%x connected=%x->%x; reprobe\n",
+         changes, dwc2_hub_bitmap, bitmap);
+
+  // Keep the proven disconnect ordering.  Detection is event-driven, while
+  // topology replacement still deliberately tears down and enumerates the
+  // small controller tree as one unit until per-port usb_device objects land.
+  dwc2_hub_monitoring = 0;
+  cancel_delayed_work_sync(&dwc2_hub_retry_work);
+  if(usb_child_registered){
+    usb_device_unregister(&usb_child);
+    usb_child_registered = 0;
+  }
+  usbnet_detach();
+  wr(HAINTMSK, 0);
+  for(int channel = 0; channel < 8; channel++){
+    halt_channel(channel);
+    wr(HCINTMSK(channel), 0);
+    wr(HCINT(channel), 0x3fff);
+  }
+  dwc2_irq_pending = 0;
+  memset(&usb_child, 0, sizeof(usb_child));
+  dwc2_init();
+}
+
 int
 dwc2_cdc_xmit(void *packet, int len)
 {
@@ -1298,6 +1658,8 @@ dwc2_irq(void)
     mt7601u_rx_irq();
   if(channels & (1U << 6))
     schedule_work(&interrupt_rx.work);
+  if(channels & (1U << 7))
+    queue_work(&dwc2_hub_wq, &hub_interrupt_rx.work);
 }
 
 static void
@@ -1311,8 +1673,23 @@ dwc2_init(void)
   uint16 vid, pid;
   struct hid_selection nested_hid;
 
-  initlock(&usb_lock, "usbnet");
-  init_work(&interrupt_rx.work, dwc2_interrupt_urb_work);
+  usb_ready = 0;
+  usb_address = 0;
+  ep0_mps = 8;
+  usb_next_address = 8;
+  dwc2_hub_ports = 0;
+  dwc2_hub_bitmap = 0;
+  dwc2_hub_irq_ep = 0;
+  dwc2_hub_irq_mps = 0;
+  dwc2_hub_irq_interval = 0;
+  dwc2_hub_monitoring = 0;
+  hub_interrupt_rx.active = 0;
+  hub_interrupt_rx.urb = 0;
+  memset(usb_route, 0, sizeof(usb_route));
+  memset(usb_ep0_mps, 0, sizeof(usb_ep0_mps));
+  usb_ep0_mps[0] = 8;
+  memset(async_rx, 0, sizeof(async_rx));
+  async_rx_active = -1;
   if(usb_firmware_power_on() < 0)
     printf("dwc2: firmware USB HCD power request failed\n");
   else
@@ -1408,20 +1785,48 @@ dwc2_init(void)
   }
   udelay(5000);
   usb_address = 1;
+  usb_ep0_mps[1] = ep0_mps;
 
   if(root_class == 9){
     // Configure the high-speed hub connected to the DWC2 root port.
     memset(ctrl_buf, 0, sizeof(ctrl_buf));
     if(control(1, 0x80, USB_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
-               ctrl_buf, 9) < 0 ||
-       control(1, 0x00, USB_SET_CONFIG, ctrl_buf[5], 0,
-               ctrl_buf, 0) < 0 ||
-       control(1, 0xa0, USB_GET_DESCRIPTOR, USB_DT_HUB << 8, 0,
-               ctrl_buf, 9) < 0){
+               ctrl_buf, 9) < 0 || ctrl_buf[1] != USB_DT_CONFIG){
       printf("dwc2: hub configuration failed\n");
       return;
     }
+    cfg = ctrl_buf[5];
+    total = ctrl_buf[2] | ((uint16)ctrl_buf[3] << 8);
+    if(total < 9 || total > (int)sizeof(ctrl_buf) || cfg == 0 ||
+       control(1, 0x80, USB_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
+               ctrl_buf, total) < 0){
+      printf("dwc2: hub full configuration descriptor failed\n");
+      return;
+    }
+    for(off = 0; off + 7 <= total && ctrl_buf[off] >= 2;
+        off += ctrl_buf[off]){
+      if(ctrl_buf[off + 1] == 5 && ctrl_buf[off] >= 7 &&
+         (ctrl_buf[off + 2] & 0x80) &&
+         (ctrl_buf[off + 3] & 3) == EPTYPE_INTERRUPT){
+        dwc2_hub_irq_ep = ctrl_buf[off + 2] & 0xf;
+        dwc2_hub_irq_mps = ctrl_buf[off + 4] |
+                           ((uint16)ctrl_buf[off + 5] << 8);
+        dwc2_hub_irq_interval = ctrl_buf[off + 6];
+        break;
+      }
+    }
+    if(dwc2_hub_irq_ep == 0 || dwc2_hub_irq_mps == 0 ||
+       control(1, 0x00, USB_SET_CONFIG, cfg, 0, ctrl_buf, 0) < 0 ||
+       control(1, 0xa0, USB_GET_DESCRIPTOR, USB_DT_HUB << 8, 0,
+               ctrl_buf, 9) < 0){
+      printf("dwc2: hub interrupt endpoint/configuration failed\n");
+      return;
+    }
     nport = ctrl_buf[2];
+    dwc2_hub_ports = nport;
+    printf("dwc2: hub interrupt-IN ep=%d mps=%d interval=%d ports=%d\n",
+           dwc2_hub_irq_ep, dwc2_hub_irq_mps,
+           dwc2_hub_irq_interval, dwc2_hub_ports);
     for(idx = 1; idx <= nport; idx++)
       control(1, 0x23, USB_REQ_SET_FEATURE, HUB_PORT_POWER, idx,
               ctrl_buf, 0);
@@ -1431,11 +1836,13 @@ dwc2_init(void)
     // that port 1 is always the permanently attached Ethernet function.
     for(idx = 1; idx <= nport; idx++){
       uint16 initial_status = 0;
+      uint16 initial_change = 0;
       for(int connect_wait = 0; connect_wait < 50; connect_wait++){
         memset(ctrl_buf, 0, 4);
         if(control(1, 0xa3, USB_REQ_GET_STATUS, 0, idx,
                    ctrl_buf, 4) == 0){
           initial_status = ctrl_buf[0] | ((uint16)ctrl_buf[1] << 8);
+          initial_change = ctrl_buf[2] | ((uint16)ctrl_buf[3] << 8);
           if(initial_status & HUB_PORT_CONNECTION)
             break;
         }
@@ -1446,10 +1853,14 @@ dwc2_init(void)
         continue;
       }
       printf("dwc2: hub port %d status=%x change=%x\n", idx,
-             initial_status,
-             ctrl_buf[2] | ((uint16)ctrl_buf[3] << 8));
-      if(!(initial_status & HUB_PORT_CONNECTION))
+             initial_status, initial_change);
+      if(!(initial_status & HUB_PORT_CONNECTION)){
+        if(initial_change & 1)
+          control(1, 0x23, USB_REQ_CLEAR_FEATURE,
+                  HUB_C_PORT_CONNECTION, idx, ctrl_buf, 0);
         continue;
+      }
+      dwc2_hub_bitmap |= 1U << idx;
       port = idx;
       printf("dwc2: hub external port %d connected status=%x\n",
              port, initial_status);
@@ -1511,19 +1922,20 @@ dwc2_init(void)
         continue;
       }
       udelay(5000);
+      usb_ep0_mps[usb_address] = ep0_mps;
       usb_route[usb_address] = usb_route[0];
       printf("dwc2: hub port=%d child class=%d vid=%x pid=%x mps=%d\n",
              port, root_class, vid, pid, ep0_mps);
       if(root_class == 9){
         memset(&nested_hid, 0, sizeof(nested_hid));
-        if(find_keyboard_below_hub(usb_address, 1, &nested_hid)){
+        if(find_boot_input_below_hub(usb_address, 1, &nested_hid)){
           usb_address = nested_hid.address;
           ep0_mps = nested_hid.ep0_mps;
           vid = nested_hid.vid;
           pid = nested_hid.pid;
           root_class = 3;
           selected_subclass = 1;
-          selected_protocol = 1;
+          selected_protocol = nested_hid.protocol;
           selected_interface = nested_hid.interface_number;
           hid_found = 1;
           break;
@@ -1546,10 +1958,10 @@ dwc2_init(void)
               poff += ctrl_buf[poff]){
             if(ctrl_buf[poff + 1] == 4 && ctrl_buf[poff] >= 9 &&
                ctrl_buf[poff + 5] == 3 && ctrl_buf[poff + 6] == 1 &&
-               ctrl_buf[poff + 7] == 1){
+               (ctrl_buf[poff + 7] == 1 || ctrl_buf[poff + 7] == 2)){
               root_class = 3;
               selected_subclass = 1;
-              selected_protocol = 1;
+              selected_protocol = ctrl_buf[poff + 7];
               selected_interface = ctrl_buf[poff + 2];
               hid_found = 1;
               break;
@@ -1562,6 +1974,7 @@ dwc2_init(void)
     }
     if(!mt_found && !hid_found){
       printf("dwc2: no supported USB child on external hub ports\n");
+      dwc2_start_hub_monitor();
       return;
     }
   }
@@ -1588,6 +2001,7 @@ dwc2_init(void)
                USB_DT_CONFIG << 8, 0, ctrl_buf, 9) < 0 ||
        ctrl_buf[1] != USB_DT_CONFIG || ctrl_buf[5] == 0){
       printf("dwc2: MT7601U configuration descriptor failed\n");
+      dwc2_start_hub_monitor();
       return;
     }
     cfg = ctrl_buf[5];
@@ -1596,6 +2010,7 @@ dwc2_init(void)
        control(usb_address, 0x80, USB_GET_DESCRIPTOR,
                USB_DT_CONFIG << 8, 0, ctrl_buf, total) < 0){
       printf("dwc2: MT7601U full configuration descriptor failed\n");
+      dwc2_start_hub_monitor();
       return;
     }
     for(off = 0; off + 7 <= total && ctrl_buf[off] >= 2;
@@ -1622,11 +2037,13 @@ dwc2_init(void)
     if(usb_child.bulk_in_ep == 0 || usb_child.bulk_in_ep2 == 0 ||
        usb_child.bulk_out_ep == 0){
       printf("dwc2: MT7601U bulk endpoints missing\n");
+      dwc2_start_hub_monitor();
       return;
     }
     if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
                ctrl_buf, 0) < 0){
       printf("dwc2: MT7601U SET_CONFIG %d failed\n", cfg);
+      dwc2_start_hub_monitor();
       return;
     }
   } else if(hid_found || root_class == 3){
@@ -1635,6 +2052,7 @@ dwc2_init(void)
                USB_DT_CONFIG << 8, 0, ctrl_buf, 9) < 0 ||
        ctrl_buf[1] != USB_DT_CONFIG || ctrl_buf[5] == 0){
       printf("dwc2: HID configuration descriptor failed\n");
+      dwc2_start_hub_monitor();
       return;
     }
     cfg = ctrl_buf[5];
@@ -1643,6 +2061,7 @@ dwc2_init(void)
        control(usb_address, 0x80, USB_GET_DESCRIPTOR,
                USB_DT_CONFIG << 8, 0, ctrl_buf, total) < 0){
       printf("dwc2: HID full configuration descriptor failed\n");
+      dwc2_start_hub_monitor();
       return;
     }
     current_interface = -1;
@@ -1669,21 +2088,25 @@ dwc2_init(void)
     }
     if(!selected_interface_found ||
        usb_child.class != 3 || usb_child.subclass != 1 ||
-       usb_child.protocol != 1 || usb_child.interrupt_in_ep == 0){
+       (usb_child.protocol != 1 && usb_child.protocol != 2) ||
+       usb_child.interrupt_in_ep == 0){
       printf("dwc2: HID interface %d unsupported class=%d subclass=%d "
              "protocol=%d interrupt-in=%d\n",
              selected_interface, usb_child.class, usb_child.subclass,
              usb_child.protocol, usb_child.interrupt_in_ep);
+      dwc2_start_hub_monitor();
       return;
     }
     if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
                ctrl_buf, 0) < 0){
       printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
+      dwc2_start_hub_monitor();
       return;
     }
   }
   if(usb_device_register(&usb_child) < 0){
     printf("dwc2: cannot register USB child %x:%x\n", vid, pid);
+    dwc2_start_hub_monitor();
     return;
   }
   usb_child_registered = 1;
@@ -1694,11 +2117,16 @@ dwc2_init(void)
            usb_child.bulk_in_max_packet,
            usb_child.bulk_out_ep, usb_child.bulk_out_max_packet);
     printf("dwc2: MT7601U handed to usb bus\n");
+    // Hub status uses a dedicated periodic channel.  A reported topology
+    // change is deferred before any port control request is issued.
+    dwc2_start_hub_monitor();
     return;
   }
 
   if(hid_found || root_class == 3){
-    printf("dwc2: HID keyboard handed to usb bus\n");
+    printf("dwc2: HID boot %s handed to usb bus\n",
+           usb_child.protocol == 2 ? "mouse" : "keyboard");
+    dwc2_start_hub_monitor();
     return;
   }
 
@@ -1708,14 +2136,27 @@ dwc2_init(void)
   if(usbnet_attach(&usb_child) < 0){
     usb_ready = 0;
     printf("usbnet: cannot register usb0\n");
+    dwc2_start_hub_monitor();
     return;
   }
+  dwc2_start_hub_monitor();
 }
 
 static int
 dwc2_probe(struct device *dev)
 {
   usb_parent = dev;
+  initlock(&usb_lock, "usbnet");
+  init_work(&interrupt_rx.work, dwc2_interrupt_urb_work);
+  init_workqueue(&dwc2_hub_wq, "dwc2_hub_wq", 1);
+  init_work(&hub_interrupt_rx.work, dwc2_hub_urb_work);
+  init_work(&dwc2_hub_event_work, dwc2_hub_event_worker);
+  init_delayed_work(&dwc2_hub_retry_work, dwc2_hub_retry_worker);
+  dwc2_hub_urb = usb_alloc_urb();
+  if(dwc2_hub_urb == 0){
+    printf("dwc2: cannot allocate hub interrupt URB\n");
+    return -1;
+  }
   dwc2_init();
   return 0;
 }
@@ -1724,6 +2165,13 @@ static void
 dwc2_remove(struct device *dev)
 {
   (void)dev;
+  dwc2_hub_monitoring = 0;
+  cancel_delayed_work_sync(&dwc2_hub_retry_work);
+  cancel_work_sync(&dwc2_hub_event_work);
+  if(dwc2_hub_urb){
+    usb_free_urb(dwc2_hub_urb);
+    dwc2_hub_urb = 0;
+  }
   usbnet_detach();
   if(usb_child_registered){
     usb_device_unregister(&usb_child);

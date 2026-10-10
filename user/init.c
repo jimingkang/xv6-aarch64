@@ -100,6 +100,9 @@ main(void)
     mknod("dev/tty", TTY, 0);
     mknod("dev/ttyS0", TTYS0, 0);
     mknod("dev/input/event0", INPUT, 0);
+    mknod("dev/input/event1", INPUT, 1);
+    mknod("dev/input/event2", INPUT, 2);
+    mknod("dev/input/event3", INPUT, 3);
     mknod("dev/video0", CAMERA, 0);
     mknod("dev/sdroot", ROOTUPDATE, 0);
     if(open("/dev/ttyS0", O_RDWR) < 0 &&

@@ -2,7 +2,8 @@
 //
 // Device drivers report state changes through input_report_key()/input_sync().
 // The input core keeps the current key state and fans events out to every
-// open file of /dev/input/event0 (character major INPUT).  Like Linux evdev,
+// open file of /dev/input/eventN (character major INPUT, minor N).  Like Linux
+// evdev,
 // each open file gets its own buffer, so readers do not steal events from one
 // another and never see events from before they opened the device.
 
@@ -28,7 +29,6 @@ _Static_assert((EVDEV_BUFFER & (EVDEV_BUFFER - 1)) == 0,
 // Lock order: input_devices_lock, then input_dev.lock.
 static struct spinlock input_devices_lock;
 static struct input_dev *devices[INPUT_MAX_DEVICES];
-static struct input_dev *event0;   // device currently behind /dev/input/event0
 
 static void
 input_put_device(struct input_dev *dev)
@@ -85,26 +85,6 @@ input_queue_locked(struct input_dev *dev, uint16 type, uint16 code, int value)
   dev->sync_pending = !(type == EV_SYN && code == SYN_REPORT);
 }
 
-// Caller holds input_devices_lock.  Hand event0 to another registered device.
-// Already-open files stay attached to the old device and see EOF/-1 once they
-// have drained its buffered events; new opens get the promoted device.
-static void
-input_promote_locked(void)
-{
-  event0 = 0;
-  for(int i = 0; i < INPUT_MAX_DEVICES; i++){
-    struct input_dev *dev = devices[i];
-    if(dev == 0)
-      continue;
-    acquire(&dev->lock);
-    dev->event_number = 0;
-    release(&dev->lock);
-    event0 = dev;
-    printf("input: %s is now event0\n", dev->name);
-    return;
-  }
-}
-
 static int
 evdev_open(struct file *f)
 {
@@ -117,7 +97,8 @@ evdev_open(struct file *f)
   memset(client, 0, sizeof(*client));
 
   acquire(&input_devices_lock);
-  dev = event0;
+  int minor = f->ip ? f->ip->minor : -1;
+  dev = minor >= 0 && minor < INPUT_MAX_DEVICES ? devices[minor] : 0;
   if(dev == 0){
     release(&input_devices_lock);
     kfree(client);
@@ -198,7 +179,6 @@ input_init(void)
 
   initlock(&input_devices_lock, "input-devices");
   memset(devices, 0, sizeof(devices));
-  event0 = 0;
   if(register_chrdev(INPUT, "input/event0", &evdev_fops) < 0)
     panic("input chrdev");
 }
@@ -230,9 +210,12 @@ input_free_device(struct input_dev *dev)
 void
 input_set_capability(struct input_dev *dev, int type, int code)
 {
-  if(dev == 0 || type != EV_KEY || code <= KEY_RESERVED || code > KEY_MAX)
+  if(dev == 0)
     return;
-  dev->keybit[code / 32] |= 1U << (code % 32);
+  if(type == EV_KEY && code > KEY_RESERVED && code <= KEY_MAX)
+    dev->keybit[code / 32] |= 1U << (code % 32);
+  else if(type == EV_REL && code >= 0 && code <= REL_MAX)
+    dev->relbit |= 1U << code;
 }
 
 int
@@ -259,10 +242,7 @@ input_register_device(struct input_dev *dev)
   }
   devices[slot] = dev;
   dev->registered = 1;
-  if(event0 == 0){
-    event0 = dev;
-    dev->event_number = 0;
-  }
+  dev->event_number = slot;
   release(&input_devices_lock);
   printf("input: %s registered as event%d\n", dev->name,
          dev->event_number);
@@ -274,6 +254,7 @@ input_register_device(struct input_dev *dev)
 void
 input_unregister_device(struct input_dev *dev)
 {
+  int event_number;
   if(dev == 0)
     return;
   acquire(&input_devices_lock);
@@ -281,15 +262,27 @@ input_unregister_device(struct input_dev *dev)
     if(devices[i] == dev)
       devices[i] = 0;
   acquire(&dev->lock);
+  event_number = dev->event_number;
   dev->registered = 0;
   dev->disconnected = 1;
   dev->event_number = -1;
   for(struct evdev_client *c = dev->clients; c; c = c->next)
     wakeup(c);
   release(&dev->lock);
-  if(event0 == dev)
-    input_promote_locked();
   release(&input_devices_lock);
+  printf("input: %s event%d disconnected\n", dev->name, event_number);
+}
+
+void
+input_report_rel(struct input_dev *dev, int code, int value)
+{
+  if(dev == 0 || code < 0 || code > REL_MAX || value == 0)
+    return;
+  acquire(&dev->lock);
+  if(dev->registered && !dev->disconnected &&
+     (dev->relbit & (1U << code)))
+    input_queue_locked(dev, EV_REL, code, value);
+  release(&dev->lock);
 }
 
 void

@@ -71,6 +71,7 @@ main()
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
     input_init();    // input core and /dev/input/event0 evdev bridge
     usbkbd_driver_init(); // bind USB HID boot keyboards during enumeration
+    usbmouse_driver_init(); // bind USB HID boot mice during enumeration
     dwc2_driver_init();   // register/probe DWC2 USB host controller
     trapinit();      // trap vectors
     trapinithart();  // install trap vector

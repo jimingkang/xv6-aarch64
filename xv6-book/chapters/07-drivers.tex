@@ -14,6 +14,7 @@
 \end{introduction}
 
 \section{设备模型}
+\label{sec:devmodel}
 
 \subsection{为什么不再只用 \code{devsw[]}}
 
@@ -481,6 +482,89 @@ req->last_issue_frame = rd(HFNUM) & 0x3fff;    // 记下发出时的微帧号
 
 这正是 Linux 的分层：硬件驱动只关心“产生了什么事件”，不关心“谁在读”。
 
+\subsection{Hub 中断驱动的 USB 热插拔}
+\label{sec:usb-hotplug}
+
+键盘按键报告和 USB 拓扑变化是两种不同的事件。按键数据由键盘自己的
+interrupt-IN URB 接收；热插拔则由 LAN951x Hub 的 interrupt-IN endpoint
+通知主机。当前 DWC2 为 Hub 的长期 URB 固定使用 channel 7，为唯一 HID
+数据 URB 使用 channel 6。Hub 空闲时会对 interrupt-IN 返回 NAK，HCD 按
+\code{bInterval} 重新调度请求；只有端口变化位图非零时才唤醒 Hub 事件
+worker，不再每隔固定时间轮询所有端口的 EP0。
+
+\begin{txtcode}
+Hub interrupt endpoint
+  -> DWC2 channel 7 DMA receives change bitmap
+  -> IRQ 9 records completion and queues hub_event_work
+  -> dwc2_hub_wq examines changed ports only
+  -> GET_STATUS / CLEAR_FEATURE for those ports
+  -> compare connected bitmap
+\end{txtcode}
+
+硬中断只处理 host-channel 完成并排入工作项，不在 IRQ 中进行 Hub control
+传输。独立的 \code{dwc2\_hub\_wq} 根据 bitmap 中标记的端口发送
+\code{GET\_STATUS}，读取连接状态和变化位，再用 \code{CLEAR\_FEATURE}
+清除已处理的 port change feature。比较新旧 connected bitmap 后，只有拓扑
+确实变化才启动重枚举；因此空闲 NAK 不会造成无意义的全端口扫描。
+
+设备拔出时，类驱动和 input/evdev 的资源按逆序回收：
+
+\begin{txtcode}
+usb_device_unregister(old_child)
+  -> usbhid remove()
+  -> mark device disconnected
+  -> usb_kill_urb()
+       -> stop/mask the HID host channel
+       -> wait for completion callback
+  -> cancel_work_sync()
+  -> input_unregister_device()
+       -> remove event-minor registration
+       -> wake blocked event readers
+  -> release driver-owned references
+\end{txtcode}
+
+注销 event 设备会唤醒阻塞在 \code{read()} 的客户端。每次 \code{open(eventN)}
+都持有自己的 \code{input\_dev} 引用；设备断开后，旧 fd 可先读完已提交的完整
+事件帧，再得到断开错误，底层内存则等最后一个 fd 关闭后才释放。devtmpfs
+预先创建 \code{/dev/input/event0..event3}，minor 对应 input 设备表中的槽位；
+空槽节点仍在，但 \code{open()} 失败，不会意外转指向后来注册的设备。
+
+目前拓扑变化后的恢复仍比 Linux 粗：HCD 只有一个发布用的
+\code{usb\_child}，变化后会注销旧设备、停止并屏蔽相关 channel、清理待处理中断，
+然后重新初始化 DWC2 并扫描 Hub。新设备按地址 0 开始枚举，读取 Device
+Descriptor 前 8 字节确定 EP0 最大包长，设置 USB 地址、读取配置描述符并
+选择 Boot Keyboard 或 Boot Mouse 接口；随后 USB bus 匹配驱动，执行 probe，
+重新注册 input 设备并提交对应 HID URB。对低速键盘，地址路由还需记录父 Hub、
+端口和速度，以便 EP0 与 channel 6 的传输正确使用 split transaction。
+
+一次真机热插 port 3 键盘时，连接位图从 \code{0x2} 变为 \code{0xa}：
+\code{0x2} 表示 port 1 已连接，\code{0xa} 则表示 port 1 和 port 3 已连接，
+所以新增设备是 port 3。Hub interrupt URB 通知 worker 后，可看到类似日志：
+
+\begin{txtcode}
+dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
+dwc2: event-driven hub hotplug armed on channel 7
+dwc2: hub IRQ change=8 connected=2->a; reprobe
+dwc2: hub port 3 status=301 change=1
+dwc2: hub port 3 after-reset status=303 speed=low
+dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8
+input: USB HID Boot Keyboard registered as event0
+usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
+\end{txtcode}
+
+\code{status=0x301} 表示设备已连接、端口已供电且设备为低速；
+reset 后的 \code{0x303} 还包含端口使能状态。若插入的是 Boot Mouse，USB
+core 会绑定鼠标驱动并注册相应 input 设备。枚举和 probe 日志只证明新设备
+已绑定、接收 URB 已提交；要证明实际按键路径恢复，还应看到 channel 6 的
+completion 和首份有效 HID report。
+
+当前热插拔范围限于 LAN951x 根 Hub 的外部端口。Hub 内部嵌套 Hub 的下游端口
+变化不会出现在根 Hub 的连接位图中；拓扑变化目前会重新初始化整个 DWC2，
+而非只移除或添加变化端口上的设备。由于 channel 6 和唯一的
+\code{usb\_child} 尚未按设备/端点数组化，键盘与鼠标支持拔出、替换，但不能
+同时长期接收。进一步完善需要为每个 Hub 端口和接口维护独立的 USB device、
+URB 与 host channel，并由 Hub interrupt event 只增删发生变化的子设备。
+
 \subsection{真机排错：从 STALL 到第一份报告}
 \label{sec:usb-debug}
 
@@ -903,18 +987,502 @@ MT7601U 是一块常见的 USB 无线网卡（VID \code{148f}，PID \code{7601}�
   \end{tabularx}
 \end{table}
 
-驱动初始化的主要步骤是：
+下面按一次真机启动的日志，把 MT7601U 从“被枚举”到“\code{wlan1} 注册”的过程对到 \file{dwc2.c}、\file{usb.c}、\file{mt7601u.c} 上，依次看 USB 拓扑、探测时序、主机与芯片之间的报文格式，以及 802.11 关联和 WPA2 握手。
 
-\begin{enumerate}
-  \item 解析固件头，把 IVB、ILM、DLM 三段通过 Bulk OUT 写入 MCU，等待 \code{MT\_MCU\_COM\_REG0} 变成 1；
-  \item 读 eFuse 得到永久 MAC 地址、频偏、RSSI 和温度校准参数；
-  \item 初始化 MAC、BBP（数字基带）、RF（模拟射频）三组寄存器表，执行各项校准；
-  \item 扫描信道，解析 beacon/probe response，选择目标 BSSID；
-  \item 发送 Open System 认证帧和带 RSN IE 的关联请求；
-  \item 完成 WPA2 四次握手，安装密钥，注册 \code{wlan1}。
-\end{enumerate}
+\subsection{USB 拓扑与枚举}
+\label{sec:mt7601u-topo}
 
-发送一个 IP 包要经过：以太网帧 → LLC/SNAP 封装 → 802.11 数据帧头 → TXWI → USB DMA 头和填充 → EP8 Bulk OUT。接收端在 EP4 上长期挂着一个 Bulk IN 请求，DWC2 用 DMA 把数据写到缓冲区（总线地址要加 \code{0xC0000000} 别名，见第~\ref{chap:mmu} 章），完成中断后由下半部解析。网络层的路由表决定一个包从 \code{wlan0} 还是 \code{wlan1} 发出，两块网卡可以同时工作。
+树莓派 3B 的 DWC2 只有一个根端口，板上固定接着 SMSC LAN9514 集线器，网卡插在集线器的外部端口上（图~\ref{fig:mt7601u-topo}）。\code{dwc2\_probe()} 调用 \code{dwc2\_init()}，先枚举集线器，再逐个端口上电（\code{SET\_PORT\_FEATURE(POWER)}）、读状态（\code{GET\_PORT\_STATUS}）、复位，给端口下的设备分配地址。新设备复位后地址为 0：主机先在地址 0 上读 8 字节设备描述符拿到 EP0 最大包长，再 \code{SET\_ADDRESS}，然后才读完整描述符。
+
+\begin{txtcode}
+dwc2: firmware USB HCD power on                 经 VideoCore 邮箱给 USB 上电
+dwc2: host-channel IRQ enabled                  打开主机通道中断（之后 EP4 接收靠它）
+dwc2: host hprt=100f hcfg=0 hfnum=1b1b009d      HPRT0：已连接、连接变化、已使能、使能变化、上电，高速
+dwc2: root device class=9 vid=424 pid=9514 ...  根端口上是集线器 → SET_ADDRESS 1、SET_CONFIG
+dwc2: hub port 1 status=101 change=1            0x0101：已连接 + 上电；change 1：连接变化
+dwc2: hub port 1 after-reset status=503 ...     0x0503：再加上已使能、高速（bit10）
+dwc2: hub port=1 child class=255 vid=424 pid=ec00   板载以太网，addr 2，跳过
+dwc2: hub port 2 status=100 change=0            只有上电位：空端口（轮询 50×10 ms 后放弃）
+dwc2: hub port 3 status=100 change=0            同上
+dwc2: hub port 4 status=101 change=1            网卡插在端口 4
+dwc2: hub port=4 child class=0 vid=148f pid=7601    is_mt7601() 命中，addr 3，不再看其余端口
+dwc2: MT7601U configured; bulk-in=4,5/512 bulk-out=8/512
+dwc2: MT7601U handed to usb bus                 usb_device_register(&usb_child)
+\end{txtcode}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+      b/.style={draw,rounded corners=1pt,align=left,inner sep=2pt,anchor=north west},
+      a/.style={-{Stealth[length=1.6mm]},line width=.5pt}]
+    \node[b,fill=blue!8,text width=26mm] (h) at (0,18) {\textbf{BCM2837 DWC2}\\根端口 HPRT0\\\code{hprt=0x100f}};
+    \node[b,text width=28mm] (hub) at (34,18) {\textbf{LAN9514 集线器}\\addr 1，\code{424:9514}\\class 9，5 个外部端口};
+    \node[b,fill=black!5,text width=34mm] (eth) at (70,0) {\textbf{SMSC 以太网}（端口 1）\\addr 2，\code{424:ec00}，class 255\\枚举后跳过};
+    \node[b,fill=orange!10,text width=72mm] (mt) at (70,22) {\textbf{MT7601U}（端口 4）addr 3，\code{148f:7601}\\[2pt]
+      {\tiny\begin{tabular}{@{}l@{\enspace}l@{\enspace}l@{}}
+        EP0 控制 & USB DMA / FCE & MAC / BBP / RF \\
+        EP8 OUT 512 & \quad 按 TXINFO 分流 & eFuse：MAC、校准 \\
+        EP4 IN 512 数据 & MCU（ILM/DLM） & 密钥表 WCID \\
+        EP5 IN 512 MCU 应答 & \quad 跑上传的固件 & 2.4\,GHz 射频
+      \end{tabular}}};
+    \draw[a] (h.east) -- (hub.west);
+    \draw[a] (hub.east) to[out=0,in=180] node[above,pos=.4]{端口 1} (eth.west);
+    \draw[a] (hub.east) to[out=0,in=180] node[below,pos=.4]{端口 4} ([yshift=-3mm]mt.north west);
+  \end{tikzpicture}
+  \caption{MT7601U 所在的 USB 拓扑与芯片内部结构}
+  \label{fig:mt7601u-topo}
+\end{figure}
+
+复位后的端口状态 \code{0x0503} 里 bit10 表示高速（480\,Mbit/s），正因为如此，后面 bulk 端点的最大包长才是 512。
+
+\subsection{设备、配置、接口与端点描述符}
+\label{sec:mt7601u-desc}
+
+USB 设备用一组描述符介绍自己。打开 \code{USB\_ENUM\_TRACE} 后，\code{dwc2\_trace\_device\_descriptor()} 和 \code{dwc2\_trace\_config\_descriptor()} 把它们逐项打印出来：
+
+\begin{txtcode}
+usb-enum: device addr=0 usb=201 class=0 subclass=0 protocol=0 mps0=64 vid=148f pid=7601 configs=1
+usb-enum: config addr=3 value=1 total=74 interfaces=1 attributes=80 maxpower=160 mA
+usb-enum:  interface=0 alt=0 eps=8 class=255 subclass=255 protocol=255
+usb-enum:   endpoint=84 IN type=2 mps=512 interval=0
+usb-enum:   endpoint=85 IN type=2 mps=512 interval=0
+usb-enum:   endpoint=8 OUT type=2 mps=512 interval=0
+usb-enum:   endpoint=4 OUT type=2 mps=512 interval=0    （5、6、7、9 同）
+\end{txtcode}
+
+\paragraph{设备描述符}（18 字节，类型 1）. \code{bcdUSB}=0x0201；设备类为 0，表示类别由接口描述符给出；\code{bMaxPacketSize0}=64 是 EP0 的最大包长；\code{idVendor}/\code{idProduct}=148f/7601，\code{is\_mt7601()} 和驱动的 \code{id\_table} 都按这一对匹配；只有一种配置。
+
+\paragraph{配置描述符}（9 字节，类型 2）. \code{wTotalLength}=74 是配置描述符连同其后所有接口、端点描述符的总长，\code{bConfigurationValue}=1 是 \code{SET\_CONFIGURATION} 用的编号，\code{bmAttributes}=0x80 表示总线供电、不支持远程唤醒，\code{bMaxPower}=80（单位 2\,mA，即 160\,mA）。\code{dwc2\_init()} 分两次读：先读 9 字节拿到总长，再一次读满 74 字节。$74 = 9 + 9 + 8\times 7$，正好是一个配置、一个接口、八个端点。
+
+\paragraph{接口描述符}（9 字节，类型 4）. 唯一的接口 0、备用设置 0、8 个端点（不含 EP0）。类别、子类、协议都是 0xFF，即厂商自定义：没有通用的类驱动可用，只能按 VID/PID 绑定专用驱动；HID 键盘的接口类是 3，就可以按类别匹配（\ref{sec:devmodel} 节）。
+
+\paragraph{端点描述符}（7 字节，类型 5）. \code{bEndpointAddress} 的 bit7 是方向（1 为 IN），低 4 位是端点号；\code{bmAttributes} 的低 2 位是传输类型（0 控制、1 等时、2 bulk、3 中断）；高速 bulk 端点的 \code{wMaxPacketSize} 必须是 512，\code{bInterval} 对 bulk 无意义。表~\ref{tab:mt7601u-ep} 是八个端点的用途。
+
+\begin{table}[htbp]
+  \centering
+  \caption{MT7601U 的端点与 DWC2 主机通道}
+  \label{tab:mt7601u-ep}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    地址 & 方向/类型 & 本驱动的用途 & 主机通道 \\
+    \midrule
+    0x00 & 控制 & 寄存器读写、固件 DMA 配置（厂商请求） & ch0，同步 \\
+    0x84 & IN bulk 512 & EP4：802.11 帧（多帧聚合） & ch4 异步，4 个 16\,KiB 缓冲；初始化期间 ch3 同步清空 \\
+    0x85 & IN bulk 512 & EP5：MCU 命令应答 & ch4 异步，命令发出前预挂 \\
+    0x08 & OUT bulk 512 & EP8：固件、MCU 命令、全部 802.11 帧 & ch5，同步 \\
+    0x04--0x07, 0x09 & OUT bulk 512 & 未用（Linux 用作 WMM 队列和管理队列） & --- \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{dwc2\_init()} 的选取规则是：解析循环跳过非端点、非 bulk 的描述符，第一个 bulk IN 记为 \code{bulk\_in\_ep}，第二个记为 \code{bulk\_in\_ep2}，第一个 bulk OUT 记为 \code{bulk\_out\_ep}，三者缺一就放弃；然后 \code{SET\_CONFIGURATION(1)}，打印 \code{bulk-in=4,5/512 bulk-out=8/512}。DWC2 没有通用的 URB 调度，端点固定绑在主机通道上：ch0 做控制传输，ch3 做同步 bulk IN，ch4 做异步 bulk IN（5 个槽：EP4 四个、EP5 一个，轮流调度），ch5 做 bulk OUT。发往芯片的所有东西都走 EP8，靠包头的 TXINFO 区分去向。
+
+\subsection{探测时序}
+\label{sec:mt7601u-probe}
+
+设备在 \code{dwc2\_probe()} 里就登记到 usb 总线上了，这时 mt7601u 驱动还没有登记。\code{main()} 故意把 \code{mt7601u\_driver\_init()} 放在 \code{rootdev\_init()} 挂好 FAT32 之后，因为 probe 要从 \file{/boot} 读固件。\code{driver\_register()} 会回头遍历已登记的设备，按 \code{id\_table} 匹配到 \code{148f:7601}，再调用 \code{mt7601u\_probe()}。整个过程如下：
+
+\begin{txtcode}
+main()
+  usb_bus_init()                       登记 usb 总线
+  dwc2_driver_init() -> dwc2_probe()   ① 枚举：集线器 addr 1，以太网 addr 2，网卡 addr 3
+    usb_device_register(&usb_child)    ② 设备进总线；驱动表里还没有 mt7601u，暂不绑定
+  ...
+  rootdev_init()                       挂上 FAT32 启动分区
+  mt7601u_driver_init()                ③ driver_register -> usb_match 命中 -> usb_probe
+    mt7601u_probe(udev)
+      read32(0x0000), read32(0x1000)   ④ ASIC 0x76010001，高 16 位必须是 0x7601
+      mt7601u_validate_firmware()         /boot/MT7601U.BIN：32 B 头 + ILM 45380（含 64 B IVB）+ DLM 0
+      mt7601u_load_firmware()             DEV_MODE=1 复位 MCU，配 FCE/PDMA
+        4 次 bulk OUT：ILM 14336×3 + 2308   每块写 FCE_DMA_ADDR/LEN，等 COM_REG1 bit31
+        DEV_MODE=0x12 + 64 B IVB          启动 MCU，轮询 COM_REG0 == 1
+      mt7601u_read_eeprom()            ⑤ eFuse 每次 16 B，共 256 B：MAC、频偏、RSSI、LNA
+      mt7601u_basic_hw_init()             开 WLAN 时钟等 PLL，复位 MAC，开 USB DMA，写 MAC 地址
+      mt7601u_mcu_channel_init()          MCU 命令 FUN_SET(Q_SELECT=1)，此后应答走 EP5
+      mt7601u_full_hw_init()           ⑥ MAC 表 44 项，BBP 表 59 项
+                                          WCID 地址表、共享密钥模式、WCID 属性表清零
+                                          RF 表 138 项
+                                          calibrate(R) → VCO → calibrate(TXDCOC) → rxdc_cal()
+                                          → set_bw_filter(1) → calibrate(LOFT, TXIQ, RXIQ, DPD)
+                                          → rxdc_cal()；开接收过滤，MAC_SYS_CTRL = 0x0c
+      mt7601u_set_channel(1)           ⑦ RANDOM_WRITE 写 RF R17–R20，VCO，BW 滤波
+      wpa_pbkdf2()                        PMK 预先算出
+      bulk_rx_arm(EP4) ×4                 挂 4 个 16 KiB 接收缓冲
+      queue_delayed_work(state_work)      扫描交给后台状态机，probe 返回
+EP4 完成中断 -> mt7601u_rx_irq()        ⑧ napi -> rx_parse -> rx_mgmt / rx_eapol
+state_work                                扫描 1→11 -> 认证 -> 关联 -> WPA2 -> register_netdev(wlan1)
+\end{txtcode}
+
+固件文件 45412 字节，正好是 32 字节头加 \code{ilm\_len} 45380，\code{dlm\_len} 为 0，所以日志里只有 ILM 的上传进度。PBKDF2 要做 4096 轮 HMAC-SHA1，放在 probe 里预先算，而不是等收到 M1 时在中断路径里算。
+
+校准和换台都靠需要应答的 MCU 命令，它们走 \code{mt7601u\_mcu\_command()}：
+
+\begin{txtcode}
+mt7601u_mcu_command(cmd, payload, wait=1)
+  seq = ++mcu_seq & 0xf
+  bulk_rx_arm(EP5, mt_mcu_resp)          先挂好应答缓冲（Linux 的应答 URB 也一直挂着）
+  dwc2_usb_bulk(EP8, TXINFO|载荷|0)       发命令
+  最多等 1500 ms：
+    bulk_rx_complete(EP5)                中断未开时直接读 HCINT(4) 判断完成
+    未完成 → mt7601u_drain_data_ep()      EP4 接收环还没挂时，同步读空 EP4 并丢弃
+    完成   → 核对序号与事件类型
+\end{txtcode}
+
+清空 EP4 是这里的关键。芯片的接收 DMA 按顺序吐数据，EP4 上没人读的帧会把 EP5 的应答堵在后面；Linux 在校准之前就挂好了 EP4 的接收 URB，所以不会遇到。xv6 的 probe 在 \code{main()} 里同步执行，中断和调度器都还没启动，只能边等应答边清 EP4。日志里的
+\begin{txtcode}
+mt7601u: MCU cmd 12 seq 9 answered after 2 ms; drained 1684 bytes from EP4
+\end{txtcode}
+就是初始换台时的现场：MAC 已经在收信标，读走积压的 1684 字节后，应答 2\,ms 就到了。
+
+\subsection{主机与芯片之间的四种报文}
+\label{sec:mt7601u-wire}
+
+MT7601U 带一个 MCU，主机要先上传固件，之后和芯片的交互分两条通道。
+
+\paragraph{寄存器读写：EP0 厂商请求.} 读一个 32 位寄存器是一次 IN 控制传输；写则拆成两次 16 位的 OUT 控制传输，第二次地址加 2：
+
+\begin{txtcode}
+读  bmRequestType=0xC0  bRequest=7 (MULTI_READ)  wValue=0       wIndex=reg    wLength=4  -> 小端 4 B
+写  bmRequestType=0x40  bRequest=2 (WRITE)       wValue=v&0xffff wIndex=reg    wLength=0
+    bmRequestType=0x40  bRequest=2 (WRITE)       wValue=v>>16    wIndex=reg+2  wLength=0
+    （FCE 寄存器用 bRequest=0x42；bRequest=1 (DEV_MODE) 复位或启动 MCU）
+\end{txtcode}
+
+BBP（数字基带）和 RF（模拟射频）寄存器不能直接访问，要把“寄存器号 + 值 + BUSY/KICK 位”写进 \reg{BBP\_CSR\_CFG}（0x101c）或 \reg{RF\_CSR\_CFG}（0x0500），再轮询忙位清零。写一个 RF 寄存器就要几次控制传输，RF 表 138 项要走几百次。运行中的 MCU 固件也会访问 \reg{RF\_CSR\_CFG}，所以换信道时的频率表改由 MCU 命令 \code{RANDOM\_WRITE}（12 号）代写，地址加 \code{0x80000000} 表示 RF，和 Linux 一样。
+
+\paragraph{bulk 包：同一个 EP8，靠 TXINFO 分流.} 每个 bulk OUT 包以 4 字节 TXINFO 开头、以 4 字节 0 结尾，中间按 4 字节对齐（图~\ref{fig:mt7601u-wire}）：
+
+\begin{itemize}
+  \item 固件块：TXINFO 的端口字段为 2（CPU\_TX），后接最多 14336 字节固件。发送前写 \reg{FCE\_DMA\_ADDR} 和 \reg{FCE\_DMA\_LEN} 给出目标地址，发送后把 \reg{CPU\_DESC\_IDX} 加一，等 \reg{COM\_REG1} 的 bit31；
+  \item MCU 命令：TXINFO 还带命令标志（bit30）、命令号和 4 位序号。\code{FUN\_SET}（1）不等应答；\code{RANDOM\_WRITE}（12）和 \code{CALIBRATE}（31，参数 id 为 1 R、4 LOFT、5 TXIQ、6 BW、7 DPD、8 RXIQ、9 TXDCOC）要在 EP5 上等序号相同的应答；
+  \item 802.11 帧：TXINFO 置 802.11 位（bit19），后接 20 字节 TXWI（速率、是否要 ACK、WCID、MPDU 长度）和完整的 802.11 帧。管理帧和 EAPOL 帧置 WIV 位，明文发送；握手完成后数据帧帧头置 Protected、清 WIV、用 WCID 1，由硬件按该 WCID 的 IV 表生成 CCMP 头并加密。
+\end{itemize}
+
+\paragraph{接收：EP4 上的聚合包.} 一次 bulk IN 可能带回多帧，每段是 4 字节长度、28 字节 RXWI（含 CRC/ICV/MIC 错误位和 MPDU 长度）、MPDU 和 4 字节尾。\code{mt7601u\_rx\_parse()} 逐段拆开，管理帧交给 \code{rx\_mgmt()}，数据帧交给 \code{rx\_data()}。EP5 只用来收 MCU 应答，前 4 字节的 bit16--19 是序号，bit20--23 是事件类型。
+
+硬件解密后的数据帧要多看一眼 RXWI。下面是握手后收到的一个组播帧：
+\begin{txtcode}
+rx data fc=4208 rxinfo=1520a2 len=76 hdr=32 llc=aa aa 3 0 0 0 8 0
+\end{txtcode}
+\code{fc}=0x4208 是 From-DS、Protected 的数据帧；\code{rxinfo} 里 bit5 组播、bit7 本 BSS、bit16 已解密，PN\_LEN（bit19--21）为 2——这时硬件保留了 8 字节 CCMP 头，所以 LLC 头从第 $24+8=32$ 字节开始，\code{aa aa 03 00 00 00 08 00} 是 LLC/SNAP 加上 IPv4 的类型号。\code{rx\_data()} 把它改写成以太网帧（目的地址取 addr1，源地址取 addr3），放进 8 帧的环形队列；NAPI 上下文在锁内把帧拷出、释放锁后再 \code{net\_rx\_dev()} 交给协议栈，做法同 \code{brcmf\_napi\_poll()}。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+      f/.style={draw,minimum height=7mm,inner sep=1.5pt,anchor=north west,align=center}]
+    \node[anchor=west] at (0,-3) {\textbf{固件块}};
+    \node[f,fill=orange!12,minimum width=30mm] at (0,0) {TXINFO 4 B\\port 2 \textbar{} len};
+    \node[f,minimum width=72mm] at (30,0) {固件片段 $\le$ 14336 B};
+    \node[f,fill=black!6,minimum width=12mm] at (102,0) {4 B 0};
+    \node[anchor=west] at (0,11) {\textbf{MCU 命令}};
+    \node[f,fill=orange!12,minimum width=52mm] at (0,14) {TXINFO 4 B\\bit30 \textbar{} port 2 \textbar{} cmd \textbar{} seq \textbar{} len};
+    \node[f,minimum width=50mm] at (52,14) {载荷，如 \{id, value\}};
+    \node[f,fill=black!6,minimum width=12mm] at (102,14) {4 B 0};
+    \node[anchor=west] at (0,25) {\textbf{802.11 帧发送}};
+    \node[f,fill=teal!12,minimum width=32mm] at (0,28) {TXINFO 4 B\\len \textbar{} 802.11 \textbar{} WIV};
+    \node[f,fill=teal!12,minimum width=36mm] at (32,28) {TXWI 20 B\\速率 · ACK · WCID · 长度};
+    \node[f,minimum width=34mm] at (68,28) {802.11 MPDU};
+    \node[f,fill=black!6,minimum width=12mm] at (102,28) {4 B 0};
+    \node[anchor=west] at (0,39) {\textbf{EP4 接收（多段聚合）}};
+    \node[f,fill=blue!10,minimum width=16mm] at (0,42) {长度 4 B};
+    \node[f,fill=blue!10,minimum width=38mm] at (16,42) {RXWI 28 B\\错误位 · MPDU 长度};
+    \node[f,minimum width=30mm] at (54,42) {802.11 MPDU};
+    \node[f,fill=black!6,minimum width=10mm] at (84,42) {4 B};
+    \node[f,fill=blue!10,minimum width=20mm] at (94,42) {下一段 …};
+  \end{tikzpicture}
+  \caption{EP8 上的三种 bulk OUT 包与 EP4 上的接收包}
+  \label{fig:mt7601u-wire}
+\end{figure}
+
+EP4 由 DWC2 的主机通道中断驱动：probe 末尾预先挂 4 个 16\,KiB 缓冲，每完成一个，中断里调用 \code{mt7601u\_rx\_irq()} 调度 NAPI，解析完立即重新挂上，这样总有缓冲在等数据。缓冲区由 DWC2 用 DMA 写入，总线地址要加 \code{0xC0000000} 别名（第~\ref{chap:mmu} 章）。
+
+\subsection{启动日志分析：USB 总线上发生了什么}
+\label{sec:mt7601u-probelog}
+
+\ref{sec:mt7601u-probe} 节给出了函数调用链，上一节给出了报文格式，这一节换个角度：把 \code{mt7601u\_probe()} 打印的每一行，翻译成它在 USB 上实际发出的传输。所有传输都发往设备地址 3，区别只在端点。
+
+\paragraph{两种传输.} 控制传输走 EP0，分三个阶段：SETUP（8 字节：\code{bmRequestType}、\code{bRequest}、\code{wValue}、\code{wIndex}、\code{wLength}）、可选的 DATA、方向相反的零长度 STATUS。MT7601U 的寄存器都用厂商请求访问（表~\ref{tab:mt7601u-vendor}），读一个寄存器是 1 次控制传输，写一个是 2 次。bulk 传输走 EP8 OUT 和 EP4/EP5 IN，每包最多 512 字节，DWC2 的 DMA 自动切包，PID 在 DATA0/DATA1 间交替以发现丢包；IN 方向主机不停发 IN 令牌，设备没有数据就回 NAK，收满或收到短包（不足 512 字节）时传输结束。EP8 上每个包都是“4 字节 TXINFO + 内容 + 4 字节 0”，TXINFO 告诉芯片这是固件、MCU 命令还是 802.11 帧。
+
+\begin{table}[htbp]
+  \centering
+  \caption{MT7601U 的 EP0 厂商请求}
+  \label{tab:mt7601u-vendor}
+  \small
+  \begin{tabularx}{\linewidth}{@{}Xllll@{}}
+    \toprule
+    操作 & \code{bmRequestType} & \code{bRequest} & \code{wValue} & \code{wIndex} \\
+    \midrule
+    读 32 位寄存器（DATA IN 4 字节） & 0xC0 & 7 MULTI\_READ & 0 & 地址 \\
+    写 32 位寄存器（分两次） & 0x40 & 2 WRITE & 低 / 高 16 位 & 地址 / 地址+2 \\
+    写 FCE（固件 DMA）寄存器 & 0x40 & 0x42 & 值 & 地址 \\
+    复位 / 启动 MCU（可带数据） & 0x40 & 1 DEV\_MODE & 模式 & 0 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{① 芯片身份.} \code{USB device 148f:7601 ASIC=76010001 MAC=76010500} 是两次 EP0 控制读：
+\begin{txtcode}
+SETUP C0 07 0000 0000 0400 -> IN 01 00 01 76 -> STATUS   0x0000 ASIC_VERSION = 0x76010001
+SETUP C0 07 0000 0010 0400 -> IN 00 05 01 76 -> STATUS   0x1000 MAC_CSR0    = 0x76010500
+\end{txtcode}
+VID/PID 是 dwc2 从设备描述符读来的；这里再读芯片自己的版本寄存器，确认高 16 位是 0x7601。
+
+\paragraph{②③ 不走 USB.} \code{driver WPA2-v4} 只是打印；\code{firmware ... validated} 从 SD 卡的 FAT32 读 \file{/boot/MT7601U.BIN} 并检查 32 字节头：ILM 45380 字节（前 64 字节是 IVB，即中断向量），DLM 为 0，$32+45380=45412$。
+
+\paragraph{④ 上传固件.} \code{ILM firmware upload ...} 把代码写进 MCU 的指令内存，分 4 块（$14336\times 3 + 2308$）。每块是一组传输：
+\begin{txtcode}
+EP0  40 42 a840 0230 ... 0236   FCE_DMA_ADDR / FCE_DMA_LEN：目标地址和长度
+EP8  bulk OUT 2316 B:  04 09 00 10 | 2308 B 固件 | 00 00 00 00
+EP0  读 0x09a8 = 3，写 0x09a8 = 4   CPU_DESC_IDX 加一：新的一块到了
+EP0  读 0x0734 = 0xc9040000        COM_REG1 bit31 = 1：这块收完了
+\end{txtcode}
+TXINFO \code{04 09 00 10} 即小端 0x10000904：低 14 位 0x904 = 2308 是长度，bit27--29 = 2 表示发往 CPU\_TX 端口（交给 FCE/DMA，而不是射频）。14336 字节的一块加上首尾 8 字节共 14344 字节，DWC2 把它切成 28 个 512 字节的包和一个 8 字节短包。
+
+\paragraph{⑤ 启动 MCU.} \code{MCU firmware running} 前是一次带数据阶段的控制写和一次轮询：
+\begin{txtcode}
+EP0  SETUP 40 01 0012 0000 4000 + DATA OUT 64 B (IVB)   DEV_MODE 0x12：带中断向量启动 MCU
+EP0  读 0x0730 -> 1                                     COM_REG0 == 1：固件在跑
+\end{txtcode}
+
+\paragraph{⑥ eFuse.} \code{EEPROM ... permanent mac=...}：每 16 字节一块，读 \reg{EFUSE\_CTRL}（0x24），写入块地址和 KICK，轮询 KICK 清零，再读 4 个数据寄存器（0x28--0x34）。一块约 8--10 次控制传输，读满 256 字节约 150 次。偏移 4 是 MAC，\code{freq=96} 是晶振频偏，\code{lna} 是接收增益，\code{temp} 是参考温度。
+
+\paragraph{⑦ 基础初始化.} \code{MAC/BBP/RF bootstrap ready} 仍全走 EP0：开 WLAN 时钟并轮询 \reg{CMB\_CTRL} 等 PLL；\reg{MAC\_SYS\_CTRL} 先写 3 复位再写 0；写 \reg{USB\_DMA\_CFG}（0x238）打开 bulk 收发 DMA 和接收聚合——此后芯片才会经 EP4 送帧；MAC 地址写入 0x1008/0x100c；频偏写入 RF R12。
+
+\paragraph{⑧ 第一条 MCU 命令.} \code{MCU command channel ready ... async-prearmed} 是 FUN\_SET(Q\_SELECT=1)：
+\begin{txtcode}
+EP8  bulk OUT 16 B:  08 00 10 50 | 01 00 00 00 01 00 00 00 | 00 00 00 00
+                     TXINFO 0x50100008：bit30 命令、端口 2、cmd 1、seq 0、长度 8
+\end{txtcode}
+意思是“以后命令的应答从 EP5 送出”，本身不要应答。\code{async-prearmed} 指之后每条要应答的命令，发出前先在 EP5 上挂好接收缓冲（DWC2 ch4）。
+
+\paragraph{⑨ 寄存器表.} \code{MAC/BBP/RF register table initialized} 全是 EP0 控制写（表~\ref{tab:mt7601u-ctrlcount}）。BBP 和 RF 寄存器不能直接寻址，要把“寄存器号 + 值 + 忙位”写进间接端口 0x101c 或 0x0500，再轮询忙位清零，芯片内部才把值送到基带或射频。这是探测过程中 USB 往返最多的一段。
+
+\begin{table}[htbp]
+  \centering
+  \caption{寄存器表阶段的控制传输次数}
+  \label{tab:mt7601u-ctrlcount}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXr@{}}
+    \toprule
+    表 & 每项需要的控制传输 & 合计 \\
+    \midrule
+    MAC 44 项 & 写 2 次 & $\approx 90$ \\
+    BBP 59 项 & 读忙位、写 2 次、再读忙位 & $\approx 240$ \\
+    WCID 地址、密钥模式、WCID 属性 & 516 个寄存器，各写 2 次 & $\approx 1000$ \\
+    RF 138 项 & 读 KICK、写 2 次、再读 KICK & $\approx 550$ \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{⑩ 校准.} \code{RF calibration complete} 之前，主机发了 8 条 CALIBRATE（31 号）命令——R、TXDCOC、BW$\times$2、LOFT、TXIQ、RXIQ、DPD——并逐条等应答；中间穿插经 EP0 读写 BBP 158/159 的 RX DC 校准。以 R 校准为例：
+\begin{txtcode}
+EP8  bulk OUT 16 B:  08 00 f1 51 | 01 00 00 00 00 00 00 00 | 00 00 00 00
+                     0x51f10008：命令、cmd 31、seq 1、长度 8；载荷 {id = 1 (R), value = 0}
+EP5  bulk IN  16 B:  08 00 01 4a | ...
+                     0x4a010008：bit31-30 = 01 命令应答、seq 1、事件 0 = 完成
+\end{txtcode}
+主机靠 seq 把应答和命令配对。最后写 RX 过滤 0x1400 和 \reg{MAC\_SYS\_CTRL} = 0x0c 打开收发，从这一刻起空中的信标开始在接收 DMA 里排队，等着从 EP4 送出。
+
+\paragraph{⑪ 初始换台.} 下面这行日志来自 \code{mt7601u\_set\_channel(1)} 的 RANDOM\_WRITE（12 号）：
+\begin{txtcode}
+mt7601u: MCU cmd 12 seq 9 answered after 2 ms; drained 1684 bytes from EP4
+\end{txtcode}
+它在总线上是：
+\begin{txtcode}
+EP8  bulk OUT 40 B:  20 00 c9 50 | 11 00 00 80 99 00 00 00 | 12 00 00 80 ... | 00 00 00 00
+                     0x50c90020：命令、cmd 12、seq 9、长度 32 = 4 对 {地址, 值}
+                     0x80000011 = RF bank 0 的 R17，值 0x99 ...
+\end{txtcode}
+seq 是 9，因为前 8 条校准用掉了 1--8。MAC 已经在收，EP4 里排着 1684 字节信标；接收 DMA 按顺序吐数据，不读走它们，EP5 的应答就出不来。驱动等应答时用 ch3 同步读空 EP4（此时还没挂接收缓冲，读出的帧丢弃），应答 2\,ms 就到了。
+
+\paragraph{⑫ 挂上接收.} \code{EP4 receive uses DWC2 IRQ with 4 buffers} 是 4 次 \code{bulk\_rx\_arm(EP4, 16 KiB)}：在 ch4 上填 \reg{HCDMA}（总线地址）、\reg{HCTSIZ}（16384 字节 = 32 包，DATA0/1）、\reg{HCCHAR}（地址 3、EP4、IN、bulk、512），打开中断。之后 DWC2 自动反复发 IN 令牌：网卡没数据回 NAK，有数据就送一个以短包结尾的聚合包，触发 ch4 中断，经 \code{dwc2\_irq()}、\code{mt7601u\_rx\_irq()}、NAPI 到 \code{mt7601u\_rx\_parse()} 拆帧，随即重挂。4 个缓冲轮转，EP4 总有人在收，⑪ 那种拥堵不再出现。
+
+\paragraph{⑬ probe 返回.} \code{transport and MCU ready; SoftMAC initialization pending} 之后不再有同步 USB 通信；扫描、认证、关联和握手由 \code{state\_work} 推进：发帧走 EP8（802.11 TXINFO + 20 字节 TXWI），收帧靠 EP4 中断，换信道再发 RANDOM\_WRITE/CALIBRATE 并等 EP5。
+
+表~\ref{tab:mt7601u-epuse} 汇总了探测期间各端点的用量。
+
+\begin{table}[htbp]
+  \centering
+  \caption{探测期间各端点的用量}
+  \label{tab:mt7601u-epuse}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXl@{}}
+    \toprule
+    端点 & 做了什么 & 次数 \\
+    \midrule
+    EP0 控制 & 读版本、FCE、启动 MCU、eFuse、寄存器表、BBP/RF 间接访问、RX DC 校准 & 两千次以上 \\
+    EP8 bulk OUT & 4 块固件、FUN\_SET、8 条校准、换台 RANDOM\_WRITE & 十几次 \\
+    EP5 bulk IN & 每条要应答的命令一次 16 字节应答 & 9 次（seq 1--9） \\
+    EP4 bulk IN & 打开 MAC 接收后信标排队；先同步读空，再交给 4 个异步缓冲 & 持续 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{空口：扫描、认证、关联与 WPA2}
+\label{sec:mt7601u-air}
+
+SoftMAC 的 802.11 状态机全在 \file{mt7601u.c} 里，由两样东西推进：EP4 接收中断送来的帧，以及按截止时间重排的延迟工作 \code{state\_work}。图~\ref{fig:mt7601u-join} 是这次启动的交换过程。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+      m/.style={-{Stealth[length=1.6mm]},line width=.55pt},
+      e/.style={-{Stealth[length=1.6mm]},line width=.55pt,draw=magenta!70!black}]
+    \node[draw,fill=orange!10,minimum width=34mm] at (20,0) {xv6 mt7601u（STA）};
+    \node[draw,fill=teal!10,minimum width=34mm] at (110,0) {TP-Link\_B114（AP）};
+    \draw[dashed,black!40] (20,4) -- (20,104);
+    \draw[dashed,black!40] (110,4) -- (110,104);
+    \node[anchor=east,text=black!60] at (17,10) {SCAN};
+    \draw[m,dashed] (110,10) -- node[above]{Beacon / Probe Resp，信道 1→11 轮流驻留} (20,10);
+    \node[anchor=west,align=left] at (22,16) {解析 SSID/信道/RSN IE，命中目标：信道 8，保存 RSN IE；切到信道 8};
+    \node[anchor=east,text=black!60] at (17,24) {AUTH};
+    \draw[m] (20,24) -- node[above]{Authentication（Open System，seq 1）} (110,24);
+    \draw[m] (110,31) -- node[above]{Authentication（seq 2，status 0）} (20,31);
+    \node[anchor=east,text=black!60] at (17,38) {ASSOC};
+    \draw[m] (20,38) -- node[above]{Association Request（SSID、速率、RSN IE 22 B）} (110,38);
+    \draw[m] (110,45) -- node[above]{Association Response（status 0，aid 3）} (20,45);
+    \node[anchor=east,text=black!60] at (17,54) {WPA2};
+    \draw[e] (110,54) -- node[above]{EAPOL M1：ANonce，key-info 0x008a} (20,54);
+    \node[anchor=west] at (22,59) {生成 SNonce，PTK = PRF(PMK, AA, SPA, ANonce, SNonce)};
+    \draw[e] (20,66) -- node[above]{EAPOL M2：SNonce + RSN IE + MIC，0x010a} (110,66);
+    \draw[e] (110,73) -- node[above]{EAPOL M3：MIC + 用 KEK 包裹的 GTK} (20,73);
+    \node[anchor=west,align=left] at (22,79) {验 MIC，AES key unwrap 取出 GTK；TK → WCID 1 密钥表，GTK → 共享密钥表};
+    \draw[e] (20,88) -- node[above]{EAPOL M4：确认，0x030a（明文，随后装密钥）} (110,88);
+    \node[draw,fill=orange!10,anchor=west] at (22,98) {handshake\_done → register\_netdev(wlan1)};
+  \end{tikzpicture}
+  \caption{MT7601U 的扫描、认证、关联与 WPA2 四次握手}
+  \label{fig:mt7601u-join}
+\end{figure}
+
+下面按报文逐一看这次交换。
+
+\paragraph{一帧怎样从主机到空中.} 主机发出的每个 802.11 帧都是 EP8 上的一个 bulk 包，层层包装如下：
+\begin{txtcode}
+EP8 bulk OUT:  TXINFO 4 B | TXWI 20 B | MPDU（802.11 头 24 B + 帧体）| 补齐到 4 B | 00 00 00 00
+TXINFO  = 长度 | bit19 802.11 包 | bit24 WIV（置位 = 硬件不加 IV、不加密）
+TXWI    = rate_ctl 0（CCK 1 Mbit/s）· ack_ctl 1（要 ACK）· WCID · len_ctl = MPDU 长度
+\end{txtcode}
+FCS（4 字节 CRC）由芯片在发射时附加；对方回的 ACK 和必要的重传也由芯片硬件完成，主机看不到。管理帧用 WCID 0xff、置 WIV；关联后的数据帧（包括 EAPOL）用 WCID 1。接收方向相反：EP4 上每段是 4 字节长度 + 28 字节 RXWI + MPDU（FCS 已去掉）+ 4 字节尾。
+
+本机地址 SA = \code{90:de:80:14:95:94}，AP 的 BSSID = \code{f0:09:0d:cb:b1:14}。表~\ref{tab:mt7601u-frames} 列出握手前的全部报文（与日志的对应：Beacon 对应 \code{AP ssid=...}，两个 Authentication 对应 \code{authentication request sent} 和 \code{... accepted}，关联请求和应答对应 \code{rsn=22 bytes} 和 \code{associated aid=3}，M1、M2、M4 各有一行日志，M3 没有），帧控制字段按空中字节顺序写（第 1 字节含类型和子类型，第 2 字节含 ToDS/FromDS/Protected 等标志）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{MT7601U 与 AP 之间的报文}
+  \label{tab:mt7601u-frames}
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{22mm}c>{\raggedright\arraybackslash}p{10mm}>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    报文 & 方向 & 帧控制 & 帧体要点 \\
+    \midrule
+    Beacon & AP→ & 80 00 & 时间戳 8 B、间隔、能力；IE：SSID(0)、速率(1)、DS 参数(3) = 信道 8、RSN(48) 22 B \\
+    Authentication & →AP & b0 00 & 算法 00 00（Open System）、序号 01 00、状态 00 00；MPDU 30 B \\
+    Authentication & AP→ & b0 00 & 算法 0、序号 2、状态 0 = 成功 \\
+    Association Req & →AP & 00 00 & 能力、监听间隔 0a 00；SSID IE \code{00 0c "TP-Link\_B114"}；速率 IE \code{01 08 82 84 8b 96 0c 12 18 24}；AP 的 RSN IE 原样附上；MPDU 74 B \\
+    Association Resp & AP→ & 10 00 & 能力、状态 00 00、AID \code{03 c0}（高两位恒为 1，AID = 3） \\
+    EAPOL M1 & AP→ & 08 02 & 数据帧、FromDS、明文；LLC \code{aa aa 03 00 00 00 88 8e}；EAPOL \code{02 03 00 5f}；key-info 0x008a；ANonce \\
+    EAPOL M2 & →AP & 08 01 & ToDS、明文（WIV=1、WCID 1）；key-info 0x010a；SNonce；MIC；key data = RSN IE（帧体 95+22 B） \\
+    EAPOL M3 & AP→ & 08 02 & key-info 含 Install/ACK/MIC/Secure/加密数据（典型 0x13ca）；key data 用 KEK 包裹：RSN IE + GTK KDE \\
+    EAPOL M4 & →AP & 08 01 & key-info 0x030a；回显 M3 的重放计数器；无 nonce、无 key data；明文 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{扫描.} \code{rx\_mgmt()} 只看子类型 8（beacon）和 5（probe response），从固定字段之后逐个解析 IE：0 号是 SSID，3 号（DS Parameter Set）给出 AP 实际所在的信道，48 号是 RSN。这次 AP 的 RSN IE 是 22 字节：
+\begin{txtcode}
+30 14 | 01 00 | 00 0f ac 04 | 01 00 00 0f ac 04 | 01 00 00 0f ac 02 | cc cc
+  长度   版本     组密码 CCMP     1 个成对密码 CCMP    1 个 AKM：PSK      RSN 能力
+\end{txtcode}
+日志 \code{keys installed ... group-cipher=4} 打印的就是这里组密码的类型字节 4（CCMP）。RSN IE 要原样放进关联请求和 M2，AP 会逐字节比对，防止降级攻击。
+
+\paragraph{认证与关联.} Open System 认证只是交换两个空的认证帧：本机发序号 1，AP 回序号 2、状态 0。关联请求带上能力字段、监听间隔 10、SSID、支持的速率（\code{0x82 0x84 0x8b 0x96} 是最高位置 1 的基本速率 1/2/5.5/11\,Mbit/s，后四个是 6/9/12/18\,Mbit/s 的 OFDM 速率）和 RSN IE。AP 回的 AID 是 3，日志 \code{associated aid=3}。三个地址字段都是 A1 = 接收者、A2 = 发送者、A3 = BSSID；STA 和 AP 之间的管理帧中 A1、A3 都是 AP。
+
+\paragraph{EAPOL-Key 帧.} 四次握手的四个报文都是数据帧，帧体是 LLC/SNAP（以太类型 0x888e）加 EAPOL。EAPOL 头 4 字节（版本、类型 3 = Key、长度），其后是 95 字节固定部分和可变的 key data：
+\begin{txtcode}
+偏移  0   描述符类型 2（RSN）     1-2  key-info              3-4  密钥长度（16）
+      5   重放计数器 8 B           13   nonce 32 B
+     45   EAPOL-Key IV 16 B        61   RSC 8 B              69   保留 8 B
+     77   MIC 16 B                 93   key data 长度         95   key data
+\end{txtcode}
+key-info 的位：bit0--2 描述符版本（2 = HMAC-SHA1 + AES 包裹），bit3 成对密钥，bit6 Install，bit7 ACK（需要对方应答），bit8 MIC 有效，bit9 Secure，bit12 key data 已加密。于是 M1 的 0x008a = 版本 2 + 成对 + ACK，M2 的 0x010a = 版本 2 + 成对 + MIC，M4 的 0x030a 再加上 Secure。\code{rx\_eapol()} 用 ``ACK 置位且 MIC 未置位'' 认出 M1，用 0x0188（成对 + ACK + MIC）认出 M3。重放计数器由 AP 递增：M1 为 1，M2 原样回显（日志 \code{replay=0001}），M3 为 2，M4 回显 M3 的值。
+
+\paragraph{密钥推导.} 握手不在空中传送任何密钥，双方各自从 PMK 推导：
+\begin{txtcode}
+PMK = PBKDF2-HMAC-SHA1(口令, SSID, 4096 轮, 32 B)                    probe 时预先算好
+PTK = PRF-512(PMK, "Pairwise key expansion",
+              min(AA,SPA) || max(AA,SPA) || min(ANonce,SNonce) || max(ANonce,SNonce))
+    = KCK[0..15] | KEK[16..31] | TK[32..47] | ...                  wpa_derive_ptk()
+MIC = HMAC-SHA1(KCK, MIC 字段清零后的整个 EAPOL 帧) 的前 16 B        wpa_eapol_mic()
+GTK = AES-Key-Unwrap(KEK, M3 的 key data) 中的 GTK KDE               wpa_aes_unwrap()
+\end{txtcode}
+收到 M1 时本机已经有 ANonce 和 SNonce，可以算出 PTK，于是 M2 能带上 MIC；AP 收到 M2 后用同样的公式得到同一个 PTK，验 MIC 通过就证明双方口令一致。M3 的 key data 解包后是 AP 的 RSN IE 加 GTK KDE：\code{dd 16 00 0f ac 01 | 01 00 | GTK 16 B}，其中 \code{01} 的低 2 位是 GTK 序号 1。
+
+\paragraph{装密钥.} M4 用明文发出之后，\code{mt7601u\_install\_ccmp\_keys()} 把密钥写进芯片的密钥存储器（全是 EP0 控制写）：
+\begin{txtcode}
+0x8000 + 32×1 = 0x8020   TK 16 B                    WCID 1（AP）的成对密钥
+0xa000 +  8×1 = 0xa008   01 00 00 20 00 00 00 00     IV 初值：PN = 1，ExtIV 位，key id 0
+0xa800 +  4×1 = 0xa804   (4 << 1) | 1 = 9           属性：CCMP、成对
+0xac00 + 32×1 = 0xac20   GTK 16 B                    BSS 0 的共享密钥槽 1
+0xb000                   4 << (4×1) = 0x40          槽 1 的密码类型：CCMP
+\end{txtcode}
+日志里的 \code{attr=11009 skey-mode=11049} 来自先读后改的旧代码：读回的值混入了上一次写入的内容，现在两处都改为直接写入 0x9 和 0x40。
+
+\paragraph{加密数据帧.} 装好密钥后，\code{mt7601u\_net\_xmit()} 发出的数据帧帧控制为 \code{08 41}（ToDS + Protected），TXINFO 的 WIV 清零：芯片按 WCID 1 的 IV 表在 802.11 头后插入 8 字节 CCMP 头（PN 自动递增），用 TK 加密帧体并追加 8 字节 MIC。接收方向，AP 发来的单播帧（\code{08 42}）用 PTK 解密，组播和广播帧用槽 1 的 GTK 解密；RXWI 的 DECRYPT 位表示已解密，PN\_LEN 非零时 CCMP 头仍留在帧里，所以 \code{rx\_data()} 从第 32 字节开始找 LLC 头（\ref{sec:mt7601u-wire} 节）。
+
+几个时序细节：
+
+\begin{itemize}
+  \item 扫描在信道 1～11 间轮换，每个信道驻留 50 个 tick；换信道要经 \code{RANDOM\_WRITE} 改 RF bank 0 的 R17--R20，再做 VCO 校准和 BW 滤波校准。换台在 \code{dev->lock} 外做，失败后退避，连续 8 次失败就停在当前信道；
+  \item 在相邻信道也能听到 AP 的信标，所以命中目标后先切到 DS 参数 IE 给出的信道再认证；
+  \item 认证、关联各自最多重试 3 次，响应超时 100 tick；关联后启动 500 tick 的看门狗，收不到 M1 就重新关联，每收到一个结构正确的 EAPOL-Key 帧都会把看门狗往后推；
+  \item 先发 M4、后装密钥：IEEE 802.11 规定认证者收到 M4 后才装密钥，加密的 M4 它解不开，只会一再重发 M3；
+  \item 收到 AP 发来的解除认证或解除关联帧（例如空闲后的 \code{reason=6}），清掉握手状态，回到认证阶段自动重连。
+\end{itemize}
+
+握手完成后，\code{mt7601u\_service()} 调用 \code{register\_netdev()} 注册 \code{wlan1}。网络层的路由表决定一个包从 \code{wlan0} 还是 \code{wlan1} 发出，两块网卡可以同时工作。
+
+\subsection{调试实录}
+\label{sec:mt7601u-debug}
+
+让这块网卡真正收发 IP 包，前后改了十处左右。表~\ref{tab:mt7601u-debug} 按出现顺序列出现象、原因和修改，每一行都对应一条能在日志里看到的证据。
+
+\begin{table}[htbp]
+  \centering
+  \caption{MT7601U 调试记录}
+  \label{tab:mt7601u-debug}
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+    \toprule
+    现象 & 原因 & 修改 \\
+    \midrule
+    换台失败，0x0500 总读到同一怪值，无限刷屏 & 主机直接写 \reg{RF\_CSR\_CFG}，与运行中的 MCU 抢间接端口；换台在自旋锁内，失败无限重试 & 频率表改用 \code{RANDOM\_WRITE}；换台挪到锁外，退避，8 次后停止 \\
+    LOFT 校准无应答 & 校准顺序少了 RXDC 和 BW 滤波 & 按 Linux \code{mt7601u\_init\_cal()} 补全 \\
+    第三条 MCU 命令总无应答 & EP4 的帧堵在 EP5 应答前面 & 等应答时交替清空 EP4 \\
+    EP5 预挂后 1500\,ms 超时 & probe 时中断未开，完成标志永不置位；EP4 占满 4 个槽 & 直接轮询 HCINT(4)；槽位改为 5；ch4 轮转 \\
+    刷屏数分钟 & 2\,ms 轮询 + 每包 3 行跟踪，串口比轮询还慢 & 空轮询不打印；关 \code{USB\_XFER\_TRACE} \\
+    认证超时 & 在相邻信道发认证 & 先切到 AP 的信道 \\
+    M4 重发 & M4 加了密，且先装密钥后发 & 先明文发 M4，再装密钥 \\
+    组播帧 ICV 错误，DHCP 无 Offer & WCID 属性、共享密钥模式、WCID 地址表未初始化 & 按 Linux 初始化三张表 \\
+    解密帧被静默丢弃 & PN\_LEN 非零时 CCMP 头仍在帧里 & \code{rx\_data()} 跳过 8 字节 \\
+    聚合包里多帧只交付一帧 & 单槽接收缓冲 & 8 帧环形队列，锁外交付 \\
+    空闲后 \code{reason=6} & AP 已清掉客户端 & 处理 deauth，自动重连 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+最后一次启动的结果是 \code{dhcp: dev=wlan1 address=192.168.0.219 gateway=192.168.0.1}，随后 ARP 解析出网关，\code{ping} 局域网主机有回应。
+
+\subsection{现状与待改进}
+
+\begin{itemize}
+  \item \textbf{没有保活}：长时间空闲会被 AP 清掉，重连后要重新 \code{dhcp}；应定时向 AP 发 null-data 帧；
+  \item \textbf{寄存器读偶尔拿到旧值}：装密钥时曾从 0xb000 读回上一次写入 WCID 属性的值，疑为控制传输 IN 的缓冲问题，相关寄存器现在都直接写入，根因待查；
+  \item \textbf{没有热插拔}：集线器端口只在启动时扫描一次，找到 MT7601U 就停下，不再看后面的端口；运行中拔插不会被发现，\code{mt7601u\_remove()} 也不会被调用（\ref{sec:devmodel} 节）；
+  \item \textbf{Wi-Fi 参数写在驱动里}：SSID 和口令写死在 \file{mt7601u.c}，而 \file{/etc/wifi.conf} 经 \code{wifi\_connect()} 只交给板载芯片的 \code{brcmfmac\_connect()}。应改成从配置传入，也避免口令进入代码仓库；
+  \item \textbf{只用一个 bulk OUT}：MT7601U 有多个 OUT 端点（Linux 驱动按 AC 队列分开），这里固件、MCU 命令和数据帧都走 EP8，负载高时 MCU 命令会排在数据帧后面；
+  \item \textbf{探测期间忙等}：\code{mt7601u\_delay\_ms()} 轮询计数器，固件上传和校准都在 \code{main()} 里同步完成，会拉长启动时间。
+\end{itemize}
 
 \section{CSI-2 摄像头：OV5647}
 

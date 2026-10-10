@@ -400,6 +400,17 @@ sudo dd if=/dev/rdisk4s2 bs=512 skip=2 count=1 2>/dev/null | xxd | head -1   # x
 要用整个分区，应当像上面那样直接对 `/dev/rdisk4s3` 执行 `mke2fs`。已经写了镜像的话，也可以用
 `resize2fs /dev/rdisk4s3` 扩展到整个分区。
 
+需要生成可启动的 ext2 根镜像并同时烧录 p3、更新 bootfs 时使用：
+
+```sh
+make USB_ENUM_TRACE=1 USB_XFER_TRACE=0 install-rpi3-ext2root \
+  RPI3_EXT2_DEV=/dev/rdisk4s3
+```
+
+流程是 `mke2fs fs_ext2.img` → 用 `debugfs` 安装 `/init` 与 `/bin/*` → `dd` 到明确指定的
+p3 → 同步内核、配置、ext2 cmdline 和 Wi-Fi firmware。该命令会覆盖 p3，且默认仍只建立
+32 MiB 文件系统；若要扩大镜像，可增加例如 `EXT2_SIZE=400M`，但镜像不得大于目标分区。
+
 ### 13.6 第一次启动：日志、问题与分析
 
 #### 日志

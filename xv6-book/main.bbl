@@ -1,0 +1,408 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.2 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated as
+% required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+\datalist[entry]{nty/global//global/global}
+  \entry{armarm}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=A}{%
+         family={{Arm Limited}},
+         familyi={A\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {Arm Limited}%
+    }
+    \strng{namehash}{A1}
+    \strng{fullhash}{A1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{A}
+    \field{sortinithash}{A}
+    \field{note}{ARM DDI 0487}
+    \field{title}{Arm Architecture Reference Manual for A-profile architecture}
+    \field{year}{2024}
+  \endentry
+
+  \entry{a53trm}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=A}{%
+         family={{Arm Limited}},
+         familyi={A\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {Arm Limited}%
+    }
+    \strng{namehash}{A1}
+    \strng{fullhash}{A1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{A}
+    \field{sortinithash}{A}
+    \field{note}{ARM DDI 0500}
+    \field{title}{Arm Cortex-A53 MPCore Processor Technical Reference Manual}
+    \field{year}{2018}
+  \endentry
+
+  \entry{tweetnacl}{online}{}
+    \name{author}{6}{}{%
+      {{hash=BDJ}{%
+         family={Bernstein},
+         familyi={B\bibinitperiod},
+         given={Daniel\bibnamedelima J.},
+         giveni={D\bibinitperiod\bibinitdelim J\bibinitperiod},
+      }}%
+      {{hash=vGB}{%
+         prefix={van},
+         prefixi={v\bibinitperiod},
+         family={Gastel},
+         familyi={G\bibinitperiod},
+         given={Bernard},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=JW}{%
+         family={Janssen},
+         familyi={J\bibinitperiod},
+         given={Wesley},
+         giveni={W\bibinitperiod},
+      }}%
+      {{hash=LT}{%
+         family={Lange},
+         familyi={L\bibinitperiod},
+         given={Tanja},
+         giveni={T\bibinitperiod},
+      }}%
+      {{hash=SP}{%
+         family={Schwabe},
+         familyi={S\bibinitperiod},
+         given={Peter},
+         giveni={P\bibinitperiod},
+      }}%
+      {{hash=SS}{%
+         family={Smetsers},
+         familyi={S\bibinitperiod},
+         given={Sjaak},
+         giveni={S\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{BDJ+1}
+    \strng{fullhash}{BDJGBvJWLTSPSS1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{B}
+    \field{sortinithash}{B}
+    \field{title}{TweetNaCl: a crypto library in 100 tweets}
+    \verb{url}
+    \verb https://tweetnacl.cr.yp.to/
+    \endverb
+    \field{year}{2014}
+  \endentry
+
+  \entry{bcm2835}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=B}{%
+         family={{Broadcom Corporation}},
+         familyi={B\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {Broadcom}%
+    }
+    \strng{namehash}{B1}
+    \strng{fullhash}{B1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{B}
+    \field{sortinithash}{B}
+    \field{title}{BCM2835 ARM Peripherals}
+    \field{year}{2012}
+  \endentry
+
+  \entry{bcm2836local}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=B}{%
+         family={{Broadcom Corporation}},
+         familyi={B\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {Broadcom}%
+    }
+    \strng{namehash}{B1}
+    \strng{fullhash}{B1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{B}
+    \field{sortinithash}{B}
+    \field{title}{BCM2836 ARM-local peripherals (Quad-A7 control)}
+    \field{year}{2014}
+  \endentry
+
+  \entry{xv6book}{book}{}
+    \name{author}{3}{}{%
+      {{hash=CR}{%
+         family={Cox},
+         familyi={C\bibinitperiod},
+         given={Russ},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=KF}{%
+         family={Kaashoek},
+         familyi={K\bibinitperiod},
+         given={Frans},
+         giveni={F\bibinitperiod},
+      }}%
+      {{hash=MR}{%
+         family={Morris},
+         familyi={M\bibinitperiod},
+         given={Robert},
+         giveni={R\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {MIT PDOS}%
+    }
+    \strng{namehash}{CRKFMR1}
+    \strng{fullhash}{CRKFMR1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{C}
+    \field{sortinithash}{C}
+    \field{title}{xv6: a simple, Unix-like teaching operating system}
+    \verb{url}
+    \verb https://pdos.csail.mit.edu/6.1810/xv6/book-riscv-rev4.pdf
+    \endverb
+    \field{year}{2024}
+  \endentry
+
+  \entry{rpios}{online}{}
+    \name{author}{1}{}{%
+      {{hash=MS}{%
+         family={Matyukevich},
+         familyi={M\bibinitperiod},
+         given={Sergey},
+         giveni={S\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{MS1}
+    \strng{fullhash}{MS1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{M}
+    \field{sortinithash}{M}
+    \field{title}{raspberry-pi-os: Learning operating system development using
+  Linux kernel and Raspberry Pi}
+    \verb{url}
+    \verb https://github.com/s-matyukevich/raspberry-pi-os
+    \endverb
+    \field{year}{2018}
+  \endentry
+
+  \entry{fat32spec}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=M}{%
+         family={{Microsoft Corporation}},
+         familyi={M\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {Microsoft}%
+    }
+    \strng{namehash}{M1}
+    \strng{fullhash}{M1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{M}
+    \field{sortinithash}{M}
+    \field{title}{Microsoft Extensible Firmware Initiative FAT32 File System
+  Specification}
+    \field{year}{2000}
+  \endentry
+
+  \entry{mipicsi2}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=M}{%
+         family={{MIPI Alliance}},
+         familyi={M\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {MIPI Alliance}%
+    }
+    \strng{namehash}{M2}
+    \strng{fullhash}{M2}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{M}
+    \field{sortinithash}{M}
+    \field{title}{MIPI Alliance Specification for Camera Serial Interface 2
+  (CSI-2)}
+    \field{year}{2017}
+  \endentry
+
+  \entry{rpifirmware}{online}{}
+    \name{author}{1}{}{%
+      {{hash=R}{%
+         family={{Raspberry Pi Ltd}},
+         familyi={R\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{R1}
+    \strng{fullhash}{R1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{R}
+    \field{sortinithash}{R}
+    \field{title}{Raspberry Pi firmware: boot files, config.txt and the mailbox
+  property interface}
+    \verb{url}
+    \verb https://github.com/raspberrypi/firmware/wiki
+    \endverb
+    \field{year}{2026}
+  \endentry
+
+  \entry{rpilinux}{online}{}
+    \name{author}{2}{}{%
+      {{hash=R}{%
+         family={{Raspberry Pi Ltd}},
+         familyi={R\bibinitperiod},
+      }}%
+      {{hash=L}{%
+         family={{Linux kernel developers}},
+         familyi={L\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{RL1}
+    \strng{fullhash}{RL1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{R}
+    \field{sortinithash}{R}
+    \field{title}{Raspberry Pi Linux kernel source (drivers: brcmfmac, mt7601u,
+  dwc2, bcm2835-unicam, ov5647, i2c-bcm2835)}
+    \verb{url}
+    \verb https://github.com/raspberrypi/linux
+    \endverb
+    \field{year}{2026}
+  \endentry
+
+  \entry{lld}{online}{}
+    \name{author}{1}{}{%
+      {{hash=r}{%
+         family={rockytriton},
+         familyi={r\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{r1}
+    \strng{fullhash}{r1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{R}
+    \field{sortinithash}{R}
+    \field{title}{LLD: Low Level Devel -- Raspberry Pi bare metal series}
+    \verb{url}
+    \verb https://github.com/rockytriton/LLD
+    \endverb
+    \field{year}{2021}
+  \endentry
+
+  \entry{sdspec}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=S}{%
+         family={{SD Association}},
+         familyi={S\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {SD Association}%
+    }
+    \strng{namehash}{S1}
+    \strng{fullhash}{S1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{S}
+    \field{sortinithash}{S}
+    \field{title}{SD Specifications Part 1: Physical Layer Simplified
+  Specification}
+    \field{year}{2020}
+  \endentry
+
+  \entry{sdiospec}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=S}{%
+         family={{SD Association}},
+         familyi={S\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {SD Association}%
+    }
+    \strng{namehash}{S1}
+    \strng{fullhash}{S1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{S}
+    \field{sortinithash}{S}
+    \field{title}{SD Specifications Part E1: SDIO Simplified Specification}
+    \field{year}{2020}
+  \endentry
+
+  \entry{circle}{online}{}
+    \name{author}{1}{}{%
+      {{hash=SR}{%
+         family={Stange},
+         familyi={S\bibinitperiod},
+         given={Rene},
+         giveni={R\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{SR1}
+    \strng{fullhash}{SR1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{S}
+    \field{sortinithash}{S}
+    \field{title}{Circle: a C++ bare metal programming environment for the
+  Raspberry Pi}
+    \verb{url}
+    \verb https://github.com/rsta2/circle
+    \endverb
+    \field{year}{2026}
+  \endentry
+
+  \entry{usb20}{manual}{}
+    \name{author}{1}{}{%
+      {{hash=U}{%
+         family={{USB Implementers Forum}},
+         familyi={U\bibinitperiod},
+      }}%
+    }
+    \list{organization}{1}{%
+      {USB-IF}%
+    }
+    \strng{namehash}{U1}
+    \strng{fullhash}{U1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{U}
+    \field{sortinithash}{U}
+    \field{title}{Universal Serial Bus Specification, Revision 2.0}
+    \field{year}{2000}
+  \endentry
+\enddatalist
+\endinput

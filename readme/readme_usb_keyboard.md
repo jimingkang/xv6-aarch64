@@ -30,8 +30,9 @@ HID report -> HID usage转Linux KEY_* code
                 +-> console字符转换 -> consoleintr() -> shell/登录输入
 ```
 
-xv6 没有 Linux 的 devtmpfs/udev，字符设备驱动注册本身不会自动创建文件
-系统节点。`init` 因而显式创建 `/dev/input` 和 major 4 的 `event0`。事件
+xv6 现在有精简的 devtmpfs，但没有 Linux udev 的用户态规则系统。devtmpfs
+预先创建 `/dev/input/event0..event3`（major 4，minor 0..3）；空槽 open 返回
+`ENODEV`语义的失败，设备注册后同一节点按minor找到对应`input_dev`。事件
 记录为8字节：`uint16 type`、`uint16 Linux KEY_* code`、`int value`。
 `EV_KEY(type=1)`的`value=1/0`分别表示按下/释放；每份HID报告末尾还会产生
 `EV_SYN/SYN_REPORT`。队列溢出时input core插入`SYN_DROPPED`，提示读取者
@@ -70,10 +71,10 @@ flowchart LR
     I --> J[consoleintr / TTY / shell]
 ```
 
-当前字符设备层仍只按major分发，没有把minor和每次open的`private_data`传给
-驱动，所以evdev暂时选择第一个注册的输入设备作为`event0`，所有读取者共享
-一个队列。以后扩展`file_operations.open/release/read`参数后，可进一步实现
-`event0..eventN`及每个open独立的client queue。
+字符设备层会把inode minor和每次open的`file.private_data`交给evdev：每个
+`eventN`稳定绑定设备表中的第N槽，每个open分配独立`evdev_client`环形队列，
+不同读取者不会相互窃取事件。拔出后旧fd先读完已经提交的完整事件帧，再返回
+断开错误；input设备内存由引用计数延迟到最后一个fd关闭后释放。
 
 ## 枚举与绑定
 
@@ -124,24 +125,25 @@ USB class driver
 ```
 
 键盘状态由`usbkbd_probe()`用`kalloc()`逐设备分配，并保存在
-`udev->dev.driver_data`；`struct urb`也属于这份设备私有状态。当前
-`/dev/input/event0`仍选择第一个键盘作为primary device，但传输、完成回调、
-work和生命周期已经不是全局键盘单例。
+`udev->dev.driver_data`；`struct urb`也属于这份设备私有状态。input core为设备
+分配空闲的稳定event minor；传输、完成回调、work和生命周期都不是全局键盘
+单例。
 
 拔出或HCD移除时使用同步取消顺序：
 
 ```text
 usbkbd_remove()
   -> active=0, disconnected=1
-  -> 从primary keyboard中摘除并唤醒阻塞read
   -> usb_kill_urb()
        -> DWC2停止channel 6 DMA、屏蔽HCINT/HAINT
        -> cancel_work_sync(HCD completion work)
        -> 等待正在运行的URB completion返回
   -> cancel_work_sync(kbd->rx_work)
-  -> 等待/dev/input/event0 reader退出
+  -> input_unregister_device()
+       -> 从event minor槽摘除并唤醒阻塞read
+       -> 已打开fd继续持有input_dev引用
   -> usb_free_urb()
-  -> kfree(kbd)
+  -> 释放driver私有状态；input_dev由最后一个引用释放
 ```
 
 因此`usb_kill_urb()`返回后，不会再有DWC2 completion使用这份URB；
@@ -516,7 +518,7 @@ DWC2 root port
 | 3. split-IN 超时 | GET_DESCRIPTOR 的数据阶段返回 `-2` | 对照 Linux DWC2，split NAK 后应清除 `complete_split` 并重新发起 SSPLIT；NYET 则继续当前 CSPLIT | 日志出现 SSPLIT ACK 和 CSPLIT 完成，排查进入数据长度阶段 |
 | 4. 设备描述符字段为零 | 原先枚举日志出现 `class=0 vid=0 pid=0` | 低速 EP0 MPS 为 8，18 字节描述符不能作为单个跨多个 split packet 的请求处理；按 MPS 分包，每个完整数据包切换 DATA PID，并检查 descriptor 长度/type/VID | 日志成功读到 `vid=2a7a pid=8a47 mps=8` |
 | 5. HID interface 被拒 | 曾报告 `USB HID device is not a boot keyboard` | 先查找 Boot Keyboard interface，再只从这个 interface 收集 class/subclass/protocol 和其 interrupt-IN endpoint，避免复合 HID 的其他 interface 覆盖结果 | 后续日志成功到达键盘 probe |
-| 6. 绑定后额外 STALL | 键盘 ready 后仍出现 `req=6 addr=4` 和 `intr=0x0a` | HID 绑定后错误地继续走 CDC-ECM 网络探测，导致向键盘发起不相关的配置描述符请求 | HID 初始化后直接返回；后续日志显示 `HID keyboard handed to usb bus` |
+| 6. 绑定后额外 STALL | 键盘 ready 后仍出现 `req=6 addr=4` 和 `intr=0x0a` | HID 绑定后错误地继续走 CDC-ECM 网络探测，导致向键盘发起不相关的配置描述符请求 | HID 初始化后直接返回；后续日志显示 `HID boot keyboard handed to usb bus` |
 | 7. channel 6 重复 NYET | 按键无响应；IRQ 日志为 `phase=1 hcint=0x42`，`hcsplt` 带 `COMPSPLT`，`hctsiz=0x80008` | `0x42` 是 `CHHLTD|NYET`。旧状态机把每个 NYET 都当成“TT 仍在工作”，因此永久重发 CSPLIT；但 interrupt split 的 complete 阶段只能在本次周期调度窗口内重试 | 记录 SSPLIT ACK 的 `HFNUM.FRNUM`；同一 USB frame 内最多重试 3 次 CSPLIT。跨 frame 仍为 NYET 时结束本轮、清除 `complete_split`，等待 endpoint `bInterval` 后重新发 SSPLIT |
 | 8. kworker 错过 CSPLIT 窗口 | 新日志中 SSPLIT IRQ 的 `age=0/1`，但随后保存的 `ssack` 比 `issue` 晚几十个 microframe | IRQ 上半部只屏蔽 channel 6，然后依赖普通 kworker 处理 ACK；启动及多核调度期间 worker 可能晚数毫秒运行，而 CSPLIT 必须在同一 USB frame 内提交 | SSPLIT ACK 和同一窗口内的 CSPLIT NYET 重试改由 DWC2 IRQ 快速状态机处理；只把完整 HID report 或本轮无数据结果交给 `usbkbd_wq` |
 | 9. IRQ 诊断自身破坏时序 | 快速状态机启用后仍出现跨 frame；日志中 `issue/ssack` 一度正确，但处理仍迟到 | `printf("dwc2 ch6 ...")` 位于快速状态机之前；115200 波特率输出一行需要数毫秒，远超过 125 us microframe，是典型的 timing-sensitive Heisenbug | ACK/窗口内 NYET 不再打印；先执行 IRQ 快速状态机。只有最终完成、无数据或错误退出窗口后才限量打印 `dwc2 ch6 final ...` |
@@ -625,7 +627,7 @@ make
 ```text
 dwc2: hub port=3 child class=0 vid=xxxx pid=xxxx mps=8
 usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
-dwc2: HID keyboard handed to usb bus
+dwc2: HID boot keyboard handed to usb bus
 ```
 
 进入登录或 shell 后测试字母、Shift、Caps Lock、Backspace、Enter 和
@@ -650,3 +652,284 @@ cat /proc/devices
 键盘与 MT7601U 同时插入时尚未完整发布为两个独立 `usb_device`。下一步
 应把 `usb_child` 改成按 hub port 分配的设备数组，并为每个设备独立保存
 地址、toggle、host channel/completion 与拔出生命周期。
+
+## Linux 风格 input/evdev 与热插拔（2026-10）
+
+输入路径现在分为四层，USB class driver 不再承担用户设备节点策略：
+
+```mermaid
+flowchart LR
+    H[LAN951x hub port] --> D[DWC2 HCD<br/>control + interrupt-IN URB]
+    D --> C[usbhid keyboard/mouse<br/>解析 boot report]
+    C --> I[input core<br/>input_dev + capability/state]
+    I --> E[evdev clients<br/>每个 open 独立 ring]
+    E --> N[/dev/input/event0..event3]
+```
+
+实现与 Linux 对齐的关键语义：
+
+- `input_register_device()`从设备表分配稳定的event minor；`open(eventN)`按
+  inode minor绑定对应`input_dev`，不再让所有设备共享或“晋升”为event0。
+- 每个open创建独立`evdev_client`和ring；慢读者溢出时收到`SYN_DROPPED`，
+  只有到`SYN_REPORT`的完整帧才对read可见。
+- 键盘发布`EV_KEY`；Boot Mouse发布`BTN_LEFT/RIGHT/MIDDLE`以及
+  `EV_REL/REL_X/REL_Y/REL_WHEEL`，然后统一`input_sync()`。
+- driver持有`input_dev`初始引用；已打开event fd持有额外引用。拔出后设备
+  从注册表删除并唤醒reader，但内存一直保留到最后一个fd关闭。
+- EP0最大包长现在按USB address保存；hub、低速键盘和鼠标不再共享一个全局
+  `ep0_mps`，热插拔状态查询始终使用hub地址1自己的控制端点参数。
+- `/dev/input/event0..event3`预先由devtmpfs创建；空槽open失败。这样避免当前
+  简化devtmpfs缺少动态unlink时，把已经复用的旧节点误指向其他设备。
+
+直接连接在LAN951x根hub外部端口上的输入设备支持运行时热插拔。HCD读取
+Hub configuration descriptor中的interrupt-IN endpoint，为地址1的Hub建立
+长期Hub URB，并用独立DWC2 channel 7接收change bitmap。空闲时Hub返回NAK；
+只有bitmap非零才由`dwc2_hub_wq`读取发生变化端口的status并处理拓扑：
+
+```mermaid
+sequenceDiagram
+    participant P as DWC2 channel 7
+    participant Q as Hub interrupt URB
+    participant W as dwc2_hub_wq
+    participant U as USB bus/device core
+    participant H as usbhid driver
+    participant I as input core/evdev
+    participant D as DWC2 HCD
+    P->>Q: interrupt-IN完成，DMA得到change bitmap
+    Q->>W: URB completion排入hub_event_work
+    W->>W: 只对bitmap标记端口执行GET_STATUS/CLEAR_FEATURE
+    W->>U: usb_device_unregister(old child)
+    U->>H: remove()
+    H->>D: usb_kill_urb()
+    H->>H: cancel_work_sync()
+    H->>I: input_unregister_device()
+    I-->>I: wake blocked readers, preserve open-file refs
+    W->>D: halt/mask channels, clear pending IRQ
+    W->>D: reset host/root port and enumerate
+    D->>U: usb_device_register(new child)
+    U->>H: match + probe
+    H->>I: input_register_device()
+```
+
+启动及插入鼠标时预期日志：
+
+```text
+input: USB HID Boot Mouse registered as event0
+usbmouse: IRQ-driven boot mouse ready ep=... mps=... interval=...
+dwc2: HID boot mouse handed to usb bus
+```
+
+启动以及拔出/重新插入时应出现：
+
+```text
+dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
+dwc2: event-driven hub hotplug armed on channel 7
+dwc2: hub IRQ change=... connected=...->...; reprobe
+```
+
+当前热插拔边界仍需明确：HCD只有一个发布用`usb_child`和一个HID数据
+interrupt-IN channel，因此支持“键盘或鼠标”的拔出/替换，但还不能让键盘和鼠标同时
+工作；嵌套hub内部端口变化也不会改变LAN951x根端口连接位图。当前检测已经
+使用Hub interrupt endpoint，但拓扑改变后仍整棵重枚举。完整Linux式多设备
+支持下一步应把`usb_child`、interrupt request和host channel按端口/接口数组化，
+并为EP0控制请求增加统一队列，做到只增删发生变化的port/device。
+
+## 热插键盘真机日志与完整通信流程（2a7a:8a47）
+
+本节对应运行时在LAN951x外部port 3插入低速键盘的真实日志。结论是：热插拔
+检测、枚举、HID驱动绑定、input注册和interrupt-IN URB提交均已成功；日志若
+停在`handed to usb bus`，只说明接收请求已经arm，还需要实际按键产生首份报告
+才能证明数据通路完成。
+
+### 连接位图与物理拓扑
+
+```text
+dwc2: hub topology changed connected=2->a; reprobe
+```
+
+上面是旧轮询版本留下的真机记录；新版本同一事件输出为
+`dwc2: hub IRQ change=8 connected=2->a; reprobe`，位图含义不变。
+
+连接位图的bit编号就是root-hub port编号：`0x2=bit1`表示原先只有port 1；
+`0xa=bit1|bit3`表示插入后port 1和port 3同时连接。因此新增设备来自port 3。
+
+```mermaid
+flowchart TD
+    CPU[BCM2837 CPU<br/>legacy USB IRQ 9] --> HCD[DWC2 Host Controller]
+    HCD --> RH[LAN951x high-speed root hub<br/>addr 1, 0424:2514]
+    RH -->|port 1| IH[内部hub addr 2]
+    IH --> IF[板载vendor function<br/>0424:7800 addr 8]
+    RH -->|port 3| TT[Hub Transaction Translator]
+    TT --> K[low-speed HID boot keyboard<br/>2a7a:8a47 addr 4]
+```
+
+热插拔发现现在由Hub interrupt URB驱动：DWC2按Hub endpoint的`bInterval`在
+channel 7发起interrupt-IN；NAK仅表示没有变化，并按期限重新arm，不访问EP0。
+Hub返回非零change bitmap后，USB IRQ 9将完成项交给`dwc2_hub_wq`，worker才
+通过EP0读取并清除相应port的change feature。连接位图变化后先
+`usb_device_unregister()`旧设备，同步kill class URB/work，再停止host channel
+并重新枚举。键盘报告则继续独立使用channel 6；channel 7负责拓扑事件，
+channel 6负责HID数据，不能混为一谈。
+
+### 端口状态、地址0与地址4
+
+```text
+dwc2: hub port 3 status=301 change=1
+dwc2: hub port 3 after-reset status=303 speed=low
+dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8
+```
+
+- `0x301`表示connected、powered、low-speed；reset后的`0x303`又增加enable。
+- 新设备首先只能响应默认地址0。HCD读取Device Descriptor前8字节，从
+  `bMaxPacketSize0`得到EP0 MPS为8。
+- 当前简单地址分配策略为该port分配地址4，之后控制请求都使用`addr=4`。
+- Device Descriptor的`class=0`表示类别由interface声明，并不表示设备不是
+  HID。Configuration中的interface最终给出`class=3, subclass=1,
+  protocol=1`，即HID Boot Keyboard。
+
+枚举控制传输顺序如下：
+
+```text
+port power/reset
+  -> GET_DESCRIPTOR(Device, first 8 bytes), address 0
+  -> 获得 EP0 MPS=8
+  -> SET_ADDRESS(4)
+  -> GET_DESCRIPTOR(Device), address 4
+  -> GET_DESCRIPTOR(Configuration, 9-byte header)
+  -> GET_DESCRIPTOR(Configuration, wTotalLength)
+  -> 找到 Boot Keyboard interface及EP1 interrupt-IN
+  -> SET_CONFIGURATION
+  -> usb_device_register()
+```
+
+每个USB control request都由SETUP、可选DATA和STATUS三个阶段组成。SETUP固定
+使用DATA0；DATA阶段按包切换DATA0/DATA1；STATUS阶段方向与DATA相反并使用
+零长度包。枚举使用DWC2 host channel 0，后续按键使用channel 6。
+
+### 为什么日志反复出现SSPLIT和CSPLIT
+
+低速键盘位于高速hub之后，DWC2不能把低速token直接放到高速链路上。它先发送
+Start Split，要求hub的Transaction Translator代为执行低速事务，再发送
+Complete Split取回结果：
+
+```text
+DWC2 --SSPLIT--> LAN951x TT --low-speed SETUP/IN/OUT--> keyboard
+DWC2 <--CSPLIT-- LAN951x TT <--结果暂存---------------- keyboard
+```
+
+典型日志：
+
+```text
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 ...
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=23 ...
+```
+
+字段解释：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ch0` | 枚举及class request使用的控制host channel |
+| `addr=0/4` | SET_ADDRESS前后的USB设备地址 |
+| `in=1/0` | 当前control阶段的数据方向 |
+| `HCINT=0x22` | `ACK|CHHLTD`，TT接受了SSPLIT |
+| `HCINT=0x23` | `ACK|CHHLTD|XFERCOMPL`，CSPLIT返回完整结果 |
+| `HCTSIZ` | 请求剩余字节、包数和DATA PID的组合字段 |
+| `HFNUM` | USB frame/microframe时序诊断值 |
+
+`HCSPLT`同时编码split enable、hub address 1和port 3，所以控制channel和按键
+channel都能沿正确TT路由到低速设备。
+
+### USB core绑定、HID初始化和input注册
+
+Configuration解析得到EP1 IN、MPS 8、interval 10 ms后，DWC2先执行
+`SET_CONFIGURATION`，再把`struct usb_device`发布到USB bus。USB core用
+class/subclass/protocol匹配`usbhid-keyboard`并同步调用`usbkbd_probe()`：
+
+```text
+usb_device_register()
+  -> USB bus match (3/1/1)
+  -> usbkbd_probe()
+       -> SET_PROTOCOL(BOOT)       固定为标准8字节报告
+       -> SET_IDLE(0)              状态不变时不重复报告
+       -> input_allocate_device()
+       -> input_register_device()  分配event0
+       -> usb_alloc_urb()
+       -> usb_fill_int_urb(EP1 IN, 8 bytes, 10 ms)
+       -> usb_submit_urb()
+```
+
+因此日志的正常顺序是：
+
+```text
+input: USB HID Boot Keyboard registered as event0
+usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
+dwc2: HID boot keyboard handed to usb bus
+```
+
+`usb_device_register()`内部会同步完成match和probe，所以input/keyboard日志先于
+DWC2的`handed to usb bus`总结行，这是正常调用顺序。
+
+### 按键报告、DMA、CPU IRQ和下半部
+
+USB的“interrupt transfer”不表示键盘可以直接拉起ARM中断。USB总线只能由host
+发起事务；`bInterval=10`表示DWC2应至少每10 ms给EP1安排一次IN机会。没有状态
+变化时键盘NAK，有变化时返回8字节Boot Report；DWC2 host-channel事件才产生
+BCM2837 legacy USB IRQ 9。
+
+```mermaid
+sequenceDiagram
+    participant K as USB keyboard
+    participant TT as LAN951x TT
+    participant D as DWC2 channel 6/DMA
+    participant IRQ as IRQ 9 / dwc2_irq
+    participant U as USB core/URB
+    participant W as usbkbd_wq
+    participant I as input/TTY
+    D->>TT: SSPLIT, EP1 IN
+    TT->>K: low-speed IN token
+    K-->>TT: NAK或8-byte HID report
+    D->>TT: CSPLIT
+    TT-->>D: result; DMA写入report buffer
+    D->>IRQ: host-channel interrupt
+    IRQ->>IRQ: 实时推进ACK/NYET split状态
+    IRQ->>U: final completion schedule_work
+    U->>U: cache invalidate + usb_hcd_giveback_urb
+    U->>W: complete callback queue rx_work
+    W->>W: 比较previous/current report
+    W->>I: input_report_key + input_sync
+    W->>I: 字符/方向键送consoleintr
+    W->>D: usb_submit_urb重新arm
+```
+
+8字节Boot Keyboard报告格式：
+
+```text
+byte 0     Ctrl/Shift/Alt/Meta modifier bitmap
+byte 1     reserved
+byte 2..7  最多六个同时按下的HID usage code
+```
+
+真实按键后应继续看到：
+
+```text
+usbkbd: channel 6 IRQ received
+usbkbd: first HID report mod=0 keys=...
+```
+
+同一份报告有两条消费者路径：Linux兼容键码进入`/dev/input/eventN`的evdev
+独立队列；可显示字符和方向键同时进入`consoleintr()`，复用TTY的回显、退格、
+Ctrl+C及命令历史。可用`/bin/evtest /dev/input/event0`验证按下、`SYN_REPORT`
+和释放事件。
+
+### 与Linux USB/HID仍有差距的部分
+
+- 与Linux相同，Hub interrupt endpoint用长期URB唤醒hub event worker；空闲
+  NAK只按`bInterval`重排，不再每250 ms扫描所有port的EP0状态。
+- Linux只增删发生变化的port/device；当前拓扑变化会重新初始化整个DWC2。
+- Linux为每个设备/endpoint动态调度多个host channel；当前channel 7固定给Hub
+  URB、channel 6固定给唯一HID数据URB，所以键盘和鼠标仍不能同时长期接收。
+- 当前空闲NAK路径会在HCD worker中`udelay(bInterval)`；功能正确但占用worker。
+  后续应改成基于USB frame期限的delayed work/periodic scheduler。
+- 当前为满足低速split的125 us microframe期限，在IRQ快速路径内短暂等待并推进
+  CSPLIT；Linux DWC2使用更完整的SOF/periodic schedule状态机，可进一步减少
+  hard IRQ中的忙等。
