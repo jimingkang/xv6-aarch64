@@ -23,3 +23,4 @@ media/
 trace/
 kernel/buildinfo.c
 /build/t113/
+/ext2root.debugfs

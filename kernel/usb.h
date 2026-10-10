@@ -1,6 +1,8 @@
 #ifndef XV6_USB_H
 #define XV6_USB_H
 
+#include "usb_trace_config.h"
+
 #include "device.h"
 #include "spinlock.h"
 
@@ -47,6 +49,7 @@ struct usb_host_ops {
                      void *data, int length);
   // -2: still pending/rearmed after NAK, -1: hard error, >=0: bytes complete.
   int (*bulk_rx_complete)(struct usb_device *udev, int endpoint, void **data);
+  void (*bulk_rx_cancel)(struct usb_device *udev, int endpoint, void *data);
   int (*submit_urb)(struct urb *urb);
   void (*kill_urb)(struct urb *urb);
 };
@@ -115,5 +118,7 @@ void usb_kill_urb(struct urb *urb);
 void usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length);
 void usbkbd_driver_init(void);
 void usbkbd_driver_exit(void);
+void usbmouse_driver_init(void);
+void usbmouse_driver_exit(void);
 
 #endif

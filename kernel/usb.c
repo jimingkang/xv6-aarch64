@@ -84,6 +84,14 @@ usb_device_register(struct usb_device *udev)
 {
   if(udev == 0 || udev->ops == 0 || udev->ops->control == 0)
     return -1;
+#if USB_ENUM_TRACE
+  printf("usb-core: register addr=%d vid=%x pid=%x class=%d/%d/%d if=%d "
+         "int-in=%d mps=%d interval=%d\n",
+         udev->address, udev->vendor, udev->product, udev->class,
+         udev->subclass, udev->protocol, udev->interface_number,
+         udev->interrupt_in_ep, udev->interrupt_in_max_packet,
+         udev->interrupt_in_interval);
+#endif
   udev->dev.bus = &usb_bus;
   return device_register(&udev->dev);
 }
@@ -172,6 +180,13 @@ usb_submit_urb(struct urb *urb)
   urb->state = URB_SUBMITTED;
   release(&urb->lock);
 
+#if USB_XFER_TRACE
+  printf("usb-xfer: submit urb=%p addr=%d ep=%d dir=%s len=%d interval=%d "
+         "buf=%p\n", urb, urb->dev->address, urb->endpoint,
+         urb->direction_in ? "IN" : "OUT", urb->transfer_buffer_length,
+         urb->interval, urb->transfer_buffer);
+#endif
+
   r = urb->dev->ops->submit_urb(urb);
   if(r < 0){
     acquire(&urb->lock);
@@ -212,6 +227,12 @@ usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length)
   urb->completing = 1;
   complete = urb->complete;
   release(&urb->lock);
+
+#if USB_XFER_TRACE
+  printf("usb-xfer: giveback urb=%p addr=%d ep=%d status=%d actual=%d/%d\n",
+         urb, urb->dev ? urb->dev->address : -1, urb->endpoint, status,
+         actual_length, urb->transfer_buffer_length);
+#endif
 
   if(complete)
     complete(urb);

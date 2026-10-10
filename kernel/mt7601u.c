@@ -64,7 +64,12 @@
 #define MT_RF_CSR_WRITE           (1U << 30)
 #define MT_MCU_CMD_FUN_SET        1
 #define MT_MCU_CMD_CALIBRATE      31
+#define MT_MCU_CMD_RANDOM_WRITE   12
+#define MT_MCU_MEMMAP_RF          0x80000000U
+#define MT_MCU_RESP_TIMEOUT_MS    1500 // Linux waits 5 x 300 ms
+#define MT_CAL_BW                 6
 #define MT_MCU_FUN_Q_SELECT       1
+#define MT_BBP_READ               (1U << 16)
 #define MT_BBP_BUSY               (1U << 17)
 #define MT_BBP_WRITE              (1U << 19)
 #define MT_RX_BUF_SIZE            16384
@@ -72,12 +77,19 @@
 #define MT_RXINFO_CRCERR          (1U << 8)
 #define MT_RXINFO_ICVERR          (1U << 9)
 #define MT_RXINFO_MICERR          (1U << 10)
+#define MT_RXINFO_L2PAD           (1U << 14)
+#define MT_RXINFO_DECRYPT         (1U << 16)
+#define MT_RXINFO_PN_LEN_SHIFT    19          // GENMASK(21,19) in Linux
+#define MT_RXINFO_PN_LEN_MASK     (7U << 19)
+#define MT_CCMP_HDR_LEN           8
 #define MT_SCAN_MAX               32
 #define MT_TXWI_SIZE              20
 #define MT_TX_BUF_SIZE            2048
 #define MT_RSN_IE_MAX             66
 #define MT_NET_FRAME_MAX          1600
+#define MT_NET_RXQ                8
 #define MT_WCID_AP                1
+#define MT_N_WCIDS                128
 
 #define MT_TXD_PKT_INFO_80211     (1U << 19)
 #define MT_TXD_PKT_INFO_WIV       (1U << 24)
@@ -211,12 +223,20 @@ struct mt7601u_device {
   int lna_gain;
   uint8 mcu_seq;
   int endpoints_ready;
+  int rx_armed;           // EP4 async ring owns the data endpoint
   uint32 rx_frames;
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
   uint8 scan_channel;
+  uint8 chan_fail;        // consecutive failed scan channel switches
+  uint8 scan_stopped;     // RF interface stuck: stay on current channel
+  uint8 chan_switching;   // a switch is running outside dev->lock
   int target_found;
+  uint8 target_channel;   // from the AP's DS Parameter Set IE
+  uint32 data_dbg;        // first post-handshake data frames are logged
+  uint32 bad_dbg;         // first post-handshake rejected frames are logged
+  uint32 tx_dbg;          // first post-handshake data transmits are logged
   uint8 target_bssid[6];
   uint16 target_capability;
   uint8 target_rsn_ie[MT_RSN_IE_MAX];
@@ -239,8 +259,13 @@ struct mt7601u_device {
   int handshake_done;
   struct net_device netdev;
   int net_registered;
-  uint8 net_rx[MT_NET_FRAME_MAX];
-  int net_rx_len;
+  // Received Ethernet frames waiting for the network stack.  One USB RX
+  // aggregate can carry several data frames (e.g. a broadcast DHCP offer
+  // next to ARP/mDNS), so keep a small ring instead of a single slot.
+  uint8 net_rx[MT_NET_RXQ][MT_NET_FRAME_MAX];
+  int net_rx_len[MT_NET_RXQ];
+  int net_rx_head, net_rx_tail;   // head: next free, tail: next to deliver
+  uint32 net_rx_overflow;
   int paused;
   struct napi_struct napi;
   struct delayed_work state_work;
@@ -251,6 +276,7 @@ static struct mt7601u_device mt7601u;
 static struct workqueue mt7601u_wq;
 static uint8 mt_fw_buf[MT_FW_CHUNK + 12] __attribute__((aligned(64)));
 static uint8 mt_mcu_buf[1024] __attribute__((aligned(64)));
+static uint8 mt_net_deliver[MT_NET_FRAME_MAX];
 static uint8 mt_mcu_resp[1024] __attribute__((aligned(64)));
 #define MT_RX_REQUESTS 4
 static uint8 mt_rx_buf[MT_RX_REQUESTS][MT_RX_BUF_SIZE]
@@ -266,6 +292,8 @@ static void mt7601u_state_worker(struct work_struct*);
 
 #define MT_STATE_SOON_JIFFIES       1
 #define MT_SCAN_DWELL_JIFFIES      50
+#define MT_SCAN_FAIL_BACKOFF        4   // dwell multiplier after a failure
+#define MT_SCAN_FAIL_LIMIT          8   // stop channel hopping after this
 #define MT_RESPONSE_TIMEOUT_JIFFIES 100
 #define MT_WPA_TIMEOUT_JIFFIES     500
 
@@ -552,13 +580,36 @@ mt7601u_read_eeprom(struct mt7601u_device *dev)
   return 0;
 }
 
+// The chip's USB RX DMA serves EP4 (802.11 frames) and EP5 (MCU responses)
+// in order: an undrained received frame on EP4 holds back the command
+// response on EP5.  Linux submits its EP4 RX URBs before calibration
+// (mt7601u_dma_init precedes mt7601u_init_cal); before our async ring is
+// armed, drain EP4 synchronously and drop what it holds.
+static int
+mt7601u_drain_data_ep(struct mt7601u_device *dev)
+{
+  int got, total = 0;
+  if(dev->rx_armed || dev->udev->bulk_in_ep == 0)
+    return 0;
+  for(int i = 0; i < 16; i++){
+    got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep, 1,
+                               mt_rx_buf[0], MT_RX_BUF_SIZE);
+    if(got <= 0)
+      break;
+    total += got;
+  }
+  return total;
+}
+
 static int
 mt7601u_mcu_command(struct mt7601u_device *dev, uint8 command,
                     void *payload, int length, int wait_response)
 {
   uint32 info, response;
+  void *response_buf = mt_mcu_resp;
   int padded = (length + 3) & ~3;
   int total = MT_DMA_HDR_LEN + padded + 4;
+  int async_response = 0;
   uint8 seq = 0;
   if(total > (int)sizeof(mt_mcu_buf))
     return -1;
@@ -575,22 +626,105 @@ mt7601u_mcu_command(struct mt7601u_device *dev, uint8 command,
   mt_mcu_buf[1] = info >> 8;
   mt_mcu_buf[2] = info >> 16;
   mt_mcu_buf[3] = info >> 24;
+  // Linux keeps a dedicated EP5 response URB submitted before the command
+  // reaches EP8.  Pre-arming avoids repeatedly halting/restarting EP5 and
+  // closes the response race exposed by the longer BW calibration command.
+  if(wait_response && dev->udev->ops->bulk_rx_arm &&
+     dev->udev->ops->bulk_rx_complete && dev->udev->ops->bulk_rx_cancel &&
+     dev->udev->bulk_in_ep2){
+    memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
+    if(dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep2,
+                                   mt_mcu_resp, sizeof(mt_mcu_resp)) < 0)
+      return -1;
+    async_response = 1;
+  }
   if(dev->udev->ops->bulk(dev->udev, dev->udev->bulk_out_ep, 0,
-                          mt_mcu_buf, total) != total)
+                          mt_mcu_buf, total) != total){
+    if(async_response)
+      dev->udev->ops->bulk_rx_cancel(dev->udev, dev->udev->bulk_in_ep2,
+                                     mt_mcu_resp);
     return -1;
+  }
   if(!wait_response)
     return 0;
-  memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
-  int got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep2, 1,
+  // Like Linux mt7601u_mcu_wait_resp(): a long calibration may take a
+  // while, and a late answer to an earlier command may arrive first.
+  // EP5 is normally pre-armed above, matching Linux's dedicated response
+  // URB.  EP4 is not armed until hardware initialization finishes, so drain
+  // it through its independent synchronous host channel while waiting.
+  int drained = 0;
+  for(int elapsed = 0; elapsed < MT_MCU_RESP_TIMEOUT_MS; elapsed++){
+    int got;
+    if(async_response){
+      response_buf = 0;
+      got = dev->udev->ops->bulk_rx_complete(dev->udev,
+                                              dev->udev->bulk_in_ep2,
+                                              &response_buf);
+    } else {
+      memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
+      response_buf = mt_mcu_resp;
+      got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep2, 1,
                                  mt_mcu_resp, sizeof(mt_mcu_resp));
-  if(got < 4)
+    }
+    if(got < 4){
+      drained += mt7601u_drain_data_ep(dev);
+      // -2 means the pre-submitted request is still active.  Any other
+      // short/error completion consumed it, so submit a fresh EP5 buffer
+      // before continuing to wait.
+      if(async_response && got != -2){
+        memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
+        if(dev->udev->ops->bulk_rx_arm(dev->udev,
+                                       dev->udev->bulk_in_ep2,
+                                       mt_mcu_resp,
+                                       sizeof(mt_mcu_resp)) < 0)
+          break;
+      }
+      mt7601u_delay_ms(1);
+      continue;
+    }
+    if(drained)
+      printf("mt7601u: MCU cmd %d seq %d answered after %d ms; "
+             "drained %d bytes from EP4\n", command, seq, elapsed + 1, drained);
+    uint8 *p = response_buf;
+    response = (uint32)p[0] | ((uint32)p[1] << 8) |
+               ((uint32)p[2] << 16) | ((uint32)p[3] << 24);
+    if(((response >> 16) & 0xf) == seq && ((response >> 20) & 0xf) == 0)
+      return 0;
+    printf("mt7601u: MCU cmd %d: unexpected response evt=%d seq=%d want %d\n",
+           command, (response >> 20) & 0xf, (response >> 16) & 0xf, seq);
+    if(async_response){
+      memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
+      if(dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep2,
+                                     mt_mcu_resp,
+                                     sizeof(mt_mcu_resp)) < 0)
+        break;
+    }
+  }
+  if(async_response)
+    dev->udev->ops->bulk_rx_cancel(dev->udev, dev->udev->bulk_in_ep2,
+                                   mt_mcu_resp);
+  printf("mt7601u: MCU cmd %d seq %d: no response after %d ms "
+         "(drained %d bytes from EP4)\n",
+         command, seq, MT_MCU_RESP_TIMEOUT_MS, drained);
+  return -1;
+}
+
+// CMD_RANDOM_WRITE: let the MCU firmware perform (address, value) writes.
+// Linux programs the RF frequency plan this way instead of through the
+// host-side RF_CSR_CFG port, which the running firmware also uses.
+static int
+mt7601u_mcu_write_pairs(struct mt7601u_device *dev, uint32 base,
+                        const uint8 *regs, const uint8 *values, int n)
+{
+  uint32 msg[2 * 8];
+  if(n > 8)
     return -1;
-  response = (uint32)mt_mcu_resp[0] | ((uint32)mt_mcu_resp[1] << 8) |
-             ((uint32)mt_mcu_resp[2] << 16) |
-             ((uint32)mt_mcu_resp[3] << 24);
-  if(((response >> 16) & 0xf) != seq || ((response >> 20) & 0xf) != 0)
-    return -1;
-  return 0;
+  for(int i = 0; i < n; i++){
+    msg[2 * i] = base + regs[i];
+    msg[2 * i + 1] = values[i];
+  }
+  return mt7601u_mcu_command(dev, MT_MCU_CMD_RANDOM_WRITE,
+                             msg, n * 8, 1);
 }
 
 static int
@@ -602,8 +736,10 @@ mt7601u_mcu_channel_init(struct mt7601u_device *dev)
   if(mt7601u_mcu_command(dev, MT_MCU_CMD_FUN_SET,
                          msg, sizeof(msg), 0) < 0)
     return -1;
-  printf("mt7601u: MCU command channel ready tx-ep=%d resp-ep=%d\n",
-         dev->udev->bulk_out_ep, dev->udev->bulk_in_ep2);
+  printf("mt7601u: MCU command channel ready tx-ep=%d resp-ep=%d%s\n",
+         dev->udev->bulk_out_ep, dev->udev->bulk_in_ep2,
+         dev->udev->ops->bulk_rx_arm && dev->udev->ops->bulk_rx_complete &&
+         dev->udev->ops->bulk_rx_cancel ? " async-prearmed" : " polled");
   return 0;
 }
 
@@ -648,6 +784,61 @@ mt7601u_calibrate(struct mt7601u_device *dev, uint32 id, uint32 value)
 }
 
 static int
+mt7601u_bbp_read(struct usb_device *udev, uint8 reg)
+{
+  uint32 value;
+  if(mt7601u_poll32(udev, MT_BBP_CSR_CFG, MT_BBP_BUSY, 0, 1000) < 0)
+    return -1;
+  if(mt7601u_write32(udev, MT_BBP_CSR_CFG,
+                     ((uint32)reg << 8) | MT_BBP_WRITE /* RW_MODE */ |
+                     MT_BBP_BUSY | MT_BBP_READ) < 0)
+    return -1;
+  if(mt7601u_poll32(udev, MT_BBP_CSR_CFG, MT_BBP_BUSY, 0, 1000) < 0 ||
+     mt7601u_read32(udev, MT_BBP_CSR_CFG, &value) < 0 ||
+     ((value >> 8) & 0xff) != reg)
+    return -1;
+  return value & 0xff;
+}
+
+// Linux mt7601u_set_bw_filter(): BW calibration, TX (value|1) then RX.
+// cal=1 during init, cal=0 after a channel change.  20 MHz only.
+static int
+mt7601u_set_bw_filter(struct mt7601u_device *dev, int cal)
+{
+  uint32 filter = cal ? 0 : 0x10000;
+  if(mt7601u_calibrate(dev, MT_CAL_BW, filter | 1) < 0)
+    return -1;
+  return mt7601u_calibrate(dev, MT_CAL_BW, filter);
+}
+
+// Linux mt7601u_rxdc_cal(): RX DC offset calibration through BBP 158/159.
+static void
+mt7601u_rxdc_cal(struct mt7601u_device *dev)
+{
+  struct usb_device *udev = dev->udev;
+  uint32 mac_ctrl = 0;
+  int i;
+  mt7601u_read32(udev, MT_MAC_SYS_CTRL, &mac_ctrl);
+  mt7601u_write32(udev, MT_MAC_SYS_CTRL, 1U << 3);   // ENABLE_RX only
+  mt7601u_bbp_write(udev, 158, 0x8d);
+  mt7601u_bbp_write(udev, 159, 0xfc);
+  mt7601u_bbp_write(udev, 158, 0x8c);
+  mt7601u_bbp_write(udev, 159, 0x4c);
+  for(i = 20; i; i--){
+    mt7601u_delay_ms(1);
+    mt7601u_bbp_write(udev, 158, 0x8c);
+    if(mt7601u_bbp_read(udev, 159) == 0x0c)
+      break;
+  }
+  if(!i)
+    printf("mt7601u: RX DC calibration timed out\n");
+  mt7601u_write32(udev, MT_MAC_SYS_CTRL, 0);
+  mt7601u_bbp_write(udev, 158, 0x8d);
+  mt7601u_bbp_write(udev, 159, 0xe0);
+  mt7601u_write32(udev, MT_MAC_SYS_CTRL, mac_ctrl);
+}
+
+static int
 mt7601u_full_hw_init(struct mt7601u_device *dev)
 {
   struct usb_device *udev = dev->udev;
@@ -675,6 +866,21 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
              i, mt_bbp_init[i].reg);
       return -1;
     }
+  // Linux mt7601u_init_hardware(): after the BBP table, clear the WCID
+  // address table (all ff), the shared-key mode registers, and set every
+  // WCID attribute to 1 (pairwise, no cipher, BSS 0).  Power-up contents
+  // are undefined; a stray BSS index or key mode in these tables makes the
+  // MAC pick the wrong key and report ICV errors.
+  for(int i = 0; i < MT_N_WCIDS; i++)
+    if(mt7601u_write32(udev, 0x1800 + i * 8, 0xffffffff) < 0 ||
+       mt7601u_write32(udev, 0x1800 + i * 8 + 4, 0x00ffffff) < 0)
+      return -1;
+  for(int i = 0; i < 4; i++)
+    if(mt7601u_write32(udev, 0xb000 + i * 4, 0) < 0)
+      return -1;
+  for(int i = 0; i < MT_N_WCIDS * 2; i++)
+    if(mt7601u_write32(udev, 0xa800 + i * 4, 1) < 0)
+      return -1;
   printf("mt7601u: BBP register table initialized (%d entries)\n",
          sizeof(mt_bbp_init) / sizeof(mt_bbp_init[0]));
 
@@ -691,17 +897,28 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
   printf("mt7601u: RF register table initialized (%d entries)\n",
          sizeof(mt_rf_init) / sizeof(mt_rf_init[0]));
 
-  // Linux's bring-up performs these MCU calibrations before enabling queues.
+  // Same order as Linux mt7601u_init_cal(): R, VCO, TXDCOC, RXDC,
+  // BW filter, LOFT, TXIQ, RXIQ, DPD, RXDC.  The earlier version skipped
+  // RXDC and the BW filter, and LOFT then sometimes never answered.
+  uint32 mac_ctrl = 0;
+  mt7601u_read32(udev, MT_MAC_SYS_CTRL, &mac_ctrl);
   if(mt7601u_calibrate(dev, 1, 0) < 0)         // R calibration
     return -1;
   // Linux raises RF bank 0/R4 bit 7 before TXDCOC calibration.
-  if(mt7601u_rf_write(udev, 0, 4, 0x8a) < 0 ||
-     mt7601u_calibrate(dev, 9, 0) < 0 ||      // TXDCOC
+  if(mt7601u_rf_write(udev, 0, 4, 0x8a) < 0)
+    return -1;
+  mt7601u_delay_ms(2);
+  if(mt7601u_calibrate(dev, 9, 0) < 0)         // TXDCOC
+    return -1;
+  mt7601u_rxdc_cal(dev);
+  if(mt7601u_set_bw_filter(dev, 1) < 0 ||
      mt7601u_calibrate(dev, 4, 0) < 0 ||      // LOFT
      mt7601u_calibrate(dev, 5, 0) < 0 ||      // TXIQ
      mt7601u_calibrate(dev, 8, 0) < 0 ||      // RXIQ
      mt7601u_calibrate(dev, 7, 0) < 0)        // DPD
     return -1;
+  mt7601u_rxdc_cal(dev);
+  mt7601u_write32(udev, MT_MAC_SYS_CTRL, mac_ctrl);
 
   dev->endpoints_ready = 1;
   // Start MAC receive.  Association-specific filtering is installed later;
@@ -926,8 +1143,12 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
                          iv, sizeof(iv)) < 0 ||
      mt7601u_read32(dev->udev, 0xa800 + MT_WCID_AP * 4, &attr) < 0)
     return -1;
-  // AES-CCMP cipher mode 4 and pairwise-key flag.
-  attr = (attr & ~0x0fU) | (4U << 1) | 1U;
+  // AES-CCMP cipher mode 4 and pairwise-key flag; BSS index 0, as Linux
+  // mt76_mac_wcid_set_key() leaves it.
+  // Written absolutely (not read-modify-write): the boot-time table init
+  // already set every entry to 1, and a stale register read must not leak
+  // unrelated bits into the attribute.
+  attr = (4U << 1) | 1U;
   if(mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, attr) < 0)
     return -1;
 
@@ -936,8 +1157,14 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
   if(mt7601u_write_bytes(dev->udev, shared, key, sizeof(key)) < 0 ||
      mt7601u_read32(dev->udev, 0xb000, &mode) < 0)
     return -1;
-  mode &= ~(0xfU << (4 * dev->gtk_index));
-  mode |= 4U << (4 * dev->gtk_index);
+  // BSS 0 owns this register's low 16 bits (4 key slots x 4 bits).  Only
+  // the current GTK slot is valid; clear the other three instead of
+  // keeping whatever a read returned (a read once came back as 0x11009,
+  // the value just written to the WCID attribute).
+  mode = 4U << (4 * dev->gtk_index);
+  printf("mt7601u: keys installed: PTK wcid=%d attr=%x, GTK idx=%d "
+         "skey-mode=%x group-cipher=%d\n", MT_WCID_AP, attr, dev->gtk_index,
+         mode, dev->target_rsn_ie_len >= 8 ? dev->target_rsn_ie[7] : -1);
   return mt7601u_write32(dev->udev, 0xb000, mode);
 }
 
@@ -955,8 +1182,13 @@ mt7601u_send_m4(struct mt7601u_device *dev)
   key[2] = 0x08 | dev->m3_desc_version;
   memmove(key + 5, dev->m3_replay, 8);
   wpa_eapol_mic(dev->ptk, eapol, 4 + body_len, key + 77);
+  // IEEE 802.11 12.7.6.5: the supplicant sends message 4 *before* it
+  // installs the PTK, and the authenticator installs its key only after
+  // receiving it.  An M4 sent with Protected=1 cannot be decrypted by the
+  // AP, which then keeps retransmitting M3.  Send it in the clear (WIV set,
+  // so the MAC adds no CCMP even once the WCID holds a key).
   if(mt7601u_send_llc(dev, dev->target_bssid, 0x888e, eapol,
-                      4 + body_len, 1) < 0)
+                      4 + body_len, 0) < 0)
     return -1;
   printf("mt7601u: sent WPA2 EAPOL M4\n");
   return 0;
@@ -1033,11 +1265,14 @@ mt7601u_rx_eapol(struct mt7601u_device *dev, uint8 *eapol, int length)
     memmove(dev->m3_replay, key + 5, 8);
     dev->m3_desc_type = key[0];
     dev->m3_desc_version = info & 7;
-    if(mt7601u_install_ccmp_keys(dev) < 0 || mt7601u_send_m4(dev) < 0){
+    // M4 first (in the clear), then the keys -- see mt7601u_send_m4().
+    if(mt7601u_send_m4(dev) < 0 || mt7601u_install_ccmp_keys(dev) < 0){
       printf("mt7601u: WPA2 key installation/M4 failed\n");
       return;
     }
     dev->handshake_done = 1;
+    // Re-arm the post-handshake diagnostics for every (re)connection.
+    dev->data_dbg = dev->bad_dbg = dev->tx_dbg = 0;
     printf("mt7601u: WPA2 four-way handshake complete\n");
   }
 }
@@ -1055,13 +1290,15 @@ mt7601u_set_channel(struct mt7601u_device *dev, int channel)
     {0x46,0x44,0x08,0x52}, {0xec,0xee,0x08,0x52},
     {0x99,0x99,0x09,0x52}, {0x33,0x33,0x0b,0x52},
   };
+  static const uint8 plan_regs[4] = { 17, 18, 19, 20 };
   uint8 gain = 0x37 - dev->lna_gain;
   if(channel < 1 || channel > 14)
     return -1;
-  for(int i = 0; i < 4; i++)
-    if(mt7601u_rf_write(dev->udev, 0, 17 + i,
-                        plan[channel - 1][i]) < 0)
-      return -1;
+  // Linux writes the frequency plan through the MCU (RANDOM_WRITE to the
+  // RF memory map), not through RF_CSR_CFG, which the firmware also drives.
+  if(mt7601u_mcu_write_pairs(dev, MT_MCU_MEMMAP_RF, plan_regs,
+                             plan[channel - 1], 4) < 0)
+    return -1;
   if(mt7601u_bbp_write(dev->udev, 62, gain) < 0 ||
      mt7601u_bbp_write(dev->udev, 63, gain) < 0 ||
      mt7601u_bbp_write(dev->udev, 64, gain) < 0)
@@ -1072,6 +1309,9 @@ mt7601u_set_channel(struct mt7601u_device *dev, int channel)
      mt7601u_rf_write(dev->udev, 0, 4, 0x8a) < 0)
     return -1;
   mt7601u_delay_ms(2);
+  // Linux re-runs the BW filter calibration (non-init variant) per channel.
+  if(mt7601u_set_bw_filter(dev, 0) < 0)
+    return -1;
   dev->scan_channel = channel;
   return 0;
 }
@@ -1091,6 +1331,37 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
     return;
   subtype = (fc >> 4) & 0xf;
   dev->mgmt_frames++;
+
+  // Deauthentication (12) / disassociation (10) from our AP.
+  if((subtype == 12 || subtype == 10) && length >= 26 &&
+     mt_mac_equal(frame + 4, dev->mac) &&
+     mt_mac_equal(frame + 10, dev->target_bssid)){
+    printf("mt7601u: %s from AP reason=%d (link_state=%d handshake=%d)\n",
+           subtype == 12 ? "deauthentication" : "disassociation",
+           mt_get16(frame + 24), dev->link_state, dev->handshake_done);
+    // The AP no longer has state for us (reason 6/7: class 2/3 frame from
+    // a non-authenticated/non-associated station, 4: inactivity, 15: 4-way
+    // timeout).  Start over with Open-System authentication on the same
+    // BSS; wlan1 stays registered and data is dropped until the new
+    // four-way handshake completes.
+    if(dev->link_state >= MT_LINK_AUTH_SENT){
+      dev->handshake_done = 0;
+      dev->handshake_started = 0;
+      memset(dev->anonce, 0, sizeof(dev->anonce));
+      memset(dev->snonce, 0, sizeof(dev->snonce));
+      memset(dev->ptk, 0, sizeof(dev->ptk));
+      dev->link_state = MT_LINK_AUTH_PENDING;
+      dev->link_retries = 0;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work,
+                       MT_STATE_SOON_JIFFIES);
+      printf("mt7601u: reconnecting to %x:%x:%x:%x:%x:%x\n",
+             dev->target_bssid[0], dev->target_bssid[1],
+             dev->target_bssid[2], dev->target_bssid[3],
+             dev->target_bssid[4], dev->target_bssid[5]);
+    }
+    return;
+  }
 
   // Open-System Authentication response (transaction 2).
   if(subtype == 11 && length >= 30 &&
@@ -1239,6 +1510,7 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
       uint32 bssid1 = (uint32)ap->bssid[4] |
         ((uint32)ap->bssid[5] << 8);
       dev->target_found = 1;
+      dev->target_channel = ap->channel;
       memmove(dev->target_bssid, ap->bssid, 6);
       dev->target_capability = ap->capability;
       dev->target_rsn_ie_len = ap->rsn_ie_len;
@@ -1281,11 +1553,33 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
     return;
   if(((fc >> 4) & 8) != 0)
     header += 2; // QoS control
-  if(rxinfo & (1U << 14))
+  if(rxinfo & MT_RXINFO_L2PAD)
     header += 2; // hardware L2 padding
+  if(fc & 0x4000){
+    // Protected frame.  The MAC decrypts it (DECRYPT) and strips MIC/ICV,
+    // but when it reports a PN length it leaves the 8-byte CCMP header in
+    // place (Linux clears RX_FLAG_IV_STRIPPED in that case).
+    if(!(rxinfo & MT_RXINFO_DECRYPT)){
+      if(dev->handshake_done && dev->data_dbg < 8){
+        dev->data_dbg++;
+        printf("mt7601u: rx protected frame not decrypted fc=%x rxinfo=%x "
+               "len=%d\n", fc, rxinfo, length);
+      }
+      return;
+    }
+    if(rxinfo & MT_RXINFO_PN_LEN_MASK)
+      header += MT_CCMP_HDR_LEN;
+  }
   if(header + 8 > length)
     return;
   llc = frame + header;
+  if(dev->handshake_done && dev->data_dbg < 8){
+    dev->data_dbg++;
+    printf("mt7601u: rx data fc=%x rxinfo=%x%s len=%d hdr=%d "
+           "llc=%x %x %x %x %x %x %x %x\n", fc, rxinfo,
+           rxinfo & (1U << 4) ? " unicast" : " group", length, header,
+           llc[0], llc[1], llc[2], llc[3], llc[4], llc[5], llc[6], llc[7]);
+  }
   if(llc[0] != 0xaa || llc[1] != 0xaa || llc[2] != 3 ||
      llc[3] != 0 || llc[4] != 0 || llc[5] != 0)
     return;
@@ -1294,18 +1588,24 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
     mt7601u_rx_eapol(dev, llc + 8, length - header - 8);
     return;
   }
-  if(!dev->handshake_done || dev->net_rx_len != 0 ||
-     length - header > MT_NET_FRAME_MAX - 6)
+  if(!dev->handshake_done || length - header > MT_NET_FRAME_MAX - 6)
     return;
+  int slot = dev->net_rx_head;
+  if((slot + 1) % MT_NET_RXQ == dev->net_rx_tail){
+    dev->net_rx_overflow++;
+    return;
+  }
   // For frames from the distribution system addr3 is the Ethernet source;
   // addr1 is the local/multicast Ethernet destination.
   source = (fc & 0x0200) ? frame + 16 : frame + 10;
-  memmove(dev->net_rx, frame + 4, 6);
-  memmove(dev->net_rx + 6, source, 6);
-  dev->net_rx[12] = type >> 8;
-  dev->net_rx[13] = type;
-  memmove(dev->net_rx + 14, llc + 8, length - header - 8);
-  dev->net_rx_len = 14 + length - header - 8;
+  uint8 *eth = dev->net_rx[slot];
+  memmove(eth, frame + 4, 6);
+  memmove(eth + 6, source, 6);
+  eth[12] = type >> 8;
+  eth[13] = type;
+  memmove(eth + 14, llc + 8, length - header - 8);
+  dev->net_rx_len[slot] = 14 + length - header - 8;
+  dev->net_rx_head = (slot + 1) % MT_NET_RXQ;
 }
 
 static void
@@ -1333,6 +1633,22 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
        (rxinfo & (MT_RXINFO_CRCERR | MT_RXINFO_ICVERR |
                   MT_RXINFO_MICERR))){
       dev->rx_bad++;
+      // ICV/MIC errors on data frames after the handshake mean the
+      // hardware key (WCID 1 PTK or shared GTK) does not match the AP's.
+      if(dev->handshake_done && dev->bad_dbg < 8 &&
+         mpdu_len >= 2 && mpdu_len <= available){
+        dev->bad_dbg++;
+        // CCMP header follows the 24-byte (non-QoS) header: byte 3 holds
+        // the key id in bits 7:6.  RXWI ctl: WCID 7:0, key index 9:8.
+        printf("mt7601u: rx drop fc=%x rxinfo=%x%s%s%s len=%d wcid=%d "
+               "keyidx=%d iv-keyid=%d\n",
+               mt_get16(frame), rxinfo,
+               rxinfo & MT_RXINFO_CRCERR ? " CRC" : "",
+               rxinfo & MT_RXINFO_ICVERR ? " ICV" : "",
+               rxinfo & MT_RXINFO_MICERR ? " MIC" : "", mpdu_len,
+               ctl & 0xff, (ctl >> 8) & 3,
+               mpdu_len >= 28 ? frame[27] >> 6 : -1);
+      }
     } else {
       dev->rx_frames++;
       if(((mt_get16(frame) >> 2) & 3) == 0)
@@ -1344,10 +1660,51 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
   }
 }
 
+// Run one scan channel switch without holding dev->lock.  On the first
+// failure, read ASIC_VERSION next to RF_CSR_CFG: if ASIC_VERSION also comes
+// back with the RF_CSR bytes the control-IN data path is stale; if it reads
+// 0x76010500 the RF indirect interface itself is stuck (KICK never clears).
+static void
+mt7601u_scan_switch(struct mt7601u_device *dev, int channel)
+{
+  uint32 ver = 0, rf = 0;
+  int ok = mt7601u_set_channel(dev, channel) == 0;
+  int fails;
+
+  acquire(&dev->lock);
+  if(ok){
+    if(dev->chan_fail)
+      printf("mt7601u: channel switch recovered after %d failures\n",
+             dev->chan_fail);
+    dev->chan_fail = 0;
+  } else if(dev->chan_fail < 255) {
+    dev->chan_fail++;
+  }
+  fails = dev->chan_fail;
+  if(fails >= MT_SCAN_FAIL_LIMIT)
+    dev->scan_stopped = 1;
+  dev->chan_switching = 0;
+  release(&dev->lock);
+
+  if(ok)
+    return;
+  if(fails == 1){
+    mt7601u_read32(dev->udev, MT_ASIC_VERSION, &ver);
+    mt7601u_read32(dev->udev, MT_RF_CSR_CFG, &rf);
+    printf("mt7601u: channel switch to %d failed asic=%x rf_csr=%x%s\n",
+           channel, ver, rf,
+           ver == rf ? " (control-IN data looks stale)" :
+           (rf & MT_RF_CSR_KICK) ? " (RF KICK stuck)" : "");
+  } else if(fails == MT_SCAN_FAIL_LIMIT) {
+    printf("mt7601u: RF interface stuck after %d tries; "
+           "scan stays on channel %d\n", fails, dev->scan_channel);
+  }
+}
+
 static int
 mt7601u_service(int service_rx, int service_state)
 {
-  int got, deliver = 0, register_needed = 0, rx_done = 0;
+  int got, deliver = 0, register_needed = 0, rx_done = 0, switch_to = 0;
   uint64 now = workqueue_now();
   void *rx_data = 0;
   struct mt7601u_device *dev = &mt7601u;
@@ -1382,11 +1739,26 @@ mt7601u_service(int service_rx, int service_state)
     }
   }
 
-  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
+  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING &&
+     dev->target_channel >= 1 && dev->target_channel <= 14 &&
+     dev->scan_channel != dev->target_channel && !dev->scan_stopped){
+    // A beacon from a neighbouring channel can be heard while the radio is
+    // tuned 1-2 channels away; authenticating there times out.  Tune to the
+    // AP's own channel first (outside the lock), then authenticate.
+    if(!dev->chan_switching){
+      printf("mt7601u: tuning to AP channel %d (radio on %d)\n",
+             dev->target_channel, dev->scan_channel);
+      switch_to = dev->target_channel;
+      dev->chan_switching = 1;
+    }
+    dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
+  } else if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
     if(dev->link_retries >= 3){
       printf("mt7601u: authentication timeout\n");
       dev->link_state = MT_LINK_SCAN;
       dev->target_found = 0;
+      dev->scan_stopped = 0;
+      dev->chan_fail = 0;
       dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
     } else {
       int sent = mt7601u_send_auth(dev);
@@ -1440,21 +1812,29 @@ mt7601u_service(int service_rx, int service_state)
     }
   }
   // Dwell until the real scan deadline rather than waking every 10 ms merely
-  // to increment a counter.
-  if(service_state && !dev->target_found &&
+  // to increment a counter.  The switch itself is dozens of USB control
+  // transfers, so only decide here and run it after dev->lock is released
+  // (acquire() disables interrupts).  Back off after failures and stop
+  // hopping when the RF indirect interface stays busy.
+  if(service_state && !dev->target_found && !dev->chan_switching &&
      (long)(now - dev->scan_deadline) >= 0){
-    int next = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
-    if(mt7601u_set_channel(dev, next) < 0)
-      printf("mt7601u: channel switch to %d failed\n", next);
-    dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
+    dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES *
+                         (dev->chan_fail ? MT_SCAN_FAIL_BACKOFF : 1);
+    if(!dev->scan_stopped){
+      switch_to = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
+      dev->chan_switching = 1;
+    }
   }
   if(dev->handshake_done && !dev->net_registered)
     register_needed = 1;
-  if(dev->handshake_done && dev->net_registered && dev->net_rx_len){
-    deliver = dev->net_rx_len;
-    dev->net_rx_len = 0;
-  }
+  // Only the RX (napi) context delivers, so mt_net_deliver has one user.
+  int deliver_pending = service_rx && dev->handshake_done &&
+                        dev->net_registered &&
+                        dev->net_rx_tail != dev->net_rx_head;
   release(&dev->lock);
+
+  if(switch_to)
+    mt7601u_scan_switch(dev, switch_to);
 
   if(register_needed){
     if(register_netdev(&dev->netdev) == 0){
@@ -1466,8 +1846,21 @@ mt7601u_service(int service_rx, int service_state)
       printf("mt7601u: cannot register wlan1\n");
     }
   }
-  if(deliver)
-    net_rx_dev(&dev->netdev, dev->net_rx, deliver);
+  // Like brcmf_napi_poll(): copy each queued frame out under the lock and
+  // hand the copy to the stack with the lock released, so a concurrent RX
+  // completion can never overwrite a frame while it is being delivered.
+  while(deliver_pending){
+    acquire(&dev->lock);
+    if(dev->net_rx_tail == dev->net_rx_head){
+      release(&dev->lock);
+      break;
+    }
+    deliver = dev->net_rx_len[dev->net_rx_tail];
+    memmove(mt_net_deliver, dev->net_rx[dev->net_rx_tail], deliver);
+    dev->net_rx_tail = (dev->net_rx_tail + 1) % MT_NET_RXQ;
+    release(&dev->lock);
+    net_rx_dev(&dev->netdev, mt_net_deliver, deliver);
+  }
   return rx_done;
 }
 
@@ -1558,6 +1951,13 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
   acquire(&dev->lock);
   result = mt7601u_send_llc(dev, ether, type, ether + 14,
                             length - 14, 1);
+  if(dev->tx_dbg < 6){
+    dev->tx_dbg++;
+    printf("mt7601u: tx data type=%x len=%d dst=%x:%x:%x:%x:%x:%x r=%d "
+           "rx_frames=%d rx_bad=%d\n", type, length,
+           ether[0], ether[1], ether[2], ether[3], ether[4], ether[5],
+           result, dev->rx_frames, dev->rx_bad);
+  }
   release(&dev->lock);
   return result;
 }
@@ -1707,6 +2107,8 @@ mt7601u_probe(struct usb_device *udev)
       if(udev->ops->bulk_rx_arm(udev, udev->bulk_in_ep,
                                mt_rx_buf[i], MT_RX_BUF_SIZE) < 0)
         printf("mt7601u: RX request %d submission failed\n", i);
+  if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
+    mt7601u.rx_armed = 1;
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
     printf("mt7601u: EP%d receive uses DWC2 IRQ with %d buffers\n",
            udev->bulk_in_ep, MT_RX_REQUESTS);

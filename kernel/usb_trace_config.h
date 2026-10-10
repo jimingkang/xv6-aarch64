@@ -1,0 +1,5 @@
+#ifndef XV6_USB_TRACE_CONFIG_H
+#define XV6_USB_TRACE_CONFIG_H
+#define USB_ENUM_TRACE 0
+#define USB_XFER_TRACE 0
+#endif

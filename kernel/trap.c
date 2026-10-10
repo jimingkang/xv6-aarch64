@@ -128,6 +128,21 @@ kerneltrap()
   uint64 iss = esr & 0x1ffffff;
   printf("esr %p %p %p\n", esr, ec, iss);
   printf("elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+  // EC 0 ("unknown reason") on an ordinary kernel instruction means the
+  // instruction word in memory is not what the linker produced: kernel text
+  // was overwritten.  Dump the words around ELR so the bytes identify the
+  // writer (ASCII names, 802.11/USB data, pointers ...).
+  if(ec == 0){
+    uint64 elr = r_elr_el1() & ~3UL;
+    uint32 *w = (uint32*)(elr - 16);
+    printf("text at elr-16:");
+    for(int i = 0; i < 12; i++)
+      printf(" %x", w[i]);
+    printf("\n");
+  }
+  struct proc *p = myproc();
+  if(p)
+    printf("proc pid=%d name=%s\n", p->pid, p->name);
   panic("kerneltrap");
 }
 

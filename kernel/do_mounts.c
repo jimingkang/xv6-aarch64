@@ -33,6 +33,7 @@
 #include "blkdev.h"
 #include "workqueue.h"
 #include "device.h"
+#include "input.h"
 
 #define ROOTFS_DEV    BLKDEV_RAM(0)
 #define DEVTMPFS_DEV  BLKDEV_RAM(1)
@@ -205,8 +206,16 @@ devtmpfs_populate(void)
   int n = 0;
   for(int major = 0; major < NDEV; major++){
     char *name = chrdev_name(major);
-    if(name && major != BLOCKDEV)
+    if(name && major != BLOCKDEV){
       n += devtmpfs_create_node(name, major, 0);
+      if(major == INPUT){
+        static char *events[] = {
+          "input/event1", "input/event2", "input/event3"
+        };
+        for(int minor = 1; minor < INPUT_MAX_DEVICES; minor++)
+          n += devtmpfs_create_node(events[minor - 1], major, minor);
+      }
+    }
   }
   for(int i = 0; i < NBLKDEV; i++){
     struct blkdev *bd = blkdev_at(i);

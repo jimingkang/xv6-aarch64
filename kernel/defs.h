@@ -338,6 +338,7 @@ void            arasan_sdio_driver_exit(void);
 void            usb_bus_init(void);
 void            input_init(void);
 void            usbkbd_driver_init(void);
+void            usbmouse_driver_init(void);
 void            mt7601u_driver_init(void);
 void            mt7601u_driver_exit(void);
 void            mt7601u_poll(void);

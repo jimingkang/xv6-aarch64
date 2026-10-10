@@ -71,6 +71,22 @@
 #define BCMA_CORE_80211               0x812
 #define BCMA_CORE_SDIO_DEV            0x829
 #define BCMA_CORE_ARM_CR4             0x83e
+#define BCMA_CORE_ARM_CM3             0x82a   // BCM43430 (Pi 3B / Zero W)
+#define BCMA_CORE_INTERNAL_MEM        0x80e   // SOCRAM, paired with CM3
+// SOCRAM core registers (Linux struct sbsocramregs)
+#define SOCRAM_COREINFO               0x00
+#define SOCRAM_BANKIDX                0x10
+#define SOCRAM_BANKINFO               0x40
+#define SOCRAM_BANKPDA                0x44
+#define SOCRAM_SRNB_MASK              0xf0
+#define SOCRAM_SRNB_MASK_EXT          0x100
+#define SOCRAM_SRNB_SHIFT             4
+#define SOCRAM_SRBSZ_MASK             0xf
+#define SOCRAM_LSS_MASK               0x00f00000
+#define SOCRAM_LSS_SHIFT              20
+#define SOCRAM_SR_BSZ_BASE            14
+#define SOCRAM_BANKINFO_SZMASK        0x7f
+#define SOCRAM_BANKINFO_SZBASE        8192
 #define BCMA_IOCTL                    0x408
 #define BCMA_IOCTL_CLK                0x0001
 #define BCMA_IOCTL_FGC                0x0002
@@ -155,8 +171,12 @@ struct brcmf_chip {
   int ncores;
   uint32 rambase;
   uint32 ramsize;
+  uint32 srsize;             // save/restore area at the top of SOCRAM
+  uint32 chipnum;
   struct brcmf_core *cc;
-  struct brcmf_core *cr4;
+  struct brcmf_core *cr4;    // BCM43455: ARM Cortex-R4 with TCM
+  struct brcmf_core *cm3;    // BCM43430: ARM Cortex-M3 ...
+  struct brcmf_core *socram; // ... executing from SOCRAM at address 0
   struct brcmf_core *sdio;
 };
 
@@ -608,9 +628,78 @@ brcmf_scan_cores(struct sdio_func *func, struct brcmf_chip *chip)
   }
   chip->cc = brcmf_find_core(chip, BCMA_CORE_CHIPCOMMON, 0);
   chip->cr4 = brcmf_find_core(chip, BCMA_CORE_ARM_CR4, 0);
+  chip->cm3 = brcmf_find_core(chip, BCMA_CORE_ARM_CM3, 0);
+  chip->socram = brcmf_find_core(chip, BCMA_CORE_INTERNAL_MEM, 0);
   chip->sdio = brcmf_find_core(chip, BCMA_CORE_SDIO_DEV, 0);
-  if(chip->cc == 0 || chip->cr4 == 0 || chip->sdio == 0)
+  if(chip->cc == 0 || chip->sdio == 0)
     return -1;
+  if(chip->cr4 == 0 && (chip->cm3 == 0 || chip->socram == 0)){
+    printf("brcmfmac: no CR4, and no CM3+SOCRAM pair\n");
+    return -1;
+  }
+  return 0;
+}
+
+static int brcmf_core_reset(struct sdio_func *, struct brcmf_core *,
+                            uint32, uint32, uint32);
+
+// Linux brcmf_chip_ai_iscoreup(): clock on, not forced, out of reset.
+static int
+brcmf_core_isup(struct sdio_func *func, struct brcmf_core *core)
+{
+  uint32 ioctl, reset;
+  if(brcmf_backplane_read32(func, core->wrap + BCMA_IOCTL, &ioctl) < 0 ||
+     brcmf_backplane_read32(func, core->wrap + BCMA_RESET_CTL, &reset) < 0)
+    return 0;
+  return (ioctl & (BCMA_IOCTL_FGC | BCMA_IOCTL_CLK)) == BCMA_IOCTL_CLK &&
+         (reset & BCMA_RESET_CTL_RESET) == 0;
+}
+
+// Linux brcmf_chip_socram_ramsize(): CM3 chips run from SOCRAM at 0.
+static int
+brcmf_get_socram_info(struct sdio_func *func, struct brcmf_chip *chip)
+{
+  struct brcmf_core *sr = chip->socram;
+  uint32 coreinfo, nb, info;
+
+  if(sr->rev < 4)
+    return -1;
+  if(!brcmf_core_isup(func, sr) && brcmf_core_reset(func, sr, 0, 0, 0) < 0)
+    return -1;
+  if(brcmf_backplane_read32(func, sr->base + SOCRAM_COREINFO, &coreinfo) < 0)
+    return -1;
+  chip->ramsize = 0;
+  chip->srsize = 0;
+  if(sr->rev <= 7 || sr->rev == 12){
+    uint32 bsz = coreinfo & SOCRAM_SRBSZ_MASK;
+    uint32 lss = (coreinfo & SOCRAM_LSS_MASK) >> SOCRAM_LSS_SHIFT;
+    nb = (coreinfo & SOCRAM_SRNB_MASK) >> SOCRAM_SRNB_SHIFT;
+    if(lss)
+      nb--;
+    chip->ramsize = nb * (1U << (bsz + SOCRAM_SR_BSZ_BASE));
+    if(lss)
+      chip->ramsize += 1U << ((lss - 1) + SOCRAM_SR_BSZ_BASE);
+  } else {
+    uint32 mask = SOCRAM_SRNB_MASK;
+    if(sr->rev >= 23)
+      mask |= SOCRAM_SRNB_MASK_EXT;
+    nb = (coreinfo & mask) >> SOCRAM_SRNB_SHIFT;
+    for(uint32 i = 0; i < nb; i++){
+      if(brcmf_backplane_write32(func, sr->base + SOCRAM_BANKIDX, i) < 0 ||
+         brcmf_backplane_read32(func, sr->base + SOCRAM_BANKINFO, &info) < 0)
+        return -1;
+      chip->ramsize += ((info & SOCRAM_BANKINFO_SZMASK) + 1) *
+                       SOCRAM_BANKINFO_SZBASE;
+    }
+  }
+  // Linux assumes a 64 KiB save/restore area on BCM43430.
+  if(chip->chipnum == BRCM_CC_43430_CHIP_ID)
+    chip->srsize = 64 * 1024;
+  chip->rambase = 0;
+  if(chip->ramsize == 0 || chip->ramsize > 4 * 1024 * 1024)
+    return -1;
+  printf("brcmfmac: SOCRAM rev=%d base=%x size=%d bytes banks=%d sr=%d\n",
+         sr->rev, chip->rambase, chip->ramsize, nb, chip->srsize);
   return 0;
 }
 
@@ -618,6 +707,8 @@ static int
 brcmf_get_raminfo(struct sdio_func *func, struct brcmf_chip *chip)
 {
   uint32 cap, info, banks;
+  if(chip->cr4 == 0)
+    return brcmf_get_socram_info(func, chip);
   if(brcmf_backplane_read32(func, chip->cr4->base + ARMCR4_CAP, &cap) < 0)
     return -1;
   banks = (cap & ARMCR4_TCBANB_MASK) +
@@ -696,10 +787,36 @@ brcmf_core_reset(struct sdio_func *func, struct brcmf_core *core,
   return 0;
 }
 
+// Linux brcmf_chip_cm3_set_passive(): halt the CM3, reset D11 with the PHY
+// clock on, reset SOCRAM, and on BCM43430 disable the bank-3 remap.
+static int
+brcmf_cm3_set_passive(struct sdio_func *func, struct brcmf_chip *chip)
+{
+  struct brcmf_core *d11 = brcmf_find_core(chip, BCMA_CORE_80211, 0);
+  if(brcmf_core_disable(func, chip->cm3, 0, 0) < 0)
+    return -1;
+  if(d11 && brcmf_core_reset(func, d11,
+                             D11_BCMA_IOCTL_PHYRESET |
+                             D11_BCMA_IOCTL_PHYCLOCKEN,
+                             D11_BCMA_IOCTL_PHYCLOCKEN,
+                             D11_BCMA_IOCTL_PHYCLOCKEN) < 0)
+    return -1;
+  if(brcmf_core_reset(func, chip->socram, 0, 0, 0) < 0)
+    return -1;
+  if(chip->chipnum == BRCM_CC_43430_CHIP_ID &&
+     (brcmf_backplane_write32(func, chip->socram->base + SOCRAM_BANKIDX, 3) < 0 ||
+      brcmf_backplane_write32(func, chip->socram->base + SOCRAM_BANKPDA, 0) < 0))
+    return -1;
+  printf("brcmfmac: CM3 halted; D11 and SOCRAM reset\n");
+  return 0;
+}
+
 static int
 brcmf_set_passive(struct sdio_func *func, struct brcmf_chip *chip)
 {
   uint32 value;
+  if(chip->cr4 == 0)
+    return brcmf_cm3_set_passive(func, chip);
   if(brcmf_backplane_read32(func, chip->cr4->wrap + BCMA_IOCTL, &value) < 0)
     return -1;
   value &= ARMCR4_BCMA_IOCTL_CPUHALT;
@@ -844,6 +961,21 @@ static int
 brcmf_set_active(struct sdio_func *func, struct brcmf_chip *chip,
                  uint32 reset_vector)
 {
+  if(chip->cr4 == 0){
+    // Linux brcmf_chip_cm3_set_active(): the image already sits at
+    // address 0 (its vector table), so no reset vector is written.
+    if(!brcmf_core_isup(func, chip->socram)){
+      printf("brcmfmac: SOCRAM core is down after reset\n");
+      return -1;
+    }
+    if(brcmf_backplane_write32(func, chip->sdio->base + SDIO_CORE_INTSTATUS,
+                               0xffffffffU) < 0 ||
+       brcmf_core_reset(func, chip->cm3, 0, 0, 0) < 0)
+      return -1;
+    printf("brcmfmac: CM3 released (vector table at 0, first word %x)\n",
+           reset_vector);
+    return 0;
+  }
   if(brcmf_backplane_write32(func, chip->sdio->base + SDIO_CORE_INTSTATUS,
                              0xffffffffU) < 0 ||
      brcmf_backplane_write32(func, 0, reset_vector) < 0 ||
@@ -877,18 +1009,25 @@ brcmf_start_f2(struct sdio_func *func, struct brcmf_chip *chip)
        chip->sdio->base + SDIO_CORE_HOSTINTMASK, HOSTINTMASK) < 0)
     return -1;
 
-  value = 0x60;
-  if(sdio_cmd52(func, 1, SBSDIO_WATERMARK, &value) < 0)
-    return -1;
-  value = 0;
-  if(sdio_cmd52(func, 0, SBSDIO_DEVICE_CTL, &value) < 0)
-    return -1;
-  value |= 0x10;
-  if(sdio_cmd52(func, 1, SBSDIO_DEVICE_CTL, &value) < 0)
-    return -1;
-  value = 0xd0;
-  if(sdio_cmd52(func, 1, SBSDIO_FUNC1_MESBUSYCTRL, &value) < 0)
-    return -1;
+  if(chip->chipnum == BRCM_CC_43430_CHIP_ID){
+    // Linux default branch: DEFAULT_F2_WATERMARK, no F2WM/MESBUSY tuning.
+    value = 0x08;
+    if(sdio_cmd52(func, 1, SBSDIO_WATERMARK, &value) < 0)
+      return -1;
+  } else {
+    value = 0x60;
+    if(sdio_cmd52(func, 1, SBSDIO_WATERMARK, &value) < 0)
+      return -1;
+    value = 0;
+    if(sdio_cmd52(func, 0, SBSDIO_DEVICE_CTL, &value) < 0)
+      return -1;
+    value |= 0x10;
+    if(sdio_cmd52(func, 1, SBSDIO_DEVICE_CTL, &value) < 0)
+      return -1;
+    value = 0xd0;
+    if(sdio_cmd52(func, 1, SBSDIO_FUNC1_MESBUSYCTRL, &value) < 0)
+      return -1;
+  }
 
   for(int i = 0; i < 3000; i++){
     if(brcmf_backplane_read32(func,
@@ -2047,8 +2186,9 @@ brcmf_probe(struct sdio_func *func)
     printf("brcmfmac: AI core enumeration failed\n");
     return -1;
   }
+  bc.chipnum = chipnum;
   if(brcmf_get_raminfo(func, &bc) < 0){
-    printf("brcmfmac: CR4 RAM discovery failed\n");
+    printf("brcmfmac: %s RAM discovery failed\n", bc.cr4 ? "CR4" : "SOCRAM");
     return -1;
   }
   if(code.size + BRCMF_NVRAM_MAX > bc.ramsize){

@@ -20,8 +20,15 @@
 #define GRSTCTL   0x010
 #define GINTSTS   0x014
 #define GINTMSK   0x018
+#define GRXFSIZ   0x024
+#define GNPTXFSIZ 0x028
 #define GSNPSID   0x040
+#define GHWCFG1   0x044
+#define GHWCFG2   0x048
+#define GHWCFG3   0x04c
+#define GHWCFG4   0x050
 #define HCFG      0x400
+#define HPTXFSIZ  0x100
 #define HFNUM     0x408
 #define HAINT     0x414
 #define HAINTMSK  0x418
@@ -152,7 +159,9 @@ static struct dwc2_interrupt_request {
 static uint interrupt_rx_errors;
 static uint interrupt_rx_irq_logs;
 static int interrupt_rx_arm_logged;
-#define DWC2_RX_REQUESTS 4
+// MT7601U keeps 4 EP4 data buffers queued and pre-arms one EP5 MCU
+// response buffer per command, so the ring needs 4 + 1 slots.
+#define DWC2_RX_REQUESTS 5
 #define RX_FREE   0
 #define RX_QUEUED 1
 #define RX_ACTIVE 2
@@ -185,7 +194,57 @@ struct hid_selection {
   uint16 vid;
   uint16 pid;
   uint8 interface_number;
+  uint8 protocol;
 };
+
+#if USB_ENUM_TRACE
+static void
+dwc2_trace_device_descriptor(int addr, uchar *d)
+{
+  printf("usb-enum: device addr=%d usb=%x class=%d subclass=%d protocol=%d "
+         "mps0=%d vid=%x pid=%x device=%x configs=%d\n",
+         addr, d[2] | ((uint16)d[3] << 8), d[4], d[5], d[6], d[7],
+         d[8] | ((uint16)d[9] << 8),
+         d[10] | ((uint16)d[11] << 8),
+         d[12] | ((uint16)d[13] << 8), d[17]);
+}
+
+static void
+dwc2_trace_config_descriptor(int addr, uchar *d, int total)
+{
+  printf("usb-enum: config addr=%d value=%d total=%d interfaces=%d "
+         "attributes=%x maxpower=%d mA\n",
+         addr, d[5], total, d[4], d[7], d[8] * 2);
+  for(int off = 0; off + 2 <= total && d[off] >= 2; off += d[off]){
+    if(d[off + 1] == 4 && d[off] >= 9)
+      printf("usb-enum:  interface=%d alt=%d eps=%d class=%d subclass=%d "
+             "protocol=%d\n", d[off + 2], d[off + 3], d[off + 4],
+             d[off + 5], d[off + 6], d[off + 7]);
+    else if(d[off + 1] == 5 && d[off] >= 7){
+      int mps = d[off + 4] | ((uint16)d[off + 5] << 8);
+      printf("usb-enum:   endpoint=%x %s type=%d mps=%d interval=%d\n",
+             d[off + 2], (d[off + 2] & 0x80) ? "IN" : "OUT",
+             d[off + 3] & 3, mps, d[off + 6]);
+    }
+  }
+}
+#endif
+
+#if USB_XFER_TRACE
+static void
+dwc2_trace_payload(const char *prefix, const void *data, int length)
+{
+  const uchar *p = data;
+  int shown = length < 16 ? length : 16;
+
+  printf("usb-xfer: %s bytes=%d data=", prefix, length);
+  for(int i = 0; i < shown; i++)
+    printf("%x%s", p[i], i + 1 == shown ? "" : " ");
+  if(length > shown)
+    printf(" ...");
+  printf("\n");
+}
+#endif
 
 static inline uint32
 rd(uint32 off)
@@ -479,6 +538,13 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
   s->value = value;
   s->index = index;
   s->length = len;
+#if USB_XFER_TRACE
+  printf("usb-xfer: control submit addr=%d type=%x req=%d value=%x "
+         "index=%x len=%d dir=%s\n", addr, type, request, value, index,
+         len, in ? "IN" : "OUT");
+  if(len && !in)
+    dwc2_trace_payload("control OUT", data, len);
+#endif
   r = channel_xfer(0, addr, 0, 0, EPTYPE_CONTROL, ep0_mps,
                    s, sizeof(*s), PID_SETUP, 100000);
   if(r != sizeof(*s)){
@@ -494,12 +560,20 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
              request, addr, r);
       return -1;
     }
+#if USB_XFER_TRACE
+    if(in)
+      dwc2_trace_payload("control IN", data, r);
+#endif
   }
   r = channel_xfer(0, addr, 0, !in, EPTYPE_CONTROL, ep0_mps,
                    ctrl_buf, 0, PID_DATA1, 100000);
   if(r < 0)
     printf("dwc2: control status failed req=%d addr=%d result=%d\n",
            request, addr, r);
+#if USB_XFER_TRACE
+  printf("usb-xfer: control complete addr=%d req=%d status=%d\n",
+         addr, request, r < 0 ? -1 : 0);
+#endif
   return r < 0 ? -1 : 0;
 }
 
@@ -525,11 +599,14 @@ get_device_descriptor(int addr, uchar *descriptor)
      descriptor[1] != USB_DT_DEVICE ||
      (descriptor[8] == 0 && descriptor[9] == 0))
     return -1;
+#if USB_ENUM_TRACE
+  dwc2_trace_device_descriptor(addr, descriptor);
+#endif
   return 0;
 }
 
 static int
-config_has_boot_keyboard(int addr, struct hid_selection *sel)
+config_has_boot_hid(int addr, struct hid_selection *sel)
 {
   int total;
 
@@ -542,12 +619,16 @@ config_has_boot_keyboard(int addr, struct hid_selection *sel)
      control(addr, 0x80, USB_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
              ctrl_buf, total) < 0)
     return 0;
+#if USB_ENUM_TRACE
+  dwc2_trace_config_descriptor(addr, ctrl_buf, total);
+#endif
   for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2;
       off += ctrl_buf[off]){
     if(ctrl_buf[off + 1] == 4 && ctrl_buf[off] >= 9 &&
        ctrl_buf[off + 5] == 3 && ctrl_buf[off + 6] == 1 &&
-       ctrl_buf[off + 7] == 1){
+       (ctrl_buf[off + 7] == 1 || ctrl_buf[off + 7] == 2)){
       sel->interface_number = ctrl_buf[off + 2];
+      sel->protocol = ctrl_buf[off + 7];
       return 1;
     }
   }
@@ -557,7 +638,7 @@ config_has_boot_keyboard(int addr, struct hid_selection *sel)
 // Search a configured high-speed hub's downstream ports.  This is bounded to
 // two extra levels so a malformed topology cannot recurse forever during boot.
 static int
-find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
+find_boot_hid_below_hub(int hub_addr, int depth, struct hid_selection *sel)
 {
   int total, cfg, nport;
 
@@ -654,7 +735,7 @@ find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
            hub_addr, port, child_class, vid, pid, child_addr);
 
     memset(sel, 0, sizeof(*sel));
-    if(config_has_boot_keyboard(child_addr, sel)){
+    if(config_has_boot_hid(child_addr, sel)){
       sel->found = 1;
       sel->address = child_addr;
       sel->ep0_mps = ep0_mps;
@@ -663,7 +744,7 @@ find_keyboard_below_hub(int hub_addr, int depth, struct hid_selection *sel)
       return 1;
     }
     if(child_class == 9 &&
-       find_keyboard_below_hub(child_addr, depth + 1, sel))
+       find_boot_hid_below_hub(child_addr, depth + 1, sel))
       return 1;
   }
   return 0;
@@ -712,12 +793,29 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
   // Keep endpoint roles on independent host channels: EP0=0, generic/MCU
   // response IN=3, data RX=4 (asynchronous), data TX=5.
   channel = in ? 3 : 5;
+#if USB_XFER_TRACE
+  // IN polls that end in a NAK timeout (-2) are logged only if they carried
+  // data: the MT7601U driver polls EP4/EP5 every ~2 ms while it waits, and
+  // printing every empty poll over the UART would itself stall the wait.
+  int trace_toggle = *toggle;
+  if(!in){
+    printf("usb-xfer: bulk submit addr=%d ch=%d ep=%d dir=OUT len=%d "
+           "mps=%d toggle=DATA%d\n", udev->address, channel, endpoint,
+           length, mps, *toggle);
+    if(length)
+      dwc2_trace_payload("bulk OUT", data, length);
+  }
+#endif
   r = -1;
   for(attempt = 0; attempt < 2; attempt++){
     pid = *toggle ? PID_DATA1 : PID_DATA0;
     r = channel_xfer(channel, udev->address, endpoint, in, EPTYPE_BULK, mps,
                      data, length, pid,
-                     in && endpoint == udev->bulk_in_ep ? 2000 : 1000000);
+                     // EP4 data and EP5 MCU responses are polled by the
+                     // MT7601U driver in short slices so it can keep the
+                     // shared RX DMA drained while it waits.
+                     in && (endpoint == udev->bulk_in_ep ||
+                            endpoint == udev->bulk_in_ep2) ? 2000 : 1000000);
     if(r != -3 || !in)
       break;
     // DTERR means the endpoint and software disagree about DATA0/DATA1.
@@ -742,6 +840,18 @@ dwc2_usb_bulk(struct usb_device *udev, int endpoint, int in,
         *toggle ^= 1;
     }
   }
+#if USB_XFER_TRACE
+  if(in && r != -2)
+    printf("usb-xfer: bulk submit addr=%d ch=%d ep=%d dir=IN len=%d "
+           "mps=%d toggle=DATA%d\n", udev->address, channel, endpoint,
+           length, mps, trace_toggle);
+  if(!in || r != -2)
+    printf("usb-xfer: bulk complete addr=%d ch=%d ep=%d dir=%s result=%d "
+           "next=DATA%d\n", udev->address, channel, endpoint,
+           in ? "IN" : "OUT", r, *toggle);
+  if(in && r > 0)
+    dwc2_trace_payload("bulk IN", data, r);
+#endif
   return r;
 }
 
@@ -791,7 +901,7 @@ dwc2_interrupt_rx_start(struct dwc2_interrupt_request *req)
 // until several milliseconds after the SSPLIT ACK, which is too late to issue
 // its CSPLIT.  Keep only these intermediate channel transitions in the HCD
 // interrupt path; completed reports and interval pacing remain deferred to the
-// keyboard workqueue.
+// HID class driver's workqueue.
 static void
 dwc2_wait_frame_delta(uint32 base, uint32 delta)
 {
@@ -956,7 +1066,7 @@ dwc2_interrupt_rx_complete(struct urb *urb)
   if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL) ||
      left > (uint32)urb->transfer_buffer_length){
     if(interrupt_rx_errors++ < 4)
-      printf("dwc2: keyboard ch6 error intr=%x hctsiz=%x hcsplt=%x\n",
+      printf("dwc2: HID ch6 error intr=%x hctsiz=%x hcsplt=%x\n",
              intr, rd(HCTSIZ(6)), rd(HCSPLT(6)));
     interrupt_rx.active = 0;
     wr(HCSPLT(6), 0);
@@ -1026,18 +1136,31 @@ dwc2_async_rx_start(void)
 
   if(async_rx_active >= 0)
     return;
-  for(int i = 0; i < DWC2_RX_REQUESTS; i++)
+  // Round-robin over queued requests.  A NAKed request is re-queued, so a
+  // fixed scan order would let one idle endpoint (for example EP5 waiting
+  // for an MCU response) monopolize channel 4 while EP4 data -- which the
+  // chip's RX DMA delivers first -- is never collected.
+  static int async_rx_next;
+  for(int n = 0; n < DWC2_RX_REQUESTS; n++){
+    int i = (async_rx_next + n) % DWC2_RX_REQUESTS;
     if(async_rx[i].state == RX_QUEUED){
       async_rx_active = i;
+      async_rx_next = (i + 1) % DWC2_RX_REQUESTS;
       req = &async_rx[i];
       req->state = RX_ACTIVE;
       break;
     }
+  }
   if(req == 0)
     return;
   udev = req->udev;
   packets = (req->length + req->mps - 1) / req->mps;
-  pid = udev->bulk_in_toggle ? PID_DATA1 : PID_DATA0;
+  // EP4 data and EP5 MCU responses have independent USB DATA toggles.
+  // Reusing EP4's toggle for EP5 works only by accident until one endpoint
+  // completes a different number of packets.
+  uint8 *toggle = req->endpoint == udev->bulk_in_ep2 ?
+                  &udev->bulk_in_toggle2 : &udev->bulk_in_toggle;
+  pid = *toggle ? PID_DATA1 : PID_DATA0;
   wr(HCINT(4), 0x3fff);
   wr(HCINTMSK(4), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
                    HCINT_ERRORS);
@@ -1080,6 +1203,11 @@ dwc2_usb_bulk_rx_arm(struct usb_device *udev, int endpoint,
   async_rx[slot].mps = udev->bulk_in_max_packet ? udev->bulk_in_max_packet : 64;
   async_rx[slot].result = -2;
   async_rx[slot].state = RX_QUEUED;
+#if USB_XFER_TRACE
+  printf("usb-xfer: bulk RX arm slot=%d addr=%d ch=4 ep=%d len=%d "
+         "mps=%d buf=%p\n", slot, udev->address, endpoint, length,
+         async_rx[slot].mps, data);
+#endif
   dwc2_async_rx_start();
   release(&usb_lock);
   return 0;
@@ -1095,11 +1223,15 @@ dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
   if(data)
     *data = 0;
   acquire(&usb_lock);
-  if(async_rx_active >= 0 && (dwc2_irq_pending & (1U << 4))){
+  // Normally the IRQ handler flags channel 4.  During boot-time probing
+  // (main() on CPU0, before interrupts are enabled) no IRQ is delivered, so
+  // also poll HCINT directly; the handler never clears HCINT itself.
+  intr = async_rx_active >= 0 ? rd(HCINT(4)) : 0;
+  if(async_rx_active >= 0 &&
+     (intr & (HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK | HCINT_ERRORS))){
     slot = async_rx_active;
     req = &async_rx[slot];
     dwc2_irq_pending &= ~(1U << 4);
-    intr = rd(HCINT(4));
     if(intr & HCINT_NAK){
       halt_channel(4);
       wr(HCINT(4), intr);
@@ -1120,11 +1252,19 @@ dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
         packets = (result + req->mps - 1) / req->mps;
         if(result < req->length && (result % req->mps) == 0)
           packets++;
-        if(packets & 1)
-          udev->bulk_in_toggle ^= 1;
+        if(packets & 1){
+          uint8 *toggle = req->endpoint == udev->bulk_in_ep2 ?
+                          &udev->bulk_in_toggle2 : &udev->bulk_in_toggle;
+          *toggle ^= 1;
+        }
       }
       dwc2_async_rx_start();
     }
+  } else if(dwc2_irq_pending & (1U << 4)){
+    // Flagged but no terminal status: keep listening on channel 4.
+    dwc2_irq_pending &= ~(1U << 4);
+    if(async_rx_active >= 0)
+      wr(HAINTMSK, rd(HAINTMSK) | (1U << 4));
   }
   for(slot = 0; slot < DWC2_RX_REQUESTS; slot++){
     req = &async_rx[slot];
@@ -1135,6 +1275,12 @@ dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
         *data = req->buffer;
       req->state = RX_FREE;
       release(&usb_lock);
+#if USB_XFER_TRACE
+      printf("usb-xfer: bulk RX complete slot=%d addr=%d ch=4 ep=%d "
+             "result=%d\n", slot, udev->address, endpoint, result);
+      if(result > 0)
+        dwc2_trace_payload("bulk async IN", req->buffer, result);
+#endif
       return result;
     }
   }
@@ -1142,11 +1288,36 @@ dwc2_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
   return -2;
 }
 
+static void
+dwc2_usb_bulk_rx_cancel(struct usb_device *udev, int endpoint, void *data)
+{
+  acquire(&usb_lock);
+  for(int i = 0; i < DWC2_RX_REQUESTS; i++){
+    struct dwc2_rx_request *req = &async_rx[i];
+    if(req->state == RX_FREE || req->udev != udev ||
+       req->endpoint != endpoint || (data && req->buffer != data))
+      continue;
+    if(async_rx_active == i){
+      halt_channel(4);
+      wr(HCINTMSK(4), 0);
+      wr(HAINTMSK, rd(HAINTMSK) & ~(1U << 4));
+      wr(HCINT(4), 0x3fff);
+      dwc2_irq_pending &= ~(1U << 4);
+      async_rx_active = -1;
+    }
+    memset(req, 0, sizeof(*req));
+    req->state = RX_FREE;
+  }
+  dwc2_async_rx_start();
+  release(&usb_lock);
+}
+
 static const struct usb_host_ops dwc2_usb_ops = {
   .control = dwc2_usb_control,
   .bulk = dwc2_usb_bulk,
   .bulk_rx_arm = dwc2_usb_bulk_rx_arm,
   .bulk_rx_complete = dwc2_usb_bulk_rx_complete,
+  .bulk_rx_cancel = dwc2_usb_bulk_rx_cancel,
   .submit_urb = dwc2_submit_urb,
   .kill_urb = dwc2_kill_urb,
 };
@@ -1322,6 +1493,14 @@ dwc2_init(void)
     printf("dwc2: no DWC2 controller id=%x\n", id);
     return;
   }
+#if USB_ENUM_TRACE
+  printf("usb-hw: base=%p gsnpsid=%x ghwcfg1=%x ghwcfg2=%x ghwcfg3=%x "
+         "ghwcfg4=%x\n", DWC2_BASE, id, rd(GHWCFG1), rd(GHWCFG2),
+         rd(GHWCFG3), rd(GHWCFG4));
+  printf("usb-hw: fifo grx=%x gnptx=%x hptx=%x gahbcfg=%x gusbcfg=%x "
+         "gintsts=%x\n", rd(GRXFSIZ), rd(GNPTXFSIZ), rd(HPTXFSIZ),
+         rd(GAHBCFG), rd(GUSBCFG), rd(GINTSTS));
+#endif
 
   wr(GAHBCFG, 0);
   // Reset the core before selecting host mode.  Selecting FORCEHOST first is
@@ -1360,6 +1539,11 @@ dwc2_init(void)
   wr(HCFG, 0);
   wr(GAHBCFG, GAHBCFG_DMA_EN | GAHBCFG_GLBL_INTR_EN);
   printf("dwc2: host-channel IRQ enabled\n");
+#if USB_ENUM_TRACE
+  printf("usb-hw: host enabled gahbcfg=%x gusbcfg=%x gintmsk=%x hcfg=%x "
+         "haintmsk=%x\n", rd(GAHBCFG), rd(GUSBCFG), rd(GINTMSK),
+         rd(HCFG), rd(HAINTMSK));
+#endif
 
   // Power the root port before testing connect status.  On real Raspberry
   // Pi 3 hardware the LAN951x hub is behind this port and needs time after
@@ -1516,14 +1700,14 @@ dwc2_init(void)
              port, root_class, vid, pid, ep0_mps);
       if(root_class == 9){
         memset(&nested_hid, 0, sizeof(nested_hid));
-        if(find_keyboard_below_hub(usb_address, 1, &nested_hid)){
+        if(find_boot_hid_below_hub(usb_address, 1, &nested_hid)){
           usb_address = nested_hid.address;
           ep0_mps = nested_hid.ep0_mps;
           vid = nested_hid.vid;
           pid = nested_hid.pid;
           root_class = 3;
           selected_subclass = 1;
-          selected_protocol = 1;
+          selected_protocol = nested_hid.protocol;
           selected_interface = nested_hid.interface_number;
           hid_found = 1;
           break;
@@ -1546,10 +1730,10 @@ dwc2_init(void)
               poff += ctrl_buf[poff]){
             if(ctrl_buf[poff + 1] == 4 && ctrl_buf[poff] >= 9 &&
                ctrl_buf[poff + 5] == 3 && ctrl_buf[poff + 6] == 1 &&
-               ctrl_buf[poff + 7] == 1){
+               (ctrl_buf[poff + 7] == 1 || ctrl_buf[poff + 7] == 2)){
               root_class = 3;
               selected_subclass = 1;
-              selected_protocol = 1;
+              selected_protocol = ctrl_buf[poff + 7];
               selected_interface = ctrl_buf[poff + 2];
               hid_found = 1;
               break;
@@ -1598,6 +1782,9 @@ dwc2_init(void)
       printf("dwc2: MT7601U full configuration descriptor failed\n");
       return;
     }
+#if USB_ENUM_TRACE
+    dwc2_trace_config_descriptor(usb_address, ctrl_buf, total);
+#endif
     for(off = 0; off + 7 <= total && ctrl_buf[off] >= 2;
         off += ctrl_buf[off]){
       uint8 addr;
@@ -1645,6 +1832,9 @@ dwc2_init(void)
       printf("dwc2: HID full configuration descriptor failed\n");
       return;
     }
+#if USB_ENUM_TRACE
+    dwc2_trace_config_descriptor(usb_address, ctrl_buf, total);
+#endif
     current_interface = -1;
     for(off = 0; off + 2 <= total && ctrl_buf[off] >= 2;
         off += ctrl_buf[off]){
@@ -1669,13 +1859,25 @@ dwc2_init(void)
     }
     if(!selected_interface_found ||
        usb_child.class != 3 || usb_child.subclass != 1 ||
-       usb_child.protocol != 1 || usb_child.interrupt_in_ep == 0){
+       (usb_child.protocol != 1 && usb_child.protocol != 2) ||
+       usb_child.interrupt_in_ep == 0){
       printf("dwc2: HID interface %d unsupported class=%d subclass=%d "
              "protocol=%d interrupt-in=%d\n",
              selected_interface, usb_child.class, usb_child.subclass,
              usb_child.protocol, usb_child.interrupt_in_ep);
       return;
     }
+#if USB_ENUM_TRACE
+    printf("usb-enum: selected addr=%d route-hub=%d route-port=%d speed=%s "
+           "interface=%d protocol=%d ep=%d mps=%d interval=%d\n",
+           usb_child.address, usb_route[usb_child.address].hub,
+           usb_route[usb_child.address].port,
+           usb_route[usb_child.address].low_speed ? "low" :
+           (usb_route[usb_child.address].hub ? "full" : "high"),
+           usb_child.interface_number, usb_child.protocol,
+           usb_child.interrupt_in_ep, usb_child.interrupt_in_max_packet,
+           usb_child.interrupt_in_interval);
+#endif
     if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
                ctrl_buf, 0) < 0){
       printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
@@ -1698,7 +1900,8 @@ dwc2_init(void)
   }
 
   if(hid_found || root_class == 3){
-    printf("dwc2: HID keyboard handed to usb bus\n");
+    printf("dwc2: HID boot %s handed to usb bus\n",
+           usb_child.protocol == 2 ? "mouse" : "keyboard");
     return;
   }
 

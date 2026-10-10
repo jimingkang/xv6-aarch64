@@ -46,6 +46,7 @@ OBJS = \
 	$K/usb.o \
 	$K/input.o \
 	$K/usbkbd.o \
+	$K/usbmouse.o \
 	$K/arasan_sdio.o \
 	$K/mt7601u.o \
 	$K/brcmfmac.o \
@@ -139,6 +140,43 @@ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 &
 # superblock, inode-cache and pathname-walk call chain (for example `ls /`).
 FS_TRACE ?= 0
 CFLAGS += -DFS_TRACE=$(FS_TRACE)
+
+# USB diagnostics are split so descriptor/controller inspection can be
+# enabled without flooding the serial console with every HID interrupt URB.
+#   make USB_ENUM_TRACE=1          controller, route and descriptor details
+#   make USB_XFER_TRACE=1          URB submit/giveback and HID report data
+USB_ENUM_TRACE ?= 0
+USB_XFER_TRACE ?= 0
+USB_TRACE_CONFIG = $K/usb_trace_config.h
+
+# Keep the selected trace mode in an included header.  Unlike a command-line
+# -D alone, changing USB_*_TRACE then changes this file's timestamp and causes
+# every USB object that includes usb.h to be rebuilt automatically.
+.PHONY: force-usb-trace-config
+force-usb-trace-config:
+
+$(USB_TRACE_CONFIG): force-usb-trace-config
+	@{ \
+	  echo '#ifndef XV6_USB_TRACE_CONFIG_H'; \
+	  echo '#define XV6_USB_TRACE_CONFIG_H'; \
+	  echo '#define USB_ENUM_TRACE $(USB_ENUM_TRACE)'; \
+	  echo '#define USB_XFER_TRACE $(USB_XFER_TRACE)'; \
+	  echo '#endif'; \
+	} > $(USB_TRACE_CONFIG).tmp
+	@if cmp -s $(USB_TRACE_CONFIG).tmp $(USB_TRACE_CONFIG); then \
+	  rm -f $(USB_TRACE_CONFIG).tmp; \
+	else \
+	  mv $(USB_TRACE_CONFIG).tmp $(USB_TRACE_CONFIG); \
+	fi
+
+# macOS ships GNU Make 3.81 and can compare prerequisites at whole-second
+# resolution.  Force just the USB translation units on an image build so a
+# rapid trace-mode switch can never retain code from the previous mode.
+USB_TRACE_OBJS = $K/usb.o $K/usbkbd.o $K/usbmouse.o $K/mt7601u.o \
+	$K/dwc2.o $K/usbnet.o
+.PHONY: force-usb-trace-objects
+force-usb-trace-objects:
+$(USB_TRACE_OBJS): force-usb-trace-objects
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
@@ -298,15 +336,33 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 	sync
 	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 partition)"
 
-# Make an existing ext2 partition bootable as the root filesystem
-# (cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2).  debugfs writes
-# /init and /bin/<program> into the partition WITHOUT reformatting it; files
-# already there are replaced, everything else on the partition is untouched.
+# Build and install a complete ext2-root system.  The image is populated with
+# /init and /bin/<program>, then written over the selected partition.  Boot
+# files and Wi-Fi firmware are installed at the same time so this target has
+# the same complete-SD-card semantics as install-rpi3.
+#
+# WARNING: RPI3_EXT2_DEV is overwritten by fs_ext2.img.
+.PHONY: populate-ext2root-image
+populate-ext2root-image: $(EXT2_IMAGE) $(UPROGS)
+	@{ echo "mkdir bin"; \
+	   for f in $(UPROGS); do n=$${f#$U/_}; echo "rm bin/$$n"; echo "write $$f bin/$$n"; done; \
+	   echo "rm init"; echo "write $U/_init init"; } > ext2root.debugfs
+	$(DEBUGFS) -w -f ext2root.debugfs "$(EXT2_IMAGE)" > ext2root.log 2>&1
+	@# debugfs exits 0 even when a "write" fails; without /init the kernel
+	@# mounts the ext2 root and then panics with "init exiting".
+	@if grep -q "while opening" ext2root.log; then \
+		echo "error: debugfs could not copy some programs into $(EXT2_IMAGE):" 1>&2; \
+		grep -B1 "while opening" ext2root.log 1>&2; exit 1; \
+	fi
+	@$(DEBUGFS) -R "stat /init" "$(EXT2_IMAGE)" 2>/dev/null | grep -q "Type: regular" || { \
+		echo "error: $(EXT2_IMAGE) has no regular file /init" 1>&2; exit 1; }
+	@echo "populated $(EXT2_IMAGE): /init and $(words $(UPROGS)) programs in /bin"
+
 .PHONY: install-rpi3-ext2root
-install-rpi3-ext2root: $(UPROGS)
+install-rpi3-ext2root: $(KERNEL_IMAGE) populate-ext2root-image config.txt cmdline_xv6.txt
 	@test -n "$(RPI3_EXT2_DEV)" || { \
 		echo "error: set RPI3_EXT2_DEV to the ext2 partition, never the whole disk" 1>&2; \
-		echo "example: make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3" 1>&2; \
+		echo "example: make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s2" 1>&2; \
 		exit 1; \
 	}
 	@case "$(RPI3_EXT2_DEV)" in \
@@ -317,13 +373,57 @@ install-rpi3-ext2root: $(UPROGS)
 		echo "error: $(RPI3_EXT2_DEV) does not exist" 1>&2; \
 		exit 1; \
 	}
-	@{ echo "mkdir bin"; \
-	   for f in $(UPROGS); do n=$${f#$U/_}; echo "rm bin/$$n"; echo "write $$f bin/$$n"; done; \
-	   echo "rm init"; echo "write $U/_init init"; } > ext2root.debugfs
-	$(SUDO) $(DEBUGFS) -w -f ext2root.debugfs "$(RPI3_EXT2_DEV)" > ext2root.log 2>&1
+	@test -d "$(RPI3_BOOTFS)" || { \
+		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
+		exit 1; \
+	}
+	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
+	$(SUDO) cp -f cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline_xv6.txt"   # xv6 root=; cmdline.txt stays the firmware's
+	@if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.bin" "$(RPI3_BOOTFS)/BCM43430.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.txt" "$(RPI3_BOOTFS)/BCM43430.TXT"; \
+		if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.clm_blob"; then \
+			$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43430-sdio.clm_blob" "$(RPI3_BOOTFS)/BCM43430.CLM"; \
+		fi; \
+		echo "installed BCM43430 firmware files -> $(RPI3_BOOTFS)"; \
+	else \
+		echo "BCM43430 firmware not installed (BIN/TXT required; set WIFI_FIRMWARE_DIR=...)"; \
+	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.bin" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.txt" && \
+	    test -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.clm_blob"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.bin" "$(RPI3_BOOTFS)/BCM43455.BIN"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.txt" "$(RPI3_BOOTFS)/BCM43455.TXT"; \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/brcmfmac43455-sdio.clm_blob" "$(RPI3_BOOTFS)/BCM43455.CLM"; \
+		echo "installed BCM43455 firmware files -> $(RPI3_BOOTFS)"; \
+	fi
+	@if test -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin"; then \
+		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/mt7601u.bin" "$(RPI3_BOOTFS)/MT7601U.BIN"; \
+		echo "installed MT7601U firmware -> $(RPI3_BOOTFS)/MT7601U.BIN"; \
+	else \
+		echo "MT7601U firmware not installed (set WIFI_FIRMWARE_DIR=...)"; \
+	fi
+	$(SUDO) cp -f $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
+		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; \
+		exit 1; \
+	}
+	@cmp -s config.txt "$(RPI3_BOOTFS)/config.txt" || { \
+		echo "error: installed config.txt differs from workspace" 1>&2; \
+		exit 1; \
+	}
+	@cmp -s cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline_xv6.txt" || { \
+		echo "error: installed cmdline_xv6.txt differs from workspace" 1>&2; \
+		exit 1; \
+	}
+	$(SUDO) dd if=$(EXT2_IMAGE) of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
 	sync
-	@echo "installed /init and $(words $(UPROGS)) programs in /bin of $(RPI3_EXT2_DEV)"
-	@echo "boot it with cmdline_xv6.txt: root=/dev/mmcblk0p3 rootfstype=ext2"
+	@echo "installed $(KERNEL_IMAGE) -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
+	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 root partition)"
+	@echo "installed config.txt -> $(RPI3_BOOTFS)/config.txt (firmware armstub8)"
+	@echo "installed cmdline_xv6.txt -> $(RPI3_BOOTFS)/cmdline_xv6.txt"
+	@echo "boot it with cmdline_xv6.txt: root=/dev/mmcblk0p2 rootfstype=ext2"
 
 $U/initcode: $U/initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
@@ -421,6 +521,7 @@ UPROGS=\
 	$U/_zombie\
 	$U/_camshot\
 	$U/_camserver\
+	$U/_mousetest\
 	$U/_chrt\
 	$U/_taskset\
 	$U/_nice\
@@ -429,6 +530,12 @@ UPROGS=\
 	$U/_spin\
 	$U/_threadtest\
 	$U/_posixtest\
+
+# populate-ext2root-image is defined above, before UPROGS exists; make
+# expands prerequisites when it reads a rule, so that rule's $(UPROGS) was
+# empty and the programs were never built.  Add them here, after UPROGS.
+populate-ext2root-image: $(UPROGS)
+
 
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)

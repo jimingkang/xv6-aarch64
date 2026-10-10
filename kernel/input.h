@@ -5,6 +5,7 @@
 
 #define EV_SYN 0
 #define EV_KEY 1
+#define EV_REL 2
 
 #define SYN_REPORT  0
 #define SYN_DROPPED 3
@@ -76,7 +77,17 @@
 #define KEY_DOWN      108
 #define KEY_LEFTMETA  125
 #define KEY_RIGHTMETA 126
-#define KEY_MAX       255
+#define BTN_LEFT      272
+#define BTN_RIGHT     273
+#define BTN_MIDDLE    274
+#define BTN_SIDE      275
+#define BTN_EXTRA     276
+#define KEY_MAX       767
+
+#define REL_X           0
+#define REL_Y           1
+#define REL_WHEEL       8
+#define REL_MAX        15
 
 #define INPUT_KEY_WORDS ((KEY_MAX + 32) / 32)
 #define INPUT_MAX_DEVICES 4
@@ -118,6 +129,7 @@ struct input_dev {
   uint16 version;
   void *private;
   uint32 keybit[INPUT_KEY_WORDS];
+  uint32 relbit;
   uint32 keystate[INPUT_KEY_WORDS];
   struct evdev_client *clients;
   int refs;
@@ -134,6 +146,7 @@ void input_set_capability(struct input_dev *dev, int type, int code);
 int input_register_device(struct input_dev *dev);
 void input_unregister_device(struct input_dev *dev);
 void input_report_key(struct input_dev *dev, int code, int value);
+void input_report_rel(struct input_dev *dev, int code, int value);
 void input_sync(struct input_dev *dev);
 
 #endif

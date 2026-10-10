@@ -1010,7 +1010,17 @@ dhcp_rx(struct net_device *dev, struct ethhdr *eth, uchar *data, int len)
     else if(code == 54 && n >= 4) dhcp.server = dhcp_ip(data + pos);
     pos += n;
   }
-  if(type == 2 || type == 5){
+  // Diagnostic: show every reply for our transaction, including NAKs that
+  // were previously dropped silently (they look like "no acknowledgement").
+  printf("dhcp: rx %s from %x:%x:%x:%x:%x:%x yiaddr=%d.%d.%d.%d%s\n",
+         type == 2 ? "OFFER" : type == 5 ? "ACK" : type == 6 ? "NAK" : "other",
+         eth->src[0], eth->src[1], eth->src[2], eth->src[3], eth->src[4],
+         eth->src[5], (dhcp.yiaddr >> 24) & 255, (dhcp.yiaddr >> 16) & 255,
+         (dhcp.yiaddr >> 8) & 255, dhcp.yiaddr & 255,
+         eth->dst[0] == 0xff ? " (broadcast)" : " (unicast)");
+  // A late/duplicate OFFER must not overwrite an ACK the waiter has not
+  // seen yet.
+  if((type == 2 && dhcp.type != 5) || type == 5){
     dhcp.type = type;
     memmove(dhcp.server_mac, eth->src, ETH_ADDR_LEN);
   }

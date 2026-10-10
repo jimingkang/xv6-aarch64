@@ -582,6 +582,93 @@ channel。排错阶段曾使用 `dwc2 ch6 p=... int=... uf=... issue=... age=...
 ssack=...` 比较 channel enable、SSPLIT ACK 和 NYET 的counter；最终版本已把
 这类中间日志移出实时路径，只保留不会影响CSPLIT期限的 `ch6 final`。
 
+## USB HID Boot Mouse
+
+输入子系统现已加入 USB HID Boot Mouse（HID class 3、subclass 1、protocol
+2）驱动。它与键盘共用 USB bus、URB、DWC2 interrupt-IN 和 evdev 基础设施，
+但使用独立的 `usbmouse_wq` 解析下半部：
+
+```mermaid
+flowchart LR
+    M[USB boot mouse] -->|interrupt-IN report| U[DWC2 channel 6 DMA/IRQ]
+    U --> R[URB completion]
+    R --> W[usbmouse_wq / rx_work]
+    W --> K[EV_KEY BTN_LEFT/RIGHT/MIDDLE/SIDE/EXTRA]
+    W --> X[EV_REL REL_X/REL_Y/REL_WHEEL]
+    K --> S[input_sync / SYN_REPORT]
+    X --> S
+    S --> E[/dev/input/eventN]
+```
+
+Boot Mouse report 至少三个字节：按钮位图、X 相对位移和 Y 相对位移；第四
+字节存在时作为滚轮相对位移。驱动先发送 `SET_PROTOCOL(boot)`，不依赖鼠标
+厂商的 report descriptor；IRQ completion 只提交 work，事件解析和 URB 重新
+提交均在 `usbmouse_wq` 进程上下文执行。
+
+input/evdev 同时从单一 `event0` 扩展为 `event0..event3`。所有节点仍共用 major
+`INPUT` 和同一份 `evdev_fops`，`struct file.minor` 选择
+`devices[minor]`，`file.private_data` 保存本次 open 独立的 `evdev_client`。
+键盘或鼠标按注册顺序取得空闲的 event minor。
+
+测试鼠标：
+
+```sh
+ls /dev/input
+/bin/mousetest /dev/input/event0
+```
+
+若键盘已占用 event0，则鼠标应使用 event1。移动、点击和滚轮分别输出
+`REL_X/REL_Y`、`BTN_*` 和 `REL_WHEEL`，每份 HID report 以 `SYN_REPORT`
+结束。成功枚举还应出现：
+
+```text
+dwc2: HID boot mouse handed to usb bus
+input: USB HID Boot Mouse registered as eventN
+usbmouse: IRQ-driven boot mouse ready eventN ep=... mps=... interval=...
+usbmouse: first report buttons=... dx=... dy=... wheel=...
+```
+
+### USB 调试编译开关
+
+USB 调试输出分为枚举和传输两级，默认都为零：
+
+```sh
+# 只查看 DWC2 硬件寄存器、Device/Configuration/Interface/Endpoint
+# descriptor、hub route 和最终选择结果。
+make USB_ENUM_TRACE=1
+
+# 同时查看 interrupt URB submit/giveback 和每份原始鼠标报告。
+make USB_ENUM_TRACE=1 USB_XFER_TRACE=1
+```
+
+`USB_ENUM_TRACE=1` 增加的日志前缀为 `usb-hw:`、`usb-enum:`、
+`usb-core:` 和 `usbmouse-probe:`，包括 DWC2 `GSNPSID/GHWCFG/FIFO`、设备
+VID/PID、USB/device版本、interface class/subclass/protocol、endpoint方向、
+类型、MPS、interval，以及 hub/port/speed route。
+
+`USB_XFER_TRACE=1` 增加 `usb-xfer:` 和 `usbmouse-xfer:`，记录 URB地址、
+设备地址、endpoint、方向、请求/实际长度、status、DMA buffer，以及原始
+`buttons/dx/dy/wheel`。DWC2 control 事务还会显示 `type/request/value/index`，
+同步 bulk 和异步 bulk-RX 会显示 host channel、DATA0/DATA1 toggle、完成长度，
+并限量预览 payload 前 16 字节。这个开关会为每份鼠标报告和大量 MT7601U
+bulk 事务输出日志，只用于短时间调试；串口吞吐会显著降低输入性能。
+
+两个变量写入 `kernel/usb_trace_config.h`。Makefile 比较配置内容后只在值变化
+时替换该文件，所以从 `0` 切换到 `1`（或反向切换）会自动重新编译所有包含
+`usb.h` 的 USB host/core/class driver，不需要先执行 `make clean`。由于 macOS
+GNU Make 3.81 可能只按整秒比较时间戳，内核目标会确定性重编译 6 个 USB
+translation unit；连续快速切换也不会复用上一种模式的旧 `.o`。
+
+DWC2 的 SSPLIT ACK 和同一 frame 内的 CSPLIT/NYET 快速路径仍然禁止
+`printf`。传输日志放在提交前的进程上下文和最终 giveback/鼠标 workqueue，
+不会在必须满足 125 us microframe 截止时间的 IRQ 分支打印。
+
+当前 DWC2 interrupt-IN HCD 仍只有一个全局 URB 请求槽，固定使用 channel 6。
+因此 input core 已能表达多个 event 设备，但 DWC2 还不能让键盘和鼠标的两个
+interrupt-IN URB 同时驻留。现阶段应单独插鼠标验证；键鼠并发需要把
+`interrupt_rx` 改为至少两个按 host channel 索引的请求槽，并让枚举器注册
+所有 HID interface，而不是遇到第一个 Boot HID 后停止。
+
 进一步采样出现了 `p=0 int=0x22` 与 `p=1 int=0x42` 交替，但同时暴露出
 worker 延迟：SSPLIT 从 issue 到 IRQ 只经过 0--1 microframe，而 worker 写入
 `ssack` 时已过去数十个 microframe。为此，中间 split 调度不再经过进程调度器：
