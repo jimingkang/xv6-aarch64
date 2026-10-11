@@ -19,6 +19,7 @@
 #include "defs.h"
 #include "device.h"
 #include "input.h"
+#include "module.h"
 
 // Both live in a single kalloc() page.
 _Static_assert(sizeof(struct input_dev) <= PGSIZE, "input_dev too large");
@@ -182,6 +183,10 @@ input_init(void)
   if(register_chrdev(INPUT, "input/event0", &evdev_fops) < 0)
     panic("input chrdev");
 }
+
+// Level subsys: the evdev bridge and /dev/input/event0 exist before any
+// driver gets a chance to register an input device.
+subsys_initcall("input", input_init);
 
 struct input_dev *
 input_allocate_device(void)

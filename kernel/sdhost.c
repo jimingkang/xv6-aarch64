@@ -11,6 +11,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "device.h"
+#include "module.h"
 
 #define SDHOST_BASE     (PERIPHERAL_BASE + 0x00202000UL)
 #define GPIO_BASE       (PERIPHERAL_BASE + 0x00200000UL)
@@ -440,3 +441,6 @@ sd_driver_init(void)
   platform_device_register(&dev);
   platform_driver_register(&drv);
 }
+
+// The external SD card has to be a block device before sdroot mounts it.
+module_init("sdhost", sd_driver_init);

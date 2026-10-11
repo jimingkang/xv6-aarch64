@@ -23,6 +23,7 @@
 #include "mbox.h"
 #include "i2c.h"
 #include "camsensor.h"
+#include "module.h"
 
 #define OV5647_I2C_BUS   0
 #define OV5647_ADDR      0x36
@@ -539,3 +540,6 @@ ov5647_init(void)
 {
   camsensor_register(&ov5647_sensor);
 }
+
+// Order 5: hands the sensor to camsensor.h before unicam binds one.
+module_init_ord("ov5647", ov5647_init, 5);

@@ -21,6 +21,7 @@
 #include "defs.h"
 #include "vfs.h"
 #include "device.h"
+#include "module.h"
 
 extern char etext[];
 extern char end[];
@@ -319,9 +320,10 @@ proc_vstat(char *path, struct stat *st)
   }
   if(streq(path, "/meminfo") || streq(path, "/iomem") ||
      streq(path, "/devices") || streq(path, "/mounts") ||
-     streq(path, "/cmdline")){
+     streq(path, "/cmdline") || streq(path, "/modules")){
     st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 :
-              streq(path, "/devices") ? 4 : streq(path, "/mounts") ? 5 : 6;
+              streq(path, "/devices") ? 4 : streq(path, "/mounts") ? 5 :
+              streq(path, "/cmdline") ? 6 : 7;
     st->type = T_FILE;
     st->size = 2048;
     return 0;
@@ -358,7 +360,7 @@ proc_vread(char *path, uint64 off, void *dst, int n)
   if(streq(path, "/iomem"))
     return proc_memread(1, off, dst, n);
   if(streq(path, "/devices") || streq(path, "/mounts") ||
-     streq(path, "/cmdline")){
+     streq(path, "/cmdline") || streq(path, "/modules")){
     char *page = kalloc();
     int len;
     if(page == 0)
@@ -367,6 +369,8 @@ proc_vread(char *path, uint64 off, void *dst, int n)
       len = device_format(page, PGSIZE);
     else if(streq(path, "/mounts"))
       len = fs_mounts_format(page, PGSIZE);
+    else if(streq(path, "/modules"))
+      len = module_format(page, PGSIZE);
     else {
       safestrcpy(page, cmdline_get_all(), PGSIZE - 1);
       len = strlen(page);
@@ -447,10 +451,17 @@ proc_vreaddir(char *path, int index, void *arg)
                  sizeof(de->name));
       return 1;
     }
+    if(index == 5){
+      de->ino = 7;
+      de->type = T_FILE;
+      de->size = 2048;
+      safestrcpy(de->name, "modules", sizeof(de->name));
+      return 1;
+    }
     int seen = 0;
     for(p = proc_head; p; p = p->next){
       acquire(&p->lock);
-      if(p->state != UNUSED && seen++ == index - 5){
+      if(p->state != UNUSED && seen++ == index - 6){
         pid = p->pid;
         release(&p->lock);
         de->ino = 1000 + pid;
@@ -820,3 +831,6 @@ vfsinit(void)
   netfsinit();
   printf("vfs: one mount table for all filesystems\n");
 }
+
+// Order 6: builds the mount table once every filesystem driver is ready.
+late_initcall_ord("vfs", vfsinit, 6);

@@ -1,0 +1,58 @@
+% 图：一份 HID 报告进入输入子系统后的两条出路（对应 readme「Input Subsystem」流程图）。
+% 上两行是事件路径（evdev），最后一行是字符路径（控制台）。
+\definecolor{inpathA}{RGB}{240,248,255}
+\definecolor{inpathB}{RGB}{245,255,245}
+\definecolor{inpathC}{RGB}{255,245,238}
+\begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+    inode/.style={draw=structurecolor!70!black,fill=structurecolor!7,
+      rounded corners=1.5pt,align=center,text width=30mm,minimum height=12mm,
+      inner sep=2pt},
+    iend/.style={draw=green!45!black,fill=green!9,rounded corners=1.5pt,
+      align=center,text width=30mm,minimum height=12mm,inner sep=2pt},
+    iout/.style={draw=orange!70!black,fill=orange!10,rounded corners=1.5pt,
+      align=center,text width=30mm,minimum height=12mm,inner sep=2pt},
+    iarr/.style={-{Stealth[length=1.8mm]},line width=.6pt,
+      draw=structurecolor!85!black},
+    icore/.style={-{Stealth[length=1.8mm]},line width=.6pt,draw=green!45!black},
+    ichar/.style={-{Stealth[length=1.8mm]},line width=.6pt,draw=orange!75!black},
+    itag/.style={anchor=west,font=\scriptsize\bfseries,text=structurecolor!80!black},
+    ilab/.style={fill=white,inner sep=1pt,font=\tiny,align=center}]
+  \begin{scope}[on background layer]
+    \fill[inpathA,rounded corners=2pt] (-19,-11) rectangle (125,12);
+    \fill[inpathB,rounded corners=2pt] (-19,21) rectangle (125,46);
+    \fill[inpathC,rounded corners=2pt] (-19,55) rectangle (162,80);
+  \end{scope}
+  \node[itag] at (-17,-8) {类驱动 $\rightarrow$ input core（事件路径的上半段）};
+  \node[itag] at (-17,24) {input core $\rightarrow$ evdev：每个读者一份队列};
+  \node[itag] at (-17,58) {input core $\rightarrow$ 控制台：复用串口的全部行规程};
+
+  % ---- 第一行：HID 解析到 input_report_key
+  \node[inode] (n1) at (0,2) {DWC2 URB\\completion};
+  \node[inode] (n2) at (36,2) {\file{usbkbd.c} 解析\\比较新旧 8 字节报告};
+  \node[inode] (n3) at (72,2) {HID usage $\rightarrow$\\Linux \code{KEY\_*}};
+  \node[inode] (n4) at (108,2) {\code{input\_report\_key}\\value＝1／0};
+  \draw[iarr] (n1) -- (n2);
+  \draw[iarr] (n2) -- (n3);
+  \draw[iarr] (n3) -- (n4);
+
+  % ---- 第二行：input core 到 /dev/input/eventN
+  \node[inode] (n5) at (0,36) {\code{input\_dev} 键状态\\与事件去重};
+  \node[inode] (n6) at (36,36) {\code{input\_sync()}\\一个 \code{SYN\_REPORT} 一帧};
+  \node[inode] (n7) at (72,36) {evdev 环形队列\\溢出插 \code{SYN\_DROPPED}};
+  \node[iend] (n8) at (108,36) {\code{/dev/input/eventN}\\用户 \code{read()} 到事件};
+  \draw[icore] (n4.south) -- ++(0,6) -| (n5.north);
+  \draw[icore] (n5) -- (n6);
+  \draw[icore] (n6) -- (n7);
+  \draw[icore] (n7) -- (n8);
+
+  % ---- 第三行：字符路径
+  \node[iout] (c1) at (36,69) {查 \code{keymap}/\code{shiftmap}\\
+    Shift、Caps Lock、\code{Ctrl}};
+  \node[iout] (c2) at (72,69) {\code{consoleintr(ch)}\\与 UART 同一条路径};
+  \node[iout] (c3) at (108,69) {xv6 console／TTY 行规程\\回显、\code{Ctrl-C}、阻塞读};
+  \node[iend] (c4) at (144,69) {前台 shell\\登录与命令行};
+  \draw[ichar] (n3.south) -- ++(0,10) -| node[ilab,left,pos=0.45]{同一份报告\\的第二个消费者} (c1.north);
+  \draw[ichar] (c1) -- (c2);
+  \draw[ichar] (c2) -- (c3);
+  \draw[ichar] (c3) -- (c4);
+\end{tikzpicture}

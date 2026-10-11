@@ -17,6 +17,7 @@
 #include "input.h"
 #include "usb.h"
 #include "workqueue.h"
+#include "module.h"
 
 #define HID_REQ_SET_IDLE      0x0a
 #define HID_REQ_SET_PROTOCOL  0x0b
@@ -209,6 +210,9 @@ usbmouse_driver_init(void)
   init_workqueue(&usbmouse_wq, "usbmouse_wq", 1);
   usb_register_driver(&usbmouse_driver);
 }
+
+// Order 3: same reason as the keyboard, for HID boot mice.
+module_init_ord("usbhid-mouse", usbmouse_driver_init, 3);
 
 void
 usbmouse_driver_exit(void)

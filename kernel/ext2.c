@@ -22,6 +22,7 @@
 #include "stat.h"
 #include "file.h"
 #include "vfs.h"
+#include "module.h"
 
 #define SECTOR 512
 #define EXT2_MAGIC 0xef53
@@ -960,6 +961,9 @@ ext2init(void)
   if(!found) printf("ext2: no Linux partition; disabled\n");
   else printf("ext2: no compatible ext2 partition; disabled\n");
 }
+
+// Order 5: scans the raw root partition, so it comes after sdroot.
+late_initcall_ord("ext2", ext2init, 5);
 
 int
 ext2ready(void)

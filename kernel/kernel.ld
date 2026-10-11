@@ -24,6 +24,24 @@ SECTIONS
     *(.rodata .rodata.*)
   }
 
+  /*
+   * Built-in driver modules.  module_init() and friends emit one read-only
+   * struct module_desc into .initcall.list, so a driver can register its
+   * boot entry point without main() or the Makefile knowing about it.
+   * do_initcalls() walks [__initcall_start, __initcall_end).
+   *
+   * This must stay above PROVIDE(end = .): kalloc hands out RAM from end
+   * upward, so a section placed after end would be recycled and the table
+   * silently corrupted.
+   */
+  .initcall : {
+    . = ALIGN(8);
+    PROVIDE(__initcall_start = .);
+    *(.initcall.list)
+    . = ALIGN(8);
+    PROVIDE(__initcall_end = .);
+  }
+
   .data : {
     . = ALIGN(16);
     *(.sdata .sdata.*) /* do not need to distinguish this from .data */

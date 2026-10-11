@@ -159,7 +159,7 @@ REGS_AUX->mu_control = 3;              // 打开收发
 \section{USB 与 HID 键盘}
 \label{sec:usb}
 
-USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚。
+USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚：先看硬件路径和三层软件的分工，再顺着描述符与 control 传输完成枚举，然后处理高速 Hub 后面低速设备的 split 时序，接着用 URB 和中断把一份按键报告送到输入子系统与 \code{/dev/input/eventN}，最后补上 Hub 中断驱动的热插拔，以及真机上从 STALL 走到第一份报告的九个阶段。
 
 \subsection{三层软件与硬件路径}
 
@@ -170,6 +170,27 @@ USB 驱动分三层：
   \item \textbf{USB core}（\file{kernel/usb.c}）：\code{struct usb\_device}、按 ID 或接口类别匹配驱动、Linux 风格的 URB 接口；
   \item \textbf{类驱动}：HID 键盘（\file{usbkbd.c}）、CDC-ECM 网卡（\file{usbnet.c}，用于 QEMU）、MT7601U 无线网卡（\file{mt7601u.c}）。
 \end{itemize}
+
+一份按键从键盘走到用户进程，要穿过这样一条链：
+
+\begin{txtcode}
+USB 键盘（低速 1.5 Mb/s）
+  -> LAN951x 高速 Hub（TT 完成速率转换）
+  -> DWC2 主机控制器（ch6 interrupt-IN + DMA）
+  -> USB bus：struct usb_device
+  -> HID Boot Keyboard 类驱动（usbkbd.c）
+  -> input core：struct input_dev
+      +-> evdev -> /dev/input/eventN
+      +-> 控制台处理 -> consoleintr()
+          -> xv6 console/TTY 行规程
+          -> /dev/ttyS0 或前台 shell 的 read()
+\end{txtcode}
+
+末尾分出的两支是关键。键盘输入并不直接写用户进程的缓冲区：\file{usbkbd.c}
+把 HID usage 转换成字符后调用 \code{consoleintr()}，于是串口驱动已经具备的回显、
+退格、\code{Ctrl-C}、阻塞读和唤醒语义被整套复用；同一份报告另外生成原始按键
+事件，进入 \code{/dev/input/eventN}。一份 HID 报告、两个消费者，这条分发路径
+在 \ref{sec:usb-input} 小节展开。
 
 \begin{figure}[htbp]
   \centering
@@ -371,7 +392,21 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
   \end{tabularx}
 \end{table}
 
-先取 8 字节再取 18 字节是 USB 枚举的惯例：在知道端点 0 的最大包长之前，只能假定它是最小的 8 字节，而设备描述符第 7 字节正好告诉我们真实值。端口状态的例子：真机日志里 Hub port 3 是 \code{0x301}（供电、低速、已连接），复位后变成 \code{0x303}（多了“使能”）。根 Hub 和嵌套的 Hub 用同一套请求递归扫描，深度限制为两层，防止一个异常的拓扑让启动无限递归。
+先取 8 字节再取 18 字节是 USB 枚举的惯例：在知道端点 0 的最大包长之前，只能假定它是最小的 8 字节，而设备描述符第 7 字节正好告诉我们真实值。端口状态的例子：真机日志里 Hub port 3 是 \code{0x301}（供电、低速、已连接），复位后变成 \code{0x303}（多了“使能”）；根 Hub 和端口上电之后并不是只读一次状态，而是在复位枚举前最多等 500\,ms，让 \code{PORT\_CONNECTION} 稳定下来，冷启动较慢的 Hub、无线键盘接收器和低速键盘都靠这段去抖时间。如果等满之后仍然是 \code{0x100}，含义是控制器只看到 \code{PORT\_POWER}，线上并没有设备的电气连接——此时 HID 驱动和 ch6 都还没有参与，不该往协议层去找原因。根 Hub 和嵌套的 Hub 用同一套请求递归扫描，深度限制为两层，防止一个异常的拓扑让启动无限递归。扫描到的端点属性按 USB 地址记录在 \code{usb\_ep0\_mps[]} 里，Hub、低速键盘和鼠标不再共用一个全局的端点 0 包长。
+
+把这一整套判断画成控制流就是图~\ref{fig:usb-enum-flow}。它有五个阶段，值得注意的不是步骤本身，而是三处\emph{分支判据}：class 9 决定要不要扫描下游端口，端口状态决定这个端口是否继续，class/subclass/protocol 决定这个接口是不是 Boot Keyboard。递归那一跳（子 Hub 回到端口扫描）和低速那一支（\code{LSPDDEV} 加 split 事务）是真机上最容易出错的两处——前者决定嵌套 Hub 能不能被发现，后者决定 EP0 的每个包要不要单独走一遍 SSPLIT/CSPLIT。
+
+\begin{figure}[p]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \input{chapters/fig-usb-enum-flow}
+  }
+  \caption{USB 键盘枚举与配置的决策流程。从上到下是五个阶段：控制器上电、识别 Hub
+  并供电、扫描端口与判速、描述符与接口匹配、注册绑定与武装 interrupt-IN。橙色框是判断，
+  灰色框是提前退出的分支，虚线表示递归与低速分支。整条链上只有地址、配置和接口三类判断
+  与“这是一只键盘”有关，其余部分对任何 USB 设备都一样}
+  \label{fig:usb-enum-flow}
+\end{figure}
 
 \code{SET\_PROTOCOL(boot)} 很关键。HID 设备本来用“报告描述符”描述自己的报告格式，解析它需要一个不小的解释器；而 Boot 协议是 BIOS 时代为了不解析报告描述符而规定的固定格式，所有键盘都必须支持。用它，驱动只需理解图~\ref{fig:hid-report} 这 8 个字节。
 
@@ -394,77 +429,24 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
 最后，\code{usb\_device\_register()} 把设备交给 USB 总线，总线按 class/subclass/protocol 匹配到 \code{usbhid-keyboard} 驱动，调用 \code{usbkbd\_probe()}：发送上面两个 HID 请求，分配每设备的 \code{usbkbd\_state} 和 URB，注册 \code{input\_dev}，然后第一次提交 URB。
 
 图~\ref{fig:usb-hid-enum-sequence}把前面的描述符、control 请求、split
-transaction 和 input 注册串成一条时间线：前半段在 ch0 上完成枚举，后半段把
-低速键盘的周期 interrupt-IN 固定交给 ch6；ch7 则独立监听根 Hub 的端口变化。
+transaction 和 input 注册串成一条时间线：开机时四个端口都空载，控制器把 ch7
+挂在 Hub 的 interrupt-IN 上等待热插拔；插入 port 3 之后由端口变化中断触发
+reprobe，低速键盘的 EP0 枚举全部经 Hub 的 TT 拆成 SSPLIT/CSPLIT；驱动绑定完成
+后，周期 interrupt-IN 固定交给 ch6，直到某个按键的 HID 报告变成用户空间的事件。
 
 \begin{figure}[p]
   \centering
   \resizebox{\linewidth}{!}{%
-  \begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
-      participant/.style={draw=structurecolor!75!black,fill=structurecolor!12,
-        rounded corners=1.5pt,align=center,text width=25mm,minimum height=10mm},
-      lifeline/.style={gray!65,dashed,line width=.45pt},
-      seqcall/.style={-{Stealth[length=1.6mm]},line width=.55pt,
-        draw=structurecolor!85!black},
-      seqret/.style={-{Stealth[length=1.6mm]},dashed,line width=.5pt,
-        draw=structurecolor!75!black},
-      msg/.style={fill=white,inner sep=1pt,align=center,font=\tiny},
-      stage/.style={anchor=west,font=\scriptsize\bfseries,
-        text=structurecolor!80!black}]
-    \node[participant] at (0,0) {DWC2 控制器\\Host};
-    \node[participant] at (34,0) {Root Hub\\根集线器};
-    \node[participant] at (68,0) {External Hub\\Addr 2};
-    \node[participant] at (102,0) {USB Keyboard\\Addr 0 $\rightarrow$ 4};
-    \node[participant] at (136,0) {xv6/Linux 风格\\Input 子系统};
-    \foreach \x in {0,34,68,102,136}
-      \draw[lifeline] (\x,5) -- (\x,190);
-    \begin{scope}[on background layer]
-      \fill[blue!5,rounded corners=2pt] (-15,11) rectangle (151,38);
-      \fill[orange!7,rounded corners=2pt] (-15,40) rectangle (151,70);
-      \fill[green!7,rounded corners=2pt] (-15,72) rectangle (151,95);
-      \fill[orange!5,rounded corners=2pt] (-15,97) rectangle (151,145);
-      \fill[red!4,rounded corners=2pt] (-15,147) rectangle (151,189);
-    \end{scope}
-    \node[stage] at (-13,13) {阶段 1：控制器初始化与根集线器};
-    \draw[seqcall] (0,18) -- node[msg,above]{HCD Power On；打开 host-channel IRQ} (0,23);
-    \draw[seqcall] (0,27) -- node[msg,above]{读取 Hub 描述符：class 9，4 ports} (34,27);
-    \draw[seqcall] (0,34) -- node[msg,above]{提交 interrupt-IN URB：EP1，$bInterval=12$\\高速编码对应约 256\,ms} (34,34);
-    \node[stage] at (-13,42) {阶段 2：发现外部集线器（Root Hub port 1）};
-    \draw[seqret] (34,48) -- node[msg,above]{IRQ：port 1 change，status \code{0x0101}} (0,48);
-    \draw[seqcall] (0,54) -- node[msg,above]{复位 port 1} (34,54);
-    \draw[seqret] (34,60) -- node[msg,above]{status \code{0x0503}：enabled，high speed} (0,60);
-    \draw[seqcall] (0,66) -- node[msg,above]{枚举 Hub，分配 addr 2；读取 3 个端口} (68,66);
-    \node[stage] at (-13,74) {阶段 3：发现键盘（External Hub port 3）};
-    \draw[seqret] (68,80) -- node[msg,above]{interrupt bitmap：port 3 change} (0,80);
-    \draw[seqcall] (0,86) -- node[msg,above]{GET\_STATUS；复位 port 3} (68,86);
-    \draw[seqret] (68,92) -- node[msg,above]{status \code{0x0303}：enabled，low speed\\建立 route：hub 2 / port 3 / TT} (0,92);
-    \node[stage] at (-13,99) {阶段 4：EP0 控制枚举（Split Transaction，初始 addr 0）};
-    \draw[seqcall] (0,105) -- node[msg,above]{SSPLIT：GET\_DESCRIPTOR(Device)} (68,105);
-    \draw[seqcall] (68,111) -- node[msg,above]{低速 EP0：先取前 8 bytes} (102,111);
-    \draw[seqret] (68,117) -- node[msg,above]{CSPLIT：返回 8 bytes，得到 MPS0} (0,117);
-    \draw[seqcall] (0,123) -- node[msg,above]{SSPLIT：SET\_ADDRESS(4)} (68,123);
-    \draw[seqcall] (68,129) -- node[msg,above]{低速 SET\_ADDRESS；之后使用 addr 4} (102,129);
-    \draw[seqcall] (0,135) -- node[msg,above]{SSPLIT：GET\_DESCRIPTOR(Configuration)} (68,135);
-    \draw[seqcall] (68,140) -- node[msg,above]{读取配置、HID interface 与 interrupt EP} (102,140);
-    \draw[seqret] (68,144) -- node[msg,above]{CSPLIT 返回；随后 SET\_CONFIGURATION} (0,144);
-    \node[stage] at (-13,149) {阶段 5：驱动绑定与按键 interrupt-IN};
-    \draw[seqcall] (0,155) -- node[msg,above]{匹配 HID Boot Keyboard；probe} (136,155);
-    \draw[seqcall] (136,161) -- node[msg,above]{注册 \code{event0}；提交 8-byte URB} (0,161);
-    \draw[seqcall] (0,167) -- node[msg,above]{配置 ch6：addr 4，EP1，MPS 8\\SSPLIT：IN token} (68,167);
-    \draw[seqcall] (68,173) -- node[msg,above]{低速 IN token} (102,173);
-    \draw[seqret] (102,178) -- node[msg,above]{HID report：modifier / reserved / key1--6} (68,178);
-    \draw[seqret] (68,183) -- node[msg,above]{CSPLIT：返回按键数据} (0,183);
-    \draw[seqcall] (0,188) -- node[msg,above]{完成回调 $\rightarrow$ workqueue $\rightarrow$ input event} (136,188);
-    \node[msg,anchor=east] at (151,193) {ch7 始终监听 Root Hub 热插拔；ch6 每次完成后重新提交};
-  \end{tikzpicture}
+  \input{chapters/fig-usbkbd-hotplug-seq}
   }
-  \caption{DWC2 经两级 Hub 枚举低速 HID 键盘并进入中断接收的时序。Root Hub 的
-  ch7 interrupt-IN只报告端口变化，worker 才按变化位读取端口状态；键盘 ch6
-  通过外部 Hub 的 TT 执行 SSPLIT/CSPLIT，最终由输入子系统发布事件}
+  \caption{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。
+  ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT
+  经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子
+  系统发布为事件}
   \label{fig:usb-hid-enum-sequence}
 \end{figure}
 
-% 图 7.6 是总线报文时序；先将其排完，再给出同一过程的软件调用链，
+% 先把总线报文时序图（fig:usb-hid-enum-sequence）排完，再给出同一过程的软件调用链，
 % 避免协议层消息和 C 函数调用挤在一张图中。
 \clearpage
 
@@ -472,6 +454,7 @@ transaction 和 input 注册串成一条时间线：前半段在 ch0 上完成�
 图~\ref{fig:usb-hid-enum-sequence}回答的是“USB 线上先后发送了什么”，
 图~\ref{fig:usb-hid-enum-call-chain}则回答“这些报文由哪一个 C 函数发起、
 设备何时进入通用设备模型，以及键盘的 interrupt-IN 请求最终在哪里启动”。
+图中同一行的浅灰等宽字是这一步对应的串口日志，把函数调用与真机实际输出逐行对齐。
 启动代码先注册 USB 总线与类驱动，随后注册 DWC2 platform 设备和驱动；因此
 \code{dwc2\_probe()}发现并注册 USB 设备时，\code{device\_register()}可以立即
 找到已经存在的 \code{usbkbd\_driver} 并完成绑定。
@@ -491,7 +474,9 @@ transaction 和 input 注册串成一条时间线：前半段在 ch0 上完成�
       phase/.style={anchor=west,font=\scriptsize\bfseries,
         text=structurecolor!80!black},
       state/.style={draw=orange!65!black,fill=orange!8,rounded corners=1pt,
-        align=left,font=\tiny,inner sep=2pt}]
+        align=left,font=\tiny,inner sep=2pt},
+      log/.style={font={\ttfamily\fontsize{4.8}{5.6}\selectfont},align=left,
+        text=structurecolor!45!black,anchor=west,inner sep=0pt}]
     \node[participant] at (0,0) {\code{main.c}\\启动与 platform 总线};
     \node[participant] at (45,0) {\code{dwc2.c}\\Host Controller Driver};
     \node[participant] at (90,0) {\code{usb.c}/\code{device.c}\\USB 核心与设备模型};
@@ -511,22 +496,33 @@ transaction 和 input 注册串成一条时间线：前半段在 ch0 上完成�
     \draw[call] (0,36) -- node[callmsg,above]{\code{dwc2\_driver\_init()}：注册 platform device/driver} (90,36);
     \draw[call] (90,44) -- node[callmsg,above]{\code{bind()} $\rightarrow$ \code{dwc2\_probe()}} (45,44);
     \draw[call] (45,50) -- node[callmsg,above]{初始化锁、IRQ work、\code{dwc2\_periodic\_wq}；调用 \code{dwc2\_init()}} (45,50);
+    \node[log] at (78,50) {dwc2: firmware USB HCD power on};
 
     \node[phase] at (-16,56) {B. ch0 同步控制传输：初始化根 Hub};
     \draw[call] (45,62) -- node[callmsg,above]{\code{usb\_firmware\_power\_on()}；core reset；host/DMA/IRQ enable} (45,62);
+    \node[log] at (78,62) {dwc2: host-channel IRQ enabled};
     \draw[call] (45,70) -- node[callmsg,above]{root port power/reset；\code{get\_device\_descriptor(0)}} (45,70);
+    \node[log] at (76,70) {dwc2: host hprt=100f hcfg=0 hfnum=1b1b009d\\
+      dwc2: root device class=9 vid=424 pid=9514 mps=64};
     \node[state,anchor=west] at (55,75) {所有 EP0 请求最终进入：\\
       \code{control()} $\rightarrow$ \code{channel\_xfer(ch0)}\\
       setup $\rightarrow$ data $\rightarrow$ status 三阶段};
     \draw[call] (45,91) -- node[callmsg,above]{\code{SET\_ADDRESS(1)}} (45,91);
     \draw[call] (45,99) -- node[callmsg,above]{GET config(9/full) $\rightarrow$ SET\_CONFIGURATION\\GET hub descriptor $\rightarrow$ 各端口 SET\_FEATURE(POWER)} (45,99);
+    \node[log] at (78,99) {dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4};
 
     \node[phase] at (-16,108) {C. 递归扫描 Hub，建立路由并配置键盘};
     \draw[call] (45,115) -- node[callmsg,above]{逐端口 GET\_STATUS $\rightarrow$ PORT\_RESET $\rightarrow$ 等待 enabled} (45,115);
+    \node[log] at (78,115) {dwc2: hub port 1 status=101 change=1\\
+      dwc2: hub port 3 status=100 change=0};
     \draw[call] (45,123) -- node[callmsg,above]{填写临时 \code{usb\_route[0]}：parent hub / port / speed / TT} (45,123);
+    \node[log] at (78,123) {dwc2: hub port 1 after-reset status=503 speed=high};
     \draw[call] (45,131) -- node[callmsg,above]{addr 0：GET device descriptor $\rightarrow$ SET\_ADDRESS(child)} (45,131);
+    \node[log] at (78,131) {dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8};
     \draw[call] (45,139) -- node[callmsg,above]{若 class 9：\code{find\_boot\_input\_below\_hub()} 递归\\否则 GET config(9/full)，解析 interface 3/1/1 与 interrupt-IN EP} (45,139);
     \draw[call] (45,147) -- node[callmsg,above]{SET\_CONFIGURATION；填充 \code{usb\_child} 与最终 \code{usb\_route[addr]}} (45,147);
+    \node[log] at (78,147) {dwc2: HID boot keyboard handed to usb bus\\
+      dwc2: event-driven hub hotplug v2 scheduled on channel 7};
 
     \node[phase] at (-16,153) {D. 注册、匹配、probe，并提交第一只键盘 URB};
     \draw[call] (45,160) -- node[callmsg,above]{\code{usb\_device\_register(\&usb\_child)}} (90,160);
@@ -534,16 +530,19 @@ transaction 和 input 注册串成一条时间线：前半段在 ch0 上完成�
     \draw[call] (90,177) -- node[callmsg,above]{\code{usb\_probe()} $\rightarrow$ \code{usbkbd\_probe(udev)}} (135,177);
     \draw[call] (135,185) -- node[callmsg,above]{分配 \code{usbkbd\_state}/\code{input\_dev}/\code{urb}\\SET\_PROTOCOL(boot)，SET\_IDLE(0)} (135,185);
     \draw[call] (135,194) -- node[callmsg,above]{\code{input\_register\_device()} $\rightarrow$ \code{event0}\\\code{usb\_fill\_int\_urb()}} (135,194);
+    \node[log,anchor=east] at (112,194) {input: USB HID Boot Keyboard registered as event0};
     \draw[call] (135,202) -- node[callmsg,above]{\code{usb\_submit\_urb()}} (90,202);
+    \node[log,anchor=west] at (-16,202) {usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10};
     \draw[call] (90,208) -- node[callmsg,above]{\code{udev->ops->submit\_urb()} $\rightarrow$ \code{dwc2\_submit\_urb()}} (45,208);
-    \node[state,anchor=north east] at (43,213) {配置 ch6：DMA buffer、HCINTMSK、HAINTMSK、HCCHAR\\并使能 channel；另由 \code{dwc2\_start\_hub\_monitor()} 用 ch7 监听热插拔};
+    \node[state,anchor=north east] at (43,213) {配置 ch6：DMA buffer、HCINTMSK、HAINTMSK、HCCHAR\\并使能 channel；另由 \code{dwc2\_start\_hub\_monitor()} 用 ch7 监听热插拔\\
+      {\color{structurecolor!45!black}\ttfamily\fontsize{4.8}{5.6}\selectfont dwc2: ch6 armed addr=4 ep=1 split=...}};
   \end{tikzpicture}
   }
-  \caption{USB 键盘枚举与配置的软件函数调用链。图~\ref{fig:usb-hid-enum-sequence}
-  中的描述符和配置请求都由 \code{control()} 经 ch0 同步完成；设备完成
-  \code{SET\_CONFIGURATION} 后才进入 USB 设备模型。类驱动的 \code{probe()}
-  注册 \code{event0} 并提交 interrupt URB，最后由 \code{dwc2\_submit\_urb()}
-  把逻辑端点 EP1 映射到本机 host channel 6}
+  \caption{USB 键盘枚举与配置的软件函数调用链；同一行的浅灰等宽字是这一步实际打印的串口
+  日志，可与真机输出逐行对照。图中的描述符和配置请求都由 \code{control()} 经 ch0
+  同步完成；设备完成 \code{SET\_CONFIGURATION} 后才进入 USB 设备模型，类驱动的
+  \code{probe()} 注册 \code{event0}，最后由 \code{dwc2\_submit\_urb()} 把逻辑端点
+  EP1 映射到本机 host channel 6}
   \label{fig:usb-hid-enum-call-chain}
 \end{figure}
 
@@ -663,6 +662,22 @@ wr(HCCHAR(6), HCCHAR_DEVADDR(addr) | HCCHAR_EPNUM(ep) | HCCHAR_EPTYPE(EPTYPE_INT
 req->last_issue_frame = rd(HFNUM) & 0x3fff;    // 记下发出时的微帧号
 \end{ccode}
 
+把一次按键的完整所有权转移摊开，是这样一条链：
+
+\begin{txtcode}
+usbkbd_probe()
+  -> usb_alloc_urb() / usb_fill_int_urb(EP1 IN, 8 字节, interval 10 ms)
+  -> usb_submit_urb(urb)              URB 标记为 submitted，所有权交给 HCD
+  -> udev->ops->submit_urb()          DWC2 配置 ch6 DMA 后立即返回
+  -> HCD 推进 SSPLIT/CSPLIT，有报告时 DMA 写入 buffer
+  -> usb_hcd_giveback_urb(status, actual_length)   所有权交还类驱动
+  -> urb->complete(urb)               usbkbd_irq_complete()
+  -> queue_work(&usbkbd_wq, &kbd->rx_work)   用 urb->context 找回这台键盘
+  -> usbkbd_rx_work() 解析报告，最后再次 usb_submit_urb()
+\end{txtcode}
+
+\paragraph{每设备状态，不是全局单例.} \code{usbkbd\_state} 由 \code{usbkbd\_probe()} 用 \code{kalloc()} 逐设备分配，保存在 \code{udev->dev.driver\_data}，报告缓冲、上一份报告、\code{capslock} 状态、\code{rx\_work}、自己的 \code{kbd->lock}，以及那只 interrupt-IN URB 全在这份私有状态里。完成回调只认 \code{urb->context}，不再依赖一个静态的“当前键盘”。输入设备名 \code{USB HID Boot Keyboard}、\code{phys} 为 \code{usb/dwc2/input0}、bustype、从描述符读到的 VID/PID 也在这里填好，再用 \code{input\_set\_capability()} 把 \code{hid\_to\_key[]} 里所有非零项登记成这台设备支持的按键能力位图。传输、完成回调、work 和生命周期因此都是按设备走的：换一只键盘、再插一只鼠标，用的是同一段类驱动代码，而不是某个被硬编码的设备。
+
 \begin{figure}[htbp]
   \centering
   \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
@@ -701,6 +716,23 @@ req->last_issue_frame = rd(HFNUM) & 0x3fff;    // 记下发出时的微帧号
 
 之后的事全由中断推动（图~\ref{fig:usb-rx}）。\code{dwc2\_irq()} 先交给快速路径 \code{dwc2\_interrupt\_rx\_irq\_fast()}：SSPLIT 的 ACK 和窗口内的 NYET 在这里当场处理——记下当前微帧，忙等到“发出后第 2 个微帧”（最多 500\,$\mu$s），立即重发 CSPLIT——因为它们有微帧级的截止时间，交给任何可调度的线程都来不及。只有最终结果（完成、无数据或错误）才屏蔽 ch6 并 \code{schedule\_work}。HCD 的完成 work 做缓存维护、算实际长度并归还 URB；键盘的完成回调只 \code{queue\_work(kbd->rx\_work)}；\code{usbkbd\_rx\_work()} 在进程上下文里比较新旧报告、上报输入事件、调用 \code{consoleintr()}，最后重新 \code{usb\_submit\_urb()}。硬中断只管微帧时序，公共 \code{system\_wq} 只判定控制器结果，专用 periodic workqueue 只负责到期重试，类驱动自己的 \code{usbkbd\_wq} 只管 HID。
 
+图~\ref{fig:usb-irq-seq} 把同一条路径按时间顺序摊开，并分出两种结果：键盘回
+NAK 时 URB 始终不归还类驱动，只有拿到完整报告才走
+\code{usb\_hcd\_giveback\_urb()}。
+
+\begin{figure}[p]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \input{chapters/fig-usb-irq-seq}
+  }
+  \caption{运行期一次 interrupt-IN 轮询的完整时序。类驱动提交 URB 之后就不再参与：
+  DWC2 与 Hub 的 TT 用 SSPLIT／CSPLIT 完成低速事务，有微帧截止时间的中间事件在硬中断里
+  当场推进。上半段是键盘没有新按键的情况，控制器只登记 \code{bInterval} 期限，到期后由
+  专用 periodic workqueue 重发，URB 不归还类驱动；下半段才是真正的一份报告，依次经过
+  DMA、IRQ、HCD completion、\code{usbkbd\_wq}，最后落到控制台与 \code{event0}}
+  \label{fig:usb-irq-seq}
+\end{figure}
+
 \paragraph{NAK 的无忙等周期重试.} ch6 的最终 IRQ 仍通过
 \code{schedule\_work(\&interrupt\_rx.work)}立即进入公共
 \code{system\_wq}。\code{dwc2\_interrupt\_urb\_work()}调用
@@ -726,17 +758,18 @@ mod_delayed_work(&dwc2_periodic_wq, &interrupt_rx.retry_work,
   \begin{tikzpicture}[x=1mm,y=1mm,font=\scriptsize,
       wqstep/.style={draw=structurecolor!70!black,rounded corners=1pt,
         fill=structurecolor!6,align=center,text width=27mm,minimum height=9mm},
-      flow/.style={-{Stealth[length=2mm]},semithick,draw=structurecolor!85!black}]
+      flow/.style={-{Stealth[length=2mm]},semithick,draw=structurecolor!85!black},
+      wqlab/.style={fill=white,inner sep=1pt,font=\tiny,align=center}]
     \node[wqstep] (irq) at (0,0) {ch6 最终 IRQ\\\code{dwc2\_irq()}};
     \node[wqstep] (sys) at (34,0) {\code{system\_wq}\\completion work};
     \node[wqstep] (delay) at (68,0) {\code{delayed\_head}\\等待 \code{expires}};
     \node[wqstep] (tick) at (102,0) {CPU0 timer\\\code{workqueue\_timer\_tick}};
     \node[wqstep] (periodic) at (136,0) {\code{dwc2\_periodic\_wq}\\retry work};
-    \draw[flow] (irq) -- node[above,font=\tiny]{\code{schedule\_work}} (sys);
-    \draw[flow] (sys) -- node[above,font=\tiny]{NAK: \code{mod\_delayed\_work}} (delay);
-    \draw[flow] (tick) -- node[above,font=\tiny]{到期} (delay);
-    \draw[flow] (delay) to[bend left=24] node[below,font=\tiny]{\code{queue\_work}} (periodic);
-    \draw[flow] (periodic.south) -- ++(0,-9) -| node[below,font=\tiny,pos=0.25]{新的 SSPLIT，重新 arm ch6} (irq.south);
+    \draw[flow] (irq) -- node[wqlab,above]{\code{schedule\_work}} (sys);
+    \draw[flow] (sys) -- node[wqlab,above]{NAK：\code{mod\_delayed\_work}} (delay);
+    \draw[flow] (tick) -- node[wqlab,above]{到期} (delay);
+    \draw[flow] (delay) to[bend left=24] node[wqlab,below]{\code{queue\_work}} (periodic);
+    \draw[flow] (periodic.south) -- ++(0,-9) -| node[wqlab,below,pos=0.25]{新的 SSPLIT，重新 arm ch6} (irq.south);
   \end{tikzpicture}
   \caption{空闲键盘 NAK 后的调用链。\code{system\_wq} 与
   \code{dwc2\_periodic\_wq}使用同一种 FIFO/kworker 执行机制；定时语义来自二者
@@ -753,20 +786,91 @@ cancel_delayed_work_sync(&interrupt_rx.retry_work);
 到期回调也要取得 \code{usb\_lock}，因此同步取消绝不能在持锁状态下等待；这个顺序同时保证
 取消返回后不会有旧 retry 重新 arm 已经释放的 USB 端点。
 
-拔出设备时顺序相反：\code{usbkbd\_remove()} 先标记断开，\code{usb\_kill\_urb()} 停止 ch6 并等正在运行的完成回调返回，\code{cancel\_work\_sync()} 等 \code{rx\_work} 返回，最后才释放 URB 和设备状态——保证不会有任何回调再碰到已释放的内存。
+拔出设备时顺序相反：\code{usbkbd\_remove()} 先把 \code{active=0}、\code{disconnected=1}，再 \code{usb\_kill\_urb()}——它停掉 ch6 的 DMA、屏蔽 \code{HCINTMSK}/\code{HAINTMSK} 对应位、同步取消 HCD 自己的完成 work，并等待正在运行的 completion 返回；然后 \code{cancel\_work\_sync(\&kbd->rx\_work)}；最后才注销 input 设备、释放 URB 和这份私有状态。这两步的返回语义就是保证本身：\code{usb\_kill\_urb()} 返回后不会再有 DWC2 completion 摸到这只 URB，\code{cancel\_work\_sync()} 返回后再也没有键盘下半部访问设备私有内存，正对应 Linux 在 \code{disconnect()} 里对 \code{usb\_kill\_urb()} 的要求。
 
 \subsection{HID 报告与输入子系统}
+\label{sec:usb-input}
 
-\code{usbkbd\_rx\_work()} 收到 8 字节报告后与上一份比较：修饰键位图里变化的位分别上报按下/松开；本次出现、上次没有的 usage 是新按下的键，查表转成字符；上次有、本次没有的是松开的键。每份报告最后 \code{input\_sync()}。按键多到键盘无法分辨时，6 个槽会全填错误码（rollover），这份报告不说明任何键的状态，驱动直接保留上一份，不能当成“全部松开”。
+一份 8 字节报告到手，\code{usbkbd\_rx\_work()} 要同时喂两个消费者：evdev 要的是“哪个键按下、哪个松开”，控制台要的是“打出了什么字符”。两者的判断都建立在同一个动作上——把新报告和 \code{kbd->previous} 逐槽比较。唯一需要提前特判的是 rollover：按键多到键盘自己无法分辨时，六个键槽会被全部填成错误 usage（1～3），这份报告并不说明任何键的真实状态，驱动必须原样保留上一份。若把它当成“全部松开”，就会先上报一串假松开，下一份报告再把同样的键当作新按下，同一个字符因此重复两遍。
 
-之后的事由输入子系统（\file{kernel/input.c}）完成，它把事件分发给两个“处理者”：
+之后的事由输入子系统（\file{kernel/input.c}、\file{kernel/input.h}）完成。类驱动只用到七个接口：
+
+\begin{ccode}
+struct input_dev *input_allocate_device(void);
+void input_set_capability(struct input_dev *dev, int type, int code);
+int  input_register_device(struct input_dev *dev);
+void input_report_key(struct input_dev *dev, int code, int value);
+void input_sync(struct input_dev *dev);
+void input_unregister_device(struct input_dev *dev);
+void input_free_device(struct input_dev *dev);
+\end{ccode}
+
+\code{probe()} 用前三项登记设备，运行期只用中间两项上报状态变化，remove 时用后两项收尾；事件去重、按键状态、环形队列、阻塞读、\code{SYN\_REPORT} 和 \code{SYN\_DROPPED} 全部由 core 负责，\file{usbkbd.c} 里只剩 USB 与 HID 的职责。core 再把事件分发给两个“处理者”：
 
 \begin{itemize}
   \item \textbf{evdev}：\code{/dev/input/event0}。每次 \code{open} 都分配一个独立的客户端环形缓冲区（\code{fops.open} 设置 \code{f->private\_data}），读者在自己的缓冲区上睡眠；溢出时插入 \code{SYN\_DROPPED}；
   \item \textbf{控制台}：把按键转成字符（处理 Shift、Caps Lock、Ctrl），送入 \code{consoleintr()}。所以 USB 键盘和串口一样可以登录、输入命令、按 \code{Ctrl-C}。
 \end{itemize}
 
-这正是 Linux 的分层：硬件驱动只关心“产生了什么事件”，不关心“谁在读”。
+这正是 Linux 的分层：硬件驱动只关心“产生了什么事件”，不关心“谁在读”。图~\ref{fig:usb-input-flow} 把这条分发路径画全：同一个 \code{usbkbd\_rx\_work()} 先经 input core 把键码发布成事件，再单独把字符送进控制台。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \input{chapters/fig-usb-input-flow}
+  }
+  \caption{一份 HID 报告进入输入子系统后的两条出路。上面两行是事件路径：类驱动解析报告、
+  转成 Linux 键码，由 input core 去重、成帧，再复制到每个 \code{open} 自己的 evdev 队列；
+  最后一行是字符路径：同一份报告查表转成字符后交给 \code{consoleintr()}，与 UART 收到的
+  字节共用同一套行规程。两条路径互不依赖，因此读 \code{/dev/input/eventN} 的程序和登录
+  会话可以同时存在，谁也不会把按键“读走”}
+  \label{fig:usb-input-flow}
+\end{figure}
+
+\paragraph{内核侧的按键序列.} \code{usbkbd\_rx\_work()} 处理一份报告时的动作顺序值得摊开看，因为它同时喂了上面两个处理者：
+
+\begin{enumerate}
+  \item 本次 \code{report[2..7]} 里有、\code{previous[2..7]} 里没有的 usage 是新按下：先 \code{input\_report\_key(kbd->input, hid\_to\_key[code], 1)}，再查 \code{keymap}/\code{shiftmap} 生成字符；
+  \item 上次有、本次没有的 usage 是松开，\code{input\_report\_key(..., 0)}；usage 1～3 是错误码，两端都跳过；
+  \item \code{report[0]} 的修饰位图逐个和 \code{previous[0]} 比较，变化的位用 \code{hid\_to\_key[224+i]}（\code{0xe0}～\code{0xe7}）上报按下或松开；
+  \item 收尾调用 \code{input\_sync()}，产生一个 \code{EV\_SYN}/\code{SYN\_REPORT}，一份报告就是一个完整帧；
+  \item 普通字符、Backspace、Enter 以及方向键的 \code{ESC [ A/B/C/D} 转义序列全部送进 \code{consoleintr()}，与 UART 收到的字节走同一条路径；
+  \item 最后 \code{usb\_submit\_urb()} 重新 arm ch6。
+\end{enumerate}
+
+字符映射是两张稀疏的表，一张出字符、一张出 Linux 键码：
+
+\begin{ccode}
+// kernel/usbkbd.c，节选。两张表都按 HID usage 编号索引
+static const uchar keymap[58]   = { [4]='a', [16]='m', [30]='1', [40]='\n',
+                                    [42]='\b', [43]='\t', [56]='/' };
+static const uchar shiftmap[58] = { [4]='A', [16]='M', [30]='!', [45]='_',
+                                    [47]='{' };
+static const ushort hid_to_key[256] = { [4]=KEY_A, [40]=KEY_ENTER,
+                                        [82]=KEY_UP, [225]=KEY_LEFTSHIFT };
+\end{ccode}
+
+\code{keymap[]}/\code{shiftmap[]} 只覆盖能直接打成 ASCII 的 usage 4～56（字母、数字、常用符号、Enter/Tab/Backspace/Esc/空格）：Shift 决定取哪一张，字母还要再异或一下软件维护的 Caps Lock 状态（\code{usbkbd\_key()} 里 usage 57 只翻转这个标志，自己不产生字符）；Ctrl 加字母折成 \code{c - 'a' + 1} 这样的控制字符，所以 \code{Ctrl-C} 就是 \code{0x03}。\code{hid\_to\_key[]} 则是 HID usage 到 Linux \code{KEY\_*} 编号的映射，覆盖普通键、四个方向键和 usage \code{0xe0}～\code{0xe7} 的修饰键；\code{probe()} 遍历它一遍，把这台设备支持的键登记成 input 设备的能力位图，于是 evdev 的用户拿到的是与 Linux 一致的编号，而不是 HID 自己的一套。两张表都没登记的 usage——F1～F12、多媒体键——既不产生字符也不上报事件，直接丢掉。
+
+\paragraph{evdev 队列：每个读者一份.} \code{/dev/input/eventN} 的读语义按 Linux evdev 实现，一共四点：
+
+\begin{itemize}
+  \item \textbf{minor 稳定绑定设备。}\code{input\_register\_device()} 从设备表里取一个空槽，槽号就是 \code{eventN}；\code{open()} 用 inode 的 minor 反查这张表，因此不会出现所有设备都“晋升”成 \code{event0}。devtmpfs 预先创建 \code{/dev/input/event0..event3}（主设备号 \code{INPUT}＝4，minor 0～3），空槽的节点还在但 \code{open()} 失败——这正是 Linux 的 \code{ENODEV} 语义，好处是不动态增删节点时也不会把旧节点错指给后来注册的设备。
+  \item \textbf{每个 \code{open} 一个客户端。}\code{evdev\_open()} 分配一个 \code{evdev\_client}（\code{EVDEV\_BUFFER}＝256 条事件的环形缓冲）挂到 \code{dev->clients}，两个读者各读各的，不会互相偷事件。
+  \item \textbf{只暴露完整帧。}\code{packet\_head} 标记最后一个完整帧的末尾，\code{read()} 最多读到那里；溢出时把尾巴丢掉并插入 \code{SYN\_DROPPED}，读取者据此丢弃自己缓存的按键状态，等下一个 \code{SYN\_REPORT} 再恢复。
+  \item \textbf{断开是有顺序的。}\code{input\_unregister\_device()} 先把设备从表里摘掉、唤醒阻塞的读者，再让旧 fd 读完已经提交的完整帧，之后 \code{read()} 才返回错误。
+\end{itemize}
+
+每条事件都是一个 \code{struct input\_event}：\code{uint16 type}、\code{uint16 code}、\code{int value}，\code{read()} 一次可以拿走多条。键盘发布 \code{EV\_KEY}（value 1 按下、0 松开），Boot Mouse 还会发布 \code{BTN\_LEFT}/\code{BTN\_RIGHT}/\code{BTN\_MIDDLE} 和 \code{EV\_REL} 的 \code{REL\_X}/\code{REL\_Y}/\code{REL\_WHEEL}，末尾统一跟一个 \code{EV\_SYN}/\code{SYN\_REPORT}。在真机上可以直接验证：
+
+\begin{shcode}
+$ ls /dev/input
+event0  event1  event2  event3
+$ cat /proc/devices        # Character devices: 4 input/event0
+$ evtest /dev/input/event0 # 每次按下/松开各一条 EV_KEY，帧尾一条 EV_SYN
+\end{shcode}
+
+\paragraph{引用计数与生命周期.} \code{input\_dev} 由 \code{kalloc()} 分配，初始引用属于类驱动；每个打开的 event fd 再加一个引用。\code{usb\_free\_urb()} 和 \code{kfree(kbd)} 发生在 remove 路径上，而 \code{input\_dev} 的内存要等最后一个 fd 关闭才释放——这样“驱动已经卸载”和“用户还在读旧事件”两件事可以同时成立。注销路径因此不会睡眠等待用户空间关闭 \code{/dev/input/event0}。
 
 \subsection{Hub 中断驱动的 USB 热插拔}
 \label{sec:usb-hotplug}
@@ -809,27 +913,36 @@ usb_device_unregister(old_child)
   -> release driver-owned references
 \end{txtcode}
 
-注销 event 设备会唤醒阻塞在 \code{read()} 的客户端。每次 \code{open(eventN)}
-都持有自己的 \code{input\_dev} 引用；设备断开后，旧 fd 可先读完已提交的完整
-事件帧，再得到断开错误，底层内存则等最后一个 fd 关闭后才释放。devtmpfs
-预先创建 \code{/dev/input/event0..event3}，minor 对应 input 设备表中的槽位；
-空槽节点仍在，但 \code{open()} 失败，不会意外转指向后来注册的设备。
+注销 event 设备会唤醒阻塞在 \code{read()} 的客户端，剩下的语义与
+\ref{sec:usb-input} 小节一致：旧 fd 先读完已提交的完整帧，内存等最后一个
+引用释放。热插拔在这里第一次真正考验了这套引用计数——拔掉的瞬间
+\code{evtest} 往往还活着，它必须看到断开错误而不是继续读到一个已经不属于
+自己的设备。
 
-目前拓扑变化后的恢复仍比 Linux 粗：HCD 只有一个发布用的
-\code{usb\_child}，变化后会注销旧设备、停止并屏蔽相关 channel、清理待处理中断，
-然后重新初始化 DWC2 并扫描 Hub。新设备按地址 0 开始枚举，读取 Device
-Descriptor 前 8 字节确定 EP0 最大包长，设置 USB 地址、读取配置描述符并
-选择 Boot Keyboard 或 Boot Mouse 接口；随后 USB bus 匹配驱动，执行 probe，
-重新注册 input 设备并提交对应 HID URB。对低速键盘，地址路由还需记录父 Hub、
-端口和速度，以便 EP0 与 channel 6 的传输正确使用 split transaction。
+\paragraph{channel 7 怎么保证自己活着.} Hub 的 interrupt-IN 是有周期要求的：
+\code{dwc2\_hub\_interrupt\_start()} 提交 ch7 时按当前 \reg{HFNUM} 的奇偶选择
+\code{HCCHAR.ODDFRM}，把事务安排在下一个 USB frame；同时在
+\code{dwc2\_hub\_wq} 上用 \code{mod\_delayed\_work()} 登记一个 \code{bInterval}
+期限的看门狗。正常的 NAK 完成 IRQ 会把这条期限往后推；如果控制器复位后的
+第一笔事务根本没有产生完成 IRQ，期限到期就会重新启动 ch7。它只恢复 Hub 的
+interrupt URB，不做任何 \code{GET\_STATUS}，因此不是退回旧的端口轮询。
+新一代监控还会先等一个 \code{bInterval} 再首次提交，确保触发重枚举的那只旧
+URB 的 completion 已经完全退出。下面这三行里后两行各只打印一次，合起来正好
+证明 delayed work 和 DWC2 host channel 两段链路都在运行：
+
+\begin{txtcode}
+dwc2: event-driven hub hotplug v2 scheduled on channel 7
+dwc2: hub ch7 scheduler alive active=0 urb-state=0
+dwc2: hub ch7 first IRQ hcint=... hctsiz=...
+\end{txtcode}
 
 一次真机热插 port 3 键盘时，连接位图从 \code{0x2} 变为 \code{0xa}：
 \code{0x2} 表示 port 1 已连接，\code{0xa} 则表示 port 1 和 port 3 已连接，
-所以新增设备是 port 3。Hub interrupt URB 通知 worker 后，可看到类似日志：
+位图的 bit 号就是 root hub 的端口号，所以新增设备来自 port 3。Hub
+interrupt URB 通知 worker 后，可看到类似日志：
 
 \begin{txtcode}
 dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
-dwc2: event-driven hub hotplug armed on channel 7
 dwc2: hub IRQ change=8 connected=2->a; reprobe
 dwc2: hub port 3 status=301 change=1
 dwc2: hub port 3 after-reset status=303 speed=low
@@ -844,12 +957,54 @@ core 会绑定鼠标驱动并注册相应 input 设备。枚举和 probe 日志�
 已绑定、接收 URB 已提交；要证明实际按键路径恢复，还应看到 channel 6 的
 completion 和首份有效 HID report。
 
-当前热插拔范围限于 LAN951x 根 Hub 的外部端口。Hub 内部嵌套 Hub 的下游端口
-变化不会出现在根 Hub 的连接位图中；拓扑变化目前会重新初始化整个 DWC2，
-而非只移除或添加变化端口上的设备。由于 channel 6 和唯一的
-\code{usb\_child} 尚未按设备/端点数组化，键盘与鼠标支持拔出、替换，但不能
-同时长期接收。进一步完善需要为每个 Hub 端口和接口维护独立的 USB device、
-URB 与 host channel，并由 Hub interrupt event 只增删发生变化的子设备。
+\paragraph{拔出后的短暂 \code{ch6 error} 是正常窗口.} 键盘刚拔掉、Hub 的状态
+端点还没把变化报上来之前，常见这几行：
+
+\begin{txtcode}
+dwc2: keyboard ch6 error intr=82 hctsiz=... hcsplt=...
+usbkbd: channel 6 transfer error; rearming
+\end{txtcode}
+
+\code{0x82} 是 \code{CHHLTD | XACTERR}：ch6 仍在访问一个已经离线的低速端点，
+这在“Hub 状态端点的下一个周期到来之前”是必然窗口，不是键盘驱动的残留问题。
+判断依据是后续日志：只要接着出现 \code{hub IRQ change} 和
+\code{... event0 disconnected}，remove 生命周期就已经收敛。反过来，如果只有
+\code{ch6 error} 而没有 Hub 的变化事件，那要查的是 ch7 那条链路。
+
+\paragraph{DMA 缓冲的所有权.} 插回键盘时如果连续打印
+
+\begin{txtcode}
+dwc2: control data failed req=0 addr=1 result=-1
+\end{txtcode}
+
+其中 \code{req=0, addr=1} 是事件 worker 向根 Hub 发端口
+\code{GET\_STATUS}，并不是周期拓扑轮询出错了。这里的根因很隐蔽：早期实现把
+4 字节的端口状态数组放在 worker 的内核栈上，又直接把它交给 DWC2 做 DMA。
+缓存维护按 64 字节 cache line 向外取整，\emph{invalidate} 时会把同一条
+cache line 里的其它局部变量一起覆盖掉；而且这样一个短生命周期的栈对象本来
+就不该成为 DMA 目标。现在端口状态用独立的、静态存续且 64 字节对齐的
+\code{dwc2\_hub\_port\_status[64]}，控制传输仍只接收前 4 字节；Hub 状态位图、
+端口状态缓冲和枚举用的 \code{ctrl\_buf} 三者彼此分离，DMA 与缓存的归属才不会
+互相污染。这也是本章反复出现的那条规则的又一次兑现：交给 DMA 的缓冲区必须
+由传输的 owner 独占，并且活得比传输久。
+
+变化之后的恢复过程是这样的：HCD 先注销那个唯一的发布用
+\code{usb\_child}，停止并屏蔽相关 channel、清理待处理中断，
+然后重新初始化 DWC2 并扫描 Hub。新设备按地址 0 开始枚举，读取 Device
+Descriptor 前 8 字节确定 EP0 最大包长，设置 USB 地址、读取配置描述符并
+选择 Boot Keyboard 或 Boot Mouse 接口；随后 USB bus 匹配驱动，执行 probe，
+重新注册 input 设备并提交对应 HID URB。对低速键盘，地址路由还需记录父 Hub、
+端口和速度，以便 EP0 与 channel 6 的传输正确使用 split transaction。
+
+\paragraph{与 Linux 还差什么.} 把这套驱动和真正的 Linux USB 栈对比，剩下的差距是明确的几条：
+
+\begin{itemize}
+  \item \textbf{重枚举的粒度。}Linux 只增删发生变化的 port 和 device；这里的一次拓扑变化会注销旧设备、停止并屏蔽相关 channel，然后重新初始化整个 DWC2。嵌套 Hub 的下游端口变化甚至不会出现在根 Hub 的连接位图里。
+  \item \textbf{host channel 的分配。}ch7 固定给 Hub 的 interrupt URB，ch6 固定给唯一那只 HID 数据 URB，因此键盘和鼠标可以拔插、替换，却不能同时长期接收。Linux 是按设备/端点动态调度多个 channel 的。
+  \item \textbf{周期调度表。}空闲 NAK 已经用 \code{retry\_work} 加 \code{dwc2\_periodic\_wq} 按 \code{bInterval} 重排，不再占着公共 worker 自旋；但 10\,ms 的 delayed-work 粒度只适合这只低速键盘，通用的 HCD 需要以 USB frame/SOF 为不同端点各自维护周期表。
+  \item \textbf{硬中断里的忙等。}为了满足 split 的 125\,$\mu$s microframe 期限，快速路径最多在 IRQ 里等 500\,$\mu$s 并重启 channel。Linux DWC2 用更完整的 SOF/periodic 状态机把这部分忙等压得更低。
+  \item \textbf{多设备发布。}\code{usb\_child} 仍是一个而不是按 Hub 端口排列的数组，所以 USB 键盘与 MT7601U 同时插入时还没有完整发布成两个独立的 \code{usb\_device}，各自保存地址、toggle、host channel 与拔出生命周期。
+\end{itemize}
 
 \subsection{真机排错：从 STALL 到第一份报告}
 \label{sec:usb-debug}
@@ -886,9 +1041,62 @@ URB 与 host channel，并由 Hub interrupt event 只增删发生变化的子设
 
 \paragraph{阶段 9：观察者效应.} 快速路径加上以后，问题偶尔还在。原因是 \code{dwc2\_irq()} 开头还留着一行调试 \code{printf}：串口 115200 波特率下每个字符约 87\,$\mu$s，一行几十个字符就是好几个毫秒，足够错过整个窗口。这是典型的“加日志就改变时序”的 Heisenbug。最终版本在有截止时间的分支里一行都不打印，只在本轮结束之后限量打印 \code{dwc2 ch6 final}；如果确实需要跟踪中间事件，应该写进内存里的 trace 环形缓冲，事后由进程上下文打印。
 
-\paragraph{诊断顺序.} 整理下来，按键没反应时按这个顺序看日志：有没有 \code{ch6 armed}（channel 配置并启动了）；按键时有没有 \code{ch6 final}（host channel 产生了中断）；有没有 \code{usbkbd: channel 6 IRQ received}（URB 已归还、键盘 work 已排队）；有没有 \code{first HID report}（DMA 里读到了报告）；报告里的 usage 是否非 0（键盘真的报了键）；最后才看键码映射和控制台。真机第一次成功时打印的是 \code{usbkbd: first HID report mod=0 keys=10,0,0,0,0,0}——usage \code{0x10}，字母 \code{m}。
+\paragraph{限量日志各自证明什么.} 排错时最容易把“请求已经发出”当成“数据已经回来”，所以这四行日志的边界要背下来：
 
-\paragraph{从两层轮询到中断驱动.} 最早的实现其实有两层轮询：定时器每个 tick 唤醒一次键盘 work，work 里启动一次传输再忙等 \code{HCINT}。改成 URB 加中断以后，DWC2 通过 IRQ 报告每轮完成状态；空闲键盘返回 NAK 时 CPU 仍需处理一次很短的 IRQ 和 completion，但等待下一个 \code{bInterval} 的阶段只保存在 delayed-work 到期链表中，不再由 CPU 或 kworker 自旋。
+\begin{itemize}
+  \item \code{dwc2: ch6 armed addr=4 ep=1 split=...}：\reg{HCSPLT}、\reg{HCCHAR}、\reg{HCTSIZ}、\code{HCINTMSK(6)}、\reg{HAINTMSK} 和 \reg{GINTMSK} 都已配置，channel 已使能。仅此而已，键盘的一个字节都还没到。
+  \item \code{dwc2 ch6 final p=... int=... uf=... issue=... age=... ssack=...}：本轮已经走到“不再需要满足当前 CSPLIT 实时期限”的出口才会打印。
+  \item \code{usbkbd: channel 6 IRQ received}：HCD 已归还 URB，键盘的 completion 把工作排进了 \code{usbkbd\_wq}。
+  \item \code{usbkbd: first HID report mod=0 keys=10,...}：workqueue 读到了 DMA 缓冲里的报告，\code{keys=10} 是 usage \code{0x10}，即字母 \code{m}。
+\end{itemize}
+
+\code{ch6 final} 那一行的字段就是为阶段 8 和 9 准备的：\code{p} 是本轮处在哪个 split 阶段（\code{p=1} 表示 complete-split），\code{int} 是 \reg{HCINT}，\code{uf} 是 IRQ 采到的微帧号（\reg{HFNUM} 低 3 位），\code{issue} 是本次 channel 使能时的计数器，\code{age} 是从发出到 IRQ 经过的微帧数，\code{ssack} 是最近一次 SSPLIT 被 ACK 时的计数器。对比 \code{issue}、\code{age} 和 \code{ssack} 就能分辨“总线慢”还是“软件来晚了”。因为中间状态一律不打印，这行日志还做了限量（前 12 条），空闲键盘的 NAK 轮次也不消耗这个额度。\reg{HCINT} 常用取值的解码见表~\ref{tab:usb-regs}：\code{0x22} 是 \code{CHHLTD|ACK}（SSPLIT 已被 TT 接受），\code{0x42} 是 \code{CHHLTD|NYET}（CSPLIT 还没有结果），\code{0x03} 才是 \code{CHHLTD|XFERCOMPL}（DMA 里是完整报告）。
+
+\paragraph{诊断顺序.} 上面四条日志本身就是一条顺序链：停在哪个标记之前，就说明卡在那一层——\code{armed} 之前是 channel 配置，\code{armed} 与 \code{final} 之间是总线和 split 时序，\code{final} 之后是 workqueue 与 completion。只有 \code{first HID report} 一直是好的而控制台没有字符时，才需要往下查键码映射、输入子系统和 \code{/dev/input/eventN}。
+
+\paragraph{从两层轮询到中断驱动.} 最早的实现虽然端点类型叫 interrupt-IN，CPU 侧的处理方式仍然是轮询，而且是两层：
+
+\begin{txtcode}
+第一层：ARM Generic Timer IRQ
+  -> workqueue_timer_tick()
+  -> kbd->poll_work 到期，进入 usbkbd_wq
+  -> usbkbd_poll() 主动发起一次 interrupt-IN
+第二层：udev->ops->interrupt()
+  -> dwc2_usb_interrupt() -> channel_xfer(ch6)
+  -> while: rd(HCINT(6))          CPU 忙等本轮完成 / NAK / 出错 / 超时
+  -> 解析报告，queue_delayed_work(..., 1) 排下一轮
+\end{txtcode}
+
+这里要把两件事分开：USB 协议上主机\emph{必须}发起 IN 事务，这是总线规则；但这些事务由 DWC2 硬件按 \code{bInterval} 排布、完成后用 IRQ 通知 CPU，还是让 CPU 定时自己启动并忙等，则是实现选择。旧实现选了后者，于是每个 tick 都有一次调度开销，而每次事务又占着一个 CPU 自旋。改成 URB 之后，\code{keyboard.poll\_work} 和 \code{usbkbd\_poll()} 被删掉，取而代之的是每设备的 \code{kbd->rx\_work}（只有 URB completion 会调度它）、host ops 里的 \code{submit\_urb()}/\code{kill\_urb()}，以及 \code{HCINTMSK(6)} 打开 XFERCOMPL/CHHLTD/NAK/ACK/NYET 与错误事件。空闲键盘返回 NAK 时 CPU 仍要处理一次很短的 IRQ 和 completion，但等待下一个 \code{bInterval} 的阶段只保存在 delayed-work 的到期链表里，不再由 CPU 或 kworker 自旋。
+
+现在的执行链把“谁在等”换成了“谁被叫醒”，完整的一条链是这样：
+
+\begin{txtcode}
+usbkbd_probe()
+  -> 首次 arm 长期 interrupt-IN DMA 请求，随即返回，不等待传输
+DWC2 硬件按 bInterval 调度 IN 令牌
+  -> 低速键盘经 LAN951x 的 TT 执行 SSPLIT/CSPLIT
+  -> 有报告时 DMA 写入缓冲：HCINT(6).XFERCOMPL -> HAINT -> IRQ 9
+dwc2_irq()                         硬中断 / HCD 快速路径
+  -> SSPLIT ACK：就地记下 HFNUM，到 issue+2 微帧提交 CSPLIT
+  -> 窗口内 NYET：下一个微帧直接重试 CSPLIT
+  -> XFERCOMPL / 超出窗口 / 错误：屏蔽 ch6，schedule_work
+DWC2 completion work               HCD 可调度上下文
+  -> 读 HCINT/HCTSIZ 与 DMA 实际长度
+  -> NAK 或本轮无数据：把 retry_work 登记到 delayed_head
+  -> 最终完成：usb_hcd_giveback_urb()
+CPU0 的 10 ms timer
+  -> workqueue_timer_tick() 推进 work_jiffies
+  -> 到期后移入 dwc2_periodic_wq，从新的 SSPLIT 重新 arm ch6
+     （URB 始终保持 submitted，不归还类驱动）
+usbkbd_irq_complete()              URB completion
+  -> 用 urb->context 找回 usbkbd_state，queue_work(kbd->rx_work)
+usbkbd_wq                          进程上下文下半部
+  -> 解析报告、input_report_key()/consoleintr()
+  -> 再次 usb_submit_urb()，arm 新的一轮
+\end{txtcode}
+
+图~\ref{fig:usb-irq-seq} 是同一条链的时间顺序版本，两种结果（NAK 与完整报告）在那里分开画。
 
 \section{I2C}
 

@@ -44,6 +44,7 @@ OBJS = \
   $K/start.o \
   $K/console.o \
 	$K/device.o \
+	$K/module.o \
 	$K/sdio.o \
 	$K/usb.o \
 	$K/input.o \

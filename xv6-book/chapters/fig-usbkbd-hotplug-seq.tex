@@ -1,0 +1,95 @@
+% 图（fig:usb-hid-enum-sequence）：DWC2 经外部 Hub 枚举低速 HID 键盘的总线时序（热插拔版）。
+% 五个阶段对应真机串口日志：空载扫描 → ch7 端口变化中断 → SSPLIT/CSPLIT 枚举
+% → ch6 武装 → 第一个按键。阶段配色沿用 mermaid 原稿的底色。
+\definecolor{seqstgA}{RGB}{240,248,255}
+\definecolor{seqstgB}{RGB}{255,245,238}
+\definecolor{seqstgC}{RGB}{245,255,245}
+\definecolor{seqstgD}{RGB}{255,240,245}
+\definecolor{seqstgE}{RGB}{255,250,200}
+\begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+    participant/.style={draw=structurecolor!75!black,fill=structurecolor!12,
+      rounded corners=1.5pt,align=center,text width=24mm,minimum height=9mm},
+    lifeline/.style={gray!65,dashed,line width=.45pt},
+    seqcall/.style={-{Stealth[length=1.6mm]},line width=.55pt,
+      draw=structurecolor!85!black},
+    seqret/.style={-{Stealth[length=1.6mm]},dashed,line width=.5pt,
+      draw=structurecolor!75!black},
+    msg/.style={fill=white,inner sep=1pt,align=center,font=\tiny},
+    note/.style={draw=gray!55,fill=yellow!16,rounded corners=1.5pt,inner sep=1.5pt,
+      align=center,font=\tiny,text=gray!70!black},
+    stage/.style={anchor=west,align=left,font=\scriptsize\bfseries,
+      text=structurecolor!80!black},
+    loopbox/.style={draw=gray!60,dashed,line width=.4pt,rounded corners=2pt},
+    looplab/.style={draw=gray!60,fill=white,rounded corners=1.5pt,inner sep=1.5pt,
+      font=\tiny,text=gray!70!black,anchor=north west}]
+  \node[participant] at (0,0) {DWC2 控制器\\Host／调度器};
+  \node[participant] at (46,0) {外部集线器\\addr 2，4 ports};
+  \node[participant] at (92,0) {USB 键盘\\低速设备};
+  \node[participant] at (138,0) {内核 \code{usbkbd}\\Input 子系统};
+  \foreach \x in {0,46,92,138}
+    \draw[lifeline] (\x,5) -- (\x,213);
+  \begin{scope}[on background layer]
+    \fill[seqstgA,rounded corners=2pt] (-17,8) rectangle (156,48);
+    \fill[seqstgB,rounded corners=2pt] (-17,50) rectangle (156,76);
+    \fill[seqstgC,rounded corners=2pt] (-17,78) rectangle (156,134);
+    \fill[seqstgD,rounded corners=2pt] (-17,136) rectangle (156,160);
+    \fill[seqstgE,rounded corners=2pt] (-17,162) rectangle (156,212);
+  \end{scope}
+
+  % 阶段 1：冷启动，总线上没有可枚举的子设备
+  \node[stage] at (-15,10) {阶段 1：系统冷启动与空载扫描};
+  \draw[seqcall] (0,17) -- (0,20.5);
+  \node[msg,anchor=west] at (2,18.7) {HCD Power On，开启 channel IRQ};
+  \draw[seqcall] (0,24) -- node[msg,above]{枚举 Root Hub 及外部集线器（addr 2）} (46,24);
+  \draw[seqcall] (0,29) -- node[msg,above]{扫描 port 1／2／3／4 状态} (46,29);
+  \draw[seqret] (46,36) -- node[msg,above=1.5pt]{四个端口状态均为 \code{0x100}（空载）\\
+    日志 \code{no supported USB child}，转入待机} (0,36);
+  \draw[seqcall] (0,43) -- (0,46.5);
+  \node[msg,anchor=west] at (2,44.7) {分配 ch7：开启事件驱动热插拔监听（hotplug v2）};
+
+  % 阶段 2：Hub 的 interrupt-IN 报告端口变化
+  \node[stage] at (-15,52) {阶段 2：热插拔事件触发（用户把键盘插入 port 3）};
+  \draw[seqret] (46,59) -- node[msg,above=1.5pt]{\textbf{[ch7 IRQ]} 端口状态改变
+    \code{change=8}，\code{connected=2$\rightarrow$a}\\收到中断，触发 reprobe 重新探测} (0,59);
+  \draw[seqcall] (0,67) -- node[msg,above]{\code{RESET\_PORT(3)}：复位端口} (46,67);
+  \draw[seqret] (46,72) -- node[msg,above=1.5pt]{复位完成，\code{portstatus=0x303}\\
+    识别为 low speed（1.5\,Mb/s）} (0,72);
+
+  % 阶段 3：低速设备的 EP0 枚举全部走 split transaction
+  \node[stage] at (-15,80) {阶段 3：分割事务枚举（split transaction）；\\
+    \hspace*{2em}低速设备必须经 Hub 的 TT 执行 SSPLIT／CSPLIT};
+  \draw[seqcall] (0,89) -- node[msg,above]{SSPLIT：\code{GET\_DESCRIPTOR(Device)}} (46,89);
+  \draw[seqcall] (46,94) -- node[msg,above]{低速 EP0 读设备描述符} (92,94);
+  \draw[seqret] (46,99) -- node[msg,above]{CSPLIT：返回 \code{VID=2a7a}，\code{PID=8a47}，
+    \code{MPS=8}} (0,99);
+  \draw[seqcall] (0,105) -- node[msg,above]{SSPLIT：\code{SET\_ADDRESS(4)}} (46,105);
+  \node[note,anchor=west] at (94,110) {设备地址更新为 4};
+  \draw[seqcall] (0,116) -- node[msg,above]{SSPLIT：\code{GET\_DESCRIPTOR(HID／Config)}} (46,116);
+  \draw[seqret] (46,121) -- node[msg,above]{CSPLIT：返回 HID 报告描述符} (0,121);
+  \draw[seqcall] (0,126) -- node[msg,above]{SSPLIT：\code{SET\_CONFIGURATION}（激活设备）} (46,126);
+  \draw[seqcall] (46,131) -- node[msg,above]{激活 HID 接口} (92,131);
+
+  % 阶段 4：类驱动绑定，周期 interrupt-IN 交给 ch6
+  \node[stage] at (-15,138) {阶段 4：驱动绑定与轮询武装};
+  \draw[seqcall] (138,144) -- (138,147.5);
+  \node[msg,anchor=east] at (136,145.7) {识别为 Boot Keyboard，注册 input 设备 \code{event0}};
+  \draw[seqcall] (0,151) -- (0,154.5);
+  \node[msg,anchor=west] at (2,152.7) {分配 ch6：\code{addr=4}，\code{EP=1}，
+    \code{interval=10\,ms}；\\ch6 武装完毕（armed），ch7 继续在后台监听 Hub 热插拔};
+  \draw[seqcall] (138,158) -- node[msg,above]{提交 URB，开始监听按键} (0,158);
+
+  % 阶段 5：轮询命中一次真实的按键
+  \node[stage] at (-15,164) {阶段 5：真实按键捕获};
+  \draw[loopbox] (-14,168) rectangle (110,183);
+  \node[looplab] at (-13.4,168.4) {loop／每 10\,ms 轮询一次};
+  \draw[seqcall] (0,174) -- node[msg,above]{\textbf{[ch6]} SSPLIT IN：有按键吗？} (46,174);
+  \draw[seqcall] (46,180) -- node[msg,above]{低速 IN 令牌} (92,180);
+  \draw[seqret] (92,188) -- node[msg,above=1.5pt]{用户按下某个键（例如 \code{f}），返回 8 字节 HID 报告\\
+    \code{0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00}} (46,188);
+  \draw[seqret] (46,195) -- node[msg,above]{\textbf{[ch6]} CSPLIT：传输完成} (0,195);
+  \draw[seqcall] (0,200) -- node[msg,above]{\textbf{[ch6 IRQ]} 上报
+    \code{data=0,0,f,0,0,0,0,0}} (138,200);
+  \draw[seqcall] (138,206) -- (138,209.5);
+  \node[msg,anchor=east] at (136,207.7) {\code{usbkbd} 解析：\code{mod=0}，
+    \code{keys=f}（HID Usage \code{0x0f}）；\\Input 子系统生成按键事件，发送至用户空间};
+\end{tikzpicture}

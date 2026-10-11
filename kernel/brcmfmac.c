@@ -12,6 +12,7 @@
 #include "fat32.h"
 #include "net.h"
 #include "workqueue.h"
+#include "module.h"
 
 // Broadcom function-1 backplane aperture.  The three SBADDR registers select
 // one 32 KiB backplane window; bit 15 in the CMD53 address selects 32-bit
@@ -2119,6 +2120,9 @@ brcmfmac_driver_init(void)
     init_workqueue(&brcmf_wq[i], brcmf_wq_names[i], 1);
   sdio_register_driver(&brcmf_driver);
 }
+
+// Order 2: reads its firmware out of the freshly mounted root filesystem.
+late_initcall_ord("brcmfmac", brcmfmac_driver_init, 2);
 
 void
 brcmfmac_driver_exit(void)

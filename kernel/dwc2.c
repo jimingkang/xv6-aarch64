@@ -11,6 +11,7 @@
 #include "device.h"
 #include "usb.h"
 #include "workqueue.h"
+#include "module.h"
 
 #define DWC2_BASE (PERIPHERAL_BASE + 0x00980000UL)
 #define USB_MBOX_BASE (PERIPHERAL_BASE + 0x0000b880UL)
@@ -2349,3 +2350,7 @@ dwc2_driver_init(void)
   platform_device_register(&dev);
   platform_driver_register(&drv);
 }
+
+// Order 4: the host controller enumerates only once its class drivers
+// are in the USB bus's driver list.
+module_init_ord("dwc2", dwc2_driver_init, 4);

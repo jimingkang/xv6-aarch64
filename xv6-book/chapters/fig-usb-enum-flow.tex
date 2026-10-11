@@ -1,0 +1,115 @@
+% 图：USB 键盘枚举与配置的决策流程（对应 readme「枚举与配置流程图」）。
+% 五条横带按执行顺序排列：控制器上电 → 识别 Hub → 扫描端口与判速 →
+% 描述符与接口匹配 → 注册绑定与首次 arm ch6。灰色框是提前退出的分支。
+\definecolor{enumstgA}{RGB}{240,248,255}
+\definecolor{enumstgB}{RGB}{255,245,238}
+\definecolor{enumstgC}{RGB}{245,255,245}
+\definecolor{enumstgD}{RGB}{255,240,245}
+\definecolor{enumstgE}{RGB}{255,250,200}
+\begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+    estep/.style={draw=structurecolor!70!black,fill=structurecolor!7,
+      rounded corners=1.5pt,align=center,text width=26mm,minimum height=11mm,
+      inner sep=2pt},
+    edec/.style={draw=orange!70!black,fill=orange!14,rounded corners=1.5pt,
+      align=center,text width=26mm,minimum height=11mm,inner sep=2pt,
+      font=\scriptsize\bfseries},
+    eexit/.style={draw=gray!60,fill=gray!9,rounded corners=1.5pt,align=center,
+      text width=32mm,minimum height=8mm,inner sep=2pt,font=\tiny,
+      text=gray!75!black},
+    eflow/.style={-{Stealth[length=1.7mm]},line width=.55pt,
+      draw=structurecolor!85!black},
+    edash/.style={-{Stealth[length=1.7mm]},dashed,line width=.5pt,
+      draw=gray!65},
+    elab/.style={fill=white,inner sep=1pt,font=\tiny,align=center},
+    eband/.style={anchor=west,align=left,font=\scriptsize\bfseries,
+      text=structurecolor!80!black}]
+  % ---- 五条横带的底色
+  \begin{scope}[on background layer]
+    \fill[enumstgA,rounded corners=2pt] (-16,-11) rectangle (164,11);
+    \fill[enumstgB,rounded corners=2pt] (-16,23) rectangle (164,65);
+    \fill[enumstgC,rounded corners=2pt] (-16,75) rectangle (164,121);
+    \fill[enumstgD,rounded corners=2pt] (-16,133) rectangle (164,172);
+    \fill[enumstgE,rounded corners=2pt] (-16,183) rectangle (164,205);
+  \end{scope}
+  \node[eband] at (-14,-8) {阶段 1：控制器上电，进入主机模式};
+  \node[eband] at (-14,26) {阶段 2：认出根 Hub 与外部 Hub，给下游端口供电};
+  \node[eband] at (-14,78) {阶段 3：扫描 Hub 端口，判断速度并建立路由};
+  \node[eband] at (-14,136) {阶段 4：地址、描述符与 Boot Keyboard 接口匹配};
+  \node[eband] at (-14,186) {阶段 5：注册设备、绑定驱动、武装 interrupt-IN};
+
+  % ---- 阶段 1
+  \node[estep] (a1) at (0,0) {固件给 DWC2\\USB HCD 上电};
+  \node[estep] (a2) at (30,0) {复位 DWC2\\强制 Host mode};
+  \node[estep] (a3) at (60,0) {打开 DMA 与\\全局 channel IRQ};
+  \node[estep] (a4) at (90,0) {复位根端口\\等 \code{HPRT} 稳定};
+  \draw[eflow] (a1) -- (a2);
+  \draw[eflow] (a2) -- (a3);
+  \draw[eflow] (a3) -- (a4);
+
+  % ---- 阶段 2
+  \node[estep] (b1) at (0,44) {读根设备\\描述符};
+  \node[edec]  (b2) at (30,44) {class 是\\9（Hub）？};
+  \node[estep] (b3) at (60,44) {\code{SET\_CONFIGURATION}\\配置这一层 Hub};
+  \node[estep] (b4) at (90,44) {读 Hub 描述符\\取端口数量};
+  \node[estep] (b5) at (120,44) {逐端口上电\\
+    \code{SET\_FEATURE}\\ \code{PORT\_POWER}};
+  \node[eexit] (bq) at (30,57) {否：终端设备，按普通 USB 设备枚举，\\不扫描下游端口};
+  \draw[eflow] (a4.south) -- ++(0,16) -| (b1.north);
+  \draw[eflow] (b1) -- (b2);
+  \draw[eflow] (b2) -- node[elab,above]{是} (b3);
+  \draw[eflow] (b3) -- (b4);
+  \draw[eflow] (b4) -- (b5);
+  \draw[edash] (b2.south) -- (bq.north);
+
+  % ---- 阶段 3
+  \node[estep] (c1) at (0,97) {最多等 500\,ms\\等连接稳定};
+  \node[edec]  (c2) at (30,97) {端口状态\\是什么？};
+  \node[estep] (c3) at (60,97) {\code{PORT\_RESET}\\复位端口};
+  \node[estep] (c4) at (90,97) {判速：high／full／\\low（bit 9）};
+  \node[estep] (c5) at (120,97) {记 \code{usb\_route[]}：\\父 Hub、端口、速度};
+  \node[edec]  (c6) at (150,97) {下游又是\\Hub？};
+  \node[eexit] (cq) at (18,110) {\code{0x100} 只有 \code{PORT\_POWER}：\\这个端口空载，跳过};
+  \node[eexit] (cl) at (105,110) {低速：\code{route.low\_speed=1}，EP0 与 ch6 的\\
+    \reg{HCCHAR} 置 \code{LSPDDEV}，事务走 SSPLIT／CSPLIT};
+  \draw[eflow] (b5.south) -- ++(0,17) -| (c1.north);
+  \draw[eflow] (c1) -- (c2);
+  \draw[eflow] (c2) -- node[elab,above]{连接} (c3);
+  \draw[eflow] (c3) -- (c4);
+  \draw[eflow] (c4) -- (c5);
+  \draw[eflow] (c5) -- (c6);
+  \draw[edash] (c2.south) -- ++(0,3.5) -| (cq.north);
+  \draw[edash] (c4.south) -- ++(0,4) -| (cl.north);
+  \draw[edash] (c6.south) -- ++(0,17) -| node[elab,above,pos=0.45]{是：递归扫描子 Hub} (c1.south);
+
+  % ---- 阶段 4
+  \node[estep] (d1) at (0,154) {地址 0：读设备\\描述符 8→18 字节};
+  \node[estep] (d2) at (30,154) {\code{SET\_ADDRESS(n)}\\分配唯一地址};
+  \node[estep] (d3) at (60,154) {读 config／interface\\／endpoint};
+  \node[edec]  (d4) at (90,154) {class／subclass／\\protocol＝3／1／1？};
+  \node[estep] (d5) at (120,154) {在这个接口内找\\interrupt-IN 端点};
+  \node[estep] (d6) at (150,154) {\code{SET\_CONFIGURATION}};
+  \node[eexit] (dq) at (90,167) {否：不是 Boot Keyboard，换下一个接口};
+  \draw[eflow] (c5.south) -- ++(0,22) -| (d1.north);
+  \draw[eflow] (d1) -- (d2);
+  \draw[eflow] (d2) -- (d3);
+  \draw[eflow] (d3) -- (d4);
+  \draw[eflow] (d4) -- node[elab,above]{是} (d5);
+  \draw[eflow] (d5) -- (d6);
+  \draw[edash] (d4.south) -- (dq.north);
+
+  % ---- 阶段 5
+  \node[estep] (e1) at (0,194) {\code{usb\_device\_register}};
+  \node[estep] (e2) at (30,194) {USB 总线按类别匹配\\
+    \code{usbhid-keyboard}};
+  \node[estep] (e3) at (60,194) {\code{usbkbd\_probe(udev)}};
+  \node[estep] (e4) at (90,194) {\code{SET\_PROTOCOL(boot)}\\
+    \code{SET\_IDLE(0)}};
+  \node[estep] (e5) at (120,194) {分配 \code{usbkbd\_state}、\\URB，注册 \code{event0}};
+  \node[estep] (e6) at (150,194) {arm ch6\\interrupt-IN，10\,ms};
+  \draw[eflow] (d6.south) -- ++(0,14) -| (e1.north);
+  \draw[eflow] (e1) -- (e2);
+  \draw[eflow] (e2) -- (e3);
+  \draw[eflow] (e3) -- (e4);
+  \draw[eflow] (e4) -- (e5);
+  \draw[eflow] (e5) -- (e6);
+\end{tikzpicture}

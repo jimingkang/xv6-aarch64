@@ -1,0 +1,70 @@
+% 图：运行期一次 interrupt-IN 轮询的 IRQ 接收时序（合并 readme「IRQ 接收时序图」
+% 与「system_wq、延迟队列与 dwc2_periodic_wq」两张 mermaid 时序图）。
+% 三个色带分别是：提交与 start-split、键盘回 NAK、键盘回一份 8 字节报告。
+\definecolor{irqseqA}{RGB}{240,248,255}
+\definecolor{irqseqB}{RGB}{255,245,238}
+\definecolor{irqseqC}{RGB}{245,255,245}
+\begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+    ipart/.style={draw=structurecolor!75!black,fill=structurecolor!12,
+      rounded corners=1.5pt,align=center,text width=26mm,minimum height=11mm},
+    iline/.style={gray!65,dashed,line width=.45pt},
+    icall/.style={-{Stealth[length=1.7mm]},line width=.55pt,
+      draw=structurecolor!85!black},
+    iret/.style={-{Stealth[length=1.7mm]},dashed,line width=.5pt,
+      draw=structurecolor!75!black},
+    imsg/.style={fill=white,inner sep=1pt,align=center,font=\tiny},
+    ihead/.style={anchor=west,align=left,font=\scriptsize\bfseries,
+      text=structurecolor!80!black},
+    inote/.style={draw=gray!55,fill=yellow!16,rounded corners=1.5pt,
+      inner sep=1.5pt,align=left,font=\tiny,text=gray!70!black,anchor=west}]
+  \node[ipart] at (0,0) {类驱动与键盘下半部\\ \code{usbkbd\_probe}／\code{usbkbd\_wq}};
+  \node[ipart] at (46,0) {DWC2 ch6 与\\ \code{dwc2\_irq()} 快速路径};
+  \node[ipart] at (92,0) {LAN951x 的 TT\\与低速键盘};
+  \node[ipart] at (138,0) {HCD 侧 work\\ \code{system\_wq}／\code{dwc2\_periodic\_wq}};
+  \foreach \x in {0,46,92,138}
+    \draw[iline] (\x,6) -- (\x,186);
+  \begin{scope}[on background layer]
+    \fill[irqseqA,rounded corners=2pt] (-19,9) rectangle (157,57);
+    \fill[irqseqB,rounded corners=2pt] (-19,59) rectangle (157,115);
+    \fill[irqseqC,rounded corners=2pt] (-19,117) rectangle (157,186);
+  \end{scope}
+
+  % ---- 提交与 start-split
+  \node[ihead] at (-17,11) {\ding{172} 类驱动只提交一次，之后全由中断推动};
+  \draw[icall] (0,20) -- node[imsg,above]{\code{usb\_submit\_urb(buf, 8)}} (46,20);
+  \node[inote] at (2,26) {配置 \reg{HCDMA}、\reg{HCTSIZ}、\reg{HCCHAR}，\\
+    打开 \code{HCINTMSK(6)} 与 \code{HAINTMSK} bit 6};
+  \draw[iret] (46,37) -- node[imsg,above]{配好寄存器就返回，不忙等 \reg{HCINT}} (0,37);
+  \draw[icall] (46,45) -- node[imsg,above]{SSPLIT：把这次 IN 交给 TT} (92,45);
+  \draw[icall] (92,50) -- (92,53);
+  \node[imsg,anchor=west] at (94,51.5) {TT 在低速总线上发 IN} ;
+  \draw[iret] (92,56) -- node[imsg,above]{ACK：TT 已接受，还没有结果} (46,56);
+
+  % ---- 分支一：没有新按键
+  \node[ihead] at (-17,61) {\ding{173} 键盘没有新按键：NAK／NYET，URB 不归还类驱动};
+  \draw[icall] (46,70) -- node[imsg,above]{CSPLIT：取回结果} (92,70);
+  \draw[iret] (92,76) -- node[imsg,above]{键盘回 NAK，TT 回 NYET} (46,76);
+  \node[inote] at (2,81) {快速路径当场判断：还在同一 frame 的窗口里，\\
+    就等下一个微帧直接重发 CSPLIT，不经过任何线程};
+  \draw[icall] (46,94) -- node[imsg,above]{越过窗口或出错：屏蔽 ch6，\code{schedule\_work}} (138,94);
+  \draw[icall] (138,101) -- node[imsg,above]{\code{mod\_delayed\_work(retry\_work, bInterval)}} (46,101);
+  \node[inote] at (96,105) {CPU0 timer 到期后才把 \code{retry\_work} 移入\\
+    \code{dwc2\_periodic\_wq}，从新的 SSPLIT 重新 arm ch6。\\
+    等待期间没有 kworker 运行，URB 始终保持 submitted};
+
+  % ---- 分支二：收到报告
+  \node[ihead] at (-17,119) {\ding{174} 键盘按下：报告经 DMA 进内存，再交还给类驱动};
+  \draw[icall] (46,128) -- node[imsg,above]{CSPLIT：取回结果} (92,128);
+  \draw[iret] (92,134) -- node[imsg,above]{DATA：8 字节报告，\code{XFERCOMPL}} (46,134);
+  \node[inote] at (48,139) {DMA 写入 \code{kbd->report}；\\
+    \code{HAINT} bit 6 → legacy IRQ 9};
+  \draw[icall] (46,150) -- node[imsg,above]{屏蔽 ch6，\code{schedule\_work}} (138,150);
+  \draw[icall] (138,158) -- node[imsg,above]{cache invalidate、算出 \code{actual\_length}，\\
+    \code{usb\_hcd\_giveback\_urb} → \code{urb->complete}} (0,158);
+  \node[inote] at (2,165) {completion 只做一件事：\\
+    \code{queue\_work(\&usbkbd\_wq, \&kbd->rx\_work)}};
+  \draw[icall] (0,176) -- node[imsg,above]{\code{usbkbd\_rx\_work()}：比较新旧报告，\\
+    \code{input\_report\_key}＋\code{input\_sync}、\code{consoleintr()}，\\
+    最后重新 \code{usb\_submit\_urb}} (46,176);
+  \draw[iret] (46,184) -- node[imsg,above]{下一次按键：回到 \ding{172}，CPU 全程没有自旋} (0,184);
+\end{tikzpicture}

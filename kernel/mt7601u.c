@@ -9,6 +9,7 @@
 #include "fat32.h"
 #include "net.h"
 #include "workqueue.h"
+#include "module.h"
 
 #define MT_VEND_MULTI_READ 7
 #define MT_VEND_DEV_MODE   1
@@ -1749,6 +1750,9 @@ mt7601u_driver_init(void)
   init_workqueue(&mt7601u_wq, "mt7601u_wq", 1);
   usb_register_driver(&mt7601u_driver);
 }
+
+// Order 3: needs sdroot's firmware files and dwc2's enumeration.
+late_initcall_ord("mt7601u", mt7601u_driver_init, 3);
 
 void
 mt7601u_driver_exit(void)

@@ -50,6 +50,7 @@
 #include "mbox.h"
 #include "camsensor.h"
 #include "workqueue.h"
+#include "module.h"
 
 #define UNICAM_BASE   (PERIPHERAL_BASE + 0x801000UL)   // CSI1
 #define UNICAM_CLKGATE (PERIPHERAL_BASE + 0x802004UL)  // CSI1 lane clocks
@@ -1061,3 +1062,6 @@ camera_init(void)
   printf("camera: no sensor found (%d driver%s tried); /dev/video0 "
          "inactive\n", cam.ncandidates, cam.ncandidates == 1 ? "" : "s");
 }
+
+// Order 4: binds the sensor driver that ov5647 registered earlier.
+late_initcall_ord("unicam", camera_init, 4);

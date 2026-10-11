@@ -18,6 +18,7 @@
 #include "input.h"
 #include "usb.h"
 #include "workqueue.h"
+#include "module.h"
 
 #define HID_REQ_SET_IDLE     0x0a
 #define HID_REQ_SET_PROTOCOL 0x0b
@@ -345,6 +346,10 @@ usbkbd_driver_init(void)
   init_workqueue(&usbkbd_wq, "usbkbd_wq", 1);
   usb_register_driver(&usbkbd_driver);
 }
+
+// Order 2: registered before dwc2 enumerates, so a boot keyboard that is
+// already plugged in binds during that first scan.
+module_init_ord("usbhid-kbd", usbkbd_driver_init, 2);
 
 void
 usbkbd_driver_exit(void)

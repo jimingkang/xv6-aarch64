@@ -14,6 +14,7 @@
 #include "param.h"
 #include "spinlock.h"
 #include "fat32.h"
+#include "module.h"
 
 #define SECTOR_SIZE       512
 #define FAT32_EOC         0x0ffffff8U
@@ -1353,6 +1354,10 @@ fat32init(void)
 {
   initlock(&fat32_lock, "fat32");
 }
+
+// Level fs: FAT32 driver state only; the boot filesystem itself is
+// mounted later by sdroot.
+fs_initcall("fat32", fat32init);
 
 // Record the cluster chain of one root-directory file so that it can be
 // addressed as a flat run of 512-byte sectors.  Only one file is mapped at a

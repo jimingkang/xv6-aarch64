@@ -8,6 +8,7 @@
 #include "memlayout.h"
 #include "device.h"
 #include "sdio.h"
+#include "module.h"
 
 #define EMMC_BASE       (PERIPHERAL_BASE + 0x00300000UL)
 #define GPIO_BASE       (PERIPHERAL_BASE + 0x00200000UL)
@@ -431,6 +432,9 @@ arasan_sdio_driver_init(void)
   platform_device_register(&dev);
   platform_driver_register(&drv);
 }
+
+// Order 1: the WiFi SDIO host, probed before its brcmfmac client.
+module_init_ord("arasan-sdio", arasan_sdio_driver_init, 1);
 
 void
 arasan_sdio_driver_exit(void)

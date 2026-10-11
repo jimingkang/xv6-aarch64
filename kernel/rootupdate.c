@@ -15,6 +15,7 @@
 #include "file.h"
 #include "device.h"
 #include "defs.h"
+#include "module.h"
 
 #define SECTOR_SIZE 512
 #define HEADER_BYTES (BSIZE + SECTOR_SIZE) // boot block + superblock sector
@@ -206,3 +207,6 @@ rootupdate_init(void)
   if(register_chrdev(ROOTUPDATE, "sdroot", &rootupdate_fops) < 0)
     panic("sdroot: register");
 }
+
+// Order 1: /dev/sdroot guards the partition sdroot just registered.
+late_initcall_ord("sdroot-update", rootupdate_init, 1);

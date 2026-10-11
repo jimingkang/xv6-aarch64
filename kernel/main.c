@@ -4,6 +4,7 @@
 #include "aarch64.h"
 #include "defs.h"
 #include "device.h"
+#include "module.h"
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -53,6 +54,9 @@ main()
     boot_uart_mark('3');
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     boot_uart_mark('4');
+    // The device model and the two bus cores are not modules: consoleinit()
+    // below already calls register_chrdev() and platform_device_register(),
+    // so they must exist before do_initcalls() runs the driver table.
     device_init();
     sdio_bus_init();
     usb_bus_init();
@@ -69,10 +73,6 @@ main()
     rnginit();       // BCM2837 hardware random source for cryptographic keys
     syncinit();      // process synchronization objects
     netinit();       // Ethernet/IPv4/UDP stack (loopback until NIC attaches)
-    input_init();    // input core and /dev/input/event0 evdev bridge
-    usbkbd_driver_init(); // bind USB HID boot keyboards during enumeration
-    usbmouse_driver_init(); // bind USB HID boot mice during enumeration
-    dwc2_driver_init();   // register/probe DWC2 USB host controller
     trapinit();      // trap vectors
     trapinithart();  // install trap vector
     gicv3init();     // set up interrupt controller
@@ -81,17 +81,12 @@ main()
     binit();         // buffer cache
     iinit();         // inode table
     fileinit();      // file table
-    sd_driver_init(); // BCM SDHOST owns the external SD memory card
-    arasan_sdio_driver_init(); // Arasan owns BCM43430/43455 on GPIO34--39
-    fat32init();      // FAT32 driver state
-    rootdev_init();   // MBR scan: find the xv6 root, mount FAT32 bootfs
-    rootupdate_init(); // guarded /dev/sdroot in-place image updater
-    brcmfmac_driver_init(); // firmware source is available after FAT32 init
-    mt7601u_driver_init(); // bind enumerated USB MT7601U after firmware source
-    ov5647_init();    // register camera sensor drivers (camsensor.h) ...
-    camera_init();    // ... then the Unicam bridge probes them -> /dev/video0
-    ext2init();       // optional read-only Linux ext2 partition
-    vfsinit();        // mount non-native filesystems behind vnode operations
+    // Drivers are no longer hand-listed here.  Each one put a struct
+    // module_desc in the .initcall.list section with module_init() or a level
+    // macro, and this walks the linker's table in (level, order) sequence:
+    // input core, filesystems, host controllers and class drivers, then the
+    // root mount and the modules that need firmware files from it.
+    do_initcalls();
     userinit();      // first user process
     start_secondary_cpus();
     // kvmdump();    // enable to show the final kernel page table before init/sh

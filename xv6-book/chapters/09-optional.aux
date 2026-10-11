@@ -1,66 +1,66 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第九章}可选工作}{145}{chapter.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第九章}可选工作}{154}{chapter.9}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:optional}{{9}{145}{可选工作}{chapter.9}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {9.1}ext2 移植}{145}{section.9.1}\protected@file@percent }
-\newlabel{sec:ext2}{{9.1}{145}{ext2 移植}{section.9.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.1}动机与分区布局}{145}{subsection.9.1.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {9.1}{\ignorespaces ext2 与外置日志在 SD 卡上的位置。下排数字是真机上的绝对 LBA：日志起点 $=$ p2 起点 208896 $+$ 65536\relax }}{145}{figure.caption.99}\protected@file@percent }
-\newlabel{fig:ext2-card}{{9.1}{145}{ext2 与外置日志在 SD 卡上的位置。下排数字是真机上的绝对 LBA：日志起点 $=$ p2 起点 208896 $+$ 65536\relax }{figure.caption.99}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.2}ext2 的磁盘结构}{146}{subsection.9.1.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {9.2}{\ignorespaces ext2 第 0 块组的布局。其他块组结构相同；开启 \texttt  {\hyphenchar \font =-1 sparse\_super} 时只有第 0、1 和 3、5、7 的幂次组保存 superblock 与描述符表的备份\relax }}{146}{figure.caption.100}\protected@file@percent }
-\newlabel{fig:ext2-layout}{{9.2}{146}{ext2 第 0 块组的布局。其他块组结构相同；开启 \code {sparse\_super} 时只有第 0、1 和 3、5、7 的幂次组保存 superblock 与描述符表的备份\relax }{figure.caption.100}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {9.1}{\ignorespaces \texttt  {\hyphenchar \font =-1 setup\_ext2()} 读取的 superblock 字段\relax }}{146}{table.caption.101}\protected@file@percent }
-\newlabel{tab:ext2-sb}{{9.1}{146}{\code {setup\_ext2()} 读取的 superblock 字段\relax }{table.caption.101}{}}
-\@writefile{toc}{\contentsline {paragraph}{inode 与目录.}{146}{table.caption.101}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.3}从文件偏移到块号}{147}{subsection.9.1.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {9.3}{\ignorespaces ext2 inode 的块指针树。块号为 0 表示空洞：读时返回全 0，写时才分配\relax }}{147}{figure.caption.102}\protected@file@percent }
-\newlabel{fig:ext2-blocks}{{9.3}{147}{ext2 inode 的块指针树。块号为 0 表示空洞：读时返回全 0，写时才分配\relax }{figure.caption.102}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.4}分配与释放}{148}{subsection.9.1.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.5}接入 VFS：按 inode 工作}{148}{subsection.9.1.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{锁.}{149}{lstnumber.-181.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.6}持久化：\texttt  {\hyphenchar \font =-1 sdflush()} 写屏障}{149}{subsection.9.1.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.7}外置事务日志 xjournal}{149}{subsection.9.1.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{要解决的问题.}{149}{subsection.9.1.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{接口.}{150}{subsection.9.1.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{ordered 模式.}{150}{lstnumber.-183.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{磁盘格式与提交协议.}{150}{lstnumber.-183.11}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {9.4}{\ignorespaces xjournal 的提交协议。四次 \texttt  {\hyphenchar \font =-1 sdflush()} 把四步严格排序；提交点之前和之后的断电有两种确定的结局\relax }}{150}{figure.caption.103}\protected@file@percent }
-\newlabel{fig:xj-commit}{{9.4}{150}{xjournal 的提交协议。四次 \code {sdflush()} 把四步严格排序；提交点之前和之后的断电有两种确定的结局\relax }{figure.caption.103}{}}
-\@writefile{toc}{\contentsline {paragraph}{崩溃恢复.}{151}{lstnumber.-184.19}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9.2}{\ignorespaces 断电时刻与恢复结果\relax }}{151}{table.caption.104}\protected@file@percent }
-\newlabel{tab:xj-crash}{{9.2}{151}{断电时刻与恢复结果\relax }{table.caption.104}{}}
-\@writefile{toc}{\contentsline {paragraph}{ext2 怎样使用事务.}{151}{table.caption.104}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.8}源码组织与编译}{152}{subsection.9.1.8}\protected@file@percent }
-\newlabel{sec:ext2-build}{{9.1.8}{152}{源码组织与编译}{subsection.9.1.8}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {9.3}{\ignorespaces ext2 移植涉及的文件\relax }}{152}{table.caption.105}\protected@file@percent }
-\newlabel{tab:ext2-files}{{9.3}{152}{ext2 移植涉及的文件\relax }{table.caption.105}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.9}测试：WAL 程序与随机断电}{152}{subsection.9.1.9}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9.4}{\ignorespaces \texttt  {\hyphenchar \font =-1 waltest} 的子命令\relax }}{152}{table.caption.106}\protected@file@percent }
-\newlabel{tab:waltest}{{9.4}{152}{\code {waltest} 的子命令\relax }{table.caption.106}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.10}给 SD 卡分出 ext2 分区}{153}{subsection.9.1.10}\protected@file@percent }
-\newlabel{sec:ext2-part}{{9.1.10}{153}{给 SD 卡分出 ext2 分区}{subsection.9.1.10}{}}
-\@writefile{toc}{\contentsline {paragraph}{为什么不用 \texttt  {\hyphenchar \font =-1 diskutil}.}{153}{subsection.9.1.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{先看清现状.}{153}{subsection.9.1.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{新布局.}{153}{lstnumber.-191.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{用 \texttt  {\hyphenchar \font =-1 fdisk -e} 修改.}{153}{table.caption.107}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9.5}{\ignorespaces 加入 p3 之后的分区表\relax }}{154}{table.caption.107}\protected@file@percent }
-\newlabel{tab:ext2-parts}{{9.5}{154}{加入 p3 之后的分区表\relax }{table.caption.107}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.11}格式化 ext2}{154}{subsection.9.1.11}\protected@file@percent }
-\newlabel{sec:ext2-mkfs}{{9.1.11}{154}{格式化 ext2}{subsection.9.1.11}{}}
-\@writefile{toc}{\contentsline {paragraph}{不要把 32\,MiB 镜像写进大分区.}{154}{table.caption.108}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9.6}{\ignorespaces \texttt  {\hyphenchar \font =-1 mke2fs} 特性选项与驱动的对应关系\relax }}{155}{table.caption.108}\protected@file@percent }
-\newlabel{tab:mke2fs-opts}{{9.6}{155}{\code {mke2fs} 特性选项与驱动的对应关系\relax }{table.caption.108}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.12}安装与真机调试}{155}{subsection.9.1.12}\protected@file@percent }
-\newlabel{sec:ext2-install}{{9.1.12}{155}{安装与真机调试}{subsection.9.1.12}{}}
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{155}{lstnumber.-195.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{155}{lstnumber.-196.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{156}{lstnumber.-196.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.13}当前边界}{156}{subsection.9.1.13}\protected@file@percent }
+\newlabel{chap:optional}{{9}{154}{可选工作}{chapter.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.1}ext2 移植}{154}{section.9.1}\protected@file@percent }
+\newlabel{sec:ext2}{{9.1}{154}{ext2 移植}{section.9.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.1}动机与分区布局}{154}{subsection.9.1.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9.1}{\ignorespaces ext2 与外置日志在 SD 卡上的位置。下排数字是真机上的绝对 LBA：日志起点 $=$ p2 起点 208896 $+$ 65536\relax }}{154}{figure.caption.102}\protected@file@percent }
+\newlabel{fig:ext2-card}{{9.1}{154}{ext2 与外置日志在 SD 卡上的位置。下排数字是真机上的绝对 LBA：日志起点 $=$ p2 起点 208896 $+$ 65536\relax }{figure.caption.102}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.2}ext2 的磁盘结构}{155}{subsection.9.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9.2}{\ignorespaces ext2 第 0 块组的布局。其他块组结构相同；开启 \texttt  {\hyphenchar \font =-1 sparse\_super} 时只有第 0、1 和 3、5、7 的幂次组保存 superblock 与描述符表的备份\relax }}{155}{figure.caption.103}\protected@file@percent }
+\newlabel{fig:ext2-layout}{{9.2}{155}{ext2 第 0 块组的布局。其他块组结构相同；开启 \code {sparse\_super} 时只有第 0、1 和 3、5、7 的幂次组保存 superblock 与描述符表的备份\relax }{figure.caption.103}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9.1}{\ignorespaces \texttt  {\hyphenchar \font =-1 setup\_ext2()} 读取的 superblock 字段\relax }}{155}{table.caption.104}\protected@file@percent }
+\newlabel{tab:ext2-sb}{{9.1}{155}{\code {setup\_ext2()} 读取的 superblock 字段\relax }{table.caption.104}{}}
+\@writefile{toc}{\contentsline {paragraph}{inode 与目录.}{155}{table.caption.104}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.3}从文件偏移到块号}{156}{subsection.9.1.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9.3}{\ignorespaces ext2 inode 的块指针树。块号为 0 表示空洞：读时返回全 0，写时才分配\relax }}{156}{figure.caption.105}\protected@file@percent }
+\newlabel{fig:ext2-blocks}{{9.3}{156}{ext2 inode 的块指针树。块号为 0 表示空洞：读时返回全 0，写时才分配\relax }{figure.caption.105}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.4}分配与释放}{157}{subsection.9.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.5}接入 VFS：按 inode 工作}{157}{subsection.9.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{锁.}{158}{lstnumber.-191.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.6}持久化：\texttt  {\hyphenchar \font =-1 sdflush()} 写屏障}{158}{subsection.9.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.7}外置事务日志 xjournal}{158}{subsection.9.1.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{要解决的问题.}{158}{subsection.9.1.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{接口.}{159}{subsection.9.1.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{ordered 模式.}{159}{lstnumber.-193.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{磁盘格式与提交协议.}{159}{lstnumber.-193.11}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9.4}{\ignorespaces xjournal 的提交协议。四次 \texttt  {\hyphenchar \font =-1 sdflush()} 把四步严格排序；提交点之前和之后的断电有两种确定的结局\relax }}{159}{figure.caption.106}\protected@file@percent }
+\newlabel{fig:xj-commit}{{9.4}{159}{xjournal 的提交协议。四次 \code {sdflush()} 把四步严格排序；提交点之前和之后的断电有两种确定的结局\relax }{figure.caption.106}{}}
+\@writefile{toc}{\contentsline {paragraph}{崩溃恢复.}{160}{lstnumber.-194.19}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9.2}{\ignorespaces 断电时刻与恢复结果\relax }}{160}{table.caption.107}\protected@file@percent }
+\newlabel{tab:xj-crash}{{9.2}{160}{断电时刻与恢复结果\relax }{table.caption.107}{}}
+\@writefile{toc}{\contentsline {paragraph}{ext2 怎样使用事务.}{160}{table.caption.107}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.8}源码组织与编译}{161}{subsection.9.1.8}\protected@file@percent }
+\newlabel{sec:ext2-build}{{9.1.8}{161}{源码组织与编译}{subsection.9.1.8}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9.3}{\ignorespaces ext2 移植涉及的文件\relax }}{161}{table.caption.108}\protected@file@percent }
+\newlabel{tab:ext2-files}{{9.3}{161}{ext2 移植涉及的文件\relax }{table.caption.108}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.9}测试：WAL 程序与随机断电}{161}{subsection.9.1.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9.4}{\ignorespaces \texttt  {\hyphenchar \font =-1 waltest} 的子命令\relax }}{161}{table.caption.109}\protected@file@percent }
+\newlabel{tab:waltest}{{9.4}{161}{\code {waltest} 的子命令\relax }{table.caption.109}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.10}给 SD 卡分出 ext2 分区}{162}{subsection.9.1.10}\protected@file@percent }
+\newlabel{sec:ext2-part}{{9.1.10}{162}{给 SD 卡分出 ext2 分区}{subsection.9.1.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{为什么不用 \texttt  {\hyphenchar \font =-1 diskutil}.}{162}{subsection.9.1.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{先看清现状.}{162}{subsection.9.1.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{新布局.}{162}{lstnumber.-201.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{用 \texttt  {\hyphenchar \font =-1 fdisk -e} 修改.}{162}{table.caption.110}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9.5}{\ignorespaces 加入 p3 之后的分区表\relax }}{163}{table.caption.110}\protected@file@percent }
+\newlabel{tab:ext2-parts}{{9.5}{163}{加入 p3 之后的分区表\relax }{table.caption.110}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.11}格式化 ext2}{163}{subsection.9.1.11}\protected@file@percent }
+\newlabel{sec:ext2-mkfs}{{9.1.11}{163}{格式化 ext2}{subsection.9.1.11}{}}
+\@writefile{toc}{\contentsline {paragraph}{不要把 32\,MiB 镜像写进大分区.}{163}{table.caption.111}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9.6}{\ignorespaces \texttt  {\hyphenchar \font =-1 mke2fs} 特性选项与驱动的对应关系\relax }}{164}{table.caption.111}\protected@file@percent }
+\newlabel{tab:mke2fs-opts}{{9.6}{164}{\code {mke2fs} 特性选项与驱动的对应关系\relax }{table.caption.111}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.12}安装与真机调试}{164}{subsection.9.1.12}\protected@file@percent }
+\newlabel{sec:ext2-install}{{9.1.12}{164}{安装与真机调试}{subsection.9.1.12}{}}
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{164}{lstnumber.-205.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{164}{lstnumber.-206.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{165}{lstnumber.-206.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1.13}当前边界}{165}{subsection.9.1.13}\protected@file@percent }
 \@setckpt{chapters/09-optional}{
-\setcounter{page}{157}
+\setcounter{page}{166}
 \setcounter{equation}{0}
 \setcounter{enumi}{3}
 \setcounter{enumii}{0}
@@ -77,7 +77,7 @@
 \setcounter{subparagraph}{0}
 \setcounter{figure}{4}
 \setcounter{table}{6}
-\setcounter{Item}{79}
+\setcounter{Item}{85}
 \setcounter{Hfootnote}{0}
 \setcounter{Hy@AnnotLevel}{0}
 \setcounter{bookmark@seq@number}{222}

@@ -35,6 +35,7 @@
 #include "fat32.h"
 #include "blkdev.h"
 #include "fs_trace.h"
+#include "module.h"
 
 #define SECTOR_SIZE        512
 #define SECTORS_PER_BLOCK  (BSIZE / SECTOR_SIZE)
@@ -352,6 +353,10 @@ rootdev_init(void)
   }
   panic("rootdev: no raw xv6 partition or FS.IMG");
 }
+
+// Level late: mounting the root is what Linux does after do_initcalls(),
+// by which time every block driver above has had its probe run.
+late_initcall("sdroot", rootdev_init);
 
 int
 rootdev_raw_info(uint32 *lba, uint32 *sectors)
