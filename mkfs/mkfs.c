@@ -42,6 +42,12 @@ uint ialloc(ushort type);
 void iappend(uint inum, void *p, int n);
 void die(const char *);
 
+// mkfs/lsdir.c: list the regular files in a directory (host headers isolated in
+// that file so they don't clash with xv6's struct dirent / redefined stat).
+int mkfs_list_dir(char *dir, char (*names)[64], int max, int outsz);
+
+#define MAXMODULES 32
+
 // convert to riscv byte order
 ushort
 xshort(ushort x)
@@ -69,7 +75,7 @@ int
 main(int argc, char *argv[])
 {
   int i, cc, fd;
-  uint rootino, binino, inum, off;
+  uint rootino, binino, libino, modino, inum, off;
   struct dirent de;
   char buf[BSIZE];
   struct dinode din;
@@ -88,6 +94,20 @@ main(int argc, char *argv[])
   fsfd = open(argv[1], O_RDWR|O_CREAT|O_TRUNC, 0666);
   if(fsfd < 0)
     die(argv[1]);
+
+  // A `-M <dir>` option names the installed-modules staging tree (what
+  // `make modules_install` populates).  Every regular file in it lands in the
+  // image's /lib/modules verbatim -- mkfs no longer guesses a module by its
+  // ".ko" suffix, just as a Linux rootfs simply has files under /lib/modules.
+  // The option and its argument are blanked so the /bin loop skips them.
+  char *moddir = 0;
+  for(i = 2; i < argc; i++){
+    if(strcmp(argv[i], "-M") == 0 && i + 1 < argc){
+      moddir = argv[i + 1];
+      argv[i] = argv[i + 1] = 0;
+      i++;
+    }
+  }
 
   // 1 fs block = 1 disk sector
   nmeta = 2 + nlog + ninodeblocks + nbitmap;
@@ -145,36 +165,91 @@ main(int argc, char *argv[])
   strcpy(de.name, "..");
   iappend(binino, &de, sizeof(de));
 
+  // Build /lib/modules too, so a loadable .ko lives where insmod expects it --
+  // the same directory Linux keeps /lib/modules/$(uname -r) in.
+  libino = ialloc(T_DIR);
+  modino = ialloc(T_DIR);
+  bzero(&de, sizeof(de));
+  de.inum = xshort(libino);
+  strcpy(de.name, "lib");
+  iappend(rootino, &de, sizeof(de));
+  bzero(&de, sizeof(de));
+  de.inum = xshort(modino);
+  strcpy(de.name, "modules");
+  iappend(libino, &de, sizeof(de));
+  bzero(&de, sizeof(de));
+  de.inum = xshort(libino);
+  strcpy(de.name, ".");
+  iappend(libino, &de, sizeof(de));
+  bzero(&de, sizeof(de));
+  de.inum = xshort(rootino);
+  strcpy(de.name, "..");
+  iappend(libino, &de, sizeof(de));
+  bzero(&de, sizeof(de));
+  de.inum = xshort(modino);
+  strcpy(de.name, ".");
+  iappend(modino, &de, sizeof(de));
+  bzero(&de, sizeof(de));
+  de.inum = xshort(libino);
+  strcpy(de.name, "..");
+  iappend(modino, &de, sizeof(de));
+
+  // Ingest the installed modules tree into /lib/modules.  Each file is copied
+  // under its real name, exactly as a modules_install'd .ko sits in
+  // /lib/modules/$(uname -r)/ on Linux.
+  if(moddir){
+    char mnames[MAXMODULES][64];
+    char mpath[1024];
+    int mn = mkfs_list_dir(moddir, mnames, MAXMODULES, 64);
+    if(mn < 0){
+      fprintf(stderr, "mkfs: cannot open modules directory %s\n", moddir);
+      exit(1);
+    }
+    for(int m = 0; m < mn; m++){
+      snprintf(mpath, sizeof(mpath), "%s/%s", moddir, mnames[m]);
+      if((fd = open(mpath, 0)) < 0)
+        die(mpath);
+      inum = ialloc(T_FILE);
+      bzero(&de, sizeof(de));
+      de.inum = xshort(inum);
+      strncpy(de.name, mnames[m], DIRSIZ);
+      iappend(modino, &de, sizeof(de));
+      while((cc = read(fd, buf, sizeof(buf))) > 0)
+        iappend(inum, buf, cc);
+      rinode(inum, &din);
+      din.nlink = xshort(1);
+      winode(inum, &din);
+      close(fd);
+    }
+  }
+
+  // Everything left on the command line is a user program for /bin.
   for(i = 2; i < argc; i++){
-    // get rid of "user/"
-    char *shortname;
-    if(strncmp(argv[i], "user/", 5) == 0)
-      shortname = argv[i] + 5;
-    else
-      shortname = argv[i];
-    
-    assert(index(shortname, '/') == 0);
+    if(argv[i] == 0)                  // consumed by the -M option
+      continue;
+    // Store by basename only; the caller passes user/_foo build names.
+    char *shortname = strrchr(argv[i], '/');
+    shortname = shortname ? shortname + 1 : argv[i];
+
+    // "_foo" build names lose the leading underscore so the host never runs
+    // them by accident.
+    uint dir = binino;
+    if(shortname[0] == '_')
+      shortname += 1;
 
     if((fd = open(argv[i], 0)) < 0)
       die(argv[i]);
-
-    // Skip leading _ in name when writing to file system.
-    // The binaries are named _rm, _cat, etc. to keep the
-    // build operating system from trying to execute them
-    // in place of system binaries like rm and cat.
-    if(shortname[0] == '_')
-      shortname += 1;
 
     inum = ialloc(T_FILE);
 
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, shortname, DIRSIZ);
-    iappend(binino, &de, sizeof(de));
+    iappend(dir, &de, sizeof(de));
 
     // The bootstrap code enters user space with exec("init"), so /init is
     // the sole executable retained at the root.  All commands live in /bin.
-    int rootlink = strcmp(shortname, "init") == 0;
+    int rootlink = dir == binino && strcmp(shortname, "init") == 0;
     if(rootlink){
       bzero(&de, sizeof(de));
       de.inum = xshort(inum);
@@ -206,6 +281,18 @@ main(int argc, char *argv[])
   off = ((off/BSIZE) + 1) * BSIZE;
   din.size = xint(off);
   winode(binino, &din);
+
+  rinode(libino, &din);
+  off = xint(din.size);
+  off = ((off/BSIZE) + 1) * BSIZE;
+  din.size = xint(off);
+  winode(libino, &din);
+
+  rinode(modino, &din);
+  off = xint(din.size);
+  off = ((off/BSIZE) + 1) * BSIZE;
+  din.size = xint(off);
+  winode(modino, &din);
 
   balloc(freeblock);
 

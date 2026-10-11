@@ -163,6 +163,8 @@ extern uint64 sys_pread(void);
 extern uint64 sys_pwrite(void);
 extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
+extern uint64 sys_init_module(void);
+extern uint64 sys_delete_module(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -245,6 +247,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_pwrite]       sys_pwrite,
 [SYS_mmap]         sys_mmap,
 [SYS_munmap]       sys_munmap,
+[SYS_init_module]  sys_init_module,
+[SYS_delete_module] sys_delete_module,
 };
 
 void

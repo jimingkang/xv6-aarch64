@@ -6,6 +6,7 @@
 #include "fs.h"
 #include "file.h"
 #include "device.h"
+#include "module.h"
 #include "defs.h"
 
 struct chrdev {
@@ -139,9 +140,27 @@ device_register(struct device *dev)
   }
   device_core.devices[device_core.ndevice++] = dev;
   release(&device_core.lock);
+  // Try every driver already on this device's bus.  bind() returns non-zero
+  // when a driver claims the device, whether or not its probe then succeeds, so
+  // `matched` records "some loaded driver is responsible for this device."
+  int matched = 0;
   for(int i = 0; i < device_core.ndriver; i++)
-    if(bind(dev, device_core.drivers[i]) != 0)
+    if(bind(dev, device_core.drivers[i]) != 0){
+      matched = 1;
       break;
+    }
+
+  // No loaded driver claimed this device.  Ask the module loader to bring in
+  // the .ko whose modules.alias answers this device's MODALIAS -- the cold/hot
+  // plug auto-load path Linux drives with a uevent + modprobe.  The request
+  // runs off the device-core lock (released above) and, because reading the .ko
+  // must sleep, off this context too: request_module() defers the load to the
+  // kmod workqueue, whose driver_register() pass then binds this very device.
+  if(!matched && dev->bus && dev->bus->modalias){
+    char alias[MODALIAS_MAX];
+    if(dev->bus->modalias(dev, alias, sizeof(alias)) > 0)
+      request_module(alias);
+  }
   return 0;
 }
 

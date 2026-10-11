@@ -96,3 +96,5 @@ entry("pread");
 entry("pwrite");
 entry("mmap");
 entry("munmap");
+entry("init_module");
+entry("delete_module");

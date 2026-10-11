@@ -45,6 +45,11 @@ struct bus_type {
   int (*match)(struct device *dev, struct device_driver *drv);
   int (*probe)(struct device *dev);
   void (*remove)(struct device *dev);
+  // Format this device's MODALIAS into buf (Linux's bus->uevent, narrowed to
+  // just the alias string).  Returns the length written, or <= 0 if the device
+  // has no alias.  The driver core calls it when a device ends up unbound so
+  // request_module() can auto-load the driver that claims this alias.
+  int (*modalias)(struct device *dev, char *buf, int size);
 };
 
 struct device_driver {

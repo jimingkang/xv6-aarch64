@@ -98,6 +98,8 @@ int pread(int, void*, int, uint64);
 int pwrite(int, const void*, int, uint64);
 void *mmap(void*, uint64, int, int, int, uint64);
 int munmap(void*, uint64);
+int init_module(void*, unsigned long, const char*);
+int delete_module(const char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

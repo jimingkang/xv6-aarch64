@@ -37,6 +37,11 @@ kvmmake(void)
   // Camera DMA buffer: non-cacheable normal memory (see memlayout.h).
   kvmmap(kpgtbl, CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
 
+  // Loadable-module arena: read/write/execute normal memory.  The loader
+  // copies a .ko's text in and then the kernel runs it, so unlike every other
+  // region above etext this one is left executable (no PTE_XN, no PTE_RO).
+  kvmmap(kpgtbl, MODAREA, MODAREA_PA, MODAREA_SIZE, PTE_NORMAL);
+
   // Raspberry Pi AArch64 secondary-core spin-table slots live at physical
   // 0xe0..0xf0.  Keep only page zero in the high direct map so CPU0 can
   // publish _entry after switching away from the bootstrap page table.

@@ -45,11 +45,11 @@ OBJS = \
   $K/console.o \
 	$K/device.o \
 	$K/module.o \
+	$K/export.o \
 	$K/sdio.o \
 	$K/usb.o \
 	$K/input.o \
 	$K/usbkbd.o \
-	$K/usbmouse.o \
 	$K/arasan_sdio.o \
 	$K/mt7601u.o \
 	$K/brcmfmac.o \
@@ -221,7 +221,7 @@ install-rpi3: $(KERNEL_IMAGE) fs.img config.txt cmdline_xv6.txt
 		echo "warning: fs.img not installed; set RPI3_XV6_DEV to the raw xv6 partition" 1>&2; \
 	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
-	$(SUDO) cp -f cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline_xv6.txt"   # xv6 root=; cmdline.txt stays the firmware's
+	$(SUDO) cp -f cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline.txt"   # xv6 root=; kernel reads /cmdline.txt (config.txt sets disable_commandline_tags=1)
 	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
 		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; \
 		exit 1; \
@@ -306,14 +306,16 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 # separate from the raw-device recipe makes it possible to inspect/test the
 # exact bytes which will be installed before touching an SD-card partition.
 .PHONY: ext2root-image
-ext2root-image: $$(UPROGS)
+ext2root-image: $$(UPROGS) modules_install
 	truncate -s $(EXT2_SIZE) "$(EXT2_IMAGE)"
 	$(MKE2FS) -F -t ext2 -b 4096 \
 	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
 	  -L $(EXT2_LABEL) "$(EXT2_IMAGE)"
 	@{ echo "mkdir bin"; \
 	   for f in $(UPROGS); do n=$${f#$U/_}; echo "write $$f bin/$$n"; done; \
-	   echo "write $U/_init init"; } > ext2root.debugfs
+	   echo "write $U/_init init"; \
+	   echo "mkdir lib"; echo "mkdir lib/modules"; \
+	   for f in $(MODULES); do n=$${f##*/}; echo "write $(MODULE_INSTALL_DIR)/$$n lib/modules/$$n"; done; } > ext2root.debugfs
 	$(DEBUGFS) -w -f ext2root.debugfs "$(EXT2_IMAGE)" > ext2root.log 2>&1
 	@echo "built ext2 root image $(EXT2_IMAGE) ($(EXT2_SIZE))"
 
@@ -344,7 +346,7 @@ install-rpi3-ext2root: $(KERNEL_IMAGE) config.txt $(RPI3_EXT2_CMDLINE) ext2root-
 	$(SUDO) dd if="$(EXT2_IMAGE)" of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
 	$(SUDO) cp -f $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
-	$(SUDO) cp -f "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline_xv6.txt"
+	$(SUDO) cp -f "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline.txt"
 	@if test -f "$(WIFI_FIRMWARE_DIR)/BCM43430.BIN" && \
 	    test -f "$(WIFI_FIRMWARE_DIR)/BCM43430.TXT"; then \
 		$(SUDO) cp -f "$(WIFI_FIRMWARE_DIR)/BCM43430.BIN" "$(RPI3_BOOTFS)/BCM43430.BIN"; \
@@ -372,11 +374,11 @@ install-rpi3-ext2root: $(KERNEL_IMAGE) config.txt $(RPI3_EXT2_CMDLINE) ext2root-
 	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
 		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; exit 1; \
 	}
-	@cmp -s "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline_xv6.txt" || { \
+	@cmp -s "$(RPI3_EXT2_CMDLINE)" "$(RPI3_BOOTFS)/cmdline.txt" || { \
 		echo "error: installed ext2 cmdline differs from $(RPI3_EXT2_CMDLINE)" 1>&2; exit 1; \
 	}
 	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 root partition)"
-	@echo "installed /init and $(words $(UPROGS)) programs in /bin"
+	@echo "installed /init and $(words $(UPROGS)) programs in /bin, $(words $(MODULES)) modules in /lib/modules"
 	@echo "installed $(KERNEL_IMAGE), config.txt and ext2 cmdline -> $(RPI3_BOOTFS)"
 
 $U/initcode: $U/initcode.S
@@ -421,8 +423,8 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
-mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
-	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
+mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c $K/fs.h $K/param.h
+	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
 
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
 # that disk image changes after first build are persistent until clean.  More
@@ -440,6 +442,8 @@ UPROGS=\
 	$U/_ln\
 	$U/_login\
 	$U/_ls\
+	$U/_insmod\
+	$U/_rmmod\
 	$U/_mkdir\
 	$U/_mv\
 	$U/_touch\
@@ -485,8 +489,42 @@ UPROGS=\
 	$U/_threadtest\
 	$U/_posixtest\
 
-fs.img: mkfs/mkfs $(UPROGS)
-	mkfs/mkfs fs.img $(UPROGS)
+# ---------------------------------------------------------------------------
+# Loadable kernel modules (.ko): the =m half of the driver model.
+#
+# A driver listed in MODULES is deliberately absent from OBJS, so it is NOT
+# linked into the kernel image.  Instead each one is compiled to a relocatable
+# object, partial-linked with `ld -r` (which keeps it ET_REL and full of
+# relocations), stripped of debug sections, and written into the root
+# filesystem under /lib/modules.  insmod reads it back and init_module()
+# relocates it into the kernel's module arena -- the same build-time split
+# Linux draws between built-in drivers and modules shipped as files.
+# ---------------------------------------------------------------------------
+MODULES = $K/usbmouse.ko
+
+$K/%.mod.o: $K/%.c
+	$(CC) $(CFLAGS) -DMODULE -c -o $@ $<
+
+$K/%.ko: $K/%.mod.o
+	$(LD) -r -o $@.raw $<
+	$(OBJCOPY) --strip-debug $@.raw $@
+	@rm -f $@.raw
+
+# `make modules_install`, the Linux analogue: after a .ko is built it is copied
+# into an installed-modules staging tree (build/lib/modules) rather than handed
+# to mkfs by path.  mkfs then ingests that whole tree into the image's
+# /lib/modules, exactly as a rootfs carries /lib/modules/$(uname -r)/ on Linux.
+# Override MODULE_INSTALL_DIR to install somewhere else (e.g. a real host
+# /lib/modules, which needs write permission there).
+MODULE_INSTALL_DIR ?= build/lib/modules
+
+modules_install: $(MODULES)
+	@rm -rf $(MODULE_INSTALL_DIR)
+	@mkdir -p $(MODULE_INSTALL_DIR)
+	cp $(MODULES) $(MODULE_INSTALL_DIR)/
+
+fs.img: mkfs/mkfs $(UPROGS) modules_install
+	mkfs/mkfs fs.img -M $(MODULE_INSTALL_DIR) $(UPROGS)
 	truncate -s 32M fs.img
 
 # Linux/ext2 image used by the VFS /mnt/ext2 backend.  mke2fs formats a regular
@@ -500,7 +538,7 @@ $(EXT2_IMAGE):
 
 -include kernel/*.d user/*.d
 
-.PHONY: clean-t113
+.PHONY: clean-t113 modules_install
 clean-t113:
 	# T113 sources live in ports/t113; build/t113 contains generated files only.
 	rm -rf build/t113
@@ -511,6 +549,7 @@ clean: clean-t113
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
+	$(MODULES) $K/*.mod.o $K/*.ko.raw \
 	mkfs/mkfs .gdbinit $U/libc.a \
         $U/usys.S \
 	$(UPROGS)
@@ -531,6 +570,7 @@ clean: clean-t113
 	\) -delete
 	find mkfs -maxdepth 1 -type f -name 'mkfs [0-9]*' -delete
 	rm -rf $U/obj $U/.deps $U/build $K/obj $K/.deps $K/build
+	rm -rf $(MODULE_INSTALL_DIR)
 
 .PHONY: clean
 

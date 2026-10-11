@@ -2,10 +2,10 @@
 //
 // cmdline.txt on the boot partition belongs to the Raspberry Pi VideoCore
 // firmware (start.elf), which would pass it to a Linux kernel in the device
-// tree.  xv6 keeps its own file, cmdline_xv6.txt, next to it: config.txt
-// sets disable_commandline_tags=1 and xv6 parses no device tree, so the
-// kernel reads the file from the FAT32 boot partition itself, right after
-// rootdev_init() has mounted it.  Without the file or a boot partition (QEMU
+// tree.  config.txt sets disable_commandline_tags=1, so start.elf leaves the
+// file alone and xv6 reads the same cmdline.txt from the FAT32 boot partition
+// itself, right after rootdev_init() has mounted it.  Without the file or a
+// boot partition (QEMU
 // bare image) the built-in CONFIG_CMDLINE is used.  Parameters xv6
 // understands:
 //
@@ -26,7 +26,7 @@
 #endif
 
 #define CMDLINE_MAX  256
-#define CMDLINE_FILE "/cmdline_xv6.txt"
+#define CMDLINE_FILE "/cmdline.txt"
 
 static char cmdline[CMDLINE_MAX];
 

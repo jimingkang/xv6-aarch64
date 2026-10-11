@@ -159,7 +159,7 @@ REGS_AUX->mu_control = 3;              // 打开收发
 \section{USB 与 HID 键盘}
 \label{sec:usb}
 
-USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚：先看硬件路径和三层软件的分工，再顺着描述符与 control 传输完成枚举，然后处理高速 Hub 后面低速设备的 split 时序，接着用 URB 和中断把一份按键报告送到输入子系统与 \code{/dev/input/eventN}，最后补上 Hub 中断驱动的热插拔，以及真机上从 STALL 走到第一份报告的九个阶段。
+USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚：先看硬件路径和三层软件的分工，再看一次事务在总线上如何由 Token、Data、Handshake 三相包组成，然后顺着描述符与 control 传输完成枚举，然后处理高速 Hub 后面低速设备的 split 时序，接着用 URB 和中断把一份按键报告送到输入子系统与 \code{/dev/input/eventN}，最后补上 Hub 中断驱动的热插拔，以及真机上从 STALL 走到第一份报告的九个阶段。
 
 \subsection{三层软件与硬件路径}
 
@@ -303,6 +303,139 @@ USB 键盘（低速 1.5 Mb/s）
 
 \paragraph{一切都在 Hub 后面.} 树莓派 3 的 SoC 只有一个 USB 口，直接接板载 LAN9514，它内部是一个高速 Hub 加一块 USB 以太网卡（在 3B+ 上还有第二层 Hub）。外面插的键盘一般是低速（1.5\,Mb/s）设备，而 DWC2 和 Hub 之间跑的是高速（480\,Mb/s）。两种速率之间靠 Hub 里的\emph{事务转换器}（TT）衔接，这就是后面 split transaction 的由来。
 
+\subsection{事务格式：Token、Data、Handshake 三相}
+
+上一小节说“主机发起一切”，但一次到底“发起”了什么？USB 总线上被独立调度的最小单位既不是字节也不是包，而是\textbf{事务}（transaction）。一次事务由主机发起，按固定顺序串起最多三种\textbf{包}（packet）：主机先发一个 \textbf{Token} 包，声明“要对哪个设备的哪个端点做一次什么操作”；接着是一个可选的 \textbf{Data} 包，方向取决于 Token 的类型；最后是一个 \textbf{Handshake} 包，由接收方确认或拒绝。规范里的图 8-30（bulk 事务）和图 8-36（control SETUP 事务）画的正是这套三相结构在不同传输类型下走过的分支。
+
+每个包的场（field）布局是固定的：以 \code{SYNC} 开场让接收方对齐位边界，紧跟一个 \code{PID} 场标明包的类型，中间是地址/负载与校验，末尾以 \code{EOP}（end of packet）收束，如图~\ref{fig:usb-packet-format}。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.9\linewidth}{!}{%
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      f/.style={draw=gray!70!black, minimum height=9mm, inner sep=2pt, align=center},
+      pid/.style={f, fill=orange!18, draw=orange!75!black},
+      adr/.style={f, fill=structurecolor!12, draw=structurecolor!70!black},
+      pay/.style={f, fill=blue!10, draw=blue!55!black},
+      crc/.style={f, fill=green!16, draw=green!50!black},
+      syc/.style={f, fill=gray!14},
+      eop/.style={f, fill=red!10, draw=red!60!black},
+      rowlab/.style={font=\small\bfseries, anchor=east}]
+    % ---- Token row ----
+    \node[syc] (tk1) at (14,0) {\code{SYNC}};
+    \node[pid, right=1pt of tk1] (tk2) {\code{PID}\\{\tiny OUT/IN/}\{\tiny SETUP/PING\}};
+    \node[adr, right=1pt of tk2] (tk3) {\code{ADDR(7)}\\\code{ENDP(4)}};
+    \node[crc, right=1pt of tk3] (tk4) {\code{CRC5}};
+    \node[eop, right=1pt of tk4] (tk5) {\code{EOP}};
+    \node[rowlab] at (2,0) {Token};
+    % ---- Data row ----
+    \node[syc] (dt1) at (14,-16) {\code{SYNC}};
+    \node[pid, right=1pt of dt1] (dt2) {\code{PID}\\{\tiny DATA0/}\{\tiny DATA1\}};
+    \node[pay, right=1pt of dt2, minimum width=44mm] (dt3) {\code{PAYLOAD}\ \code{0--1023\,B}};
+    \node[crc, right=1pt of dt3] (dt4) {\code{CRC16}};
+    \node[eop, right=1pt of dt4] (dt5) {\code{EOP}};
+    \node[rowlab] at (2,-16) {Data};
+    % ---- Handshake row ----
+    \node[syc] (hs1) at (14,-32) {\code{SYNC}};
+    \node[pid, right=1pt of hs1, minimum width=34mm] (hs2) {\code{PID}\ \ {\tiny ACK/NAK/NYET/STALL}};
+    \node[eop, right=1pt of hs2] (hs3) {\code{EOP}};
+    \node[rowlab] at (2,-32) {Handshake};
+  \end{tikzpicture}%
+  }
+  \caption{USB 三种包的场布局。Token 包用 CRC5 保护“地址+端点”，Data 包用 CRC16 保护负载，Handshake 包只有 SYNC/PID/EOP、既无负载也无 CRC 场。关键区别：\textbf{PID 场本身占 8 位（4 位本体再取反重发一次）}，双重编码已足以自校验，所以 PID 不需要额外 CRC，握手包也因此不必带 CRC}
+  \label{fig:usb-packet-format}
+\end{figure}
+
+PID 决定了一个包在事务里扮演什么角色，表~\ref{tab:usb-pids} 按 Token/Data/Handshake 三类把本项目会遇到的 PID 列全。
+
+\begin{table}[htbp]
+  \centering
+  \caption{PID 分类与各传输类型下的作用}
+  \label{tab:usb-pids}
+  \small
+  \begin{tabularx}{\linewidth}{@{}l l X@{}}
+    \toprule
+    类别 & PID & 含义与在本项目中的位置 \\
+    \midrule
+    Token & \code{OUT} & 主机$\to$设备：后面跟一个主机写往该端点的 Data 包（EP0 的 control OUT、ch4 之外的下发命令） \\
+    Token & \code{IN} & 主机$\to$设备：请求该端点回一个 Data 包。ch6 键盘每隔 \code{bInterval} 发一次 IN，ch4 MT7601U 的 bulk-IN 也是 IN \\
+    Token & \code{SETUP} & 只在端点 0，启动一次 control 传输的 SETUP 阶段（枚举、\code{SET\_CONFIGURATION} 等） \\
+    Token & \code{PING} & 仅高速 bulk OUT：先探测端点是否还有缓冲，再决定发不发 Data，避免把数据丢进满的端点 \\
+    Data & \code{DATA0}/\code{DATA1} & 数据包，二者交替出现做 PID 序列翻转（toggle），用来发现丢包或重复包；EP0 的 SETUP 恒用 DATA0 \\
+    Handshake & \code{ACK} & 接收方$\to$发送方：已正确收到 \\
+    Handshake & \code{NAK} & 设备$\to$主机：“收到了但暂时不能传”——IN 端点没数据、或 OUT 端点缓冲满。是流控不是错误，主机下一帧重试 \\
+    Handshake & \code{NYET} & 高速设备$\to$主机：“收到了但还没准备好”，与 NAK 区分；split 事务用它携带本帧是否完成的信息 \\
+    Handshake & \code{STALL} & 设备$\to$主机：端点被软件停止（halt），不是重试能解决的，要驱动显式清除 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+三相结构在三种传输类型下走的路径略有不同，图~\ref{fig:usb-transaction-phases} 把控制 SETUP、IN、OUT 三条主线并排画出（框的颜色标出这个包由谁发出：灰框=主机、白框=设备）。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.94\linewidth}{!}{%
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      endcap/.style={draw=gray!70!black, rounded corners=1.5pt, fill=gray!12,
+        minimum width=12mm, minimum height=6mm, inner sep=1pt, font=\small\bfseries},
+      hf/.style={-{Stealth[length=2mm]}, thick, draw=structurecolor!75!black},
+      df/.style={-{Stealth[length=2mm]}, thick, draw=orange!80!black},
+      lane/.style={gray!50, dashed, line width=.6pt},
+      ttl/.style={font=\small\bfseries, text=structurecolor!70!black, anchor=west}]
+    % ================= Group 1: control SETUP =================
+    \node[ttl] at (0,3) {一次 control SETUP 事务（端点 0，枚举用）};
+    \node[endcap] (H1) at (8,-2) {主机};
+    \node[endcap] (F1) at (76,-2) {设备};
+    \draw[lane] (H1.south) -- ++(0,-27);
+    \draw[lane] (F1.south) -- ++(0,-27);
+    \draw[hf] (8,-10) -- (76,-10) node[midway, above, font=\scriptsize]{SETUP · Token};
+    \draw[hf] (8,-18) -- (76,-18) node[midway, above, font=\scriptsize]{DATA0（8 B 请求）· Data};
+    \draw[df] (76,-26) -- (8,-26) node[midway, above, font=\scriptsize]{ACK · Handshake};
+    % ================= Group 2: IN =================
+    \node[ttl] at (0,-38) {IN 事务（bulk / interrupt IN：读描述符、读按键、收网络帧）};
+    \node[endcap] (H2) at (8,-43) {主机};
+    \node[endcap] (F2) at (76,-43) {设备};
+    \draw[lane] (H2.south) -- ++(0,-27);
+    \draw[lane] (F2.south) -- ++(0,-27);
+    \draw[hf] (8,-51) -- (76,-51) node[midway, above, font=\scriptsize]{IN · Token};
+    \draw[df] (76,-59) -- (8,-59) node[midway, above, font=\scriptsize]{DATA0/DATA1 · Data};
+    \draw[hf] (8,-67) -- (76,-67) node[midway, above, font=\scriptsize]{ACK · Handshake};
+    % ================= Group 3: OUT =================
+    \node[ttl] at (0,-79) {OUT 事务（bulk / control OUT：把数据写进设备）};
+    \node[endcap] (H3) at (8,-84) {主机};
+    \node[endcap] (F3) at (76,-84) {设备};
+    \draw[lane] (H3.south) -- ++(0,-27);
+    \draw[lane] (F3.south) -- ++(0,-27);
+    \draw[hf] (8,-92) -- (76,-92) node[midway, above, font=\scriptsize]{OUT · Token};
+    \draw[hf] (8,-100) -- (76,-100) node[midway, above, font=\scriptsize]{DATA0/DATA1 · Data};
+    \draw[df] (76,-108) -- (8,-108) node[midway, above, font=\scriptsize]{ACK · Handshake};
+  \end{tikzpicture}%
+  }
+  \caption{三相事务的三条主线（对应规范图 8-30 的 bulk 与图 8-36 的 control SETUP，只画成功分支）。蓝色箭头=主机发出，橙色箭头=设备发出。注意 Data 包的方向：SETUP 与 OUT 由主机写向设备，IN 由设备回给主机；Handshake 永远来自\emph{本事务的接收方}。失败分支不在此图：设备无数据回 \code{NAK}、端点被停回 \code{STALL}（都结束本帧、由主机择机重发），高速 bulk OUT 在 OUT 令牌前还插一次 \code{PING} 探测缓冲}
+  \label{fig:usb-transaction-phases}
+\end{figure}
+
+把这套三相格式对回本项目的三个 channel 就很清楚了：ch0 的枚举是反复做 control 事务——先 SETUP 三相把“读描述符/设配置”的请求送进去，再用若干 IN 或 OUT 事务搬运数据，最后用一个反方向的空 Data 事务做 STATUS；ch6 键盘每隔 \code{bInterval} 发一次 IN 事务，设备没按键就回 NAK、有按键才回 DATA1/DATA0；ch4 MT7601U 的 bulk-IN 同样发 IN，靠 DATA0/DATA1 的翻转做流控。下一小节的 split 事务，本质就是把这里的三相包在高速 Hub 的事务转换器（TT）处拆成两拍：主机先发一个 SSPLIT 触发 TT 去总线上跑完整事务，隔 1～2 个微帧再发 CSPLIT 把结果（DATA、ACK、NAK 或 NYET）取回来。
+
+规范按“可靠性、时限、方向”把这同一套三相事务组合成\textbf{四种传输类型}（表~\ref{tab:usb-xfer-types}）。前三者都靠 Handshake 与 DATA0/DATA1 翻转保证不丢不错，只有 isochronous 干脆去掉握手、发出去就不管，用可靠性换实时性；bulk 与 interrupt 同样可靠，区别只落在“有没有周期承诺”这一条上。本项目的落点很清楚：枚举走 control（ch0），键盘和 Hub 状态走 interrupt（ch6、ch7），MT7601U 网卡的报文走 bulk（ch4），isochronous 未使用。
+
+\begin{table}[htbp]
+  \centering
+  \caption{USB 四种传输类型，以及它们在本项目里落在哪个 channel}
+  \label{tab:usb-xfer-types}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXXl@{}}
+    \toprule
+    类型 & 可靠性与时限 & 典型数据 & 本项目 \\
+    \midrule
+    \textbf{Control} & 保证送达；不承诺延迟但优先调度，主机发起、双向 & 枚举、发命令、取描述符 & ch0（EP0） \\
+    \textbf{Interrupt} & 保证送达；\emph{有周期上限}（\code{bInterval} 轮询），每包很小 & 键盘按键、鼠标、Hub 状态变化 & ch6（键盘）、ch7（Hub） \\
+    \textbf{Bulk} & 保证送达；\emph{无时限}，只在剩余带宽里搬运，量大 & U 盘、打印、网络报文 & ch4（MT7601U bulk-IN/OUT） \\
+    \textbf{Isochronous} & \emph{不重传、无握手}；预留带宽、严格实时 & 音频、视频流 & （本项目未用） \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
 \subsection{描述符：设备、配置、接口与端点}
 
 \begin{figure}[htbp]
@@ -366,7 +499,88 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
 
 \subsection{枚举：control 传输与请求序列}
 
-端点 0 上的 control 传输分三个阶段：SETUP 阶段主机发出 8 字节的请求（\code{bmRequestType}、\code{bRequest}、\code{wValue}、\code{wIndex}、\code{wLength}），可选的 DATA 阶段按最大包长收发数据，STATUS 阶段反方向发一个空包确认。\code{control()} 就是在 ch0 上依次执行这三个阶段。表~\ref{tab:usb-enum} 是识别一个 Hub 后面的键盘所发出的请求。
+端点 0 上的 control 传输分三个阶段：SETUP 阶段主机发出 8 字节的请求（\code{bmRequestType}、\code{bRequest}、\code{wValue}、\code{wIndex}、\code{wLength}），可选的 DATA 阶段按最大包长收发数据，STATUS 阶段反方向发一个空包确认。\code{control()} 就是在 ch0 上依次执行这三个阶段。这三个阶段各自怎么走、PID 怎么翻转、方向和数据量在什么时候谈定，正是“设备如何把配置数据交给主机、又如何在真正搬数据之前把方向与长度准备好”的关键，图~\ref{fig:usb-control-stages} 把它摊开。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.96\linewidth}{!}{%
+  \begin{tikzpicture}[x=1mm,y=1mm,font=\scriptsize,
+      tb/.style={draw=gray!75!black, rounded corners=1.5pt, minimum width=17mm,
+        minimum height=7.5mm, align=center, inner sep=1.5pt},
+      su/.style={tb, fill=structurecolor!16},
+      dt/.style={tb, fill=blue!9},
+      st/.style={tb, fill=orange!18},
+      dp/.style={font=\scriptsize, text=gray!55!black},
+      br/.style={decorate, decoration={brace, amplitude=4pt, raise=2pt}, draw=gray!55},
+      bl/.style={font=\scriptsize\bfseries, text=gray!60!black}]
+    % ---- Control Write row (y=0) ----
+    \node[bl, anchor=east, align=right] at (-11,0) {Control\\Write};
+    \node[su] at (0,0) {SETUP (0)}; \node[dp, anchor=north] at (0,-3.9) {DATA0};
+    \node[dt] at (22,0) {OUT (1)};   \node[dp, anchor=north] at (22,-3.9) {DATA1};
+    \node[dt] at (44,0) {OUT (0)};   \node[dp, anchor=north] at (44,-3.9) {DATA0};
+    \node[font=\small] at (63,0) {$\cdots$};
+    \node[dt] at (82,0) {OUT (0/1)}; \node[dp, anchor=north] at (82,-3.9) {DATA0/1};
+    \node[st] at (106,0) {IN (1)};   \node[dp, anchor=north] at (106,-3.9) {DATA1};
+    \draw[br] (-8.5,4.5) -- (8.5,4.5) node[midway, above=4pt, bl]{Setup Stage};
+    \draw[br] (13.5,4.5) -- (90.5,4.5) node[midway, above=4pt, bl]{Data Stage};
+    \draw[br] (97.5,4.5) -- (114.5,4.5) node[midway, above=4pt, bl]{Status Stage};
+    % ---- Control Read row (y=-16) ----
+    \node[bl, anchor=east, align=right] at (-11,-16) {Control\\Read};
+    \node[su] at (0,-16) {SETUP (0)}; \node[dp, anchor=north] at (0,-19.9) {DATA0};
+    \node[dt] at (22,-16) {IN (1)};   \node[dp, anchor=north] at (22,-19.9) {DATA1};
+    \node[dt] at (44,-16) {IN (0)};   \node[dp, anchor=north] at (44,-19.9) {DATA0};
+    \node[font=\small] at (63,-16) {$\cdots$};
+    \node[dt] at (82,-16) {IN (0/1)}; \node[dp, anchor=north] at (82,-19.9) {DATA0/1};
+    \node[st] at (106,-16) {OUT (1)}; \node[dp, anchor=north] at (106,-19.9) {DATA1};
+    % ---- No-data Control row (y=-36) ----
+    \node[bl, anchor=east, align=right] at (-11,-36) {No-data\\Control};
+    \node[su] at (0,-36) {SETUP (0)}; \node[dp, anchor=north] at (0,-39.9) {DATA0};
+    \node[st] at (22,-36) {IN (1)};   \node[dp, anchor=north] at (22,-39.9) {DATA1};
+    \draw[br] (-8.5,-31.5) -- (8.5,-31.5) node[midway, above=4pt, bl]{Setup Stage};
+    \draw[br] (13.5,-31.5) -- (30.5,-31.5) node[midway, above=4pt, bl]{Status Stage};
+  \end{tikzpicture}%
+  }
+  \caption{端点 0 control 传输的三种序列（对应规范图 8-37）。框里是令牌（SETUP/OUT/IN）与其后的数据 PID 编号，框下是实际的数据包类型。Data 阶段可长可短（$\cdots$ 表示按 \code{wLength} 重复若干包），也可能根本没有（No-data Control）。注意三处不变量：SETUP 恒用 DATA0；Data 阶段第一包用 DATA1、之后逐包翻转；STATUS 恒为反方向的零长 DATA1}
+  \label{fig:usb-control-stages}
+\end{figure}
+
+\paragraph{SETUP 阶段：一次事务把“要什么、给多少、往哪个方向”先谈定.}
+8 字节的 SETUP 包就是“为传送数据做准备”的地方：\code{bmRequestType} 的 bit\,7（D 位）决定随后 Data 阶段的方向——0 为 OUT（主机写向设备，Control Write），1 为 IN（设备回给主机，Control Read）；\code{bRequest} 加 \code{wValue}/\code{wIndex} 说明“要哪一份数据”（例如 \code{GET\_DESCRIPTOR} 的描述符类型与索引）；\code{wLength} 说明“最多给多少字节”。SETUP 永远用 DATA0，并且把 EP0 的数据翻转复位，使 Data 阶段从 DATA1 起步。若 \code{wLength}$=0$（\code{SET\_ADDRESS}、\code{SET\_CONFIGURATION}、\code{SET\_IDLE} 这类），就没有 Data 阶段，直接进入 STATUS，即图中的 No-data Control。
+
+\paragraph{逐字节拆解：\code{GET\_DESCRIPTOR(Device, 8)}.}
+这条请求最能说明“SETUP 谈请求、Data 拿数据”的分工。名字里的 \code{Device} 和 \code{8} 分别落在 SETUP 包的第 3 字节（\code{wValue} 高字节＝描述符类型 1）和第 6～7 字节（\code{wLength}＝8）上——也就是说，\emph{整条 8 字节请求都在 SETUP 阶段发出}，而“取回的 8 个字节”发生在随后的 Data 阶段。它是一次完整的 control 传输，而不是“只属于某一个阶段”：SETUP 事务把这 8 字节以 DATA0 写进设备，Data 阶段设备用 IN 事务把设备描述符的前 8 字节回传，STATUS 阶段主机再发一个反方向的零长包收尾。表~\ref{tab:setup-request} 逐位拆开这 8 字节。
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{GET\_DESCRIPTOR(Device, 8)} 在 SETUP 阶段发出的 8 字节请求（USB 为小端，多字节字段低字节在前）}
+  \label{tab:setup-request}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    字节 & 字段 & 取值 & 逐 bit / 含义 \\
+    \midrule
+    0 & \code{bmRequestType} & \code{0x80} & \code{1000\,0000}：bit\,7 D＝1 → Data 阶段\emph{设备到主机}（IN，Control Read）；bit\,6--5 type＝\code{00} → Standard 请求；bit\,4--0 recipient＝\code{00000} → 发给设备本身 \\
+    1 & \code{bRequest} & \code{0x06} & \code{GET\_DESCRIPTOR} \\
+    2 & \code{wValue} 低 & \code{0x00} & \code{bDescriptorIndex}＝0：第 0 号（唯一一份）设备描述符 \\
+    3 & \code{wValue} 高 & \code{0x01} & \code{bDescriptorType}＝1 → DEVICE 描述符 \\
+    4--5 & \code{wIndex} & \code{0x0000} & Standard 对设备的请求不用它，置 0 \\
+    6--7 & \code{wLength} & \code{0x0008} & Data 阶段最多回传 8 字节 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+为什么先只取 8 字节：此刻主机还没读到 \code{bMaxPacketSize0}（设备描述符第 7 字节），只能按规范允许的最小值 8 来假定 EP0 包长，于是把 \code{wLength} 也设成 8，恰好拿到含该字段的头 8 字节；得知真实包长后再发 \code{GET\_DESCRIPTOR(Device, 18)} 取完整描述符。Data 阶段这 8 字节是单个 DATA1 包（长度＝\code{wLength}＝8），一次 IN 事务即可搬完——它是低速设备时，这一个 IN 事务在总线上又拆成一对 SSPLIT/CSPLIT。
+
+\paragraph{Data 阶段：方向沿用 SETUP，逐包翻转 DATA1/DATA0.}
+数据阶段是若干个普通的 IN 或 OUT 事务，方向由 SETUP 定死、整段不变。第一包用 DATA1，之后 DATA0/DATA1 交替；每包至多 mps 字节，包数由 \code{wLength} 与端点 0 的最大包长共同决定（\code{packets\,=\,(len+mps-1)/mps}）。低速键盘 EP0 的 mps 只有 8，所以 18 字节的设备描述符要分 3 包：DATA1(8)\,+\,DATA0(8)\,+\,DATA1(2)。当某包短于 mps、或累计已达 \code{wLength}，数据阶段即结束。
+
+\paragraph{STATUS 阶段：反方向的零长 DATA1，兼作握手与翻转复位.}
+数据阶段之后，主机发一个方向相反的零长数据事务：Control Write 的 STATUS 是 IN、Control Read 的 STATUS 是 OUT（图里最右一列）。这个包恒为 DATA1、长度为 0，作用有三——确认整个控制传输成功、把方向反过来做最后一次握手、并复位 EP0 的数据触发器为下一次 SETUP 做准备。设备若在这一步回 STALL，表示它拒绝了刚才的请求。两条不变量值得单独记住：\textbf{status 阶段在任何 control 传输里都省不掉}（SETUP 之后无论有没有 Data，都以一个反方向零长 DATA1 收尾），而 \textbf{status 的方向永远与 Data 阶段相反}——Data 方向由 SETUP 的 D 位定，status 就取反方向；因此 \code{GET\_DESCRIPTOR}（Control Read）的 status 是 OUT，\code{SET\_CONFIGURATION}（No-data、D=0）的 status 是 IN。
+
+\paragraph{对回本项目：\code{control()} 如何走这三相.}
+\code{control()} 在 ch0 上按 SETUP→(Data)→STATUS 依次调用 \code{channel\_xfer()}：SETUP 用 \code{PID\_SETUP} 带 8 字节请求；数据阶段按方向以 \code{in}=1/0 反复搬运 mps 大小的块并翻转 PID；STATUS 用反方向、\code{len}=0、DATA1。挂在 Hub 后面的低速设备，这三相里的每一个事务又要各自拆成一对 SSPLIT/CSPLIT（下一小节）——所以“读 18 字节描述符”在总线上其实是 3 个 IN 事务、每个再走 split 两拍，这也解释了为什么必须逐包翻转、少取一包就会读到缓冲区里的残值。
+
+表~\ref{tab:usb-enum} 是识别一个 Hub 后面的键盘所依次发出的 control 请求。
 
 \begin{table}[htbp]
   \centering
@@ -428,32 +642,12 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
 
 最后，\code{usb\_device\_register()} 把设备交给 USB 总线，总线按 class/subclass/protocol 匹配到 \code{usbhid-keyboard} 驱动，调用 \code{usbkbd\_probe()}：发送上面两个 HID 请求，分配每设备的 \code{usbkbd\_state} 和 URB，注册 \code{input\_dev}，然后第一次提交 URB。
 
-图~\ref{fig:usb-hid-enum-sequence}把前面的描述符、control 请求、split
-transaction 和 input 注册串成一条时间线：开机时四个端口都空载，控制器把 ch7
-挂在 Hub 的 interrupt-IN 上等待热插拔；插入 port 3 之后由端口变化中断触发
-reprobe，低速键盘的 EP0 枚举全部经 Hub 的 TT 拆成 SSPLIT/CSPLIT；驱动绑定完成
-后，周期 interrupt-IN 固定交给 ch6，直到某个按键的 HID 报告变成用户空间的事件。
-
-\begin{figure}[p]
-  \centering
-  \resizebox{\linewidth}{!}{%
-  \input{chapters/fig-usbkbd-hotplug-seq}
-  }
-  \caption{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。
-  ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT
-  经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子
-  系统发布为事件}
-  \label{fig:usb-hid-enum-sequence}
-\end{figure}
-
-% 先把总线报文时序图（fig:usb-hid-enum-sequence）排完，再给出同一过程的软件调用链，
-% 避免协议层消息和 C 函数调用挤在一张图中。
-\clearpage
-
+% 总线报文时序图（fig:usb-hid-enum-sequence）已移到 §7.4.9 热插拔一节；这里给出同一过程的软件调用链。
 \paragraph{枚举与配置的软件函数调用链.}
-图~\ref{fig:usb-hid-enum-sequence}回答的是“USB 线上先后发送了什么”，
-图~\ref{fig:usb-hid-enum-call-chain}则回答“这些报文由哪一个 C 函数发起、
-设备何时进入通用设备模型，以及键盘的 interrupt-IN 请求最终在哪里启动”。
+图~\ref{fig:usb-hid-enum-call-chain}回答的是“这些报文由哪一个 C 函数发起、
+设备何时进入通用设备模型，以及键盘的 interrupt-IN 请求最终在哪里启动”；
+它与 §\ref{sec:usb-hotplug} 热插拔一节的总线时序图（图~\ref{fig:usb-hid-enum-sequence}）
+互为表里——那张图讲“USB 线上先后发送了什么”，这张图讲“这些报文由谁发起”。
 图中同一行的浅灰等宽字是这一步对应的串口日志，把函数调用与真机实际输出逐行对齐。
 启动代码先注册 USB 总线与类驱动，随后注册 DWC2 platform 设备和驱动；因此
 \code{dwc2\_probe()}发现并注册 USB 设备时，\code{device\_register()}可以立即
@@ -630,6 +824,52 @@ DWC2 不能直接对低速设备说话，它要先把事务交给 Hub 里的 TT�
 \end{table}
 
 这里有三条规则，每一条都是在真机上踩过才写进代码的：低速设备的每一个事务都要在 \reg{HCCHAR} 里置 \code{LSPDDEV}；CSPLIT 收到 NAK 说明这次事务已经结束（设备没数据），必须从新的 SSPLIT 重来，而不是继续发 CSPLIT；CSPLIT 收到 NYET 只能在\emph{同一个帧}的窗口里重试，超出窗口就放弃本轮、等 \code{bInterval} 后重新开始。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.92\linewidth}{!}{%
+  \begin{tikzpicture}[font=\scriptsize,
+      bit/.style={draw=gray!70!black, minimum height=12mm, inner sep=1.5pt, align=center},
+      kv/.style={bit, fill=orange!20, draw=orange!75!black},
+      sv/.style={bit, fill=structurecolor!14},
+      rv/.style={bit, fill=gray!8, text=gray!55}]
+    \node[kv] (spltena) {\code{31}\\ SPLTENA};
+    \node[rv, right=0pt of spltena] (r30) {\code{30}};
+    \node[rv, right=0pt of r30, minimum width=10mm] (speed) {\code{29:27}\\ SPEED};
+    \node[rv, right=0pt of speed, minimum width=15mm] (rsv) {\code{26:17}};
+    \node[kv, right=0pt of rsv] (comp) {\code{16}\\ COMPSPLT};
+    \node[sv, right=0pt of comp] (xact) {\code{15:14}\\ XACTPOS};
+    \node[sv, right=0pt of xact, minimum width=15mm] (hub) {\code{13:7}\\ HUBADDR};
+    \node[sv, right=0pt of hub, minimum width=14mm] (port) {\code{6:0}\\ PORT};
+    \draw[<->, gray!60, thick] ([yshift=3mm]spltena.north west)
+      -- node[lab, above]{最高位} ([yshift=3mm]port.north east);
+    \node[anchor=north, align=center, font=\scriptsize, text=red!65!black]
+      at ([yshift=-2mm]comp.south) {SSPLIT=0\\CSPLIT=1};
+  \end{tikzpicture}%
+  }
+  \caption{\reg{HCSPLT} 的位域。只要 \code{SPLTENA}$=1$，这次 channel 事务就不由 DWC2 自己驱动总线，而是交给 \code{HUBADDR}$+$\code{PORT} 指定的那颗 Hub 事务转换器（TT）代跑；两拍之间只有 \code{COMPSPLT} 一位不同（SSPLIT 为 0、CSPLIT 为 1），日志里 \code{0x8000c083} 与 \code{0x8001c083} 正是这一位之差。\code{XACTPOS} 本项目恒取 ALL（一次搬整包，不做首/尾微帧的分段）}
+  \label{fig:usb-hcsplt}
+\end{figure}
+
+\paragraph{HCSPLT：把一次事务拆成两拍的寄存器.}
+是否走 split 完全由 \reg{HCSPLT} 决定，而 split 的两拍在寄存器层面只差一位，如图~\ref{fig:usb-hcsplt}。\code{HUBADDR} 和 \code{PORT} 来自枚举时记下的路由表 \code{usb\_route[addr]}\footnote{\code{usb\_route[]} 是 \file{dwc2.c} 里“设备地址 $\to$（hub, port, low\_speed）”的定长数组；枚举每发现一个 Hub 后面的设备，就把它的上游 Hub 地址和端口号记在这里，之后任何一次事务都据此决定要不要发 split、以及发给哪颗 TT。}。剩下的问题是：这两拍由谁、在什么时刻发出。
+
+\paragraph{SSPLIT→CSPLIT 的状态机.}
+两条传输路径共用同一套状态语义，核心是一个 \code{complete\_split} 标志：
+\begin{itemize}
+  \item \code{complete\_split}$=0$ 时发的是 SSPLIT（\reg{HCSPLT} 不带 \code{COMPSPLT}）。收到 \code{ACK | CHHLTD} 表示 TT 已接受、开始在低速总线上跑真正的事务，于是置 \code{complete\_split}$=1$、重发同一 channel——这一次带 \code{COMPSPLT}，即 CSPLIT。
+  \item \code{complete\_split}$=1$ 时收 \code{NYET} 表示 TT 还没跑完，保持 CSPLIT 原地重试，\textbf{绝不重发 SSPLIT 的负载}；收 \code{XFERCOMPL} 表示数据已进 DMA 缓冲，本轮结束；收 \code{NAK} 在 split 语义下等同于“事务结束”，要退回 \code{complete\_split}$=0$、等下一轮从新 SSPLIT 开始。
+\end{itemize}
+枚举用的 ch0 走 \code{channel\_xfer()} 的同步轮询循环：SSPLIT 后 \code{udelay(125)} 再 \code{goto restart\_channel} 发 CSPLIT，NYET 就再 \code{udelay(125)} 重试，NAK 则 \code{udelay(100)} 后重开一次 SSPLIT。此时 CPU 没有别的事，忙等无妨。键盘的 ch6 每 \code{bInterval}（10\,ms）才轮询一次，不能占着 CPU 干等，于是把同一台状态机拆进中断：\code{dwc2\_interrupt\_rx\_start()} 负责装 channel，\code{dwc2\_interrupt\_rx\_irq\_fast()} 在 IRQ 里就地完成 SSPLIT→CSPLIT 的翻转（下一小节展开）。
+
+\paragraph{微帧窗口：CSPLIT 为什么必须在中断里发.}
+split 的时序是硬性的：CSPLIT 不能紧跟 SSPLIT 立刻发，要等 SSPLIT 之后约两个微帧（1 微帧 $=125\,\mu$s）再发——太早 TT 还没准备好，太晚就跨帧错过窗口。\code{dwc2\_wait\_frame\_delta(base, 2)} 就是读 \reg{HFNUM} 忙等到“距 \code{last\_issue\_frame} 已过 2 个微帧”，并带一个 500\,$\mu$s 的兜底超时。这里的关键是把 \code{ssplit\_ack\_frame} 记在 IRQ 时刻：早期版本在 kworker 里记，而 kworker 要等调度器给它 CPU，延迟是毫秒级、比微帧粗了一个数量级，于是 CSPLIT 总是发在 SSPLIT 之后好几个帧、永远错过。NYET 的重试同样被限制在“同一个帧”内：把 \reg{HFNUM} 的低 3 位当帧内微帧号、其余当帧号，只要 \code{now>>3} 还等于 \code{ssplit\_ack\_frame>>3} 且重试次数 $<3$，就在下一微帧重试；一旦跨到下一帧就放弃本轮，交给 \code{bInterval} 定时重开。这也是\ref{sec:usb-debug} 小节“上半部恰恰是唯一来得及的地方”那条原则的落点。
+
+\paragraph{一次 split 只搬一个最大包，DATA 逐包翻转.}
+低速端点的最大包长只有 8 字节，而 18 字节的设备描述符要分 3 个数据包传。\code{channel\_xfer()} 对 split 且 \code{len>mps}、又非 SETUP 的请求，按 \code{mps} 切片、每片递归做一次完整的 SSPLIT/CSPLIT 事务，并在片与片之间翻转 \code{PID\_DATA0}/\code{PID\_DATA1}。interrupt-IN 亦然：起始 \code{pid} 由 \code{udev->interrupt\_in\_toggle} 决定，一次成功轮询后翻转（\code{\^{}= 1}）；设备端维护同样的 toggle，两边不一致就报 \code{HCINT\_DTERR}（数据翻转错）。这正是\ref{sec:usb-debug} 里“阶段 4：读到了但其实没读全”的根因——旧代码把整个 18 字节当成一次 split 请求，只取回第一个包，后面 10 字节还是缓冲区里的 0。
+
+\paragraph{full-speed 也要 split，但不置 LSPDDEV.}
+需要 split 与否取决于“设备是否挂在 Hub 后面”（\code{usb\_route[addr].hub != 0}），而不是速度；\code{LSPDDEV}（\reg{HCCHAR} bit17）则只在设备是 low-speed 时置。所以高速 Hub 后面的 full-speed 复合设备（如 \code{046d:c534} 无线接收器）\emph{同样}要走 SSPLIT/CSPLIT，只是 \code{LSPDDEV}$=0$——\ref{sec:usb-mouse-autoload} 小节会看到这条规则在真机日志里的体现。
 
 \subsection{URB 与中断驱动的接收}
 
@@ -872,6 +1112,31 @@ $ evtest /dev/input/event0 # 每次按下/松开各一条 EV_KEY，帧尾一条 
 
 \paragraph{引用计数与生命周期.} \code{input\_dev} 由 \code{kalloc()} 分配，初始引用属于类驱动；每个打开的 event fd 再加一个引用。\code{usb\_free\_urb()} 和 \code{kfree(kbd)} 发生在 remove 路径上，而 \code{input\_dev} 的内存要等最后一个 fd 关闭才释放——这样“驱动已经卸载”和“用户还在读旧事件”两件事可以同时成立。注销路径因此不会睡眠等待用户空间关闭 \code{/dev/input/event0}。
 
+\subsection{Bulk 传输：量大、可等待、不许出错}
+
+前面反复出现的键盘，其实\emph{不是} bulk 设备：它那份 8 字节 Boot 报告走的是 interrupt-IN（ch6）。把这份报告拿来和 bulk 对照，最能划清两者的边界。bulk 的定位是“数据多、什么时候到都行、但一个字节都不能错”——它和 interrupt 一样靠 Handshake 与 DATA0/DATA1 翻转保证可靠，却\textbf{放弃了周期承诺}：不预留带宽，只在每帧里别人用完剩下的时间见缝插针地搬，一次可以推很多包，发不动时靠设备回 NAK 做背压，主机稍后重发，直到回 ACK。
+
+\begin{table}[htbp]
+  \centering
+  \caption{同一份 8 字节键盘报告，走 interrupt 与“假设走 bulk”的差别}
+  \label{tab:usb-int-vs-bulk}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    维度 & 走 Interrupt（HID 的实际做法） & 走 Bulk（假设） \\
+    \midrule
+    调度承诺 & 每 \code{bInterval}（此处 10\,ms）必被轮询一次 & 只在剩余带宽里跑，无时间承诺 \\
+    单次数据 & $\le$\,mps（8 字节），为小报告量身 & 高速下一个包 512 字节，搬 8 字节纯属浪费 \\
+    延迟 & 有界，按键“立刻”出现 & 可能长时间不服务，按键忽快忽慢 \\
+    端点 & interrupt-IN EP1（描述符里属性＝3） & 需要 bulk 端点，键盘根本没有 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+一次 bulk 事务仍是三相，只是没有 SETUP/STATUS 那套“先谈请求”的结构，纯做单向搬运：OUT 方向主机发 \code{OUT} token 加 Data 包，设备回 ACK（收下）、NAK（缓冲区满，稍后再试）或 STALL（端点被 halt）；IN 方向主机发 \code{IN} token，设备回 Data、NAK（暂无数据）或 STALL。数据翻转保证主机不会把重传包误当成新数据，短于 mps 的包标志一次 bulk 传输结束。
+
+本项目里真正的 bulk 用户是 MT7601U 无线网卡的 bulk-IN/bulk-OUT（ch4，详见 §7.7）：收空中进来的网络帧、发待发送的报文，数据量随流量起伏、又绝不容错，正是 bulk 的教科书场景——与“小、周期、低延迟”的键盘 interrupt 恰好互补。
+
 \subsection{Hub 中断驱动的 USB 热插拔}
 \label{sec:usb-hotplug}
 
@@ -881,6 +1146,20 @@ interrupt-IN URB 接收；热插拔则由 LAN951x Hub 的 interrupt-IN endpoint
 数据 URB 使用 channel 6。Hub 空闲时会对 interrupt-IN 返回 NAK，HCD 按
 \code{bInterval} 重新调度请求；只有端口变化位图非零时才唤醒 Hub 事件
 worker，不再每隔固定时间轮询所有端口的 EP0。
+
+整个“插入键盘→枚举→可按键”的过程，可以串成一条从端口变化到第一个按键的总线时间线（图~\ref{fig:usb-hid-enum-sequence}）：开机时四个端口都空载，控制器把 ch7 挂在 Hub 的 interrupt-IN 上等待热插拔；插入 port 3 之后由端口变化中断触发 reprobe，低速键盘的 EP0 枚举全部经 Hub 的 TT 拆成 SSPLIT/CSPLIT；驱动绑定完成后，周期 interrupt-IN 固定交给 ch6，直到某个按键的 HID 报告变成用户空间的事件。
+
+\begin{figure}[p]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \input{chapters/fig-usbkbd-hotplug-seq}
+  }
+  \caption{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。
+  ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT
+  经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子
+  系统发布为事件}
+  \label{fig:usb-hid-enum-sequence}
+\end{figure}
 
 \begin{txtcode}
 Hub interrupt endpoint
@@ -1000,10 +1279,10 @@ Descriptor 前 8 字节确定 EP0 最大包长，设置 USB 地址、读取配�
 
 \begin{itemize}
   \item \textbf{重枚举的粒度。}Linux 只增删发生变化的 port 和 device；这里的一次拓扑变化会注销旧设备、停止并屏蔽相关 channel，然后重新初始化整个 DWC2。嵌套 Hub 的下游端口变化甚至不会出现在根 Hub 的连接位图里。
-  \item \textbf{host channel 的分配。}ch7 固定给 Hub 的 interrupt URB，ch6 固定给唯一那只 HID 数据 URB，因此键盘和鼠标可以拔插、替换，却不能同时长期接收。Linux 是按设备/端点动态调度多个 channel 的。
+  \item \textbf{host channel 的分配。}ch7 固定给 Hub 的 interrupt URB；ch6 不再独占某一只 HID 数据 URB，而是由 \code{interrupt\_rx[DWC2\_INT\_REQUESTS]} 数组在多个 interrupt-IN 请求之间轮转仲裁（同一时刻只有一个请求拥有 ch6）。这让键盘与鼠标可以共处一只 channel，但它是时分复用，不是 Linux 那种按设备/端点动态分配多 channel 的通用调度。
   \item \textbf{周期调度表。}空闲 NAK 已经用 \code{retry\_work} 加 \code{dwc2\_periodic\_wq} 按 \code{bInterval} 重排，不再占着公共 worker 自旋；但 10\,ms 的 delayed-work 粒度只适合这只低速键盘，通用的 HCD 需要以 USB frame/SOF 为不同端点各自维护周期表。
   \item \textbf{硬中断里的忙等。}为了满足 split 的 125\,$\mu$s microframe 期限，快速路径最多在 IRQ 里等 500\,$\mu$s 并重启 channel。Linux DWC2 用更完整的 SOF/periodic 状态机把这部分忙等压得更低。
-  \item \textbf{多设备发布。}\code{usb\_child} 仍是一个而不是按 Hub 端口排列的数组，所以 USB 键盘与 MT7601U 同时插入时还没有完整发布成两个独立的 \code{usb\_device}，各自保存地址、toggle、host channel 与拔出生命周期。
+  \item \textbf{多设备发布。}Boot HID 接口现在按接口逐个发布独立的 \code{usb\_device}（\code{usb\_hid\_child[]}，最多 \code{DWC2\_HID\_CHILDREN}=4 个），各自保存地址、接口三元组与拔出生命周期，因此复合接收器的键盘接口与鼠标接口能被不同驱动分别认领。非 HID 的 CDC/bulk 设备（如 MT7601U、usbnet）仍共用单个 \code{usb\_child}，与 HID 子设备尚未统一成一张按 Hub 端口排列的数组。
 \end{itemize}
 
 \subsection{真机排错：从 STALL 到第一份报告}
@@ -1097,6 +1376,124 @@ usbkbd_wq                          进程上下文下半部
 \end{txtcode}
 
 图~\ref{fig:usb-irq-seq} 是同一条链的时间顺序版本，两种结果（NAK 与完整报告）在那里分开画。
+
+\subsection{复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}
+\label{sec:usb-mouse-autoload}
+
+上一小节的那台接收器是 low-speed、单键盘接口。真机上更常见的是 Logitech 无线接收器
+\code{046d:c534} 这类 \textbf{full-speed 复合 HID}：同一个 USB 地址上接口 0 是 Boot
+Keyboard（\code{3/1/1}）、接口 1 是 Boot Mouse（\code{3/1/2}）。这一节沿一份真实串口日志
+把“插入—split 枚举—双接口分别登记—键盘即时绑定—鼠标经 MODALIAS 从 ext2 根自动装载
+\texttt{.ko}—拔出触发整树重枚举”走一遍，并说明 \file{dwc2.c} 的分接口发布
+与 \file{module.c} 的自动装载链在这里如何被验证。
+
+\paragraph{拓扑与速度.} 连接位图 \code{connected=2->a}（bit1\,|bit3）说明新增设备来自
+port 3；复位后 \code{status=103} 的速度域是 \textbf{full-speed}。这是与低速键盘最容易混淆
+的一点：full-speed 设备在高速 Hub 之后\emph{同样}要经 TT 做 split 事务，但
+\reg{HCCHAR} 的 \code{LSPDDEV} 位\textbf{不置}（只有 low-speed 才置）。表~\ref{tab:usbmouse-regs}
+用本日志的真实寄存器值把这条规则摊开。
+
+\begin{table}[htbp]
+  \centering
+  \caption{鼠标接收器（046d:c534）日志中的报文解码}
+  \label{tab:usbmouse-regs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    样本 & 含义 \\
+    \midrule
+    \reg{HCSPLT}$=$\code{0x8000c083} & \code{SPLTENA}、XACTPOS$=$ALL、Hub 地址 1、端口 3；\code{COMPSPLT}$=0$ 即当前是 SSPLIT（错误行里的 \code{0x8001c083} 则 \code{COMPSPLT}$=1$，为 CSPLIT） \\
+    \reg{HCCHAR}$=$\code{0x810c8808} & 地址 4、端点 1、IN、interrupt 类型、最大包长 8，\code{LSPDDEV}$=0$：full-speed \\
+    \reg{HCINT}$=$\code{0x22} & \code{ACK | CHHLTD}：TT 接受 SSPLIT \\
+    \reg{HCINT}$=$\code{0x23} & \code{XFERCOMPL | ACK | CHHLTD}：CSPLIT 取回完整数据 \\
+    \reg{HCINT}$=$\code{0x0a} & \code{STALL | CHHLTD}：\code{control status failed req=10} 的 STALL（\code{req=10}$=$\code{0x0a}$=$SET\_IDLE） \\
+    \reg{HCINT}$=$\code{0x82} & \code{XACTERR | CHHLTD}：拔出前 \code{HID ch6 error} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+一次 EP0 完成事务的 SSPLIT/CSPLIT 时序，与图~\ref{fig:usb-split} 形状相同（只是本例是
+full-speed），日志里的 \code{hfnum} 记录了两拍的帧号；interrupt-IN 阶段的
+\code{dwc2 ch6 final p=0/1 ...} 打印则显示 ch6 在键盘与鼠标两只 URB 之间轮转：\code{p} 是
+\code{req->complete\_split}（0=SSPLIT、1=CSPLIT），\code{issue}/\code{ssack}/\code{age} 分别是发出帧、
+TT 接受 SSPLIT 帧与距发出的帧数，是 CSPLIT 有效窗口的判据。
+
+\paragraph{分接口发布.} \file{dwc2.c} 的枚举在 \code{SET\_CONFIGURATION} 后遍历整段配置描述符，
+对每个带 interrupt-IN 端点的 Boot HID 接口各建一个 \code{usb\_device}（\code{usb\_hid\_child[]}），
+逐个 \code{usb\_device\_register()}。日志因此出现两行：
+
+\begin{txtcode}
+dwc2: HID boot keyboard intf 0 handed to usb bus
+dwc2: HID boot mouse   intf 1 handed to usb bus
+\end{txtcode}
+
+接口 0 的 \code{3/1/1} 命中内置 \file{usbkbd}，同步 probe 并占用 ch6；接口 1 的
+\code{3/1/2} 没有任何已注册驱动匹配（内置键盘只认 \code{protocol=1}），于是设备 core 走
+未匹配分支：用 bus 的 \code{modalias()} 生成别名并 \code{request\_module()}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{Boot Mouse 的 MODALIAS 与 HID control、报告报文}
+  \label{tab:usbmouse-packets}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    项 & 内容 \\
+    \midrule
+    MODALIAS & \code{usb:c03s01p02}（class/subclass/protocol 的十六进制）；静态 alias 表映射到 \code{usbmouse.ko} \\
+    SET\_PROTOCOL & SETUP：\code{0x21 0x0b}，\code{wValue=0, wIndex=interface, wLength=0}；失败才放弃 probe \\
+    SET\_IDLE & SETUP：\code{0x21 0x0a}，同上；失败不致命 \\
+    Boot Mouse 报告 & 4 字节：byte0 按钮位图（左/右/中），byte1 X、byte2 Y、byte3 滚轮（均为 signed char）；\code{actual\_length>=3} 即接受 \\
+    输入事件 & 按钮变化 \code{input\_report\_key(BTN\_*)}；位移 \code{input\_report\_rel(REL\_X/Y/WHEEL)}；末尾 \code{input\_sync()} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{自动装载链.} 从设备注册到鼠标驱动绑定，跨越 USB core、设备 core 与模块
+加载器：
+
+\begin{txtcode}
+usb_device_register(接口1)  ->  device_register()  ->  无驱动匹配
+  ->  usb_modalias() = "usb:c03s01p02"
+  ->  request_module(alias)                     (见 device.c)
+       ->  命中静态 alias 表 ->  queue_work(kmod_wq, slot)
+            ->  kmod_run() ->  kmod_load("/lib/modules/usbmouse.ko")
+                 ->  begin_op(); namei(); ilock()
+                 ->  ip->iop->read(ip, 0, ko_image, 0, sz)   % ext2 分派，非经典 readi()
+                 ->  load_module_image()：模块区分配、符号解析、RELA 重定位
+                 ->  run init: usbmouse_driver_init()
+                      ->  init_workqueue(usbmouse_wq)        % 日志 "usbmouse_wq worker=0 pid=17"
+                      ->  usb_register_driver() -> driver_register()
+                           ->  重扫已登记设备 -> usb_match(接口1) 命中
+                           ->  usbmouse_probe() -> usb_submit_urb()
+                                ->  dwc2_submit_urb() -> dwc2_interrupt_schedule_locked()
+                                     若 ch6 空闲则 rx_start，否则排入 interrupt_rx[] 等轮转
+\end{txtcode}
+
+两个要点。其一，\code{driver\_register()} 会重新遍历总线上\textbf{已存在}的设备，所以“设备
+先登记并异步排队装载、驱动后注册”的次序仍能绑定接口 1，无需手动 \code{insmod}。其二，
+\code{kmod\_load()} 里读 \texttt{.ko} 必须走 \code{ip->iop->read}（VFS 分派），不能用经典
+xv6fs 的 \code{readi()}：\code{readi()} 的 \code{bmap()->getsb()} 假设设备带 xv6 超级块，在
+ext2 根上会直接 \code{panic: getsb: device has no xv6 filesystem}。本日志的验收点正是这行：
+
+\begin{txtcode}
+request_module: loading /lib/modules/usbmouse.ko
+module: loaded usbhid-mouse (1808 bytes)
+\end{txtcode}
+
+出现这两行、且不再有 \code{getsb} panic，说明方案 A 的分接口发布、MODALIAS 自动装载
+与 ext2 上的模块读取在真机跑通。
+
+\paragraph{本日志尚未证明的部分.} 按“只承认证据”的原则，这次链路证明了\textbf{自动装载}，
+却没有证明\textbf{鼠标数据端到端接收}：全程未出现 \code{usbmouse: IRQ-driven boot mouse
+ready}，也没有 \code{usbmouse: first report}；拔出前是连续四次的
+\code{dwc2: HID ch6 error intr=82}（\code{XACTERR | CHHLTD}）与 \code{usbkbd: channel 6 transfer
+error; rearming}。也就是说 full-speed 复合设备在共享 ch6、经 TT 的 split interrupt-IN
+调度仍未收敛，键盘与鼠标争用同一 channel 的时序是主要嫌疑；拔出仍触发
+\code{connected=a->2} 的\textbf{整棵拓扑重枚举}，而非只对 port 3 局部增删。下一步诊断应在
+\code{usbmouse\_probe()} 各返回前打印失败的 control 请求，并把 ch6 错误路径的
+\reg{HCSPLT}/\reg{HCTSIZ}/\reg{HCCHAR} 一并 dump，以区分是 SET\_PROTOCOL 被 STALL、还是
+interrupt-IN 的 CSPLIT 窗口错过。
 
 \section{I2C}
 

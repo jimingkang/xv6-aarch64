@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "sched.h"
+#include "module.h"
 
 uint64
 sys_exit(void)
@@ -326,4 +327,51 @@ uint64
 sys_getcpu(void)
 {
   return cpuid();
+}
+
+// ---------------------------------------------------------------------------
+// Loadable modules.  These are the sys_init_module / sys_delete_module faces of
+// the loader in module.c, mirroring Linux: the caller hands over the raw .ko
+// bytes it read off /lib/modules, and the kernel relocates and runs it.
+// ---------------------------------------------------------------------------
+
+// The ELF image must sit in one contiguous kernel buffer, because the loader
+// indexes strtab/symtab/relocation sections by file offset.  kalloc hands out
+// single pages, so a fixed scratch region stands in for Linux's per-module
+// copy of the userspace image.  MODULE_IMG_MAX itself now lives in module.h so
+// the request_module autoload path and this insmod path share one ceiling.
+static char module_image[MODULE_IMG_MAX];
+
+uint64
+sys_init_module(void)
+{
+  uint64 ubuf;
+  int len;
+  char err[64];
+
+  if(argaddr(0, &ubuf) < 0 || argint(1, &len) < 0 ||
+     len <= 0 || len > MODULE_IMG_MAX)
+    return -1;
+  if(copyin(myproc()->vm->pagetable, module_image, ubuf, len) != 0)
+    return -1;
+  if(load_module_image(module_image, len, err, sizeof(err)) < 0){
+    printf("init_module: %s\n", err);
+    return -1;
+  }
+  return 0;
+}
+
+uint64
+sys_delete_module(void)
+{
+  char name[32];
+  char err[64];
+
+  if(argstr(0, name, sizeof(name)) < 0)
+    return -1;
+  if(unload_module(name, err, sizeof(err)) < 0){
+    printf("delete_module: %s\n", err);
+    return -1;
+  }
+  return 0;
 }

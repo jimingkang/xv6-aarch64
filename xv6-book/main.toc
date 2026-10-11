@@ -210,239 +210,256 @@
 \contentsline {paragraph}{主机发起一切.}{88}{figure.caption.51}%
 \contentsline {paragraph}{host channel 与 DMA.}{88}{figure.caption.51}%
 \contentsline {paragraph}{一切都在 Hub 后面.}{88}{figure.caption.51}%
-\contentsline {subsection}{\numberline {7.4.2}描述符：设备、配置、接口与端点}{88}{subsection.7.4.2}%
-\contentsline {subsection}{\numberline {7.4.3}枚举：control 传输与请求序列}{89}{subsection.7.4.3}%
-\contentsline {paragraph}{枚举与配置的软件函数调用链.}{94}{figure.caption.56}%
-\contentsline {subsection}{\numberline {7.4.4}Split transaction：高速 Hub 后面的低速设备}{96}{subsection.7.4.4}%
-\contentsline {subsection}{\numberline {7.4.5}URB 与中断驱动的接收}{96}{subsection.7.4.5}%
-\contentsline {paragraph}{每设备状态，不是全局单例.}{97}{lstnumber.-116.9}%
-\contentsline {paragraph}{NAK 的无忙等周期重试.}{97}{figure.caption.61}%
-\contentsline {subsection}{\numberline {7.4.6}HID 报告与输入子系统}{98}{subsection.7.4.6}%
-\contentsline {paragraph}{内核侧的按键序列.}{100}{figure.caption.63}%
-\contentsline {paragraph}{evdev 队列：每个读者一份.}{101}{lstnumber.-120.7}%
-\contentsline {paragraph}{引用计数与生命周期.}{101}{lstnumber.-121.4}%
-\contentsline {subsection}{\numberline {7.4.7}Hub 中断驱动的 USB 热插拔}{101}{subsection.7.4.7}%
-\contentsline {paragraph}{channel 7 怎么保证自己活着.}{102}{lstnumber.-123.11}%
-\contentsline {paragraph}{拔出后的短暂 \texttt {\hyphenchar \font =-1 ch6 error} 是正常窗口.}{103}{lstnumber.-125.7}%
-\contentsline {paragraph}{DMA 缓冲的所有权.}{103}{lstnumber.-126.2}%
-\contentsline {paragraph}{与 Linux 还差什么.}{103}{lstnumber.-127.1}%
-\contentsline {subsection}{\numberline {7.4.8}真机排错：从 STALL 到第一份报告}{104}{subsection.7.4.8}%
-\contentsline {paragraph}{阶段 4：“读到了”但其实没读全.}{104}{table.caption.64}%
-\contentsline {paragraph}{阶段 7～8：时间窗口.}{104}{table.caption.64}%
-\contentsline {paragraph}{阶段 9：观察者效应.}{104}{table.caption.64}%
-\contentsline {paragraph}{限量日志各自证明什么.}{104}{table.caption.64}%
-\contentsline {paragraph}{诊断顺序.}{105}{table.caption.64}%
-\contentsline {paragraph}{从两层轮询到中断驱动.}{105}{table.caption.64}%
-\contentsline {section}{\numberline {7.5}I2C}{106}{section.7.5}%
-\contentsline {subsection}{\numberline {7.5.1}开漏电气规则与总线时序}{106}{subsection.7.5.1}%
-\contentsline {subsection}{\numberline {7.5.2}OV5647 寄存器收发序列}{107}{subsection.7.5.2}%
-\contentsline {paragraph}{驱动中的调用路径.}{107}{lstnumber.-132.2}%
-\contentsline {paragraph}{一位、一个字节要多长时间.}{108}{lstnumber.-134.21}%
-\contentsline {paragraph}{ACK 与 NACK 的细节.}{108}{figure.caption.66}%
-\contentsline {paragraph}{完整事务与总耗时.}{109}{figure.caption.66}%
-\contentsline {paragraph}{写事务末尾的两个 STOP.}{109}{figure.caption.67}%
-\contentsline {section}{\numberline {7.6}网络协议栈}{109}{section.7.6}%
-\contentsline {section}{\numberline {7.7}SDIO 无线网卡：BCM43430/43455}{110}{section.7.7}%
-\contentsline {subsection}{\numberline {7.7.1}硬件路径}{110}{subsection.7.7.1}%
-\contentsline {subsection}{\numberline {7.7.2}硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{110}{subsection.7.7.2}%
-\contentsline {paragraph}{两颗处理器.}{110}{figure.caption.68}%
-\contentsline {paragraph}{SDIO 总线.}{110}{figure.caption.68}%
-\contentsline {paragraph}{一个 SDIO 设备，三个 function.}{110}{figure.caption.68}%
-\contentsline {paragraph}{Arasan 是主机控制器，而且工作在 PIO 模式.}{111}{figure.caption.68}%
-\contentsline {paragraph}{中断要过三道闸门.}{111}{figure.caption.68}%
-\contentsline {paragraph}{固件从哪里来.}{111}{figure.caption.68}%
-\contentsline {subsection}{\numberline {7.7.3}SDIO 枚举}{111}{subsection.7.7.3}%
-\contentsline {subsection}{\numberline {7.7.4}固件装载}{111}{subsection.7.7.4}%
-\contentsline {subsection}{\numberline {7.7.5}SDPCM 与 BCDC}{111}{subsection.7.7.5}%
-\contentsline {subsection}{\numberline {7.7.6}WPA2 四次握手}{112}{subsection.7.7.6}%
-\contentsline {subsection}{\numberline {7.7.7}数据流与并发}{112}{subsection.7.7.7}%
-\contentsline {paragraph}{发送是同步的.}{112}{figure.caption.70}%
-\contentsline {paragraph}{接收是中断触发、线程执行的.}{113}{figure.caption.70}%
-\contentsline {paragraph}{同步的控制命令.}{113}{figure.caption.70}%
-\contentsline {paragraph}{两把锁，两个粒度.}{113}{figure.caption.70}%
-\contentsline {paragraph}{从轮询到中断的演进.}{113}{figure.caption.70}%
-\contentsline {section}{\numberline {7.8}USB 无线网卡：MT7601U}{113}{section.7.8}%
-\contentsline {subsection}{\numberline {7.8.1}USB 拓扑与枚举}{113}{subsection.7.8.1}%
-\contentsline {subsection}{\numberline {7.8.2}设备、配置、接口与端点描述符}{114}{subsection.7.8.2}%
-\contentsline {paragraph}{设备描述符}{114}{lstnumber.-136.7}%
-\contentsline {paragraph}{配置描述符}{116}{lstnumber.-136.7}%
-\contentsline {paragraph}{接口描述符}{116}{lstnumber.-136.7}%
-\contentsline {paragraph}{端点描述符}{116}{lstnumber.-136.7}%
-\contentsline {subsection}{\numberline {7.8.3}探测时序}{116}{subsection.7.8.3}%
-\contentsline {subsection}{\numberline {7.8.4}主机与芯片之间的四种报文}{117}{subsection.7.8.4}%
-\contentsline {paragraph}{寄存器读写：EP0 厂商请求.}{117}{subsection.7.8.4}%
-\contentsline {paragraph}{bulk 包：同一个 EP8，靠 TXINFO 分流.}{118}{lstnumber.-140.4}%
-\contentsline {paragraph}{接收：EP4 上的聚合包.}{118}{lstnumber.-140.4}%
-\contentsline {subsection}{\numberline {7.8.5}启动日志分析：USB 总线上发生了什么}{118}{subsection.7.8.5}%
-\contentsline {paragraph}{两种传输.}{119}{subsection.7.8.5}%
-\contentsline {paragraph}{① 芯片身份.}{119}{table.caption.76}%
-\contentsline {paragraph}{②③ 不走 USB.}{119}{lstnumber.-142.2}%
-\contentsline {paragraph}{④ 上传固件.}{119}{lstnumber.-142.2}%
-\contentsline {paragraph}{⑤ 启动 MCU.}{119}{lstnumber.-143.4}%
-\contentsline {paragraph}{⑥ eFuse.}{119}{lstnumber.-144.2}%
-\contentsline {paragraph}{⑦ 基础初始化.}{119}{lstnumber.-144.2}%
-\contentsline {paragraph}{⑧ 第一条 MCU 命令.}{120}{lstnumber.-144.2}%
-\contentsline {paragraph}{⑨ 寄存器表.}{120}{lstnumber.-145.2}%
-\contentsline {paragraph}{⑩ 校准.}{120}{table.caption.77}%
-\contentsline {paragraph}{⑪ 初始换台.}{120}{lstnumber.-146.4}%
-\contentsline {paragraph}{⑫ 挂上接收.}{120}{lstnumber.-148.3}%
-\contentsline {paragraph}{⑬ probe 返回.}{121}{lstnumber.-148.3}%
-\contentsline {subsection}{\numberline {7.8.6}空口：扫描、认证、关联与 WPA2}{121}{subsection.7.8.6}%
-\contentsline {paragraph}{一帧怎样从主机到空中.}{121}{figure.caption.79}%
-\contentsline {paragraph}{扫描.}{122}{table.caption.80}%
-\contentsline {paragraph}{认证与关联.}{122}{lstnumber.-150.2}%
-\contentsline {paragraph}{EAPOL-Key 帧.}{122}{lstnumber.-150.2}%
-\contentsline {paragraph}{密钥推导.}{123}{lstnumber.-151.4}%
-\contentsline {paragraph}{装密钥.}{123}{lstnumber.-152.6}%
-\contentsline {paragraph}{加密数据帧.}{123}{lstnumber.-153.5}%
-\contentsline {subsection}{\numberline {7.8.7}调试实录}{123}{subsection.7.8.7}%
-\contentsline {subsection}{\numberline {7.8.8}现状与待改进}{124}{subsection.7.8.8}%
-\contentsline {section}{\numberline {7.9}CSI-2 摄像头：OV5647}{124}{section.7.9}%
-\contentsline {subsection}{\numberline {7.9.1}路线选择}{124}{subsection.7.9.1}%
-\contentsline {subsection}{\numberline {7.9.2}硬件结构：I2C、CSI-2、Unicam 与 DMA}{124}{subsection.7.9.2}%
-\contentsline {paragraph}{传感器有两个接口.}{124}{figure.caption.82}%
-\contentsline {paragraph}{CSI-2 链路上传的是包.}{125}{figure.caption.82}%
-\contentsline {paragraph}{Unicam 是接收器，也是 DMA 主设备.}{125}{figure.caption.82}%
-\contentsline {paragraph}{内存一侧的约束.}{125}{figure.caption.82}%
-\contentsline {paragraph}{电源和时钟由谁管.}{126}{figure.caption.82}%
-\contentsline {paragraph}{CPU 只在两头出现.}{126}{figure.caption.82}%
-\contentsline {paragraph}{顺序约束.}{126}{figure.caption.82}%
-\contentsline {subsection}{\numberline {7.9.3}\texttt {\hyphenchar \font =-1 sensor\_ops}：仿照 V4L2 子设备}{126}{subsection.7.9.3}%
-\contentsline {subsection}{\numberline {7.9.4}板级资源}{126}{subsection.7.9.4}%
-\contentsline {subsection}{\numberline {7.9.5}硬件连接与工作流程}{127}{subsection.7.9.5}%
-\contentsline {paragraph}{结合连线看一次完整的工作流程.}{127}{figure.caption.84}%
-\contentsline {paragraph}{一帧数据在连线上走过的路.}{128}{figure.caption.86}%
-\contentsline {subsection}{\numberline {7.9.6}上电与探测}{129}{subsection.7.9.6}%
-\contentsline {paragraph}{mailbox.}{129}{lstnumber.-155.1}%
-\contentsline {paragraph}{控制总线：从 BSC0 到软件 SCCB.}{129}{lstnumber.-155.1}%
-\contentsline {paragraph}{延迟探测.}{129}{lstnumber.-155.1}%
-\contentsline {subsection}{\numberline {7.9.7}拍一帧}{129}{subsection.7.9.7}%
-\contentsline {paragraph}{为什么用轮询而不是中断.}{130}{figure.caption.88}%
-\contentsline {subsection}{\numberline {7.9.8}从 D-PHY 到内存：FIFO、双缓冲与帧通知}{131}{subsection.7.9.8}%
-\contentsline {paragraph}{排线与 D-PHY.}{131}{subsection.7.9.8}%
-\contentsline {paragraph}{CSI-2 包.}{131}{table.caption.89}%
-\contentsline {paragraph}{Unicam 内部：FIFO 与 AXI 写主机.}{132}{figure.caption.90}%
-\contentsline {paragraph}{DMA 缓冲区的布局.}{132}{figure.caption.91}%
-\contentsline {paragraph}{双缓冲：槽的状态机.}{132}{lstnumber.-157.5}%
-\contentsline {paragraph}{帧通知：中断为主，watchdog 兜底.}{133}{figure.caption.93}%
-\contentsline {paragraph}{零拷贝 mmap.}{134}{lstnumber.-159.8}%
-\contentsline {subsection}{\numberline {7.9.9}用户程序 \texttt {\hyphenchar \font =-1 camshot}}{134}{subsection.7.9.9}%
-\contentsline {subsection}{\numberline {7.9.10}一次成功拍照的日志解读}{134}{subsection.7.9.10}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 172} 启动时的探测与绑定.}{135}{lstnumber.-161.40}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 173} 每次拍照都重新上电.}{135}{lstnumber.-161.40}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 174} 先接收器、后出流.}{136}{lstnumber.-161.40}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 175} 一帧到手.}{136}{lstnumber.-161.40}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 176} 数字对得上.}{136}{lstnumber.-161.40}%
-\contentsline {paragraph}{{\Pifont {pzd}\char 177} 创建输出文件.}{136}{lstnumber.-161.40}%
-\contentsline {paragraph}{这份日志证明了什么.}{136}{lstnumber.-161.40}%
-\contentsline {subsection}{\numberline {7.9.11}真机调试记录}{136}{subsection.7.9.11}%
-\contentsline {subsubsection}{问题 1：mailbox 打开摄像头电源失败}{136}{subsection.7.9.11}%
-\contentsline {paragraph}{日志输出.}{136}{subsection.7.9.11}%
-\contentsline {paragraph}{问题分析.}{137}{lstnumber.-162.5}%
-\contentsline {paragraph}{解决方案.}{137}{lstnumber.-162.5}%
-\contentsline {subsubsection}{问题 2：BSC0 对 \texttt {\hyphenchar \font =-1 0x36} 始终 NACK}{137}{lstnumber.-162.5}%
-\contentsline {paragraph}{日志输出.}{137}{lstnumber.-162.5}%
-\contentsline {paragraph}{问题分析.}{137}{lstnumber.-163.3}%
-\contentsline {paragraph}{解决方案.}{137}{lstnumber.-163.3}%
-\contentsline {subsubsection}{问题 3：bit-bang 探测时而 ACK、时而 NACK}{137}{lstnumber.-163.3}%
-\contentsline {paragraph}{日志输出.}{137}{lstnumber.-163.3}%
-\contentsline {paragraph}{问题分析.}{137}{lstnumber.-164.2}%
-\contentsline {paragraph}{解决方案.}{138}{lstnumber.-164.2}%
-\contentsline {subsubsection}{问题 4：BSC 四档降速全部失败}{138}{lstnumber.-164.2}%
-\contentsline {paragraph}{日志输出.}{138}{lstnumber.-164.2}%
-\contentsline {paragraph}{问题分析.}{138}{lstnumber.-165.4}%
-\contentsline {paragraph}{解决方案.}{138}{lstnumber.-165.4}%
-\contentsline {subsubsection}{问题 5：软件 SCCB 偶发读出 \texttt {\hyphenchar \font =-1 0x3631}，随后 BUS-STUCK}{138}{lstnumber.-165.4}%
-\contentsline {paragraph}{日志输出.}{138}{lstnumber.-165.4}%
-\contentsline {paragraph}{问题分析.}{138}{lstnumber.-166.3}%
-\contentsline {paragraph}{解决方案.}{138}{lstnumber.-166.3}%
-\contentsline {subsubsection}{问题 6：\texttt {\hyphenchar \font =-1 0x36} ACK，但三次读 ID 都失败}{138}{lstnumber.-166.3}%
-\contentsline {paragraph}{日志输出.}{138}{lstnumber.-166.3}%
-\contentsline {paragraph}{问题分析.}{139}{lstnumber.-167.4}%
-\contentsline {paragraph}{解决方案.}{139}{lstnumber.-167.4}%
-\contentsline {subsubsection}{问题 7：开始出流后整机无响应}{139}{lstnumber.-167.4}%
-\contentsline {paragraph}{日志输出.}{139}{lstnumber.-167.4}%
-\contentsline {paragraph}{问题分析.}{139}{lstnumber.-168.4}%
-\contentsline {paragraph}{解决方案.}{139}{lstnumber.-168.4}%
-\contentsline {subsubsection}{问题 8：转换期间偶发 \texttt {\hyphenchar \font =-1 SDIO CMD52 failed}}{139}{lstnumber.-168.4}%
-\contentsline {paragraph}{日志输出.}{139}{lstnumber.-168.4}%
-\contentsline {paragraph}{问题分析.}{139}{lstnumber.-169.2}%
-\contentsline {paragraph}{解决方案.}{140}{lstnumber.-169.2}%
-\contentsline {subsubsection}{问题 9：执行不访存的指令却报数据中止}{140}{lstnumber.-169.2}%
-\contentsline {paragraph}{日志输出.}{140}{lstnumber.-169.2}%
-\contentsline {paragraph}{问题分析.}{140}{lstnumber.-170.2}%
-\contentsline {paragraph}{解决方案.}{140}{lstnumber.-170.2}%
-\contentsline {subsubsection}{问题 10：输出到 \texttt {\hyphenchar \font =-1 fixed WB/level} 后长时间停顿}{140}{lstnumber.-170.2}%
-\contentsline {paragraph}{日志输出.}{140}{lstnumber.-170.2}%
-\contentsline {paragraph}{问题分析.}{140}{lstnumber.-171.4}%
-\contentsline {paragraph}{解决方案.}{140}{lstnumber.-171.4}%
-\contentsline {subsubsection}{问题 11：新建文件停在 \texttt {\hyphenchar \font =-1 directory-entry begin}}{140}{lstnumber.-171.4}%
-\contentsline {paragraph}{日志输出.}{140}{lstnumber.-171.4}%
-\contentsline {paragraph}{问题分析.}{141}{lstnumber.-172.6}%
-\contentsline {paragraph}{解决方案.}{141}{lstnumber.-172.6}%
-\contentsline {paragraph}{小结.}{141}{lstnumber.-172.6}%
-\contentsline {subsection}{\numberline {7.9.12}连续取流与 HTTP 推流}{141}{subsection.7.9.12}%
-\contentsline {paragraph}{内核：传感器一直出流.}{141}{subsection.7.9.12}%
-\contentsline {paragraph}{用户态：一个进程扇出给所有观看者.}{141}{subsection.7.9.12}%
-\contentsline {paragraph}{接口与 MJPEG 格式.}{142}{figure.caption.94}%
-\contentsline {paragraph}{测试.}{142}{lstnumber.-173.14}%
-\contentsline {subsection}{\numberline {7.9.13}提高推流帧率}{143}{subsection.7.9.13}%
-\contentsline {paragraph}{先测量，再优化.}{143}{subsection.7.9.13}%
-\contentsline {paragraph}{方法一：三级流水线.}{143}{lstnumber.-176.1}%
-\contentsline {paragraph}{方法二：RAW 帧零拷贝.}{143}{figure.caption.96}%
-\contentsline {paragraph}{方法三：有界队列与背压.}{144}{lstnumber.-177.12}%
-\contentsline {paragraph}{方法四：减少每帧的工作量.}{145}{lstnumber.-178.7}%
-\contentsline {paragraph}{按测量结果定位瓶颈.}{145}{lstnumber.-178.7}%
-\contentsline {paragraph}{还可以继续做的.}{145}{lstnumber.-178.7}%
-\contentsline {subsection}{\numberline {7.9.14}当前状态}{145}{subsection.7.9.14}%
-\contentsline {chapter}{\numberline {第八章}用户进程、线程与 libc}{147}{chapter.8}%
-\contentsline {section}{\numberline {8.1}用户程序的形态}{147}{section.8.1}%
-\contentsline {subsection}{\numberline {8.1.1}为什么需要系统调用}{147}{subsection.8.1.1}%
-\contentsline {subsection}{\numberline {8.1.2}链接与装载}{147}{subsection.8.1.2}%
-\contentsline {subsection}{\numberline {8.1.3}系统调用桩}{147}{subsection.8.1.3}%
-\contentsline {subsection}{\numberline {8.1.4}内核如何分发系统调用}{148}{subsection.8.1.4}%
-\contentsline {subsection}{\numberline {8.1.5}两个栈指针与返回级别}{149}{subsection.8.1.5}%
-\contentsline {section}{\numberline {8.2}从 \texttt {\hyphenchar \font =-1 init} 到 shell}{149}{section.8.2}%
-\contentsline {section}{\numberline {8.3}用户程序一览}{149}{section.8.3}%
-\contentsline {section}{\numberline {8.4}用户线程}{150}{section.8.4}%
-\contentsline {subsection}{\numberline {8.4.1}设计}{150}{subsection.8.4.1}%
-\contentsline {subsection}{\numberline {8.4.2}系统调用}{150}{subsection.8.4.2}%
-\contentsline {subsection}{\numberline {8.4.3}\texttt {\hyphenchar \font =-1 clone} 为什么“返回两次”}{151}{subsection.8.4.3}%
-\contentsline {subsection}{\numberline {8.4.4}多核下的细节}{151}{subsection.8.4.4}%
-\contentsline {section}{\numberline {8.5}libc 与 POSIX 源码兼容层}{152}{section.8.5}%
-\contentsline {subsection}{\numberline {8.5.1}\texttt {\hyphenchar \font =-1 libc.a}}{152}{subsection.8.5.1}%
-\contentsline {subsection}{\numberline {8.5.2}POSIX 层}{152}{subsection.8.5.2}%
-\contentsline {section}{\numberline {8.6}在 xv6 里编译 C 程序}{152}{section.8.6}%
-\contentsline {section}{\numberline {8.7}一个大型用户程序：\texttt {\hyphenchar \font =-1 sshd}}{153}{section.8.7}%
-\contentsline {chapter}{\numberline {第九章}可选工作}{154}{chapter.9}%
-\contentsline {section}{\numberline {9.1}ext2 移植}{154}{section.9.1}%
-\contentsline {subsection}{\numberline {9.1.1}动机与分区布局}{154}{subsection.9.1.1}%
-\contentsline {subsection}{\numberline {9.1.2}ext2 的磁盘结构}{155}{subsection.9.1.2}%
-\contentsline {paragraph}{inode 与目录.}{155}{table.caption.104}%
-\contentsline {subsection}{\numberline {9.1.3}从文件偏移到块号}{156}{subsection.9.1.3}%
-\contentsline {subsection}{\numberline {9.1.4}分配与释放}{157}{subsection.9.1.4}%
-\contentsline {subsection}{\numberline {9.1.5}接入 VFS：按 inode 工作}{157}{subsection.9.1.5}%
-\contentsline {paragraph}{锁.}{158}{lstnumber.-191.8}%
-\contentsline {subsection}{\numberline {9.1.6}持久化：\texttt {\hyphenchar \font =-1 sdflush()} 写屏障}{158}{subsection.9.1.6}%
-\contentsline {subsection}{\numberline {9.1.7}外置事务日志 xjournal}{158}{subsection.9.1.7}%
-\contentsline {paragraph}{要解决的问题.}{158}{subsection.9.1.7}%
-\contentsline {paragraph}{接口.}{159}{subsection.9.1.7}%
-\contentsline {paragraph}{ordered 模式.}{159}{lstnumber.-193.11}%
-\contentsline {paragraph}{磁盘格式与提交协议.}{159}{lstnumber.-193.11}%
-\contentsline {paragraph}{崩溃恢复.}{160}{lstnumber.-194.19}%
-\contentsline {paragraph}{ext2 怎样使用事务.}{160}{table.caption.107}%
-\contentsline {subsection}{\numberline {9.1.8}源码组织与编译}{161}{subsection.9.1.8}%
-\contentsline {subsection}{\numberline {9.1.9}测试：WAL 程序与随机断电}{161}{subsection.9.1.9}%
-\contentsline {subsection}{\numberline {9.1.10}给 SD 卡分出 ext2 分区}{162}{subsection.9.1.10}%
-\contentsline {paragraph}{为什么不用 \texttt {\hyphenchar \font =-1 diskutil}.}{162}{subsection.9.1.10}%
-\contentsline {paragraph}{先看清现状.}{162}{subsection.9.1.10}%
-\contentsline {paragraph}{新布局.}{162}{lstnumber.-201.3}%
-\contentsline {paragraph}{用 \texttt {\hyphenchar \font =-1 fdisk -e} 修改.}{162}{table.caption.110}%
-\contentsline {subsection}{\numberline {9.1.11}格式化 ext2}{163}{subsection.9.1.11}%
-\contentsline {paragraph}{不要把 32\,MiB 镜像写进大分区.}{163}{table.caption.111}%
-\contentsline {subsection}{\numberline {9.1.12}安装与真机调试}{164}{subsection.9.1.12}%
-\contentsline {paragraph}{日志输出.}{164}{lstnumber.-205.2}%
-\contentsline {paragraph}{问题分析.}{164}{lstnumber.-206.9}%
-\contentsline {paragraph}{解决方案.}{165}{lstnumber.-206.9}%
-\contentsline {subsection}{\numberline {9.1.13}当前边界}{165}{subsection.9.1.13}%
-\contentsline {chapter}{参考文献}{166}{chapter*.112}%
+\contentsline {subsection}{\numberline {7.4.2}事务格式：Token、Data、Handshake 三相}{88}{subsection.7.4.2}%
+\contentsline {subsection}{\numberline {7.4.3}描述符：设备、配置、接口与端点}{90}{subsection.7.4.3}%
+\contentsline {subsection}{\numberline {7.4.4}枚举：control 传输与请求序列}{91}{subsection.7.4.4}%
+\contentsline {paragraph}{SETUP 阶段：一次事务把“要什么、给多少、往哪个方向”先谈定.}{91}{figure.caption.57}%
+\contentsline {paragraph}{逐字节拆解：\texttt {\hyphenchar \font =-1 GET\_DESCRIPTOR(Device, 8)}.}{92}{figure.caption.57}%
+\contentsline {paragraph}{Data 阶段：方向沿用 SETUP，逐包翻转 DATA1/DATA0.}{92}{table.caption.58}%
+\contentsline {paragraph}{STATUS 阶段：反方向的零长 DATA1，兼作握手与翻转复位.}{92}{table.caption.58}%
+\contentsline {paragraph}{对回本项目：\texttt {\hyphenchar \font =-1 control()} 如何走这三相.}{93}{table.caption.58}%
+\contentsline {paragraph}{枚举与配置的软件函数调用链.}{93}{figure.caption.61}%
+\contentsline {subsection}{\numberline {7.4.5}Split transaction：高速 Hub 后面的低速设备}{97}{subsection.7.4.5}%
+\contentsline {paragraph}{HCSPLT：把一次事务拆成两拍的寄存器.}{98}{figure.caption.65}%
+\contentsline {paragraph}{SSPLIT→CSPLIT 的状态机.}{98}{figure.caption.65}%
+\contentsline {paragraph}{微帧窗口：CSPLIT 为什么必须在中断里发.}{98}{figure.caption.65}%
+\contentsline {paragraph}{一次 split 只搬一个最大包，DATA 逐包翻转.}{98}{figure.caption.65}%
+\contentsline {paragraph}{full-speed 也要 split，但不置 LSPDDEV.}{98}{figure.caption.65}%
+\contentsline {subsection}{\numberline {7.4.6}URB 与中断驱动的接收}{98}{subsection.7.4.6}%
+\contentsline {paragraph}{每设备状态，不是全局单例.}{99}{lstnumber.-116.9}%
+\contentsline {paragraph}{NAK 的无忙等周期重试.}{100}{figure.caption.67}%
+\contentsline {subsection}{\numberline {7.4.7}HID 报告与输入子系统}{100}{subsection.7.4.7}%
+\contentsline {paragraph}{内核侧的按键序列.}{102}{figure.caption.69}%
+\contentsline {paragraph}{evdev 队列：每个读者一份.}{103}{lstnumber.-120.7}%
+\contentsline {paragraph}{引用计数与生命周期.}{103}{lstnumber.-121.4}%
+\contentsline {subsection}{\numberline {7.4.8}Bulk 传输：量大、可等待、不许出错}{104}{subsection.7.4.8}%
+\contentsline {subsection}{\numberline {7.4.9}Hub 中断驱动的 USB 热插拔}{104}{subsection.7.4.9}%
+\contentsline {paragraph}{channel 7 怎么保证自己活着.}{106}{lstnumber.-123.11}%
+\contentsline {paragraph}{拔出后的短暂 \texttt {\hyphenchar \font =-1 ch6 error} 是正常窗口.}{106}{lstnumber.-125.7}%
+\contentsline {paragraph}{DMA 缓冲的所有权.}{107}{lstnumber.-126.2}%
+\contentsline {paragraph}{与 Linux 还差什么.}{107}{lstnumber.-127.1}%
+\contentsline {subsection}{\numberline {7.4.10}真机排错：从 STALL 到第一份报告}{107}{subsection.7.4.10}%
+\contentsline {paragraph}{阶段 4：“读到了”但其实没读全.}{108}{table.caption.72}%
+\contentsline {paragraph}{阶段 7～8：时间窗口.}{108}{table.caption.72}%
+\contentsline {paragraph}{阶段 9：观察者效应.}{108}{table.caption.72}%
+\contentsline {paragraph}{限量日志各自证明什么.}{108}{table.caption.72}%
+\contentsline {paragraph}{诊断顺序.}{109}{table.caption.72}%
+\contentsline {paragraph}{从两层轮询到中断驱动.}{109}{table.caption.72}%
+\contentsline {subsection}{\numberline {7.4.11}复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}{110}{subsection.7.4.11}%
+\contentsline {paragraph}{拓扑与速度.}{110}{subsection.7.4.11}%
+\contentsline {paragraph}{分接口发布.}{110}{table.caption.73}%
+\contentsline {paragraph}{自动装载链.}{111}{table.caption.74}%
+\contentsline {paragraph}{本日志尚未证明的部分.}{111}{lstnumber.-132.2}%
+\contentsline {section}{\numberline {7.5}I2C}{111}{section.7.5}%
+\contentsline {subsection}{\numberline {7.5.1}开漏电气规则与总线时序}{112}{subsection.7.5.1}%
+\contentsline {subsection}{\numberline {7.5.2}OV5647 寄存器收发序列}{112}{subsection.7.5.2}%
+\contentsline {paragraph}{驱动中的调用路径.}{113}{lstnumber.-135.2}%
+\contentsline {paragraph}{一位、一个字节要多长时间.}{113}{lstnumber.-137.21}%
+\contentsline {paragraph}{ACK 与 NACK 的细节.}{114}{figure.caption.76}%
+\contentsline {paragraph}{完整事务与总耗时.}{114}{figure.caption.76}%
+\contentsline {paragraph}{写事务末尾的两个 STOP.}{114}{figure.caption.77}%
+\contentsline {section}{\numberline {7.6}网络协议栈}{115}{section.7.6}%
+\contentsline {section}{\numberline {7.7}SDIO 无线网卡：BCM43430/43455}{115}{section.7.7}%
+\contentsline {subsection}{\numberline {7.7.1}硬件路径}{115}{subsection.7.7.1}%
+\contentsline {subsection}{\numberline {7.7.2}硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{115}{subsection.7.7.2}%
+\contentsline {paragraph}{两颗处理器.}{115}{figure.caption.78}%
+\contentsline {paragraph}{SDIO 总线.}{115}{figure.caption.78}%
+\contentsline {paragraph}{一个 SDIO 设备，三个 function.}{115}{figure.caption.78}%
+\contentsline {paragraph}{Arasan 是主机控制器，而且工作在 PIO 模式.}{116}{figure.caption.78}%
+\contentsline {paragraph}{中断要过三道闸门.}{116}{figure.caption.78}%
+\contentsline {paragraph}{固件从哪里来.}{116}{figure.caption.78}%
+\contentsline {subsection}{\numberline {7.7.3}SDIO 枚举}{116}{subsection.7.7.3}%
+\contentsline {subsection}{\numberline {7.7.4}固件装载}{117}{subsection.7.7.4}%
+\contentsline {subsection}{\numberline {7.7.5}SDPCM 与 BCDC}{117}{subsection.7.7.5}%
+\contentsline {subsection}{\numberline {7.7.6}WPA2 四次握手}{117}{subsection.7.7.6}%
+\contentsline {subsection}{\numberline {7.7.7}数据流与并发}{117}{subsection.7.7.7}%
+\contentsline {paragraph}{发送是同步的.}{117}{figure.caption.80}%
+\contentsline {paragraph}{接收是中断触发、线程执行的.}{117}{figure.caption.80}%
+\contentsline {paragraph}{同步的控制命令.}{118}{figure.caption.80}%
+\contentsline {paragraph}{两把锁，两个粒度.}{118}{figure.caption.80}%
+\contentsline {paragraph}{从轮询到中断的演进.}{118}{figure.caption.80}%
+\contentsline {section}{\numberline {7.8}USB 无线网卡：MT7601U}{119}{section.7.8}%
+\contentsline {subsection}{\numberline {7.8.1}USB 拓扑与枚举}{119}{subsection.7.8.1}%
+\contentsline {subsection}{\numberline {7.8.2}设备、配置、接口与端点描述符}{121}{subsection.7.8.2}%
+\contentsline {paragraph}{设备描述符}{121}{lstnumber.-139.7}%
+\contentsline {paragraph}{配置描述符}{121}{lstnumber.-139.7}%
+\contentsline {paragraph}{接口描述符}{121}{lstnumber.-139.7}%
+\contentsline {paragraph}{端点描述符}{121}{lstnumber.-139.7}%
+\contentsline {subsection}{\numberline {7.8.3}探测时序}{122}{subsection.7.8.3}%
+\contentsline {subsection}{\numberline {7.8.4}主机与芯片之间的四种报文}{123}{subsection.7.8.4}%
+\contentsline {paragraph}{寄存器读写：EP0 厂商请求.}{123}{subsection.7.8.4}%
+\contentsline {paragraph}{bulk 包：同一个 EP8，靠 TXINFO 分流.}{123}{lstnumber.-143.4}%
+\contentsline {paragraph}{接收：EP4 上的聚合包.}{123}{lstnumber.-143.4}%
+\contentsline {subsection}{\numberline {7.8.5}启动日志分析：USB 总线上发生了什么}{124}{subsection.7.8.5}%
+\contentsline {paragraph}{两种传输.}{124}{subsection.7.8.5}%
+\contentsline {paragraph}{① 芯片身份.}{124}{table.caption.86}%
+\contentsline {paragraph}{②③ 不走 USB.}{124}{lstnumber.-145.2}%
+\contentsline {paragraph}{④ 上传固件.}{124}{lstnumber.-145.2}%
+\contentsline {paragraph}{⑤ 启动 MCU.}{125}{lstnumber.-146.4}%
+\contentsline {paragraph}{⑥ eFuse.}{125}{lstnumber.-147.2}%
+\contentsline {paragraph}{⑦ 基础初始化.}{125}{lstnumber.-147.2}%
+\contentsline {paragraph}{⑧ 第一条 MCU 命令.}{125}{lstnumber.-147.2}%
+\contentsline {paragraph}{⑨ 寄存器表.}{125}{lstnumber.-148.2}%
+\contentsline {paragraph}{⑩ 校准.}{125}{table.caption.87}%
+\contentsline {paragraph}{⑪ 初始换台.}{126}{lstnumber.-149.4}%
+\contentsline {paragraph}{⑫ 挂上接收.}{126}{lstnumber.-151.3}%
+\contentsline {paragraph}{⑬ probe 返回.}{126}{lstnumber.-151.3}%
+\contentsline {subsection}{\numberline {7.8.6}空口：扫描、认证、关联与 WPA2}{126}{subsection.7.8.6}%
+\contentsline {paragraph}{一帧怎样从主机到空中.}{126}{figure.caption.89}%
+\contentsline {paragraph}{扫描.}{127}{table.caption.90}%
+\contentsline {paragraph}{认证与关联.}{128}{lstnumber.-153.2}%
+\contentsline {paragraph}{EAPOL-Key 帧.}{128}{lstnumber.-153.2}%
+\contentsline {paragraph}{密钥推导.}{128}{lstnumber.-154.4}%
+\contentsline {paragraph}{装密钥.}{128}{lstnumber.-155.6}%
+\contentsline {paragraph}{加密数据帧.}{128}{lstnumber.-156.5}%
+\contentsline {subsection}{\numberline {7.8.7}调试实录}{129}{subsection.7.8.7}%
+\contentsline {subsection}{\numberline {7.8.8}现状与待改进}{129}{subsection.7.8.8}%
+\contentsline {section}{\numberline {7.9}CSI-2 摄像头：OV5647}{130}{section.7.9}%
+\contentsline {subsection}{\numberline {7.9.1}路线选择}{130}{subsection.7.9.1}%
+\contentsline {subsection}{\numberline {7.9.2}硬件结构：I2C、CSI-2、Unicam 与 DMA}{130}{subsection.7.9.2}%
+\contentsline {paragraph}{传感器有两个接口.}{130}{figure.caption.92}%
+\contentsline {paragraph}{CSI-2 链路上传的是包.}{130}{figure.caption.92}%
+\contentsline {paragraph}{Unicam 是接收器，也是 DMA 主设备.}{131}{figure.caption.92}%
+\contentsline {paragraph}{内存一侧的约束.}{131}{figure.caption.92}%
+\contentsline {paragraph}{电源和时钟由谁管.}{131}{figure.caption.92}%
+\contentsline {paragraph}{CPU 只在两头出现.}{131}{figure.caption.92}%
+\contentsline {paragraph}{顺序约束.}{131}{figure.caption.92}%
+\contentsline {subsection}{\numberline {7.9.3}\texttt {\hyphenchar \font =-1 sensor\_ops}：仿照 V4L2 子设备}{131}{subsection.7.9.3}%
+\contentsline {subsection}{\numberline {7.9.4}板级资源}{132}{subsection.7.9.4}%
+\contentsline {subsection}{\numberline {7.9.5}硬件连接与工作流程}{132}{subsection.7.9.5}%
+\contentsline {paragraph}{结合连线看一次完整的工作流程.}{132}{figure.caption.94}%
+\contentsline {paragraph}{一帧数据在连线上走过的路.}{132}{figure.caption.96}%
+\contentsline {subsection}{\numberline {7.9.6}上电与探测}{134}{subsection.7.9.6}%
+\contentsline {paragraph}{mailbox.}{134}{lstnumber.-158.1}%
+\contentsline {paragraph}{控制总线：从 BSC0 到软件 SCCB.}{134}{lstnumber.-158.1}%
+\contentsline {paragraph}{延迟探测.}{134}{lstnumber.-158.1}%
+\contentsline {subsection}{\numberline {7.9.7}拍一帧}{135}{subsection.7.9.7}%
+\contentsline {paragraph}{为什么用轮询而不是中断.}{135}{figure.caption.98}%
+\contentsline {subsection}{\numberline {7.9.8}从 D-PHY 到内存：FIFO、双缓冲与帧通知}{136}{subsection.7.9.8}%
+\contentsline {paragraph}{排线与 D-PHY.}{136}{subsection.7.9.8}%
+\contentsline {paragraph}{CSI-2 包.}{137}{table.caption.99}%
+\contentsline {paragraph}{Unicam 内部：FIFO 与 AXI 写主机.}{137}{figure.caption.100}%
+\contentsline {paragraph}{DMA 缓冲区的布局.}{137}{figure.caption.101}%
+\contentsline {paragraph}{双缓冲：槽的状态机.}{138}{lstnumber.-160.5}%
+\contentsline {paragraph}{帧通知：中断为主，watchdog 兜底.}{138}{figure.caption.103}%
+\contentsline {paragraph}{零拷贝 mmap.}{139}{lstnumber.-162.8}%
+\contentsline {subsection}{\numberline {7.9.9}用户程序 \texttt {\hyphenchar \font =-1 camshot}}{139}{subsection.7.9.9}%
+\contentsline {subsection}{\numberline {7.9.10}一次成功拍照的日志解读}{140}{subsection.7.9.10}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 172} 启动时的探测与绑定.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 173} 每次拍照都重新上电.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 174} 先接收器、后出流.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 175} 一帧到手.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 176} 数字对得上.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{{\Pifont {pzd}\char 177} 创建输出文件.}{141}{lstnumber.-164.40}%
+\contentsline {paragraph}{这份日志证明了什么.}{142}{lstnumber.-164.40}%
+\contentsline {subsection}{\numberline {7.9.11}真机调试记录}{142}{subsection.7.9.11}%
+\contentsline {subsubsection}{问题 1：mailbox 打开摄像头电源失败}{142}{subsection.7.9.11}%
+\contentsline {paragraph}{日志输出.}{142}{subsection.7.9.11}%
+\contentsline {paragraph}{问题分析.}{142}{lstnumber.-165.5}%
+\contentsline {paragraph}{解决方案.}{142}{lstnumber.-165.5}%
+\contentsline {subsubsection}{问题 2：BSC0 对 \texttt {\hyphenchar \font =-1 0x36} 始终 NACK}{142}{lstnumber.-165.5}%
+\contentsline {paragraph}{日志输出.}{142}{lstnumber.-165.5}%
+\contentsline {paragraph}{问题分析.}{143}{lstnumber.-166.3}%
+\contentsline {paragraph}{解决方案.}{143}{lstnumber.-166.3}%
+\contentsline {subsubsection}{问题 3：bit-bang 探测时而 ACK、时而 NACK}{143}{lstnumber.-166.3}%
+\contentsline {paragraph}{日志输出.}{143}{lstnumber.-166.3}%
+\contentsline {paragraph}{问题分析.}{143}{lstnumber.-167.2}%
+\contentsline {paragraph}{解决方案.}{143}{lstnumber.-167.2}%
+\contentsline {subsubsection}{问题 4：BSC 四档降速全部失败}{143}{lstnumber.-167.2}%
+\contentsline {paragraph}{日志输出.}{143}{lstnumber.-167.2}%
+\contentsline {paragraph}{问题分析.}{143}{lstnumber.-168.4}%
+\contentsline {paragraph}{解决方案.}{143}{lstnumber.-168.4}%
+\contentsline {subsubsection}{问题 5：软件 SCCB 偶发读出 \texttt {\hyphenchar \font =-1 0x3631}，随后 BUS-STUCK}{143}{lstnumber.-168.4}%
+\contentsline {paragraph}{日志输出.}{143}{lstnumber.-168.4}%
+\contentsline {paragraph}{问题分析.}{144}{lstnumber.-169.3}%
+\contentsline {paragraph}{解决方案.}{144}{lstnumber.-169.3}%
+\contentsline {subsubsection}{问题 6：\texttt {\hyphenchar \font =-1 0x36} ACK，但三次读 ID 都失败}{144}{lstnumber.-169.3}%
+\contentsline {paragraph}{日志输出.}{144}{lstnumber.-169.3}%
+\contentsline {paragraph}{问题分析.}{144}{lstnumber.-170.4}%
+\contentsline {paragraph}{解决方案.}{144}{lstnumber.-170.4}%
+\contentsline {subsubsection}{问题 7：开始出流后整机无响应}{144}{lstnumber.-170.4}%
+\contentsline {paragraph}{日志输出.}{144}{lstnumber.-170.4}%
+\contentsline {paragraph}{问题分析.}{144}{lstnumber.-171.4}%
+\contentsline {paragraph}{解决方案.}{145}{lstnumber.-171.4}%
+\contentsline {subsubsection}{问题 8：转换期间偶发 \texttt {\hyphenchar \font =-1 SDIO CMD52 failed}}{145}{lstnumber.-171.4}%
+\contentsline {paragraph}{日志输出.}{145}{lstnumber.-171.4}%
+\contentsline {paragraph}{问题分析.}{145}{lstnumber.-172.2}%
+\contentsline {paragraph}{解决方案.}{145}{lstnumber.-172.2}%
+\contentsline {subsubsection}{问题 9：执行不访存的指令却报数据中止}{145}{lstnumber.-172.2}%
+\contentsline {paragraph}{日志输出.}{145}{lstnumber.-172.2}%
+\contentsline {paragraph}{问题分析.}{145}{lstnumber.-173.2}%
+\contentsline {paragraph}{解决方案.}{145}{lstnumber.-173.2}%
+\contentsline {subsubsection}{问题 10：输出到 \texttt {\hyphenchar \font =-1 fixed WB/level} 后长时间停顿}{145}{lstnumber.-173.2}%
+\contentsline {paragraph}{日志输出.}{145}{lstnumber.-173.2}%
+\contentsline {paragraph}{问题分析.}{146}{lstnumber.-174.4}%
+\contentsline {paragraph}{解决方案.}{146}{lstnumber.-174.4}%
+\contentsline {subsubsection}{问题 11：新建文件停在 \texttt {\hyphenchar \font =-1 directory-entry begin}}{146}{lstnumber.-174.4}%
+\contentsline {paragraph}{日志输出.}{146}{lstnumber.-174.4}%
+\contentsline {paragraph}{问题分析.}{146}{lstnumber.-175.6}%
+\contentsline {paragraph}{解决方案.}{146}{lstnumber.-175.6}%
+\contentsline {paragraph}{小结.}{146}{lstnumber.-175.6}%
+\contentsline {subsection}{\numberline {7.9.12}连续取流与 HTTP 推流}{146}{subsection.7.9.12}%
+\contentsline {paragraph}{内核：传感器一直出流.}{147}{subsection.7.9.12}%
+\contentsline {paragraph}{用户态：一个进程扇出给所有观看者.}{147}{subsection.7.9.12}%
+\contentsline {paragraph}{接口与 MJPEG 格式.}{147}{figure.caption.104}%
+\contentsline {paragraph}{测试.}{148}{lstnumber.-176.14}%
+\contentsline {subsection}{\numberline {7.9.13}提高推流帧率}{148}{subsection.7.9.13}%
+\contentsline {paragraph}{先测量，再优化.}{148}{subsection.7.9.13}%
+\contentsline {paragraph}{方法一：三级流水线.}{149}{lstnumber.-179.1}%
+\contentsline {paragraph}{方法二：RAW 帧零拷贝.}{149}{figure.caption.106}%
+\contentsline {paragraph}{方法三：有界队列与背压.}{150}{lstnumber.-180.12}%
+\contentsline {paragraph}{方法四：减少每帧的工作量.}{150}{lstnumber.-181.7}%
+\contentsline {paragraph}{按测量结果定位瓶颈.}{150}{lstnumber.-181.7}%
+\contentsline {paragraph}{还可以继续做的.}{150}{lstnumber.-181.7}%
+\contentsline {subsection}{\numberline {7.9.14}当前状态}{151}{subsection.7.9.14}%
+\contentsline {chapter}{\numberline {第八章}用户进程、线程与 libc}{152}{chapter.8}%
+\contentsline {section}{\numberline {8.1}用户程序的形态}{152}{section.8.1}%
+\contentsline {subsection}{\numberline {8.1.1}为什么需要系统调用}{152}{subsection.8.1.1}%
+\contentsline {subsection}{\numberline {8.1.2}链接与装载}{152}{subsection.8.1.2}%
+\contentsline {subsection}{\numberline {8.1.3}系统调用桩}{152}{subsection.8.1.3}%
+\contentsline {subsection}{\numberline {8.1.4}内核如何分发系统调用}{153}{subsection.8.1.4}%
+\contentsline {subsection}{\numberline {8.1.5}两个栈指针与返回级别}{154}{subsection.8.1.5}%
+\contentsline {section}{\numberline {8.2}从 \texttt {\hyphenchar \font =-1 init} 到 shell}{154}{section.8.2}%
+\contentsline {section}{\numberline {8.3}用户程序一览}{154}{section.8.3}%
+\contentsline {section}{\numberline {8.4}用户线程}{155}{section.8.4}%
+\contentsline {subsection}{\numberline {8.4.1}设计}{155}{subsection.8.4.1}%
+\contentsline {subsection}{\numberline {8.4.2}系统调用}{155}{subsection.8.4.2}%
+\contentsline {subsection}{\numberline {8.4.3}\texttt {\hyphenchar \font =-1 clone} 为什么“返回两次”}{156}{subsection.8.4.3}%
+\contentsline {subsection}{\numberline {8.4.4}多核下的细节}{156}{subsection.8.4.4}%
+\contentsline {section}{\numberline {8.5}libc 与 POSIX 源码兼容层}{157}{section.8.5}%
+\contentsline {subsection}{\numberline {8.5.1}\texttt {\hyphenchar \font =-1 libc.a}}{157}{subsection.8.5.1}%
+\contentsline {subsection}{\numberline {8.5.2}POSIX 层}{157}{subsection.8.5.2}%
+\contentsline {section}{\numberline {8.6}在 xv6 里编译 C 程序}{157}{section.8.6}%
+\contentsline {section}{\numberline {8.7}一个大型用户程序：\texttt {\hyphenchar \font =-1 sshd}}{158}{section.8.7}%
+\contentsline {chapter}{\numberline {第九章}可选工作}{159}{chapter.9}%
+\contentsline {section}{\numberline {9.1}ext2 移植}{159}{section.9.1}%
+\contentsline {subsection}{\numberline {9.1.1}动机与分区布局}{159}{subsection.9.1.1}%
+\contentsline {subsection}{\numberline {9.1.2}ext2 的磁盘结构}{160}{subsection.9.1.2}%
+\contentsline {paragraph}{inode 与目录.}{160}{table.caption.114}%
+\contentsline {subsection}{\numberline {9.1.3}从文件偏移到块号}{161}{subsection.9.1.3}%
+\contentsline {subsection}{\numberline {9.1.4}分配与释放}{162}{subsection.9.1.4}%
+\contentsline {subsection}{\numberline {9.1.5}接入 VFS：按 inode 工作}{162}{subsection.9.1.5}%
+\contentsline {paragraph}{锁.}{163}{lstnumber.-194.8}%
+\contentsline {subsection}{\numberline {9.1.6}持久化：\texttt {\hyphenchar \font =-1 sdflush()} 写屏障}{163}{subsection.9.1.6}%
+\contentsline {subsection}{\numberline {9.1.7}外置事务日志 xjournal}{163}{subsection.9.1.7}%
+\contentsline {paragraph}{要解决的问题.}{163}{subsection.9.1.7}%
+\contentsline {paragraph}{接口.}{164}{subsection.9.1.7}%
+\contentsline {paragraph}{ordered 模式.}{164}{lstnumber.-196.11}%
+\contentsline {paragraph}{磁盘格式与提交协议.}{164}{lstnumber.-196.11}%
+\contentsline {paragraph}{崩溃恢复.}{165}{lstnumber.-197.19}%
+\contentsline {paragraph}{ext2 怎样使用事务.}{165}{table.caption.117}%
+\contentsline {subsection}{\numberline {9.1.8}源码组织与编译}{166}{subsection.9.1.8}%
+\contentsline {subsection}{\numberline {9.1.9}测试：WAL 程序与随机断电}{166}{subsection.9.1.9}%
+\contentsline {subsection}{\numberline {9.1.10}给 SD 卡分出 ext2 分区}{167}{subsection.9.1.10}%
+\contentsline {paragraph}{为什么不用 \texttt {\hyphenchar \font =-1 diskutil}.}{167}{subsection.9.1.10}%
+\contentsline {paragraph}{先看清现状.}{167}{subsection.9.1.10}%
+\contentsline {paragraph}{新布局.}{167}{lstnumber.-204.3}%
+\contentsline {paragraph}{用 \texttt {\hyphenchar \font =-1 fdisk -e} 修改.}{167}{table.caption.120}%
+\contentsline {subsection}{\numberline {9.1.11}格式化 ext2}{168}{subsection.9.1.11}%
+\contentsline {paragraph}{不要把 32\,MiB 镜像写进大分区.}{168}{table.caption.121}%
+\contentsline {subsection}{\numberline {9.1.12}安装与真机调试}{169}{subsection.9.1.12}%
+\contentsline {paragraph}{日志输出.}{169}{lstnumber.-208.2}%
+\contentsline {paragraph}{问题分析.}{169}{lstnumber.-209.9}%
+\contentsline {paragraph}{解决方案.}{170}{lstnumber.-209.9}%
+\contentsline {subsection}{\numberline {9.1.13}当前边界}{170}{subsection.9.1.13}%
+\contentsline {chapter}{参考文献}{171}{chapter*.122}%

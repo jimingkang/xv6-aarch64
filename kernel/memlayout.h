@@ -25,6 +25,17 @@
 #define CAMDMA_PA   0x07200000L
 #define CAMDMA_SIZE (2*1024*1024L)
 
+// Loadable-module arena.  A .ko's .text must be both writable (the loader
+// copies it in and patches relocations) and executable (the kernel later
+// branches into the driver's init and probe routines).  The rest of RAM above
+// etext is mapped execute-never by kvmmake, so modules get their own region,
+// carved above PHYSTOP exactly like the camera DMA buffer: out of kalloc's
+// reach, and mapped read/write/execute in one shot.  This is the xv6 form of
+// Linux's dedicated [module_start, module_end) vmalloc area.
+#define MODAREA_PA   0x07400000L
+#define MODAREA_SIZE (1024*1024L)
+#define MODAREA      (KERNBASE + MODAREA_PA)
+
 #define KERNBASE  0xffffff8000000000L     // First kernel virtual address
 #define KERNLINK  (KERNBASE + KERNPA)     // virtual address where kernel is linked
 

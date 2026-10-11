@@ -79,3 +79,5 @@
 #define SYS_pwrite       78
 #define SYS_mmap         79
 #define SYS_munmap       80
+#define SYS_init_module  81
+#define SYS_delete_module 82

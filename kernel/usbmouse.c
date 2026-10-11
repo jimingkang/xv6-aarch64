@@ -211,11 +211,17 @@ usbmouse_driver_init(void)
   usb_register_driver(&usbmouse_driver);
 }
 
-// Order 3: same reason as the keyboard, for HID boot mice.
-module_init_ord("usbhid-mouse", usbmouse_driver_init, 3);
-
 void
 usbmouse_driver_exit(void)
 {
   usb_unregister_driver(&usbmouse_driver);
 }
+
+// Loadable module (.ko).  Unlike the drivers still linked into the kernel,
+// usbmouse is not part of the boot image: it is compiled with `ld -r` into
+// /lib/modules/usbmouse.ko and only runs its init once insmod relocates it
+// into the module arena.  The descriptor pairs init with exit so rmmod can undo
+// the registration; order 3 keeps the same slot the built-in table gave it, so
+// an HID boot mouse still binds after the USB host controller enumerates.
+module_init_exit_ord("usbhid-mouse", usbmouse_driver_init,
+                     usbmouse_driver_exit, 3);

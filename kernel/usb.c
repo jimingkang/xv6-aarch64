@@ -60,11 +60,44 @@ usb_remove(struct device *dev)
     udrv->remove(udev);
 }
 
+// The device's MODALIAS, the string request_module() matches against
+// modules.alias.  A full Linux USB alias is
+//   usb:vVVVVpPPPPdc*Dsc*pr*ic*is*ip*
+// carrying the device VID/PID and the active interface's class triple.  These
+// HID drivers are boot-protocol *class* drivers: their id_table matches only on
+// interface class/subclass/protocol and ignores vendor/product, so the alias
+// carries just c/s/p -- enough to name the driver a cold- or hot-plugged HID
+// device needs without a per-vendor modules.alias entry.
+static int
+usb_modalias(struct device *dev, char *buf, int size)
+{
+  struct usb_device *udev = USB_CONTAINER(dev, struct usb_device, dev);
+  static const char hex[] = "0123456789abcdef";
+  char prefix[] = "usb:";
+  char lead[3] = { 'c', 's', 'p' };
+  uint8 val[3] = { udev->class, udev->subclass, udev->protocol };
+  int i = 0;
+
+  // "usb:cXXsXXpXX" is 13 bytes; a two-digit field plus its lead needs 3.
+  if(size < 14)
+    return 0;
+  for(char *p = prefix; *p; )
+    buf[i++] = *p++;
+  for(int k = 0; k < 3; k++){
+    buf[i++] = lead[k];
+    buf[i++] = hex[(val[k] >> 4) & 0xf];
+    buf[i++] = hex[val[k] & 0xf];
+  }
+  buf[i] = 0;
+  return i;
+}
+
 static struct bus_type usb_bus = {
   .name = "usb",
   .match = usb_match,
   .probe = usb_probe,
   .remove = usb_remove,
+  .modalias = usb_modalias,
 };
 
 void

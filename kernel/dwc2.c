@@ -145,17 +145,30 @@ static struct {
   uint8 port;
   uint8 low_speed;
 } usb_route[128];
-static struct dwc2_interrupt_request {
+// One periodic interrupt-IN endpoint wants a poll issued on channel 6.
+// pending: the driver has an outstanding URB awaiting its next transaction.
+// inflight: this request currently owns channel 6 and is mid split-IN.
+struct dwc2_interrupt_request {
   struct urb *urb;
   struct work_struct work;
   struct delayed_work retry_work;
   int mps;
-  int active;
+  int pending;
+  int inflight;
   int complete_split;
   int csplit_retries;
   uint32 last_issue_frame;
   uint32 ssplit_ack_frame;
-} interrupt_rx;
+};
+// DWC2 has no SOF microframe scheduler here, so a single channel (6) services
+// every HID interrupt-IN endpoint.  A composite receiver (e.g. a Logitech
+// Unifying dongle) exposes a boot keyboard *and* a boot mouse interface on one
+// device; each driver submits its own URB, so the channel is time-sliced
+// round-robin across these requests rather than bound to one of them.
+#define DWC2_INT_REQUESTS 4
+static struct dwc2_interrupt_request interrupt_rx[DWC2_INT_REQUESTS];
+static int interrupt_rx_inflight = -1;   // index owning channel 6, -1 = free
+static int interrupt_rx_rotate;          // fair round-robin cursor
 static struct workqueue dwc2_periodic_wq;
 static uint interrupt_rx_errors;
 static uint interrupt_rx_irq_logs;
@@ -184,6 +197,18 @@ static uchar tx_buf[USB_BUF_SIZE] __attribute__((aligned(64)));
 static struct device *usb_parent;
 static struct usb_device usb_child;
 static int usb_child_registered;
+// A composite HID device (e.g. a wireless receiver pairing a keyboard and a
+// mouse) puts a boot interface on the same USB address for each function.
+// Linux binds a driver per interface, so dwc2 publishes one usb_device per
+// boot-HID interface rather than flattening the device to its first one.  That
+// keeps the boot-mouse interface unclaimed by the built-in keyboard driver, so
+// the bus can request_module("usb:c03s01p02") and auto-load usbmouse.ko.
+#define DWC2_HID_CHILDREN 4
+static struct usb_device usb_hid_child[DWC2_HID_CHILDREN];
+static const char *usb_hid_name[DWC2_HID_CHILDREN] = {
+  "usbH0", "usbH1", "usbH2", "usbH3",
+};
+static int usb_hid_child_count;
 static int usb_next_address = 8;
 static uint32 usb_power_message[8] __attribute__((aligned(64)));
 static struct usb_device dwc2_root_hub;
@@ -797,7 +822,7 @@ dwc2_interrupt_rx_start(struct dwc2_interrupt_request *req)
   // last channel interrupt.  Callers serialize this state with usb_lock, but
   // keep the leaf routine defensive as well: never derive fields from a null
   // or already-quiesced URB.
-  if(req == 0 || !req->active || (urb = req->urb) == 0 ||
+  if(req == 0 || !req->inflight || (urb = req->urb) == 0 ||
      (udev = urb->dev) == 0 || udev->address >= 128 || req->mps <= 0 ||
      urb->transfer_buffer == 0 || urb->transfer_buffer_length <= 0)
     return -1;
@@ -838,6 +863,50 @@ dwc2_interrupt_rx_start(struct dwc2_interrupt_request *req)
   return 0;
 }
 
+// Caller holds usb_lock.  Hand channel 6 to the next pending interrupt-IN
+// request, or leave it idle when one is already in flight or none is due.
+static void
+dwc2_interrupt_schedule_locked(void)
+{
+  if(interrupt_rx_inflight >= 0)
+    return;
+  for(int k = 0; k < DWC2_INT_REQUESTS; k++){
+    int i = (interrupt_rx_rotate + k) % DWC2_INT_REQUESTS;
+    struct dwc2_interrupt_request *req = &interrupt_rx[i];
+    if(!req->pending || req->urb == 0 || req->urb->dev == 0 || req->mps <= 0)
+      continue;
+    req->pending = 0;
+    req->inflight = 1;
+    req->complete_split = 0;
+    req->csplit_retries = 0;
+    interrupt_rx_inflight = i;
+    if(dwc2_interrupt_rx_start(req) == 0){
+      interrupt_rx_rotate = (i + 1) % DWC2_INT_REQUESTS;
+      return;
+    }
+    // Could not arm the transaction; keep the endpoint pending and retry it
+    // shortly instead of stalling the whole channel.
+    req->inflight = 0;
+    interrupt_rx_inflight = -1;
+    req->pending = 1;
+    mod_delayed_work(&dwc2_periodic_wq, &req->retry_work, 1);
+    return;
+  }
+}
+
+// Caller holds usb_lock.  Release channel 6 from the request that just ended a
+// transaction so another pending endpoint (or this one's next poll) can use it.
+static void
+dwc2_interrupt_release_locked(struct dwc2_interrupt_request *req)
+{
+  req->inflight = 0;
+  if(interrupt_rx_inflight >= 0 &&
+     &interrupt_rx[interrupt_rx_inflight] == req)
+    interrupt_rx_inflight = -1;
+  wr(HCSPLT(6), 0);
+}
+
+
 // Split transactions have microframe deadlines.  A normal kworker may not run
 // until several milliseconds after the SSPLIT ACK, which is too late to issue
 // its CSPLIT.  Keep only these intermediate channel transitions in the HCD
@@ -858,52 +927,64 @@ dwc2_wait_frame_delta(uint32 base, uint32 delta)
 static int
 dwc2_interrupt_rx_irq_fast(void)
 {
+  struct dwc2_interrupt_request *req;
   struct urb *urb;
   struct usb_device *udev;
   uint32 intr, now;
   int consumed = 0;
 
   // This fast path runs on any CPU.  The hotplug worker tears down the same
-  // URB and may immediately reset/re-enumerate DWC2, so active/urb/dev must be
-  // sampled and used under the same lock as dwc2_kill_urb().
+  // URB and may immediately reset/re-enumerate DWC2, so the inflight owner and
+  // its urb/dev must be sampled and used under the same lock as
+  // dwc2_kill_urb().  Only the request that currently owns channel 6 can be
+  // mid split-IN here; the others are merely pending.
   acquire(&usb_lock);
-  urb = interrupt_rx.urb;
+  if(interrupt_rx_inflight < 0)
+    goto out;
+  req = &interrupt_rx[interrupt_rx_inflight];
+  urb = req->urb;
   udev = urb ? urb->dev : 0;
-  if(!interrupt_rx.active || udev == 0 || udev->address >= 128 ||
+  if(!req->inflight || udev == 0 || udev->address >= 128 ||
      usb_route[udev->address].hub == 0)
     goto out;
   intr = rd(HCINT(6));
   now = rd(HFNUM) & 0x3fff;
 
-  if(!interrupt_rx.complete_split && (intr & HCINT_ACK)){
+  if(!req->complete_split && (intr & HCINT_ACK)){
     // Capture the real IRQ-time frame.  Recording this in a kworker produced
     // stale values and scheduled CSPLIT several frames after its SSPLIT.
     wr(HCINT(6), intr);
-    interrupt_rx.complete_split = 1;
-    interrupt_rx.csplit_retries = 0;
-    interrupt_rx.ssplit_ack_frame = now;
+    req->complete_split = 1;
+    req->csplit_retries = 0;
+    req->ssplit_ack_frame = now;
     // Periodic split-IN CSPLIT starts two microframes after the SSPLIT was
     // issued.  Waiting from last_issue_frame handles ACK arriving at either
     // age zero or one without guessing a fixed delay.
-    dwc2_wait_frame_delta(interrupt_rx.last_issue_frame, 2);
-    if(dwc2_interrupt_rx_start(&interrupt_rx) < 0)
-      interrupt_rx.active = 0;
-    else
+    dwc2_wait_frame_delta(req->last_issue_frame, 2);
+    if(dwc2_interrupt_rx_start(req) < 0){
+      dwc2_interrupt_release_locked(req);
+      req->pending = 1;
+      mod_delayed_work(&dwc2_periodic_wq, &req->retry_work, 1);
+      dwc2_interrupt_schedule_locked();
+    } else
       consumed = 1;
     goto out;
   }
 
-  if(interrupt_rx.complete_split && (intr & HCINT_NYET)){
-    interrupt_rx.csplit_retries++;
-    if((now >> 3) == (interrupt_rx.ssplit_ack_frame >> 3) &&
-       interrupt_rx.csplit_retries < 3){
+  if(req->complete_split && (intr & HCINT_NYET)){
+    req->csplit_retries++;
+    if((now >> 3) == (req->ssplit_ack_frame >> 3) &&
+       req->csplit_retries < 3){
       wr(HCINT(6), intr);
       // Retry CSPLIT in the following microframe, still inside this periodic
       // transaction's frame.  Do not involve the process scheduler here.
-      dwc2_wait_frame_delta(interrupt_rx.last_issue_frame, 1);
-      if(dwc2_interrupt_rx_start(&interrupt_rx) < 0)
-        interrupt_rx.active = 0;
-      else
+      dwc2_wait_frame_delta(req->last_issue_frame, 1);
+      if(dwc2_interrupt_rx_start(req) < 0){
+        dwc2_interrupt_release_locked(req);
+        req->pending = 1;
+        mod_delayed_work(&dwc2_periodic_wq, &req->retry_work, 1);
+        dwc2_interrupt_schedule_locked();
+      } else
         consumed = 1;
       goto out;
     }
@@ -1094,6 +1175,7 @@ static int
 dwc2_submit_urb(struct urb *urb)
 {
   struct usb_device *udev;
+  struct dwc2_interrupt_request *req;
 
   if(urb && urb->dev == &dwc2_root_hub)
     return dwc2_submit_hub_urb(urb);
@@ -1103,24 +1185,35 @@ dwc2_submit_urb(struct urb *urb)
      udev->interrupt_in_max_packet == 0)
     return -1;
   acquire(&usb_lock);
-  if(interrupt_rx.active){
+  // Reuse the slot already bound to this URB (the class driver resubmits the
+  // same URB after each completion), otherwise claim a free slot.  Another
+  // endpoint may currently own channel 6; the URB is still accepted and the
+  // scheduler will service it when the channel frees.
+  req = 0;
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++)
+    if(interrupt_rx[i].urb == urb){
+      req = &interrupt_rx[i];
+      break;
+    }
+  if(req == 0)
+    for(int i = 0; i < DWC2_INT_REQUESTS; i++)
+      if(interrupt_rx[i].urb == 0){
+        req = &interrupt_rx[i];
+        break;
+      }
+  if(req == 0){
     release(&usb_lock);
     return -1;
   }
   memset(urb->transfer_buffer, 0, urb->transfer_buffer_length);
   cache_clean_invalidate_range(urb->transfer_buffer,
                                urb->transfer_buffer_length);
-  interrupt_rx.urb = urb;
-  interrupt_rx.mps = udev->interrupt_in_max_packet;
-  interrupt_rx.complete_split = 0;
-  interrupt_rx.csplit_retries = 0;
-  interrupt_rx.active = 1;
-  if(dwc2_interrupt_rx_start(&interrupt_rx) < 0){
-    interrupt_rx.active = 0;
-    interrupt_rx.urb = 0;
-    release(&usb_lock);
-    return -1;
-  }
+  req->urb = urb;
+  req->mps = udev->interrupt_in_max_packet;
+  req->complete_split = 0;
+  req->csplit_retries = 0;
+  req->pending = 1;
+  dwc2_interrupt_schedule_locked();
   release(&usb_lock);
   return 0;
 }
@@ -1141,35 +1234,37 @@ dwc2_interrupt_interval_jiffies(struct usb_device *udev)
 static void
 dwc2_interrupt_retry_work(struct work_struct *work)
 {
-  struct urb *failed = 0;
+  struct delayed_work *d =
+    (struct delayed_work *)((char *)work -
+      __builtin_offsetof(struct delayed_work, work));
+  struct dwc2_interrupt_request *req =
+    (struct dwc2_interrupt_request *)((char *)d -
+      __builtin_offsetof(struct dwc2_interrupt_request, retry_work));
 
-  (void)work;
-
+  // This endpoint's bInterval has elapsed, so re-enter it in the round-robin
+  // queue.  If another interrupt-IN endpoint still owns channel 6 the
+  // scheduler leaves this one pending until that transaction finishes; unplug
+  // and usb_kill_urb() clear urb/pending before cancelling this delayed work,
+  // so a stale timer can never re-arm a removed endpoint.
   acquire(&usb_lock);
-  // The URB remains owned by the HCD while it waits for bInterval.  Unplug
-  // and usb_kill_urb() clear active before synchronously cancelling this
-  // delayed work, so a stale retry can never re-arm a removed endpoint.
-  if(interrupt_rx.active && interrupt_rx.urb &&
-     interrupt_rx.urb->dev &&
-     dwc2_interrupt_rx_start(&interrupt_rx) < 0){
-    interrupt_rx.active = 0;
-    failed = interrupt_rx.urb;
-  }
+  if(req->urb && req->urb->dev && !req->inflight)
+    req->pending = 1;
+  dwc2_interrupt_schedule_locked();
   release(&usb_lock);
-  if(failed)
-    usb_hcd_giveback_urb(failed, -1, 0);
 }
 
 static int
-dwc2_interrupt_rx_complete(struct urb *urb)
+dwc2_interrupt_rx_complete(struct dwc2_interrupt_request *req)
 {
+  struct urb *urb = req->urb;
   struct usb_device *udev = urb ? urb->dev : 0;
   uchar report[8];
   uint32 intr, left;
   int result, packets, log_report = 0;
 
   acquire(&usb_lock);
-  if(!interrupt_rx.active || interrupt_rx.urb != urb ||
+  if(interrupt_rx_inflight < 0 ||
+     &interrupt_rx[interrupt_rx_inflight] != req || req->urb != urb ||
      !(dwc2_irq_pending & (1U << 6))){
     release(&usb_lock);
     return -2;
@@ -1178,57 +1273,60 @@ dwc2_interrupt_rx_complete(struct urb *urb)
   intr = rd(HCINT(6));
   wr(HCINT(6), intr);
 
-  if(usb_route[udev->address].hub && !interrupt_rx.complete_split &&
+  if(usb_route[udev->address].hub && !req->complete_split &&
      (intr & HCINT_ACK)){
     // Start-split was accepted by the LAN951x transaction translator.
-    interrupt_rx.complete_split = 1;
-    interrupt_rx.csplit_retries = 0;
-    interrupt_rx.ssplit_ack_frame = rd(HFNUM) & 0x3fff;
+    req->complete_split = 1;
+    req->csplit_retries = 0;
+    req->ssplit_ack_frame = rd(HFNUM) & 0x3fff;
     // A complete-split must be issued in a later high-speed microframe.
     // The synchronous path already waits here; keep the asynchronous path
     // from immediately polling the TT in the same microframe.
     udelay(250);
-    dwc2_interrupt_rx_start(&interrupt_rx);
+    dwc2_interrupt_rx_start(req);
     release(&usb_lock);
     return -2;
   }
-  if(usb_route[udev->address].hub && interrupt_rx.complete_split &&
+  if(usb_route[udev->address].hub && req->complete_split &&
      (intr & HCINT_NYET)){
     uint32 now = rd(HFNUM) & 0x3fff;
 
-    interrupt_rx.csplit_retries++;
+    req->csplit_retries++;
     // A periodic CSPLIT is valid only in the scheduling window belonging to
     // its SSPLIT.  NYET is normal when the low/full-speed endpoint NAKed or
     // the TT has not produced a result yet, but retrying CSPLIT forever turns
     // an idle keyboard into a host-channel interrupt storm.  Linux DWC2 also
     // stops periodic CSPLIT retries after the active frame has passed.
-    if((now >> 3) == (interrupt_rx.ssplit_ack_frame >> 3) &&
-       interrupt_rx.csplit_retries < 3){
+    if((now >> 3) == (req->ssplit_ack_frame >> 3) &&
+       req->csplit_retries < 3){
       udelay(125);
-      dwc2_interrupt_rx_start(&interrupt_rx);
+      dwc2_interrupt_rx_start(req);
       release(&usb_lock);
       return -2;
     }
 
     // This poll produced no report.  End the split transaction and begin a
-    // fresh SSPLIT at the endpoint's bInterval.  Keep the URB submitted, but
-    // put its retry on the ordered delayed-work clock instead of occupying a
-    // system_wq worker in udelay().
-    interrupt_rx.complete_split = 0;
-    interrupt_rx.csplit_retries = 0;
-    wr(HCSPLT(6), 0);
-    mod_delayed_work(&dwc2_periodic_wq, &interrupt_rx.retry_work,
+    // fresh SSPLIT at the endpoint's bInterval.  Give channel 6 up so another
+    // pending interrupt-IN endpoint can be serviced, then requeue this one on
+    // the ordered delayed-work clock instead of occupying a system_wq worker
+    // in udelay().
+    req->complete_split = 0;
+    req->csplit_retries = 0;
+    dwc2_interrupt_release_locked(req);
+    mod_delayed_work(&dwc2_periodic_wq, &req->retry_work,
                      dwc2_interrupt_interval_jiffies(udev));
+    dwc2_interrupt_schedule_locked();
     release(&usb_lock);
     return -2;
   }
   if(intr & HCINT_NAK){
     // No key-state change.  A new USB transaction begins with start-split.
-    interrupt_rx.complete_split = 0;
-    interrupt_rx.csplit_retries = 0;
-    wr(HCSPLT(6), 0);
-    mod_delayed_work(&dwc2_periodic_wq, &interrupt_rx.retry_work,
+    req->complete_split = 0;
+    req->csplit_retries = 0;
+    dwc2_interrupt_release_locked(req);
+    mod_delayed_work(&dwc2_periodic_wq, &req->retry_work,
                      dwc2_interrupt_interval_jiffies(udev));
+    dwc2_interrupt_schedule_locked();
     release(&usb_lock);
     return -2;
   }
@@ -1236,10 +1334,10 @@ dwc2_interrupt_rx_complete(struct urb *urb)
   if((intr & HCINT_ERRORS) || !(intr & HCINT_XFERCOMPL) ||
      left > (uint32)urb->transfer_buffer_length){
     if(interrupt_rx_errors++ < 4)
-      printf("dwc2: keyboard ch6 error intr=%x hctsiz=%x hcsplt=%x\n",
+      printf("dwc2: HID ch6 error intr=%x hctsiz=%x hcsplt=%x\n",
              intr, rd(HCTSIZ(6)), rd(HCSPLT(6)));
-    interrupt_rx.active = 0;
-    wr(HCSPLT(6), 0);
+    dwc2_interrupt_release_locked(req);
+    dwc2_interrupt_schedule_locked();
     release(&usb_lock);
     return -1;
   }
@@ -1252,14 +1350,17 @@ dwc2_interrupt_rx_complete(struct urb *urb)
     memmove(report, urb->transfer_buffer,
             sizeof(report) < result ? sizeof(report) : result);
   }
-  packets = (result + interrupt_rx.mps - 1) / interrupt_rx.mps;
+  packets = (result + req->mps - 1) / req->mps;
   if(result < urb->transfer_buffer_length &&
-     (result % interrupt_rx.mps) == 0)
+     (result % req->mps) == 0)
     packets++;
   if(packets & 1)
     udev->interrupt_in_toggle ^= 1;
-  interrupt_rx.active = 0;
-  wr(HCSPLT(6), 0);
+  // Report delivered: the class driver resubmits the same URB from its
+  // completion callback, which re-enters it in the round-robin queue.  Release
+  // channel 6 so a co-scheduled endpoint (or this one's resubmit) proceeds.
+  dwc2_interrupt_release_locked(req);
+  dwc2_interrupt_schedule_locked();
   release(&usb_lock);
   if(log_report)
     printf("dwc2: ch6 transfer complete addr=%d ep=%d bytes=%d "
@@ -1281,7 +1382,7 @@ dwc2_interrupt_urb_work(struct work_struct *work)
 
   if(urb == 0)
     return;
-  result = dwc2_interrupt_rx_complete(urb);
+  result = dwc2_interrupt_rx_complete(req);
   if(result == -2)
     return;
   usb_hcd_giveback_urb(urb, result < 0 ? -1 : 0,
@@ -1310,22 +1411,37 @@ dwc2_kill_urb(struct urb *urb)
     release(&usb_lock);
     return;
   }
+  struct dwc2_interrupt_request *req = 0;
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++)
+    if(interrupt_rx[i].urb == urb){
+      req = &interrupt_rx[i];
+      break;
+    }
+  if(req == 0)
+    return;
   acquire(&usb_lock);
-  if(interrupt_rx.urb == urb){
-    interrupt_rx.active = 0;
+  req->pending = 0;
+  if(req->inflight){
     halt_channel(6);
     wr(HCINTMSK(6), 0);
     wr(HAINTMSK, rd(HAINTMSK) & ~(1U << 6));
     wr(HCINT(6), 0x3fff);
     wr(HCSPLT(6), 0);
     dwc2_irq_pending &= ~(1U << 6);
+    if(interrupt_rx_inflight >= 0 &&
+       &interrupt_rx[interrupt_rx_inflight] == req)
+      interrupt_rx_inflight = -1;
+    req->inflight = 0;
   }
   release(&usb_lock);
-  cancel_delayed_work_sync(&interrupt_rx.retry_work);
-  cancel_work_sync(&interrupt_rx.work);
+  cancel_delayed_work_sync(&req->retry_work);
+  cancel_work_sync(&req->work);
   acquire(&usb_lock);
-  if(interrupt_rx.urb == urb)
-    interrupt_rx.urb = 0;
+  req->urb = 0;
+  req->mps = 0;
+  // Freeing this endpoint's channel-6 slot may let another pending HID
+  // interface continue polling.
+  dwc2_interrupt_schedule_locked();
   release(&usb_lock);
 }
 
@@ -1609,7 +1725,11 @@ dwc2_hub_event_worker(struct work_struct *work)
   // the old keyboard URB while usbkbd_remove() is killing/freeing that URB.
   acquire(&usb_lock);
   wr(HAINTMSK, 0);
-  interrupt_rx.active = 0;
+  interrupt_rx_inflight = -1;
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++){
+    interrupt_rx[i].inflight = 0;
+    interrupt_rx[i].pending = 0;
+  }
   hub_interrupt_rx.active = 0;
   dwc2_irq_pending = 0;
   release(&usb_lock);
@@ -1618,6 +1738,9 @@ dwc2_hub_event_worker(struct work_struct *work)
     usb_device_unregister(&usb_child);
     usb_child_registered = 0;
   }
+  for(int i = 0; i < usb_hid_child_count; i++)
+    usb_device_unregister(&usb_hid_child[i]);
+  usb_hid_child_count = 0;
   usbnet_detach();
   for(int channel = 0; channel < 8; channel++){
     halt_channel(channel);
@@ -1762,16 +1885,22 @@ dwc2_irq(void)
   // Only final completion/no-data/error events reach this point.  Logging is
   // now safe because no in-window CSPLIT remains to be scheduled.
   ch6_intr = (channels & (1U << 6)) ? rd(HCINT(6)) : 0;
+  // The request that owns channel 6 is the only one whose interrupt status is
+  // being consumed here.  Read its index (plain int, no lock in IRQ context).
+  int ch6_owner = interrupt_rx_inflight;
+  struct dwc2_interrupt_request *ch6_req =
+    (ch6_owner >= 0 && ch6_owner < DWC2_INT_REQUESTS) ?
+      &interrupt_rx[ch6_owner] : 0;
   // Idle NAK/NYET is expected for an interrupt endpoint.  Do not spend the
   // finite diagnostic budget on empty polls before the first key report.
-  if((channels & (1U << 6)) &&
+  if(ch6_req &&
      !(ch6_intr & (HCINT_NAK | HCINT_NYET | HCINT_ACK)) &&
      interrupt_rx_irq_logs++ < 12)
     printf("dwc2 ch6 final p=%d int=%x uf=%x issue=%x age=%x ssack=%x\n",
-           interrupt_rx.complete_split,
-           ch6_intr, rd(HFNUM) & 7, interrupt_rx.last_issue_frame,
-           ((rd(HFNUM) & 0x3fff) - interrupt_rx.last_issue_frame) & 0x3fff,
-           interrupt_rx.ssplit_ack_frame);
+           ch6_req->complete_split,
+           ch6_intr, rd(HFNUM) & 7, ch6_req->last_issue_frame,
+           ((rd(HFNUM) & 0x3fff) - ch6_req->last_issue_frame) & 0x3fff,
+           ch6_req->ssplit_ack_frame);
   // Mask completed asynchronous channels.  Their HCINT status and DMA
   // residual count are consumed by the deferred driver poll, which rearms
   // the channel and its HAINT bit after cache maintenance and frame parsing.
@@ -1779,8 +1908,8 @@ dwc2_irq(void)
   dwc2_irq_pending |= channels;
   if(channels & (1U << 4))
     mt7601u_rx_irq();
-  if(channels & (1U << 6))
-    schedule_work(&interrupt_rx.work);
+  if((channels & (1U << 6)) && ch6_req)
+    schedule_work(&ch6_req->work);
   if(channels & (1U << 7)){
     if(!dwc2_hub_first_irq_logged){
       dwc2_hub_first_irq_logged = 1;
@@ -1804,6 +1933,7 @@ dwc2_init(void)
 
   usb_ready = 0;
   usb_address = 0;
+  usb_hid_child_count = 0;
   ep0_mps = 8;
   usb_next_address = 8;
   dwc2_hub_ports = 0;
@@ -1815,6 +1945,18 @@ dwc2_init(void)
   dwc2_hub_first_irq_logged = 0;
   dwc2_hub_first_retry_logged = 0;
   interrupt_rx_report_logged = 0;
+  interrupt_rx_inflight = -1;
+  interrupt_rx_rotate = 0;
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++){
+    // Clear scheduling state but keep the work_struct/delayed_work that
+    // dwc2_probe() initialized once for this controller instance.
+    interrupt_rx[i].urb = 0;
+    interrupt_rx[i].mps = 0;
+    interrupt_rx[i].pending = 0;
+    interrupt_rx[i].inflight = 0;
+    interrupt_rx[i].complete_split = 0;
+    interrupt_rx[i].csplit_retries = 0;
+  }
   hub_interrupt_rx.active = 0;
   hub_interrupt_rx.urb = 0;
   memset(usb_route, 0, sizeof(usb_route));
@@ -2196,45 +2338,82 @@ dwc2_init(void)
       dwc2_start_hub_monitor();
       return;
     }
+    // Walk the configuration descriptor and publish one usb_device per
+    // boot-HID interface (class 03 / subclass 01 / protocol 01|02) that owns
+    // an interrupt-IN endpoint.  An interface's endpoint descriptors follow it
+    // until the next interface descriptor, so a candidate is committed once we
+    // know it carried a usable interrupt-IN endpoint.
+    (void)selected_interface_found;
+    (void)selected_interface;
+    usb_hid_child_count = 0;
     current_interface = -1;
+    struct usb_device *pending = 0;
     for(off = 0; off + 2 <= total && ctrl_buf[off] >= 2;
         off += ctrl_buf[off]){
-      if(ctrl_buf[off + 1] == 4 && ctrl_buf[off] >= 9){
+      uint8 dlen = ctrl_buf[off], dtype = ctrl_buf[off + 1];
+      if(dtype == 4 && dlen >= 9){
+        if(pending && pending->interrupt_in_ep != 0)
+          usb_hid_child_count++;
+        pending = 0;
         current_interface = ctrl_buf[off + 2];
-        if(current_interface == selected_interface && ctrl_buf[off + 5] == 3){
-          usb_child.class = ctrl_buf[off + 5];
-          usb_child.subclass = ctrl_buf[off + 6];
-          usb_child.protocol = ctrl_buf[off + 7];
-          usb_child.interface_number = current_interface;
-          selected_interface_found = 1;
+        if(ctrl_buf[off + 5] == 3 && ctrl_buf[off + 6] == 1 &&
+           (ctrl_buf[off + 7] == 1 || ctrl_buf[off + 7] == 2) &&
+           usb_hid_child_count < DWC2_HID_CHILDREN){
+          pending = &usb_hid_child[usb_hid_child_count];
+          memset(pending, 0, sizeof(*pending));
+          pending->dev.name = (char *)usb_hid_name[usb_hid_child_count];
+          pending->dev.parent = usb_parent;
+          pending->ops = &dwc2_usb_ops;
+          pending->vendor = vid;
+          pending->product = pid;
+          pending->class = ctrl_buf[off + 5];
+          pending->subclass = ctrl_buf[off + 6];
+          pending->protocol = ctrl_buf[off + 7];
+          pending->interface_number = current_interface;
+          pending->address = usb_address;
+          pending->ep0_max_packet = ep0_mps;
         }
-      } else if(current_interface == selected_interface &&
-                ctrl_buf[off + 1] == 5 && ctrl_buf[off] >= 7 &&
-                (ctrl_buf[off + 2] & 0x80) &&
-                (ctrl_buf[off + 3] & 3) == EPTYPE_INTERRUPT){
-        usb_child.interrupt_in_ep = ctrl_buf[off + 2] & 0xf;
-        usb_child.interrupt_in_max_packet =
+      } else if(pending && current_interface == pending->interface_number &&
+                dtype == 5 && dlen >= 7 && (ctrl_buf[off + 2] & 0x80) &&
+                (ctrl_buf[off + 3] & 3) == EPTYPE_INTERRUPT &&
+                pending->interrupt_in_ep == 0){
+        pending->interrupt_in_ep = ctrl_buf[off + 2] & 0xf;
+        pending->interrupt_in_max_packet =
           ctrl_buf[off + 4] | ((uint16)ctrl_buf[off + 5] << 8);
-        usb_child.interrupt_in_interval = ctrl_buf[off + 6];
+        pending->interrupt_in_interval = ctrl_buf[off + 6];
       }
     }
-    if(!selected_interface_found ||
-       usb_child.class != 3 || usb_child.subclass != 1 ||
-       (usb_child.protocol != 1 && usb_child.protocol != 2) ||
-       usb_child.interrupt_in_ep == 0){
-      printf("dwc2: HID interface %d unsupported class=%d subclass=%d "
-             "protocol=%d interrupt-in=%d\n",
-             selected_interface, usb_child.class, usb_child.subclass,
-             usb_child.protocol, usb_child.interrupt_in_ep);
+    if(pending && pending->interrupt_in_ep != 0)
+      usb_hid_child_count++;
+    if(usb_hid_child_count == 0){
+      printf("dwc2: no usable boot HID interface on %x:%x\n", vid, pid);
       dwc2_start_hub_monitor();
       return;
     }
     if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
                ctrl_buf, 0) < 0){
       printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
+      usb_hid_child_count = 0;
       dwc2_start_hub_monitor();
       return;
     }
+    for(int i = 0; i < usb_hid_child_count; i++){
+      struct usb_device *child = &usb_hid_child[i];
+      if(usb_device_register(child) < 0){
+        printf("dwc2: cannot register HID intf %d on %x:%x\n",
+               child->interface_number, vid, pid);
+        for(int j = 0; j < i; j++)
+          usb_device_unregister(&usb_hid_child[j]);
+        usb_hid_child_count = 0;
+        dwc2_start_hub_monitor();
+        return;
+      }
+      printf("dwc2: HID boot %s intf %d handed to usb bus\n",
+             child->protocol == 2 ? "mouse" : "keyboard",
+             child->interface_number);
+    }
+    dwc2_start_hub_monitor();
+    return;
   }
   if(usb_device_register(&usb_child) < 0){
     printf("dwc2: cannot register USB child %x:%x\n", vid, pid);
@@ -2251,13 +2430,6 @@ dwc2_init(void)
     printf("dwc2: MT7601U handed to usb bus\n");
     // Hub status uses a dedicated periodic channel.  A reported topology
     // change is deferred before any port control request is issued.
-    dwc2_start_hub_monitor();
-    return;
-  }
-
-  if(hid_found || root_class == 3){
-    printf("dwc2: HID boot %s handed to usb bus\n",
-           usb_child.protocol == 2 ? "mouse" : "keyboard");
     dwc2_start_hub_monitor();
     return;
   }
@@ -2279,10 +2451,12 @@ dwc2_probe(struct device *dev)
 {
   usb_parent = dev;
   initlock(&usb_lock, "usbnet");
-  init_work(&interrupt_rx.work, dwc2_interrupt_urb_work);
   init_workqueue(&dwc2_periodic_wq, "dwc2_periodic_wq", 1);
-  init_delayed_work(&interrupt_rx.retry_work,
-                    dwc2_interrupt_retry_work);
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++){
+    init_work(&interrupt_rx[i].work, dwc2_interrupt_urb_work);
+    init_delayed_work(&interrupt_rx[i].retry_work,
+                      dwc2_interrupt_retry_work);
+  }
   init_workqueue(&dwc2_hub_wq, "dwc2_hub_wq", 1);
   init_work(&hub_interrupt_rx.work, dwc2_hub_urb_work);
   init_work(&dwc2_hub_event_work, dwc2_hub_event_worker);
@@ -2302,11 +2476,17 @@ dwc2_remove(struct device *dev)
   (void)dev;
   dwc2_hub_monitoring = 0;
   acquire(&usb_lock);
-  interrupt_rx.active = 0;
+  interrupt_rx_inflight = -1;
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++){
+    interrupt_rx[i].inflight = 0;
+    interrupt_rx[i].pending = 0;
+  }
   wr(HAINTMSK, rd(HAINTMSK) & ~(1U << 6));
   release(&usb_lock);
-  cancel_delayed_work_sync(&interrupt_rx.retry_work);
-  cancel_work_sync(&interrupt_rx.work);
+  for(int i = 0; i < DWC2_INT_REQUESTS; i++){
+    cancel_delayed_work_sync(&interrupt_rx[i].retry_work);
+    cancel_work_sync(&interrupt_rx[i].work);
+  }
   cancel_delayed_work_sync(&dwc2_hub_retry_work);
   cancel_work_sync(&dwc2_hub_event_work);
   if(dwc2_hub_urb){
@@ -2318,6 +2498,9 @@ dwc2_remove(struct device *dev)
     usb_device_unregister(&usb_child);
     usb_child_registered = 0;
   }
+  for(int i = 0; i < usb_hid_child_count; i++)
+    usb_device_unregister(&usb_hid_child[i]);
+  usb_hid_child_count = 0;
   usb_ready = 0;
   wr(HAINTMSK, 0);
   wr(GINTMSK, 0);
