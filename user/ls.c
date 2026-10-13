@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
-#include "kernel/fs.h"
+#include <uapi/xv6fs.h>
 
 char*
 fmtname(char *path)
@@ -25,8 +25,8 @@ fmtname(char *path)
 void
 ls(char *path)
 {
-  char buf[512], *p;
-  int fd;
+  char buf[512], *p, target[256];
+  int fd, rl;
   struct dirent de;
   struct stat st;
 
@@ -60,6 +60,13 @@ ls(char *path)
         continue;
       memmove(p, de.name, DIRSIZ);
       p[DIRSIZ] = 0;
+      // A sysfs symlink (e.g. /sys/class/tty/console) is shown as
+      // "name -> target", the way ls -l renders a link on Linux.
+      if((rl = readlink(buf, target, sizeof(target) - 1)) > 0){
+        target[rl] = 0;
+        printf("%s -> %s\n", fmtname(buf), target);
+        continue;
+      }
       if(stat(buf, &st) < 0){
         printf("ls: cannot stat %s\n", buf);
         continue;

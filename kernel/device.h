@@ -1,6 +1,8 @@
 #ifndef XV6_DEVICE_H
 #define XV6_DEVICE_H
 
+#include "kobject.h"
+
 #define DEVICE_NAME_MAX 32
 #define DEVICE_RES_MAX   4
 #define DEVICE_MAX      16
@@ -40,8 +42,32 @@ struct file_operations {
 struct device;
 struct device_driver;
 
+// A device attribute file in sysfs: the kobject attribute (name + mode) plus
+// the show/store that back it (Linux device_attribute / DEVICE_ATTR).  The
+// generic device sysfs_ops casts its struct attribute* to this type, so the
+// embedded `attr` must stay the first member, exactly as in Linux.
+struct device_attribute {
+  struct attribute attr;
+  int (*show)(struct device *dev, struct device_attribute *attr,
+              char *buf, int size);
+  int (*store)(struct device *dev, struct device_attribute *attr,
+               char *buf, int size);
+};
+
+#define __dev_str2(x) #x
+#define __dev_str(x)  __dev_str2(x)
+#define DEVICE_ATTR(_name, _mode, _show, _store)              \
+  struct device_attribute dev_attr_##_name =                  \
+    { { __dev_str(_name), _mode }, _show, _store }
+#define DEVICE_ATTR_RO(_name)                                 \
+  DEVICE_ATTR(_name, 0444, _name##_show, 0)
+#define DEVICE_ATTR_RW(_name)                                 \
+  DEVICE_ATTR(_name, 0644, _name##_show, _name##_store)
+
 struct bus_type {
   char *name;
+  struct kobject kobj;         // appears as /sys/bus/<name>
+  struct kobject *drivers_dir; // /sys/bus/<name>/drivers, created on register
   int (*match)(struct device *dev, struct device_driver *drv);
   int (*probe)(struct device *dev);
   void (*remove)(struct device *dev);
@@ -54,6 +80,7 @@ struct bus_type {
 
 struct device_driver {
   char *name;
+  struct kobject kobj;         // appears as /sys/bus/<bus>/drivers/<name>
   struct bus_type *bus;
   int (*probe)(struct device *dev);
   void (*remove)(struct device *dev);
@@ -61,6 +88,11 @@ struct device_driver {
 
 struct device {
   char *name;
+  struct kobject kobj;         // appears as /sys/devices/<name>
+  struct attribute **driver_attrs;  // attribute groups owned by the driver
+  char *class;                 // Linux dev->class name, e.g. "tty"; if set the
+                               // core links this device into /sys/class/<class>
+  struct kobject *class_link;  // the /sys/class/<class>/<name> symlink, if any
   int id;
   struct device *parent;
   struct bus_type *bus;

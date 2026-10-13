@@ -1,14 +1,10 @@
 // init: The initial user-level program
 
-#include "kernel/types.h"
-#include "kernel/param.h"
-#include "kernel/stat.h"
-#include "kernel/spinlock.h"
-#include "kernel/sleeplock.h"
-#include "kernel/fs.h"
-#include "kernel/file.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <sys/sysmacros.h>
 #include "user/user.h"
-#include "kernel/fcntl.h"
+#include <fcntl.h>
 
 char *argv[] = { "login", 0 };
 
@@ -96,15 +92,15 @@ main(void)
      open("/dev/console", O_RDWR) < 0){
     mkdir("dev");
     mkdir("dev/input");
-    mknod("dev/console", CONSOLE, 0);
-    mknod("dev/tty", TTY, 0);
-    mknod("dev/ttyS0", TTYS0, 0);
-    mknod("dev/input/event0", INPUT, 0);
-    mknod("dev/input/event1", INPUT, 1);
-    mknod("dev/input/event2", INPUT, 2);
-    mknod("dev/input/event3", INPUT, 3);
-    mknod("dev/video0", CAMERA, 0);
-    mknod("dev/sdroot", ROOTUPDATE, 0);
+    mknod("dev/console", T_DEVICE, mkdev(CONSOLE, 0));
+    mknod("dev/tty", T_DEVICE, mkdev(TTY, 0));
+    mknod("dev/ttyS0", T_DEVICE, mkdev(TTYS0, 0));
+    mknod("dev/input/event0", T_DEVICE, mkdev(INPUT, 0));
+    mknod("dev/input/event1", T_DEVICE, mkdev(INPUT, 1));
+    mknod("dev/input/event2", T_DEVICE, mkdev(INPUT, 2));
+    mknod("dev/input/event3", T_DEVICE, mkdev(INPUT, 3));
+    mknod("dev/video0", T_DEVICE, mkdev(CAMERA, 0));
+    mknod("dev/sdroot", T_DEVICE, mkdev(ROOTUPDATE, 0));
     if(open("/dev/ttyS0", O_RDWR) < 0 &&
        open("/dev/console", O_RDWR) < 0)
       exit(1);
@@ -115,6 +111,7 @@ main(void)
   // Visible mount points.  VFS path routing overlays procfs and ext2 on
   // these native directories when their corresponding backend is available.
   mkdir("proc");
+  mkdir("sys");
   mkdir("boot");
   mkdir("mnt");
   mkdir("mnt/ext2");
@@ -129,6 +126,7 @@ main(void)
   create_config("etc/rc", "export PATH=/bin:/usr/bin:/:.\n");
   create_config("etc/fstab",
                 "proc /proc procfs ro 0 0\n"
+                "sysfs /sys sysfs rw 0 0\n"
                 "bootfs /boot fat32 rw 0 0\n"
                 "ext2 /mnt/ext2 ext2 rw 0 0\n"
                 "192.168.0.195:5640 /mnt/net netfs ro 0 0\n");

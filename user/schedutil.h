@@ -1,5 +1,5 @@
 // Small helpers shared by chrt, taskset, nice, renice and rtlat.
-#include "kernel/sched.h"
+#include <uapi/sched.h>
 
 // Parse decimal (optionally negative) or 0x-prefixed hex.  Returns 1 with
 // *out set, or 0 on a malformed number.

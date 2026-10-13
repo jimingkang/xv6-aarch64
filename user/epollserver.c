@@ -1,6 +1,6 @@
-#include "kernel/types.h"
-#include "kernel/epoll.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <uapi/epoll.h>
+#include <fcntl.h>
 #include "user/user.h"
 
 #define MAX_EVENTS EPOLL_MAX_WATCH

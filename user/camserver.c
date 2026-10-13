@@ -26,11 +26,11 @@
 // epoll_wait(); a request whose headers do not arrive within REQ_TIMEOUT_MS
 // (for example a browser's speculative pre-connection) is dropped instead of
 // stalling the stream.
-#include "kernel/types.h"
-#include "kernel/fcntl.h"
-#include "kernel/camera.h"
-#include "kernel/mman.h"
-#include "kernel/epoll.h"
+#include <uapi/types.h>
+#include <fcntl.h>
+#include <uapi/camera.h>
+#include <uapi/mman.h>
+#include <uapi/epoll.h>
 #include "user/user.h"
 #include "user/sync.h"
 #include "user/camproc.h"

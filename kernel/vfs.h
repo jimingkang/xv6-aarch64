@@ -20,6 +20,7 @@ struct stat;
 #define PROCFS_DEV 20
 #define FATFS_DEV  21
 #define NETFS_DEV  22
+#define SYSFS_DEV  23
 
 // Locking conventions, as in xv6:
 //   read_inode  called by ilock() with ip->lock held, fills type/nlink/size
@@ -47,6 +48,7 @@ struct inode_ops {
   int  (*truncate)(struct inode *ip, uint64 size);
   int  (*open)(struct inode *ip, int omode);
   int  (*fsync)(struct inode *ip);
+  int  (*readlink)(struct inode *ip, char *buf, int bufsz);
 };
 
 struct super_block {

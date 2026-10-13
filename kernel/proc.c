@@ -943,21 +943,9 @@ exit(int status)
 int
 wait(uint64 addr)
 {
-  return waitpid(-1, addr, 0);
-}
-
-// Wait for a specific child, or any child when pid is -1.  The only option
-// currently implemented is WNOHANG (bit 0), which is enough for portable
-// event loops without changing the ordinary xv6 wait() semantics.
-int
-waitpid(int wanted, uint64 addr, int options)
-{
   struct proc *np;
   int havekids, pid;
   struct proc *p = myproc();
-
-  if(wanted == 0 || wanted < -1 || (options & ~1) != 0)
-    return -1;
 
   acquire(&wait_lock);
 
@@ -965,8 +953,7 @@ waitpid(int wanted, uint64 addr, int options)
     // Scan through table looking for exited children.
     havekids = 0;
     for(np = proc_head; np; np = np->next){
-      if(np->parent == p && !np->is_thread &&
-         (wanted == -1 || np->tgid == wanted)){
+      if(np->parent == p && !np->is_thread){
         // make sure the child isn't still in exit() or swtch().
         acquire(&np->lock);
 
@@ -994,13 +981,69 @@ waitpid(int wanted, uint64 addr, int options)
       release(&wait_lock);
       return -1;
     }
-    if(options & 1){
-      release(&wait_lock);
-      return 0;
-    }
     
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
+  }
+}
+
+// Wait for a child to exit, like Linux waitpid(2).
+//   pid > 0 : reap only that child; if it isn't ours, fail with -1 (ECHILD).
+//   pid <= 0: reap any child, exactly like wait().
+//   WNOHANG : if a matching child exists but none has exited yet, return 0
+//             instead of blocking.
+// Returns the reaped pid, 0 for a WNOHANG miss, or -1 on error.
+#define WNOHANG 1
+int
+waitpid(int pid, uint64 addr, int options)
+{
+  struct proc *np;
+  int havekids, rpid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan the process table for an exited child we are responsible for.
+    havekids = 0;
+    for(np = proc_head; np; np = np->next){
+      if(np->parent != p || np->is_thread)
+        continue;
+      if(pid > 0 && np->pid != pid)
+        continue;
+      // A matching child exists, so a blocking wait must keep waiting
+      // even while it is still running.
+      havekids = 1;
+      acquire(&np->lock);
+      if(np->state == ZOMBIE){
+        rpid = np->pid;
+        if(addr != 0 && copyout(p->vm->pagetable, addr, (char *)&np->xstate,
+                                sizeof(np->xstate)) < 0) {
+          release(&np->lock);
+          release(&wait_lock);
+          return -1;
+        }
+        freeproc(np);
+        release(&np->lock);
+        release(&wait_lock);
+        return rpid;
+      }
+      release(&np->lock);
+    }
+
+    // No child we could ever wait for (or we were killed).
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Don't block: a matching child is alive, so report "no one exited".
+    if(options & WNOHANG){
+      release(&wait_lock);
+      return 0;
+    }
+
+    sleep(p, &wait_lock);
   }
 }
 

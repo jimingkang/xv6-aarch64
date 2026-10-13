@@ -165,6 +165,11 @@ extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
 extern uint64 sys_init_module(void);
 extern uint64 sys_delete_module(void);
+extern uint64 sys_getcwd(void);
+extern uint64 sys_dup2(void);
+extern uint64 sys_waitpid(void);
+extern uint64 sys_getppid(void);
+extern uint64 sys_readlink(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -249,6 +254,11 @@ static uint64 (*syscalls[])(void) = {
 [SYS_munmap]       sys_munmap,
 [SYS_init_module]  sys_init_module,
 [SYS_delete_module] sys_delete_module,
+[SYS_getcwd]        sys_getcwd,
+[SYS_dup2]          sys_dup2,
+[SYS_waitpid]       sys_waitpid,
+[SYS_getppid]       sys_getppid,
+[SYS_readlink]      sys_readlink,
 };
 
 void

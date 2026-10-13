@@ -1,6 +1,8 @@
 #ifndef XV6_USER_H
 #define XV6_USER_H
 
+#include <uapi/types.h>
+
 struct stat;
 struct rtcdate;
 struct ext2_user_dirent;
@@ -10,22 +12,27 @@ struct epoll_event;
 int fork(void);
 int exit(int) __attribute__((noreturn));
 int wait(int*);
+int waitpid(int, int*, int);
 int pipe(int*);
 int write(int, const void*, int);
 int read(int, void*, int);
 int close(int);
 int kill(int);
 int exec(char*, char**);
-int open(const char*, int);
-int mknod(const char*, short, short);
+int open(const char*, int, ...);
+int mknod(const char*, int, unsigned long);
 int unlink(const char*);
 int fstat(int fd, struct stat*);
 int link(const char*, const char*);
 int mkdir(const char*);
 int chdir(const char*);
 int dup(int);
+int dup2(int, int);
 int getpid(void);
+int getppid(void);
 int gettid(void);
+char *getcwd(char*, int);
+int readlink(const char*, char*, int);
 int clone(void (*)(void*), void*, void*);
 int texit(int) __attribute__((noreturn));
 int tjoin(int, int*);
@@ -75,7 +82,7 @@ int socket_accept(int);
 int epoll_create(void);
 int epoll_ctl(int, int, int, struct epoll_event*);
 int epoll_wait(int, struct epoll_event*, int, int);
-int fcntl(int, int, int);
+int fcntl(int, int, ...);
 int pty_open(int*);
 int getrandom(void*, int);
 int rename(const char*, const char*);
@@ -96,8 +103,8 @@ int fdatasync(int);
 int ftruncate(int, uint64);
 int pread(int, void*, int, uint64);
 int pwrite(int, const void*, int, uint64);
-void *mmap(void*, uint64, int, int, int, uint64);
-int munmap(void*, uint64);
+void *mmap(void*, unsigned long, int, int, int, long);
+int munmap(void*, unsigned long);
 int init_module(void*, unsigned long, const char*);
 int delete_module(const char*);
 

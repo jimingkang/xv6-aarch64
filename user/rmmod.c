@@ -5,8 +5,8 @@
 // name is the one /proc/modules reports, which a driver chooses in its
 // module_init() descriptor and is not necessarily the .ko file name.
 
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
 
 int

@@ -43,21 +43,33 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2.2}异常向量}{14}{subsection.3.2.2}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {3.5}{\ignorespaces \texttt  {\textsc  {VBAR\_EL1}} 向量表布局\relax }}{15}{table.caption.11}\protected@file@percent }
 \newlabel{tab:vectors}{{3.5}{15}{\reg {VBAR\_EL1} 向量表布局\relax }{table.caption.11}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.3}保存寄存器状态}{16}{subsection.3.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.4}设置向量表}{17}{subsection.3.2.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.5}屏蔽与解除屏蔽中断}{18}{subsection.3.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.5.1}自旋锁与中断的嵌套}{18}{subsubsection.3.2.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.5.2}中断在哪里被打开}{19}{subsubsection.3.2.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.6}配置中断控制器}{19}{subsection.3.2.6}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3.1}{\ignorespaces BCM2837 的两级中断结构\relax }}{19}{figure.caption.12}\protected@file@percent }
-\newlabel{fig:irq}{{3.1}{19}{BCM2837 的两级中断结构\relax }{figure.caption.12}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.7}通用 IRQ 处理程序}{20}{subsection.3.2.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.7.1}同步异常：系统调用路径}{22}{subsubsection.3.2.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.8}初始化定时器}{23}{subsection.3.2.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.9}处理定时器中断}{24}{subsection.3.2.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.10}小结}{25}{subsection.3.2.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.3}异常级别与栈指针}{16}{subsection.3.2.3}\protected@file@percent }
+\newlabel{sec:el-sp}{{3.2.3}{16}{异常级别与栈指针}{subsection.3.2.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3.6}{\ignorespaces 四个异常级别在 xv6-aarch64 中的用途\relax }}{16}{table.caption.12}\protected@file@percent }
+\newlabel{tab:el-use}{{3.6}{16}{四个异常级别在 xv6-aarch64 中的用途\relax }{table.caption.12}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3.7}{\ignorespaces 执行模式与 \texttt  {\hyphenchar \font =-1 sp} 的对应\relax }}{16}{table.caption.13}\protected@file@percent }
+\newlabel{tab:spsel}{{3.7}{16}{执行模式与 \code {sp} 的对应\relax }{table.caption.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.4}各种事件落到哪一个入口}{16}{subsection.3.2.4}\protected@file@percent }
+\newlabel{sec:exc-events}{{3.2.4}{16}{各种事件落到哪一个入口}{subsection.3.2.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3.8}{\ignorespaces 常见事件与向量表入口\relax }}{17}{table.caption.14}\protected@file@percent }
+\newlabel{tab:exc-events}{{3.8}{17}{常见事件与向量表入口\relax }{table.caption.14}{}}
+\@writefile{toc}{\contentsline {paragraph}{整数除以 0 不陷入.}{17}{table.caption.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{无声挂死的几个来源.}{17}{table.caption.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.5}保存寄存器状态}{17}{subsection.3.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.6}设置向量表}{19}{subsection.3.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.7}屏蔽与解除屏蔽中断}{19}{subsection.3.2.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.7.1}自旋锁与中断的嵌套}{20}{subsubsection.3.2.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.7.2}中断在哪里被打开}{20}{subsubsection.3.2.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.8}配置中断控制器}{20}{subsection.3.2.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3.1}{\ignorespaces BCM2837 的两级中断结构\relax }}{21}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:irq}{{3.1}{21}{BCM2837 的两级中断结构\relax }{figure.caption.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.9}通用 IRQ 处理程序}{22}{subsection.3.2.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.9.1}同步异常：系统调用路径}{24}{subsubsection.3.2.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.10}初始化定时器}{24}{subsection.3.2.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.11}处理定时器中断}{25}{subsection.3.2.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2.12}小结}{26}{subsection.3.2.12}\protected@file@percent }
 \@setckpt{chapters/03-boot}{
-\setcounter{page}{26}
+\setcounter{page}{28}
 \setcounter{equation}{0}
 \setcounter{enumi}{3}
 \setcounter{enumii}{0}
@@ -68,16 +80,16 @@
 \setcounter{part}{0}
 \setcounter{chapter}{3}
 \setcounter{section}{2}
-\setcounter{subsection}{10}
+\setcounter{subsection}{12}
 \setcounter{subsubsection}{0}
 \setcounter{paragraph}{0}
 \setcounter{subparagraph}{0}
 \setcounter{figure}{1}
-\setcounter{table}{5}
+\setcounter{table}{8}
 \setcounter{Item}{7}
 \setcounter{Hfootnote}{0}
 \setcounter{Hy@AnnotLevel}{0}
-\setcounter{bookmark@seq@number}{33}
+\setcounter{bookmark@seq@number}{35}
 \setcounter{parentequation}{0}
 \setcounter{blindtext}{1}
 \setcounter{Blindtext}{5}

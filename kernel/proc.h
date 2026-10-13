@@ -154,3 +154,4 @@ struct proc {
 };
 
 extern struct proc *proc_head;
+extern struct spinlock wait_lock;

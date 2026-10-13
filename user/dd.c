@@ -2,11 +2,11 @@
 // partition.  Unlike traditional dd, this deliberately supports only the
 // guarded /dev/sdroot destination.
 
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/param.h"
-#include "kernel/fs.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <uapi/limits.h>
+#include <uapi/xv6fs.h>
+#include <fcntl.h>
 #include "user/user.h"
 
 #define DEFAULT_BS (32 * 1024)

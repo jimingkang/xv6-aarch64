@@ -23,6 +23,7 @@
 #include "mbox.h"
 #include "i2c.h"
 #include "camsensor.h"
+#include "device.h"
 #include "module.h"
 
 #define OV5647_I2C_BUS   0
@@ -526,10 +527,84 @@ static struct camsensor ov5647_sensor = {
   .priv = &ov5647_state,
 };
 
+// ---------------------------------------------------------------------------
+// sysfs sample: expose the sensor through the device model as well as the
+// camera framework.  platform_device_register() files it under
+// /sys/devices/ov5647, where the core attributes (name, subsystem, driver,
+// modalias) appear automatically and the test_pattern attribute group below
+// adds one read/write file.  Writing it goes through the same
+// ov5647_set_ctrl() cache V4L2 would use -- the value is applied to the
+// sensor at the next stream-on, so a live capture is never disturbed.
+
+static int
+test_pattern_show(struct device *dev, struct device_attribute *attr, char *buf,
+                  int size)
+{
+  char tmp[16];
+  int n = 0, v = ov5647_state.test_pattern;
+  do {
+    tmp[n++] = '0' + v % 10;
+    v /= 10;
+  } while(v && n < (int) sizeof(tmp));
+  if(n + 1 >= size)
+    return -1;
+  for(int i = 0; i < n; i++)
+    buf[i] = tmp[n - 1 - i];
+  buf[n] = '\n';
+  return n + 1;
+}
+
+static int
+test_pattern_store(struct device *dev, struct device_attribute *attr, char *buf,
+                   int size)
+{
+  int v = 0, any = 0;
+  char *p = buf;
+  while(*p == ' ' || *p == '\t')
+    p++;
+  while(*p >= '0' && *p <= '9'){
+    v = v * 10 + (*p - '0');
+    p++;
+    any = 1;
+  }
+  if(!any || ov5647_set_ctrl(&ov5647_sensor, CAM_CTRL_TEST_PATTERN, v) < 0)
+    return -1;
+  return size;
+}
+
+static DEVICE_ATTR_RW(test_pattern);
+
+static struct attribute *ov5647_attrs[] = {
+  &dev_attr_test_pattern.attr,
+  0,
+};
+
+static int
+ov5647_dev_probe(struct device *dev)
+{
+  return 0;
+}
+
+static struct device ov5647_sysdev = {
+  .name = "ov5647",
+  .class = "video4linux",
+  .driver_attrs = ov5647_attrs,
+};
+
+static struct device_driver ov5647_sysdrv = {
+  .name = "ov5647",
+  .probe = ov5647_dev_probe,
+};
+
 void
 ov5647_init(void)
 {
   camsensor_register(&ov5647_sensor);
+  // Give the sensor a node in the device model too, so it appears under
+  // /sys/devices/ov5647 with a writable test_pattern attribute -- the sample
+  // that shows a driver hanging its own control on the sysfs tree.
+  platform_device_register(&ov5647_sysdev);
+  platform_driver_register(&ov5647_sysdrv);
 }
 
 // Order 5: hands the sensor to camsensor.h before unicam binds one.

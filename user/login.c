@@ -1,5 +1,5 @@
-#include "kernel/types.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <fcntl.h>
 #include "user/user.h"
 
 #define PASSWD_MAX 512

@@ -1,45 +1,5 @@
-// Format of an ELF executable file
-
-#define ELF_MAGIC 0x464C457FU  // "\x7FELF" in little endian
-
-// File header
-struct elfhdr {
-  uint magic;  // must equal ELF_MAGIC
-  uchar elf[12];
-  ushort type;
-  ushort machine;
-  uint version;
-  uint64 entry;
-  uint64 phoff;
-  uint64 shoff;
-  uint flags;
-  ushort ehsize;
-  ushort phentsize;
-  ushort phnum;
-  ushort shentsize;
-  ushort shnum;
-  ushort shstrndx;
-};
-
-// Program section header
-struct proghdr {
-  uint32 type;
-  uint32 flags;
-  uint64 off;
-  uint64 vaddr;
-  uint64 paddr;
-  uint64 filesz;
-  uint64 memsz;
-  uint64 align;
-};
-
-// Values for Proghdr type
-#define ELF_PROG_LOAD           1
-
-// Flag bits for Proghdr flags
-#define ELF_PROG_FLAG_EXEC      1
-#define ELF_PROG_FLAG_WRITE     2
-#define ELF_PROG_FLAG_READ      4
+// ELF executable ABI shared with user-space loaders and inspection tools.
+#include "../include/uapi/elf.h"
 
 // ---------------------------------------------------------------------------
 // Relocatable objects (the .ko modules).
@@ -111,6 +71,42 @@ struct elf64_rela {
   long   addend;
 };
 
+// Program-image dynamic linking records.  xv6 uses the standard ELF64/AArch64
+// layout so host binutils can produce both libc.so and PIE user executables.
+struct elf64_dyn {
+  uint64 tag;
+  uint64 val;
+};
+
+#define ET_EXEC         2
+#define ET_DYN          3
+#define EM_AARCH64      183
+
+#define PT_DYNAMIC      2
+#define PT_INTERP       3
+
+#define DT_NULL         0
+#define DT_NEEDED       1
+#define DT_PLTRELSZ     2
+#define DT_PLTGOT       3
+#define DT_HASH         4
+#define DT_STRTAB       5
+#define DT_SYMTAB       6
+#define DT_RELA         7
+#define DT_RELASZ       8
+#define DT_RELAENT      9
+#define DT_STRSZ        10
+#define DT_SYMENT       11
+#define DT_SONAME       14
+#define DT_RPATH        15
+#define DT_PLTREL       20
+#define DT_JMPREL       23
+
+#define STB_WEAK        2
+#define STB_LOCAL       0
+#define STB_GLOBAL      1
+#define ELF64_ST_BIND(i)  ((i) >> 4)
+
 // In an ELF64 RELA the symbol index lives in the high 32 bits of r_info and
 // the relocation type in the low 32 -- the reverse of the ELF32 layout.
 #define ELF64_R_SYM(i)    ((uint32)((i) >> 32))
@@ -133,3 +129,7 @@ struct elf64_rela {
 #define R_AARCH64_LD64_GOT_LO12_NC    312
 #define R_AARCH64_JUMP26              282   // b   <label>
 #define R_AARCH64_CALL26              283   // bl  <kernel function>
+#define R_AARCH64_COPY                1024
+#define R_AARCH64_GLOB_DAT            1025
+#define R_AARCH64_JUMP_SLOT           1026
+#define R_AARCH64_RELATIVE            1027

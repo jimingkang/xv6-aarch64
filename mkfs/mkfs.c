@@ -101,9 +101,14 @@ main(int argc, char *argv[])
   // ".ko" suffix, just as a Linux rootfs simply has files under /lib/modules.
   // The option and its argument are blanked so the /bin loop skips them.
   char *moddir = 0;
+  char *libfile = 0;
   for(i = 2; i < argc; i++){
     if(strcmp(argv[i], "-M") == 0 && i + 1 < argc){
       moddir = argv[i + 1];
+      argv[i] = argv[i + 1] = 0;
+      i++;
+    } else if(strcmp(argv[i], "-L") == 0 && i + 1 < argc){
+      libfile = argv[i + 1];
       argv[i] = argv[i + 1] = 0;
       i++;
     }
@@ -221,6 +226,27 @@ main(int argc, char *argv[])
       winode(inum, &din);
       close(fd);
     }
+  }
+
+  // Install the runtime shared C library at /lib/libc.so.  Keeping this as an
+  // explicit option prevents the ordinary remaining-arguments loop from
+  // accidentally treating a shared library as a /bin program.
+  if(libfile){
+    char *libname = strrchr(libfile, '/');
+    libname = libname ? libname + 1 : libfile;
+    if((fd = open(libfile, 0)) < 0)
+      die(libfile);
+    inum = ialloc(T_FILE);
+    bzero(&de, sizeof(de));
+    de.inum = xshort(inum);
+    strncpy(de.name, libname, DIRSIZ);
+    iappend(libino, &de, sizeof(de));
+    while((cc = read(fd, buf, sizeof(buf))) > 0)
+      iappend(inum, buf, cc);
+    rinode(inum, &din);
+    din.nlink = xshort(1);
+    winode(inum, &din);
+    close(fd);
   }
 
   // Everything left on the command line is a user program for /bin.

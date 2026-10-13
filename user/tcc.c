@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/fcntl.h"
-#include "kernel/elf.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <fcntl.h>
+#include <elf.h>
 #include "user/user.h"
 
 // A deliberately small, self-hosted C compiler for xv6/AArch64.

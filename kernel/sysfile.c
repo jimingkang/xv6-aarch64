@@ -171,6 +171,37 @@ sys_ext2read(void)
   return got;
 }
 
+// readlink(2): resolve the target of a symbolic link.  Only sysfs has links in
+// this kernel, so the VFS readlink op is present just there; other filesystems
+// leave the hook NULL and the call fails, as Linux returns EINVAL for a non-
+// link.  The bytes copied out are not NUL-terminated (POSIX); we return the
+// length so the caller sizes its own buffer.
+uint64
+sys_readlink(void)
+{
+  char path[MAXPATH], target[MAXPATH];
+  uint64 address;
+  int size, len;
+  struct inode *ip;
+
+  if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &address) < 0 ||
+     argint(2, &size) < 0 || size <= 0)
+    return -1;
+  if((ip = namei(path)) == 0)
+    return -1;
+  if(ip->iop->readlink == 0 ||
+     (len = ip->iop->readlink(ip, target, sizeof(target))) < 0){
+    iput(ip);
+    return -1;
+  }
+  iput(ip);
+  if(len > size)
+    len = size;                        // truncate to the caller's buffer
+  if(copyout(myproc()->vm->pagetable, address, target, len) < 0)
+    return -1;
+  return len;
+}
+
 uint64
 sys_ext2readdir(void)
 {
@@ -516,6 +547,41 @@ sys_dup(void)
     return -1;
   filedup(f);
   return fd;
+}
+
+uint64
+sys_dup2(void)
+{
+  struct file *f, *old;
+  struct proc *p = myproc();
+  int oldfd, newfd;
+
+  if(argfd(0, &oldfd, &f) < 0 || argint(1, &newfd) < 0 ||
+     newfd < 0 || newfd >= NOFILE)
+    return -1;
+  if(oldfd == newfd)
+    return newfd;
+  old = p->ofile[newfd];
+  p->ofile[newfd] = filedup(f);
+  if(old)
+    fileclose(old);
+  return newfd;
+}
+
+uint64
+sys_getcwd(void)
+{
+  struct proc *p = myproc();
+  uint64 address;
+  int size, length;
+
+  if(argaddr(0, &address) < 0 || argint(1, &size) < 0 || size <= 0)
+    return -1;
+  length = strlen(p->cwdpath) + 1;
+  if(length > size || copyout(p->vm->pagetable, address, p->cwdpath,
+                              length) < 0)
+    return -1;
+  return address;
 }
 
 uint64

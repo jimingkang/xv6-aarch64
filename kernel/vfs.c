@@ -21,6 +21,7 @@
 #include "defs.h"
 #include "vfs.h"
 #include "device.h"
+#include "kobject.h"
 #include "module.h"
 
 extern char etext[];
@@ -34,6 +35,7 @@ struct vfs_dirent {
 };
 
 static int streq(char *a, char *b);
+static uint pathhash(char *path);
 
 static int
 fat_vstat(char *path, struct stat *st)
@@ -160,6 +162,263 @@ streq(char *a, char *b)
 {
   return strncmp(a, b, strlen(b) + 1) == 0;
 }
+
+
+// ---------------------------------------------------------------------------
+// sysfs: the kobject tree read as a filesystem.  procfs above prints one
+// hand-written snapshot per file; sysfs has no such list -- every file is a
+// (kobject, attribute) pair that already exists in the driver core, and the
+// walker below only turns that tree into directory entries and calls the
+// attribute's show/store.  Nothing here names a device or a bus: adding a
+// driver that registers a kobject makes new /sys files appear with no change
+// to this code, exactly as in Linux's drivers/base/core + fs/sysfs.
+
+// One resolved path: a directory (a kobject, attr 0) or a file (attr set).
+struct sys_target {
+  struct kobject   *kobj;
+  struct attribute *attr;
+};
+
+// 0 = no such object, 1 = directory, 2 = attribute file.  Walk "/"-separated
+// components from the sysfs root through child kobjects; the final component
+// may instead name one of the current object's attribute files.
+static int
+sys_resolve(char *path, struct sys_target *out)
+{
+  struct kobject *cur = kobject_sys_root();
+  char *s = path, *e, name[KOBJ_NAME_MAX];
+
+  while(*s == '/')
+    s++;
+  while(*s){
+    e = s;
+    while(*e && *e != '/')
+      e++;
+    if(e - s >= (int) sizeof(name))
+      return 0;
+    memmove(name, s, e - s);
+    name[e - s] = 0;
+    s = *e ? e + 1 : e;
+    if(*s == 0){                             // last component: child or attr?
+      struct kobject *child = kobject_child_by_name(cur, name);
+      if(child){
+        // A sysfs symlink (/sys/class/<class>/<dev>) resolves to its target, so
+        // stat/readdir/read of the link path act on the object it points at --
+        // exactly Linux's stat-follows-symlink semantics.
+        out->kobj = kobject_follow_link(child);
+        out->attr = 0;
+        return 1;
+      }
+      struct attribute *a = kobject_find_attr(cur, name);
+      if(a == 0)
+        return 0;
+      out->kobj = cur;
+      out->attr = a;
+      return 2;
+    }
+    cur = kobject_child_by_name(cur, name);
+    if(cur == 0)
+      return 0;
+    cur = kobject_follow_link(cur);          // follow intermediate links
+  }
+  out->kobj = cur;                            // path "/" or a bare directory
+  out->attr = 0;
+  return 1;
+}
+
+static int
+sys_vstat(char *path, struct stat *st)
+{
+  struct sys_target t;
+  int r = sys_resolve(path, &t);
+  if(r == 0)
+    return -1;
+  memset(st, 0, sizeof(*st));
+  st->dev = SYSFS_DEV;
+  st->nlink = 1;
+  st->ino = pathhash(path);
+  if(r == 1){
+    st->type = T_DIR;
+    st->size = 0;
+  } else {
+    st->type = T_FILE;
+    st->size = 4096;                          // Linux reports a page for attrs
+  }
+  return 0;
+}
+
+static int
+sys_vread(char *path, uint64 off, void *dst, int n)
+{
+  struct sys_target t;
+  struct kobj_type *ktype;
+  char *page;
+  int len;
+
+  if(sys_resolve(path, &t) != 2)
+    return -1;
+  ktype = t.kobj->ktype;
+  if(ktype == 0 || ktype->sysfs_ops == 0 || ktype->sysfs_ops->show == 0)
+    return -1;
+  if((page = kalloc()) == 0)
+    return -1;
+  len = ktype->sysfs_ops->show(t.kobj, t.attr, page, PGSIZE);
+  if(len < 0)
+    len = 0;
+  if(off >= (uint64)len)
+    n = 0;
+  else {
+    if(n > len - off)
+      n = len - off;
+    memmove(dst, page + off, n);
+  }
+  kfree(page);
+  return n;
+}
+
+// write(2) to an attribute file: copy the user bytes into a page, then hand
+// them to the attribute's store().  Read-only attributes (mode without a
+// write bit) reject the write, as sysfs does with -EACCES.
+static int
+sys_vwrite(char *path, struct fat32_file *file, uint64 off, int user_src,
+           uint64 src, int n)
+{
+  struct sys_target t;
+  struct kobj_type *ktype;
+  char *page;
+  int len;
+
+  (void) file;
+  (void) off;
+  if(n <= 0 || n > PGSIZE - 1)
+    return -1;
+  if(sys_resolve(path, &t) != 2)
+    return -1;
+  if((t.attr->mode & 0200) == 0)
+    return -1;
+  ktype = t.kobj->ktype;
+  if(ktype == 0 || ktype->sysfs_ops == 0 || ktype->sysfs_ops->store == 0)
+    return -1;
+  if((page = kalloc()) == 0)
+    return -1;
+  if(either_copyin(page, user_src, src, n) < 0){
+    kfree(page);
+    return -1;
+  }
+  page[n] = 0;
+  len = ktype->sysfs_ops->store(t.kobj, t.attr, page, n);
+  kfree(page);
+  return len;
+}
+
+// sysfs attribute files ignore truncation: opening with O_TRUNC (what the
+// shell's ">" does) must succeed without erasing anything, exactly as Linux
+// sysfs treats a write to an attribute as a store rather than a data append.
+static int
+sys_vtruncate(char *path, uint64 size)
+{
+  struct sys_target t;
+  return sys_resolve(path, &t) == 2 ? 0 : -1;
+}
+
+// A sysfs directory holds the object's child kobjects first, then its
+// attribute files -- the same order Linux's sysfs readdir yields.
+static int
+sys_vreaddir(char *path, int index, void *arg)
+{
+  struct sys_target t;
+  struct vfs_dirent *de = arg;
+  struct kobject *child;
+  struct attribute *a;
+  int nchild;
+
+  memset(de, 0, sizeof(*de));
+  if(sys_resolve(path, &t) != 1)
+    return 0;
+  nchild = kobject_child_count(t.kobj);
+  if(index < nchild){
+    if((child = kobject_child_at(t.kobj, index)) == 0)
+      return 0;
+    de->ino = pathhash(child->name);
+    de->type = T_DIR;
+    safestrcpy(de->name, child->name, sizeof(de->name));
+    return 1;
+  }
+  if((a = kobject_attr_at(t.kobj, index - nchild)) == 0)
+    return 0;
+  de->ino = pathhash(a->name);
+  de->type = T_FILE;
+  de->size = 4096;
+  safestrcpy(de->name, a->name, sizeof(de->name));
+  return 1;
+}
+
+// Resolve `path` the way readlink(2) does: succeed only when the final
+// component is a sysfs symlink, returning the object it points at.  Unlike
+// sys_resolve, the last component is *not* dereferenced -- the point is to
+// report the link, not to walk through it.  Intermediate components still
+// follow links, matching how the kernel resolves each directory element.
+static int
+sys_link_target(char *path, struct kobject **out)
+{
+  struct kobject *cur = kobject_sys_root();
+  struct kobject *child;
+  char *s = path, *e, name[KOBJ_NAME_MAX];
+
+  while(*s == '/')
+    s++;
+  while(*s){
+    e = s;
+    while(*e && *e != '/')
+      e++;
+    if(e - s >= (int) sizeof(name))
+      return -1;
+    memmove(name, s, e - s);
+    name[e - s] = 0;
+    s = *e ? e + 1 : e;
+    if((child = kobject_child_by_name(cur, name)) == 0)
+      return -1;
+    if(*s == 0){                             // final component
+      if(child->link == 0)
+        return -1;                           // not a symlink
+      *out = child->link;
+      return 0;
+    }
+    cur = kobject_follow_link(child);
+  }
+  return -1;                                 // path named a directory or root
+}
+
+// readlink(2) on a sysfs link: emit the target's path, absolute under the
+// conventional /sys mount point.  Linux returns a path relative to the link;
+// a root-relative absolute form is the usable equivalent here, since the tree
+// root itself renders as "".
+static int
+sys_vreadlink(char *path, char *buf, int bufsz)
+{
+  struct kobject *target;
+  char inner[MAXPATH];
+  const char *pre = "/sys";
+  int i = 0;
+
+  if(sys_link_target(path, &target) < 0)
+    return -1;
+  if(kobject_path(target, inner, sizeof(inner)) == 0)
+    return -1;
+  for(const char *c = pre; *c; c++){
+    if(i + 1 >= bufsz)
+      return -1;
+    buf[i++] = *c;
+  }
+  for(char *c = inner; *c; c++){
+    if(i + 1 >= bufsz)
+      return -1;
+    buf[i++] = *c;
+  }
+  buf[i] = 0;
+  return i;
+}
+
 
 static char*
 state_name(enum procstate state)
@@ -512,6 +771,7 @@ struct pathfs_ops {
   int (*truncate)(char*, uint64);
   int (*openwrite)(char*, struct fat32_file*);
   int (*fsync)(void);
+  int (*readlink)(char*, char*, int);
 };
 
 // FNV-1a, 31 bits, never 0 (ls hides inode 0).
@@ -728,6 +988,13 @@ pfs_fsync(struct inode *ip)
   return pops(ip)->fsync ? pops(ip)->fsync() : 0;
 }
 
+static int
+pfs_readlink(struct inode *ip, char *buf, int bufsz)
+{
+  struct pathfs_ops *o = pops(ip);
+  return o->readlink ? o->readlink(ip->path, buf, bufsz) : -1;
+}
+
 static struct inode_ops pathfs_iops = {
   .read_inode = pfs_read_inode,
   .lookup = pfs_lookup,
@@ -739,6 +1006,7 @@ static struct inode_ops pathfs_iops = {
   .truncate = pfs_truncate,
   .open = pfs_open,
   .fsync = pfs_fsync,
+  .readlink = pfs_readlink,
 };
 
 static struct pathfs_ops fat32_pops = {
@@ -753,6 +1021,15 @@ static struct pathfs_ops proc_pops = {
 
 static struct pathfs_ops netfs_pops = {
   .stat = netfs_vstat, .read = netfs_vread, .readdir = netfs_vreaddir,
+};
+
+// sysfs is mounted read-write so writable attributes can store(); per-file
+// read-only-ness is enforced by each attribute's mode bits in sys_vwrite,
+// which is exactly how Linux separates the mount from sysfs file permissions.
+static struct pathfs_ops sys_pops = {
+  .stat = sys_vstat, .read = sys_vread, .write = sys_vwrite,
+  .readdir = sys_vreaddir, .truncate = sys_vtruncate,
+  .readlink = sys_vreadlink,
 };
 
 // ---------------------------------------------------------------------------
@@ -786,6 +1063,10 @@ vfsmount(char *source, char *target, char *fstype, int flags)
     readonly = 1;
     fs_super_register(dev, "procfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
                       &proc_pops);
+  } else if(streq(fstype, "sysfs")){
+    dev = SYSFS_DEV;
+    fs_super_register(dev, "sysfs", &pathfs_iops, pathhash("/"), readonly,
+                      0, 1, &sys_pops);
   } else if(streq(fstype, "fat32")){
     if(!fat32ready())
       return -1;

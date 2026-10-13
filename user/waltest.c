@@ -1,6 +1,6 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <fcntl.h>
 #include "user/user.h"
 
 #define WALDIR  "/mnt/ext2/waltest"

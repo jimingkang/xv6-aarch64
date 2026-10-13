@@ -1,6 +1,6 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/socket.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <uapi/socket.h>
 #include "user/user.h"
 #include <pthread.h>
 #include <semaphore.h>
@@ -11,6 +11,9 @@
 #define POSIX_THREAD_STACK (4U * 4096U)
 #define SYNC_MUTEX 1
 #define SYNC_SEM   2
+#define X_OK 1
+#define W_OK 2
+#define R_OK 4
 
 struct pthread_record {
   struct pthread_record *next;
@@ -429,4 +432,39 @@ int puts(const char *text)
   if(write(1, text, length) != length || write(1, "\n", 1) != 1)
     return -1;
   return length + 1;
+}
+
+int
+access(const char *path, int mode)
+{
+  struct stat st;
+  if(path == 0 || (mode & ~(R_OK | W_OK | X_OK)) != 0){
+    errno = EINVAL;
+    return -1;
+  }
+  if(stat(path, &st) < 0){
+    errno = ENOENT;
+    return -1;
+  }
+  // xv6 currently has no uid/gid permission bits.  Existence therefore
+  // implies access; read-only mount enforcement still occurs on open/write.
+  return 0;
+}
+
+int
+rmdir(const char *path)
+{
+  struct stat st;
+  if(stat(path, &st) < 0 || st.type != T_DIR){
+    errno = ENOTDIR;
+    return -1;
+  }
+  return unlink(path);
+}
+
+void
+abort(void)
+{
+  kill(getpid());
+  exit(134);
 }

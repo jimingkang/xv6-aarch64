@@ -1,7 +1,7 @@
 // renice: set the nice value of a running process.
 //
 //   renice N PID
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

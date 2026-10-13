@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
-#include "kernel/param.h"
+#include <uapi/limits.h>
 
 // Memory allocator by Kernighan and Ritchie,
 // The C programming Language, 2nd ed.  Section 8.7.
@@ -132,4 +132,42 @@ malloc(uint nbytes)
         return 0;
       }
   }
+}
+
+void*
+calloc(uint count, uint size)
+{
+  uint total;
+  void *memory;
+  if(size != 0 && count > (uint)-1 / size)
+    return 0;
+  total = count * size;
+  memory = malloc(total);
+  if(memory)
+    memset(memory, 0, total);
+  return memory;
+}
+
+void*
+realloc(void *old, uint size)
+{
+  Header *header;
+  uint oldsize;
+  void *memory;
+  if(old == 0)
+    return malloc(size);
+  if(size == 0){
+    free(old);
+    return 0;
+  }
+  header = (Header*)old - 1;
+  oldsize = (header->s.size - 1) * sizeof(Header);
+  if(oldsize >= size)
+    return old;
+  memory = malloc(size);
+  if(memory == 0)
+    return 0;
+  memmove(memory, old, oldsize);
+  free(old);
+  return memory;
 }

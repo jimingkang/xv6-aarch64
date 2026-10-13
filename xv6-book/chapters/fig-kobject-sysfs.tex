@@ -1,0 +1,38 @@
+% kobject 对象树 与 sysfs 渲染出来的 /sys 目录树。
+% 独立文件，只放裸 tikzpicture；章节里用 resizebox + input 引入。
+\begin{tikzpicture}[
+    x=1mm,y=1mm,
+    dir/.style={draw,rounded corners=1mm,align=left,text width=46mm,inner sep=1.5mm,fill=black!3},
+    fil/.style={draw,rounded corners=1mm,align=left,text width=52mm,inner sep=1.5mm},
+    lnk/.style={->}
+  ]
+  % 左：内核里的 kobject 树（device.c 内嵌 kobject）
+  \node[dir,minimum width=22mm] (ko) at (14,0) {\code{kobject}\\ \footnotesize priv$\to$device};
+
+  % 右：/sys 目录树
+  \node[dir] (sys) at (78,0) {\code{/sys}};
+  \node[fil] (dev) at (140,44) {\code{devices/}};
+  \node[fil] (bus) at (140,4)  {\code{bus/}};
+  \node[fil] (cls) at (140,-40){\code{class/}};
+
+  \node[fil] (uart) at (206,60) {\code{bcm2837-mini-uart/}\\ name subsystem driver\\ modalias uevent ioaddr};
+  \node[fil] (ov)   at (206,24) {\code{ov5647/}\\ $\cdots$ test\_pattern};
+  \node[fil] (plat) at (206,-4) {\code{platform/}\\ name drivers\_probe\\ drivers/};
+  \node[fil] (tty)  at (206,-32){\code{tty/}\\ bcm2837-mini-uart};
+  \node[fil] (vid)  at (206,-58){\code{video4linux/}\\ ov5647};
+
+  \draw[lnk] (ko) -- (sys);
+  \node[fill=white,inner sep=1pt,font=\footnotesize] at (46,6) {sysfs 渲染};
+  \draw[lnk] (sys) -- (dev);
+  \draw[lnk] (sys) -- (bus);
+  \draw[lnk] (sys) -- (cls);
+  \draw[lnk] (dev) -- (uart);
+  \draw[lnk] (dev) -- (ov);
+  \draw[lnk] (bus) -- (plat);
+  \draw[lnk] (cls) -- (tty);
+  \draw[lnk] (cls) -- (vid);
+  % 类目录里的是符号链接，指回 /sys/devices 下的真身
+  \draw[lnk,dashed] (tty.east) .. controls +(14,10) and +(14,-10) .. (uart.east)
+       node[midway,fill=white,inner sep=1pt,right]{\footnotesize 链接解引用};
+  \draw[lnk,dashed] (vid.east) .. controls +(12,10) and +(12,-6) .. (ov.east);
+\end{tikzpicture}

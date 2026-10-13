@@ -1,14 +1,6 @@
 #ifndef XV6_EXT2_H
 #define XV6_EXT2_H
 
-#define EXT2_NAME_MAX 255
-
-struct ext2_user_dirent {
-  uint32 inode;
-  uint64 size;
-  uint16 mode;
-  uint8 type;
-  char name[EXT2_NAME_MAX + 1];
-};
+#include "../include/uapi/ext2.h"
 
 #endif

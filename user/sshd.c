@@ -1,6 +1,6 @@
-#include "kernel/types.h"
-#include "kernel/fcntl.h"
-#include "kernel/epoll.h"
+#include <uapi/types.h>
+#include <fcntl.h>
+#include <uapi/epoll.h>
 #include "user/user.h"
 #include "user/ssh_crypto.h"
 

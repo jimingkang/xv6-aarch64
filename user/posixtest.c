@@ -8,6 +8,8 @@
 #include <semaphore.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/wait.h>
+#include <ctype.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static int counter;
@@ -35,6 +37,10 @@ main(void)
   char buffer[6] = {0};
   int loops = 500;
   int fd, server;
+  int child, child_status, pipes[2];
+  char cwd[128], pipe_byte = 0;
+  char formatted[32];
+  char *dynamic;
   struct sockaddr_in address;
 
   fd = open("posix.tmp", O_CREAT | O_TRUNC | O_RDWR, 0644);
@@ -47,6 +53,36 @@ main(void)
   }
   close(fd);
   unlink("posix.tmp");
+
+  dynamic = calloc(4, 4);
+  if(dynamic == 0 || dynamic[0] != 0 ||
+     (dynamic = realloc(dynamic, 64)) == 0 ||
+     strstr("xv6-libc", "libc") == 0 || strrchr("a/b", '/') == 0 ||
+     !isdigit('7') || !isalpha('x') ||
+     snprintf(formatted, sizeof(formatted), "%s-%d", "libc", 86) != 7 ||
+     strcmp(formatted, "libc-86") != 0 ||
+     getcwd(cwd, sizeof(cwd)) == 0 || cwd[0] != '/'){
+    printf("posixtest: libc/string/getcwd API failed\n");
+    exit(1);
+  }
+  free(dynamic);
+
+  if(pipe(pipes) < 0 || dup2(pipes[1], 10) != 10 || close(pipes[1]) < 0 ||
+     write(10, "D", 1) != 1 || close(10) < 0 ||
+     read(pipes[0], &pipe_byte, 1) != 1 || pipe_byte != 'D' ||
+     close(pipes[0]) < 0){
+    printf("posixtest: dup2 API failed\n");
+    exit(1);
+  }
+
+  child = fork();
+  if(child == 0)
+    exit(getppid() == getpid() ? 99 : 7);
+  if(child < 0 || waitpid(child, &child_status, 0) != child ||
+     !WIFEXITED(child_status) || WEXITSTATUS(child_status) != 7){
+    printf("posixtest: waitpid/getppid API failed status=%d\n", child_status);
+    exit(1);
+  }
 
   if(sem_init(&semaphore, 0, 0) < 0 || sem_post(&semaphore) < 0 ||
      sem_wait(&semaphore) < 0 || sem_destroy(&semaphore) < 0){

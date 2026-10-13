@@ -1,6 +1,6 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/fs.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
+#include <uapi/xv6fs.h>
 #include "user/user.h"
 
 static char *
