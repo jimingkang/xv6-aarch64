@@ -123,18 +123,148 @@ bcm2837-mini-uart bus=platform driver=bcm2837-mini-uart
   irq 29 AUX IRQ
 ```
 
-## 6. 与完整 Linux 模型的边界
+同一套总线、设备、驱动对象还通过 `/sys` 以文件的形式逐个呈现，可读写、可
+手工触发热插拔，详见下一节。
+
+## 6. kobject 与 sysfs：`/sys` 是怎么长出来的
+
+上面的 bus/device/driver 只是“数据”，用户要能在运行时看到并操作它们，就得
+把它们挂上一棵对象树，再由一棵伪文件系统把这棵树渲染成目录和文件。Linux
+用两样东西完成这件事：核心对象模型 `kobject`（`lib/kobject.c`、
+`include/linux/kobject.h`）和它的渲染器 `sysfs`（`fs/sysfs`）。本工程照搬同一
+套分层，实现位于 `kernel/kobject.c` 与 `kernel/vfs.c`。
+
+### `struct kobject`：一切皆对象
+
+Linux 的 `/sys` 里没有“设备目录”“驱动文件”这种特判，唯一的节点类型就是
+`kobject`——一个带名字、父指针、引用计数和 `ktype` 的对象。`bus_type`、
+`device`、`device_driver` 都不特殊，各自**内嵌**一个 `kobject` 并给出一个
+`kobj_type`，于是 `/sys/bus`、`/sys/devices`、驱动目录全都由同一个通用遍历器
+渲染出来。本工程把这套形状搬了过来：
+
+```c
+struct attribute { char *name; int mode; };            // 一个 sysfs 文件
+struct sysfs_ops {                                     // 如何渲染属性
+  int (*show)(struct kobject *, struct attribute *, char *buf, int size);
+  int (*store)(struct kobject *, struct attribute *, char *buf, int size);
+};
+struct kobj_type {
+  void (*release)(struct kobject *);                   // 引用计数归零时回收
+  struct sysfs_ops *sysfs_ops;                          // show/store 分派
+  struct attribute **default_attrs;                     // 该类对象的默认属性
+};
+struct kobject {
+  char name[KOBJ_NAME_MAX];
+  struct kobject *parent;
+  struct kobj_type *ktype;
+  struct attribute **attrs;   // 实例级属性，叠加在 ktype 默认属性之上
+  struct kobject *link;       // 非空 => 本节点是指向 link 的符号链接
+  int refcount;               // 内联的 Linux kref
+  void *priv;                 // 回指外层 struct device / bus_type / ...
+};
+```
+
+`kobject_add` 把节点挂到父目录下并持有父引用；`kobject_put` 递减引用，归零时
+调用 `ktype->release()` 再释放对父的引用。`kobject_create_and_add` 从固定池
+切一个只读目录节点（`/sys/devices`、`/sys/bus`、`/sys/class` 及每个类目录都由
+它创建）。`kobject_path` 沿父链拼出 `/devices/ov5647` 这样的树内路径。
+
+### sysfs：把对象树读成文件系统
+
+sysfs 不存储任何数据，它只是那棵 kobject 树的**一个渲染视图**。本工程里它
+和 procfs、netfs 一样是路径式伪文件系统：`init` 用
+`sysfs /sys sysfs rw 0 0` 把它挂到 `SYSFS_DEV`，`vfs.c` 里一组 `sys_*` 钩子
+负责把路径翻译成 (kobject, attribute)：
+
+* `sys_resolve(path)`：按 `/` 逐段在树里走 `kobject_child_by_name`；末段若匹配
+  不上子目录，就回退到当前对象的 `kobject_find_attr`。返回“目录 / 属性文件 /
+  不存在”。
+* `sys_vreaddir`：先列子 kobject，再列属性文件——正是 Linux sysfs 的 readdir
+  顺序。
+* `sys_vread` / `sys_vwrite`：读就是把字节交给 `ktype->sysfs_ops->show()`，写
+  先按属性的 `mode` 位拒绝只读文件（对应 sysfs 的 `-EACCES`），再交给
+  `store()`。shell 的 `>` 会带 `O_TRUNC`，所以属性文件的 `truncate` 是无成功
+  返回的 no-op。
+
+因为文件不落地、只由 `(对象, 属性)` 现算，新增一个注册了 kobject 的驱动就会
+多出对应的 `/sys` 文件，渲染器代码一行都不用改——和 Linux 的
+`drivers/base/core.c` + `fs/sysfs` 分工一致。
+
+### 属性文件与 `DEVICE_ATTR`
+
+每个具体属性是一个 `device_attribute`（`attribute` + 一对 show/store），用宏
+声明，和 Linux 同名同形：
+
+```c
+static DEVICE_ATTR_RO(ioaddr);   // console.c：MMIO 物理地址，只读
+static DEVICE_ATTR_RW(test_pattern);  // ov5647.c：测试图样，可写
+```
+
+设备对象自带的默认属性对齐 Linux：`name`、`subsystem`、`driver`、`modalias`、
+`uevent`；驱动目录有 `name`；总线目录有 `name` 与 `drivers_probe`。挂上树后能
+在 `/sys` 里直接读到，例如：
+
+```text
+/sys/devices/bcm2837-mini-uart/{name,subsystem,driver,ioaddr,uevent}
+/sys/devices/ov5647/{...,test_pattern}
+/sys/bus/platform/{name,drivers_probe,drivers/...}
+/sys/class/{tty,video4linux}/...
+```
+
+### `uevent` 与 `drivers_probe`：手工触发热插拔
+
+* **`uevent`（0644）**：读它打印该设备的热插拔环境变量（`DRIVER=`、
+  `MODALIAS=`）；写一个动作（`add`/`change`/`remove`）相当于把一次 uevent 手工
+  补发一遍——未绑定且能算出 MODALIAS 的设备会走 `request_module()`，与驱动核
+  心自动装载那条链复用同一入口。这对应 Linux 的 `kobject_uevent()`，只是这里
+  省掉了 netlink 到用户态 `udev` 的传递。
+* **`drivers_probe`（0200）**：往 `/sys/bus/<bus>/drivers_probe` 写一个设备名，
+  总线重新扫描并在设备未绑定时尝试 `bind()`。Linux 用它来“重新触发一次匹配”，
+  行为一致。
+
+### `/sys/class` 与符号链接
+
+`/sys/bus` 反映的是总线拓扑，而 `/sys/class/<类名>` 反映的是**功能分组**：跨
+总线、干同一件事的设备链接到一起（`tty`、`video4linux`……）。设备若声明了
+`class`，`device_register()` 就懒建 `/sys/class/<类名>` 并放一个
+**符号链接**指回 `/sys/devices` 下的真身（Linux `device_add_class_symlinks` /
+`sysfs_create_link`）。链接是一个 `kobject` 的 `link` 字段指向目标的节点：
+
+```text
+/sys/class/tty/bcm2837-mini-uart  ->  /sys/devices/bcm2837-mini-uart
+/sys/class/video4linux/ov5647     ->  /sys/devices/ov5647
+```
+
+渲染器在解析路径时对 `link` 解引用（stat-follows-link），所以顺着类链接一路
+`cat` 到设备属性完全透明：`cat /sys/class/video4linux/ov5647/test_pattern` 读的
+就是那台相机对象。为把链接显式呈现出来，本工程补了一个最小 `readlink(2)`
+（`SYS_readlink`，仅 sysfs 实现了 `readlink` inode 钩子，其它文件系统返回错误
+如同 Linux 对非链接返回 `EINVAL`），`ls` 据此打印 `name -> target`。
+
+> 与 Linux 的差异：本工程没有通用 VFS 符号链接与 `lstat`，链接只在 sysfs 渲染
+> 器内部解引用；`readlink` 返回的是绝对路径 `/sys/devices/...`，而 Linux 返回
+> 相对路径 `../../devices/...`。
+
+## 7. 与完整 Linux 模型的边界
 
 目前实现的是适合 xv6 的最小设备核心，并不等同于完整 Linux driver core：
 
-* 已有 bus/device/driver、match/probe 和字符设备 file operations。
+* 已有 bus/device/driver、match/probe、字符设备 file operations，以及
+  kobject/sysfs 对象树与 `/sys` 渲染（属性文件、`uevent`、`drivers_probe`、
+  `/sys/class` 符号链接、`readlink`）。
+* 已有链接期 initcall 表、可重定位 `.ko` 模块加载器、`modules.alias` 与
+  `request_module()` 自动装载链。
 * 支持设备或驱动以任意先后顺序注册，因此支持“发现后自动绑定”。
-* `/dev` 节点仍由 init 创建，没有 devtmpfs/udev。
-* platform 设备目前由板级代码静态描述，尚未解析 DTB 的 `compatible/reg/interrupts`。
-* DWC2 当前只在启动时探测；完整 USB 热插拔还需要端口状态中断、hub 枚举线程、
-  设备断开检测、引用计数以及 unregister/remove 路径。
-* 尚无 sysfs、模块加载器、电源管理和驱动依赖管理。
+* `/dev` 节点由内核 devtmpfs 依注册驱动自动创建，`init` 仅在其不可用时
+  `mknod` 补建；但没有用户态 udev 守护进程与规则管理。
+* `uevent` 是在属性文件里直接触发 `request_module()`，没有 Linux 经 netlink
+  socket 把事件投递给用户态 `udev` 的那一段。
+* platform 设备目前由板级代码静态描述，尚未解析 DTB 的
+  `compatible/reg/interrupts`；符号链接只在 sysfs 内部解引用，通用文件系统尚
+  无 `lstat`/`readlink` 的全树支持；没有电源管理（`/sys/.../power`）与驱动依赖
+  管理。
 
-下一步若继续向 Linux 靠拢，应优先增加 DTB platform populate，再实现
-`device_unregister()/driver_unregister()` 和 DWC2 热插拔事件，这样硬件发现、
+下一步若继续向 Linux 靠拢，应优先增加 DTB platform populate，把 `class`
+做成完整的 `struct class`（含 `class_register` 与每类属性组），再补
+`device_unregister()/driver_unregister()` 与 DWC2 热插拔事件，这样硬件发现、
 匹配、探测、移除的生命周期才完整。

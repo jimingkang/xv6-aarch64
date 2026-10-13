@@ -1,0 +1,120 @@
+debugfs 1.47.4 (6-Mar-2025)
+debugfs: mkdir bin
+debugfs: write user/_cat bin/cat
+Allocated inode: 13
+debugfs: write user/_echo bin/echo
+Allocated inode: 14
+debugfs: write user/_forktest bin/forktest
+Allocated inode: 15
+debugfs: write user/_grep bin/grep
+Allocated inode: 16
+debugfs: write user/_init bin/init
+Allocated inode: 17
+debugfs: write user/_kill bin/kill
+Allocated inode: 18
+debugfs: write user/_ln bin/ln
+Allocated inode: 19
+debugfs: write user/_login bin/login
+Allocated inode: 20
+debugfs: write user/_ls bin/ls
+Allocated inode: 21
+debugfs: write user/_insmod bin/insmod
+Allocated inode: 22
+debugfs: write user/_rmmod bin/rmmod
+Allocated inode: 23
+debugfs: write user/_mkdir bin/mkdir
+Allocated inode: 24
+debugfs: write user/_mv bin/mv
+Allocated inode: 25
+debugfs: write user/_touch bin/touch
+Allocated inode: 26
+debugfs: write user/_file bin/file
+Allocated inode: 27
+debugfs: write user/_edit bin/edit
+Allocated inode: 28
+debugfs: write user/_ps bin/ps
+Allocated inode: 29
+debugfs: write user/_syncdemo bin/syncdemo
+Allocated inode: 30
+debugfs: write user/_prodcons bin/prodcons
+Allocated inode: 31
+debugfs: write user/_nettest bin/nettest
+Allocated inode: 32
+debugfs: write user/_netdns bin/netdns
+Allocated inode: 33
+debugfs: write user/_tftpclient bin/tftpclient
+Allocated inode: 34
+debugfs: write user/_tftpd bin/tftpd
+Allocated inode: 35
+debugfs: write user/_ping bin/ping
+Allocated inode: 36
+debugfs: write user/_wifi bin/wifi
+Allocated inode: 37
+debugfs: write user/_dhcp bin/dhcp
+Allocated inode: 38
+debugfs: write user/_dd bin/dd
+Allocated inode: 39
+debugfs: write user/_waltest bin/waltest
+Allocated inode: 40
+debugfs: write user/_minisqlite bin/minisqlite
+Allocated inode: 41
+debugfs: write user/_tcpd bin/tcpd
+Allocated inode: 42
+debugfs: write user/_epollserver bin/epollserver
+Allocated inode: 43
+debugfs: write user/_ptytest bin/ptytest
+Allocated inode: 44
+debugfs: write user/_sshd bin/sshd
+Allocated inode: 45
+debugfs: write user/_ext2ls bin/ext2ls
+Allocated inode: 46
+debugfs: write user/_ext2cat bin/ext2cat
+Allocated inode: 47
+debugfs: write user/_tcc bin/tcc
+Allocated inode: 48
+debugfs: write user/_rm bin/rm
+Allocated inode: 49
+debugfs: write user/_sh bin/sh
+Allocated inode: 50
+debugfs: write user/_stressfs bin/stressfs
+Allocated inode: 51
+debugfs: write user/_usertests bin/usertests
+Allocated inode: 52
+debugfs: write user/_vmmap bin/vmmap
+Allocated inode: 53
+debugfs: write user/_grind bin/grind
+Allocated inode: 54
+debugfs: write user/_wc bin/wc
+Allocated inode: 55
+debugfs: write user/_zombie bin/zombie
+Allocated inode: 56
+debugfs: write user/_camshot bin/camshot
+Allocated inode: 57
+debugfs: write user/_camserver bin/camserver
+Allocated inode: 58
+debugfs: write user/_chrt bin/chrt
+Allocated inode: 59
+debugfs: write user/_taskset bin/taskset
+Allocated inode: 60
+debugfs: write user/_nice bin/nice
+Allocated inode: 61
+debugfs: write user/_renice bin/renice
+Allocated inode: 62
+debugfs: write user/_rtlat bin/rtlat
+Allocated inode: 63
+debugfs: write user/_evtest bin/evtest
+Allocated inode: 64
+debugfs: write user/_spin bin/spin
+Allocated inode: 65
+debugfs: write user/_threadtest bin/threadtest
+Allocated inode: 66
+debugfs: write user/_posixtest bin/posixtest
+Allocated inode: 67
+debugfs: write user/_init init
+Allocated inode: 68
+debugfs: mkdir lib
+debugfs: write user/libc.so lib/libc.so
+Allocated inode: 70
+debugfs: mkdir lib/modules
+debugfs: write build/lib/modules/usbmouse.ko lib/modules/usbmouse.ko
+Allocated inode: 72

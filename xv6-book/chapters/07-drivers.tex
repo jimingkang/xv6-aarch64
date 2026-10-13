@@ -3,6 +3,7 @@
 
 \begin{introduction}[本章内容]
   \item Linux 2.6 风格的总线/设备/驱动模型
+  \item kobject 对象模型与 sysfs：\code{/sys} 视图、属性文件、uevent 与 \code{/sys/class} 符号链接
   \item 中断上半部与 workqueue 下半部
   \item 控制台、Mini UART 与 TTY
   \item USB 与 HID 键盘：描述符、枚举、split 事务、URB、真机排错
@@ -91,6 +92,86 @@ struct file_operations {
     \bottomrule
   \end{tabular}
 \end{table}
+
+\subsection{kobject：一切皆对象}
+
+上面对象只是“数据”，要在运行时看见并操作它们，就得把它们挂上一棵统一对象树，再由一棵伪文件系统把树渲染成目录与文件。Linux 用 \code{kobject}（\file{lib/kobject.c}）与它的渲染器 sysfs（\file{fs/sysfs}）完成此事，本工程照搬同一分层（\file{kernel/kobject.c}、\file{kernel/vfs.c}）。
+
+\code{/sys} 里没有“设备目录”“驱动文件”的特判：唯一的节点类型就是 \code{struct kobject}——一个带名字、父指针、引用计数与 \code{ktype} 的对象。\code{bus\_type}、\code{device}、\code{device\_driver} 各自\textbf{内嵌}一个 kobject 并给出一个 \code{kobj\_type}，于是 \code{/sys/bus}、\code{/sys/devices}、驱动目录全都出自同一个通用遍历器：
+
+\begin{ccode}
+struct attribute { char *name; int mode; };      // 一个 sysfs 文件
+struct sysfs_ops {
+  int (*show)(struct kobject*, struct attribute*, char *buf, int size);
+  int (*store)(struct kobject*, struct attribute*, char *buf, int size);
+};
+struct kobj_type {
+  void (*release)(struct kobject*);               // refcount 归零时回收
+  struct sysfs_ops *sysfs_ops;                    // show/store 分派
+  struct attribute **default_attrs;               // 该类对象的默认属性
+};
+struct kobject {
+  char name[KOBJ_NAME_MAX];  struct kobject *parent;
+  struct kobj_type *ktype;   struct attribute **attrs; // 实例属性叠加在默认之上
+  struct kobject *link;      // 非空 => 本节点是指向 link 的符号链接
+  int refcount;              // 内联的 Linux kref
+  void *priv;                // 回指外层对象
+};
+\end{ccode}
+
+\code{kobject\_add} 把节点挂到父目录并持有父引用；\code{kobject\_put} 递减引用、归零时调 \code{ktype->release()} 再释放对父的引用；\code{kobject\_create\_and\_add} 从固定池切一个只读目录节点（\code{/sys/devices}、\code{/sys/bus}、\code{/sys/class} 及每个类目录都由它创建）。
+
+\subsection{sysfs：把对象树渲染成文件系统}
+
+sysfs 不存数据，它只是那棵 kobject 树的一个\textbf{渲染视图}。本工程里它和 procfs、netfs 一样是路径式伪文件系统：\code{init} 用 \code{sysfs /sys sysfs rw 0 0} 把它挂到 \code{SYSFS\_DEV}，一组 \code{sys\_*} 钩子把路径翻译成 (kobject, attribute)。
+
+\begin{itemize}
+  \item \code{sys\_resolve(path)}：按 \code{/} 逐段走 \code{kobject\_child\_by\_name}；末段若匹配不上子目录，就回退到当前对象的 \code{kobject\_find\_attr}，据此判定“目录 / 属性文件 / 不存在”。遇到 \code{link} 节点先解引用（stat-follows-link）。
+  \item \code{sys\_vreaddir}：先列子 kobject，再列属性文件——正是 Linux sysfs 的 readdir 顺序。
+  \item \code{sys\_vread} / \code{sys\_vwrite}：读就是把字节交给 \code{ktype->sysfs\_ops->show()}；写先按属性的 \code{mode} 位拒绝只读文件（对应 sysfs 的 \code{-EACCES}），再交给 \code{store()}。shell 的 \code{>} 带 \code{O\_TRUNC}，故属性文件的 truncate 是无副作用的 no-op。
+\end{itemize}
+
+文件不落地、只由 (对象, 属性) 现算，所以新增一个注册了 kobject 的驱动就会多出对应的 \code{/sys} 文件，渲染器代码一行不改——与 Linux 的 \file{drivers/base/core.c} 加 \file{fs/sysfs} 分工一致。左半的对象树与右半渲染出的 \code{/sys} 视图见图~\ref{fig:kobject-sysfs}。
+
+\begin{figure}[p]
+  \centering
+  \resizebox{\linewidth}{!}{\input{chapters/fig-kobject-sysfs}}
+  \caption{左：\code{device.c} 内嵌的 kobject 对象树；右：sysfs 把同一棵树渲染成的 \code{/sys} 目录。属性文件是 (对象, 属性) 现算出来的视图，\code{/sys/class} 下则是链接回 \code{/sys/devices} 真身的符号链接。}
+  \label{fig:kobject-sysfs}
+\end{figure}
+
+\subsection{属性文件与 \code{DEVICE\_ATTR}}
+
+每个具体属性是一个 \code{device\_attribute}（\code{attribute} 加一对 show/store），用与 Linux 同名同形的宏声明：
+
+\begin{ccode}
+static DEVICE_ATTR_RO(ioaddr);        // console.c：MMIO 物理地址，只读
+static DEVICE_ATTR_RW(test_pattern);  // ov5647.c：测试图样，可写
+\end{ccode}
+
+设备对象自带的默认属性对齐 Linux：\code{name}、\code{subsystem}、\code{driver}、\code{modalias}、\code{uevent}；驱动目录有 \code{name}；总线目录有 \code{name} 与 \code{drivers\_probe}。
+
+\subsection{\code{uevent} 与 \code{drivers\_probe}：手工触发热插拔}
+
+\begin{itemize}
+  \item \code{uevent}（0644）：读它打印该设备的热插拔环境变量（\code{DRIVER=}、\code{MODALIAS=}）；写一个动作（\code{add}/\code{change}/\code{remove}）相当于把一次 uevent 手工补发一遍——未绑定且能算出 MODALIAS 的设备会走 \code{request\_module()}，与自动装载链复用同一入口。对应 Linux 的 \code{kobject\_uevent()}，只是省掉了 netlink 到用户态 \code{udev} 的传递。
+  \item \code{drivers\_probe}（0200）：往 \code{/sys/bus/<bus>/drivers\_probe} 写一个设备名，总线重新扫描并在设备未绑定时尝试 \code{bind()}，与 Linux 用它“重新触发一次匹配”的行为一致。
+\end{itemize}
+
+\subsection{\code{/sys/class} 与符号链接}
+
+\code{/sys/bus} 反映总线拓扑，而 \code{/sys/class/<类名>} 反映\textbf{功能分组}：跨总线、干同一件事的设备链接到一起（\code{tty}、\code{video4linux}……）。设备若声明了 \code{class}，\code{device\_register()} 就懒建类目录并放一个\textbf{符号链接}指回 \code{/sys/devices} 下的真身（Linux \code{device\_add\_class\_symlinks} / \code{sysfs\_create\_link}）：
+
+\begin{ccode}
+/sys/class/tty/bcm2837-mini-uart  ->  /sys/devices/bcm2837-mini-uart
+/sys/class/video4linux/ov5647     ->  /sys/devices/ov5647
+\end{ccode}
+
+渲染器在解析路径时对链接解引用，所以顺着类链接一路 \code{cat} 到设备属性完全透明。为把链接显式呈现，本工程补了一个最小 \code{readlink(2)}（\code{SYS\_readlink}，仅 sysfs 实现了 \code{readlink} inode 钩子，其它文件系统如同 Linux 对非链接返回 \code{EINVAL}），\code{ls} 据此打印 \code{name -> target}。
+
+\begin{note}
+与 Linux 的差异：本工程没有通用 VFS 符号链接与 \code{lstat}，链接只在 sysfs 渲染器内部解引用；\code{readlink} 返回绝对路径 \code{/sys/devices/...}，而 Linux 返回相对路径 \code{../../devices/...}。此外 \code{uevent} 未走 netlink 用户态 \code{udev}，\code{/sys/.../power} 电源管理尚未实现。
+\end{note}
 
 \section{上半部与下半部}
 
