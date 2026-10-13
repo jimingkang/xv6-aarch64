@@ -1052,7 +1052,7 @@ camera_init(void)
   // unicam_irq() masks a genuinely stuck/spurious line after 100 assertions.
   cam.irq_off = 0;
   bcm2837_disable_irq(CSI1_IRQ);
-  printf("camera: driver gpio-sccb-v8 unicam-irq-v3 double-buffer mmap\n");
+  printf("camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap\n");
   if(register_chrdev(CAMERA, "video0", &fops) < 0){
     printf("unicam: cannot register /dev/video0\n");
     return;

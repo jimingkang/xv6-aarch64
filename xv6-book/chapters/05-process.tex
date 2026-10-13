@@ -133,26 +133,92 @@ void userinit(void) {
   p->trapframe->spsr = 0;          // M[3:0]=0：EL0t
   p->trapframe->sp   = PGSIZE;     // 用户栈顶
   safestrcpy(p->name, "initcode", sizeof(p->name));
-  p->cwd = namei("/");
+  p->cwd = 0;                      // 由 forkret 中的 prepare_namespace() 设置
   make_runnable(p, 0);
   release(&p->lock);
 }
 \end{ccode}
 
-\code{initcode} 由 \file{user/initcode.S} 汇编而来，只做一件事：调用 \code{exec("/init")}。
+\code{spsr = 0} 有两层含义：\code{M[3:0] = 0} 表示回到 EL0t，\code{DAIF} 全部清零表示用户态开着中断。代码和栈共用这一页：代码只占开头 \code{0x48} 字节，\code{sp} 从 \code{0x1000} 往下长，而 initcode 根本不用栈。
+
+\subsection{initcode 做了什么}
+
+\code{initcode} 由 \file{user/initcode.S} 汇编而来，只做一件事：调用 \code{exec("/init")}。\file{kernel/proc.c} 里的 \code{initcode[]} 是它的机器码，按地址展开如下：
 
 \begin{asmcode}
-start:  ldr x0, =init          // 路径
-        ldr x1, =argv          // 参数表
-        mov x7, #SYS_exec
-        svc #0
-exit:   mov x7, #SYS_exit      // exec 失败才会到这里
-        svc #0
-        b exit
-init:   .ascii "/init\0"
+0x00  ldr x0, =init        // 字面量池 0x38 中是 0x1c，即 "/init"
+0x04  ldr x1, =argv        // 字面量池 0x40 中是 0x28，argv = {0x1c, 0}
+0x08  mov x7, #SYS_exec    // 本移植用 x7 传系统调用号（7）
+0x0c  svc #0
+0x10  mov x7, #SYS_exit    // 只有 exec 失败才会走到这里
+0x14  svc #0
+0x18  b   0x10
+0x1c  "/init\0"
+0x28  argv: .quad 0x1c, 0
 \end{asmcode}
 
-这个进程第一次被调度时，\code{swtch()} 恢复的 \code{x30} 是 \code{forkret}，于是“返回”到 \code{forkret()}。它释放调度器替它拿着的 \code{p->lock}；如果是系统中第一个进程，还要在进程上下文中初始化文件系统（\code{fsinit} 读 superblock、恢复日志，期间可能睡眠，所以不能放在 \code{main()} 里）。然后调用 \code{usertrapret(trapframe)}，从 trapframe 恢复寄存器，\code{eret} 到 EL0 的地址 0 开始执行用户代码。
+整个过程是：
+
+\begin{enumerate}
+  \item 第一次被调度时，\code{swtch()} 恢复的 \code{x30} 是 \code{forkret}，于是“返回”到 \code{forkret()}。它释放调度器替它拿着的 \code{p->lock}；作为系统中第一个进程，它还要调用 \code{prepare\_namespace()} 挂载根文件系统（读 superblock、恢复日志，期间可能睡眠，所以不能放在 \code{main()} 里），然后 \code{usertrapret()}，\code{eret} 到 EL0 的地址 0；
+  \item \code{svc} 陷入，\code{el0sync} 把寄存器压成 trapframe：\code{x0} 是 \code{"/init"}，\code{x1} 是 \code{argv}，\code{x7 = 7}；
+  \item \code{syscall()} 按 \code{x7} 调用 \code{sys\_exec()}，后者调用 \code{exec("/init", argv)}；
+  \item \code{exec()} 改写 trapframe：\code{elr} 设为 \file{/init} 的入口，\code{sp} 设为新用户栈，\code{x1} 设为 \code{argv}，返回值 \code{argc} 写进 \code{x0}；
+  \item \code{eret} 进入 \file{/init} 的 \code{main(1, \{"/init"\})}。initcode 那一页随旧页表一起释放；进程还是 pid 1，\code{initproc} 不变，只是换了镜像。
+\end{enumerate}
+
+如果第 4 步失败，例如根文件系统里没有 \file{/init}，\code{svc} 返回 $-1$，执行落到 \code{0x10} 的 \code{exit} 循环。\code{exit()} 发现 \code{p == initproc}，于是 \code{panic("init exiting")}。把根文件系统换成 ext2（第~\ref{chap:optional} 章）时，如果镜像里漏装了 \file{/init}，看到的就是这个 panic。
+
+\subsection{为什么需要 initcode}
+
+内核刚启动时只有 \code{main()}，它运行在 EL1，没有任何进程，因此有三件事做不到：
+
+\begin{itemize}
+  \item \textbf{读文件}：\file{/init} 在磁盘上，读它要睡眠等待 I/O，而 \code{sleep()} 需要 \code{myproc()}；根文件系统也要到 \code{forkret()} 才挂载；
+  \item \textbf{exec}：\code{exec()} 要改写 \code{p->trapframe}、替换 \code{p->vm->pagetable}，前提是已经有一个进程；
+  \item \textbf{进入 EL0}：唯一的办法是 \code{eret}，而 \code{eret} 需要一个已经映射好的用户程序。
+\end{itemize}
+
+initcode 是编译进内核镜像的一小段字节，不需要文件系统。它的作用是让 pid 1 存在，并让 pid 1 在用户态用普通的 \code{svc} 发起第一次 \code{exec}。这样，第一个程序和以后所有程序走的是同一条路径（\code{svc} $\to$ \code{el0sync} $\to$ \code{usertrap} $\to$ \code{sys\_exec} $\to$ \code{exec}），内核里没有“直接加载第一个程序”的特殊代码。顺带，开机时就把 EL0 $\to$ EL1 $\to$ EL0 的往返、系统调用分派和 trapframe 布局完整验证了一遍。
+
+\subsection{不用 initcode 的写法}
+
+initcode 不是必需的。Linux 的 \code{kernel\_init} 就是在内核态直接调用 \code{kernel\_execve()}，再像系统调用返回一样回到用户态。在本移植中，可以在 \code{forkret()} 第一次运行时直接调用内核的 \code{exec()}：
+
+\begin{ccode}
+if(first){
+  first = 0;
+  prepare_namespace();
+  blkdev_selftest();
+  static char *argv[] = { "/init", 0 };
+  int argc = exec("/init", argv);   // 内核态直接装入 /init
+  if(argc < 0)
+    panic("no /init on root filesystem");
+  tf->x0 = argc;                    // 没经过 syscall()，x0 要手动写
+}
+usertrapret(tf);
+\end{ccode}
+
+同时，\code{userinit()} 删掉 \code{uvminit()}、\code{sz = PGSIZE} 和设置 \code{elr}、\code{sp}、\code{spsr} 的三行，这些都由 \code{exec()} 设置。这样做是可行的：\code{forkret()} 运行在 pid 1 的进程上下文里，\code{allocproc()} 已经建好一张空页表供 \code{exec()} 替换；\code{exec()} 用 \code{copyout} 把参数拷进用户栈，参数来自内核数组也没有问题。两种做法的取舍见表~\ref{tab:initcode}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{保留 initcode 与在 \code{forkret} 中直接 exec}
+  \label{tab:initcode}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    & 保留 initcode & \code{forkret} 中直接 exec \\
+    \midrule
+    特殊路径 & 无，第一个程序也走 \code{svc} & \code{forkret} 多一段只运行一次的分支 \\
+    维护负担 & 手抄的 \code{initcode[]} 须与 \file{initcode.S} 同步 & 无 \\
+    找不到 \file{/init} & 报 \code{init exiting}，提示较绕 & 直接报 \code{no /init on root filesystem} \\
+    启动自检 & 开机即测一次完整的系统调用往返 & 要到 \file{/init} 运行后才有第一次系统调用 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+即使保留 initcode，也值得让 Makefile 用 \code{xxd -i} 从编译出的 \file{user/initcode} 自动生成这个数组，避免改了汇编却忘了改字节。
 
 \section{\code{fork()} 逐行解析}
 
@@ -243,13 +309,18 @@ void forkret(void)
   struct trapframe *tf = p->trapframe;
 
   release(&p->lock);            // 调度器替我们拿着的锁
-  if (first) {                  // 第一个进程：在进程上下文中初始化文件系统
+  if (first) {                  // 第一个进程：在进程上下文中挂载根文件系统
     first = 0;
-    fsinit(ROOTDEV);
+    prepare_namespace();        // rootfs、devtmpfs、挂载 root=、MS_MOVE、chroot
+    blkdev_selftest();
   }
   usertrapret(tf);              // 从 trapframe 返回用户态
 }
 \end{ccode}
+
+要分清 \code{forkret} 的角色：它只是新进程回到用户态的一块跳板，本身运行在 EL1，用的就是 \code{context.sp} 指定的那段栈，即紧挨在 trapframe 下方的内核栈。\code{sp} 的初值之所以设在 trapframe 下沿，是为了让 \code{forkret} 以及它调用的 \code{prepare\_namespace()} 从那里往下用栈，不覆盖 trapframe；trapframe 里准备好的用户现场要一直保持到 \code{eret} 那一刻。
+
+context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、跳到 \code{forkret}；\code{usertrapret} 用 trapframe 恢复用户寄存器并 \code{eret}。context 自己不参与返回用户态，它也不在栈上，而是 \code{struct proc} 的一个字段，\code{context.sp} 只是一个指向内核栈的数值。
 
 \section{上下文切换与调度器}
 
@@ -272,6 +343,55 @@ swtch:                          // void swtch(struct context *old, struct contex
 \end{asmcode}
 
 \code{ret} 跳到恢复出来的 \code{x30}：对于一个曾经让出过 CPU 的进程，那是它当年调用 \code{swtch()} 的下一条指令（在 \code{sched()} 里）；对于新进程，就是 \code{forkret}。
+
+\subsection{context 中保存的值}
+\label{sec:context-values}
+
+\code{allocproc()} 设的 \code{x30 = forkret}、\code{sp = trapframe} 只是第一次调度时用的初值。进程每次调用 \code{sched()} 让出 CPU，\code{swtch} 都会把当时真实的 \code{sp} 和 \code{x30} 写进 context，覆盖掉初值。下面是 \code{sched()} 的反汇编（地址取自当前编译出的 \file{kernel.asm}，重新编译后会变化）：
+
+\begin{asmcode}
+ffffff800008ed18:  add  x0, x21, #0xb0       // x0 = &p->context
+ffffff800008ed20:  add  x1, x1, #0x8         // x1 = &mycpu()->context
+ffffff800008ed24:  bl   swtch                // x30 <- 下一条指令的地址
+ffffff800008ed28:  mrs  x0, mpidr_el1        // mycpu()->intena = intena;
+ffffff800008ed2c:  and  x0, x0, #0xff
+ffffff800008ed30:  madd x0, x0, x20, x19
+ffffff800008ed34:  str  w22, [x0, #124]
+ffffff800008ed38:  ldp  x19, x20, [sp, #16]
+ffffff800008ed3c:  ldp  x21, x22, [sp, #32]
+ffffff800008ed40:  ldp  x29, x30, [sp], #48  // 弹出 sched 自己的栈帧
+ffffff800008ed44:  ret                       // 回到 yield / sleep / exit
+\end{asmcode}
+
+\paragraph{x30.} \code{bl swtch} 把下一条指令的地址 \code{0xffffff800008ed28} 放进 \code{x30}；\code{swtch} 是叶子函数，不压栈，直接把它存进 \code{p->context.x30}。因为 \code{sched()} 是让出 CPU 的唯一入口，\emph{所有}让出过 CPU 的进程的 \code{context.x30} 都是这同一个地址，无论它是被抢占、在睡眠还是正在退出。调度器自己的 \code{c->context.x30} 则是 \code{scheduler()} 中 \code{bl swtch} 的下一条，紧接着执行 \code{switchkvm()}。两者构成一对往返。
+
+\paragraph{sp.} \code{context.sp} 是调用 \code{swtch} 那一刻的 \code{sp}，也就是 \code{sched()} 栈帧的底部。它不再紧挨着 trapframe，深度取决于进程是从哪条路径进入 \code{sched()} 的。以用户态被定时器抢占为例，调用链是 \code{el0irq} $\to$ \code{userirq} $\to$ \code{yield} $\to$ \code{sched} $\to$ \code{swtch}，各函数序言的 \code{stp x29, x30, [sp, \#-N]!} 给出了栈帧大小：
+
+\begin{txtcode}
+p->kstack+4096 +-------------------------+
+               | trapframe        272 B  |  <- el0irq 的 usavereg
+               +-------------------------+  <- p->trapframe
+               | userirq 栈帧      32 B  |
+               | yield 栈帧        48 B  |
+               | sched 栈帧        48 B  |  （含 x19..x22）
+               +-------------------------+  <- context.sp = 栈顶 - 400
+               |         （空）          |
+p->kstack      +-------------------------+
+\end{txtcode}
+
+在系统调用里睡眠时（\code{usertrap} $\to$ \code{syscall} $\to$ \code{sys\_wait} $\to$ \code{wait} $\to$ \code{sleep} $\to$ \code{sched}），\code{context.sp} 更深；内核态被中断抢占时，栈上还多一份 \code{el1irq} 压的 272 字节内核现场。
+
+\paragraph{恢复.} \code{context.x30} 只负责把执行流带回 \code{sched()} 这一层，再往上靠的是栈上各层函数自己保存的 \code{x29}/\code{x30}。以上图为例：
+
+\begin{enumerate}
+  \item 调度器 \code{swtch(\&c->context, \&p->context)}：\code{sp} 设为“栈顶 $-$ 400”，\code{ret} 到 \code{0x\ldots ed28}；
+  \item \code{sched} 写回 \code{intena}，\code{ldp x29, x30} 弹出栈帧，\code{ret} 回到 \code{yield}；
+  \item \code{yield} 释放 \code{p->lock}，返回 \code{userirq}；
+  \item \code{userirq} 关中断后返回到 \code{el0irq} 中 \code{bl userirq} 的下一条，即 \code{trapret}；
+  \item \code{urestorereg} 从 trapframe 恢复用户寄存器，\code{sp} 回到栈顶，\code{eret}。
+\end{enumerate}
+
+新进程的栈上没有这些可以逐层返回的调用帧，所以 \code{allocproc()} 伪造了一个“刚从 \code{swtch} 返回”的 context：用 \code{forkret} 代替 \code{0x\ldots ed28}，用 trapframe 下沿代替“栈顶 $-$ 400”。\code{forkret} 再直接调用 \code{usertrapret(tf)}，一步跳到第 5 步。两条路最终都汇合到 \code{urestorereg; eret}，用的是同一个 trapframe。
 
 \subsection{调度循环}
 
@@ -400,9 +520,81 @@ A 的内核栈（高地址在下）            调度器栈（stack0）
 
 \section{\code{exec}、\code{exit} 与 \code{wait}}
 
-\code{exec(path, argv)} 读取 ELF 文件头，为每个 \code{PT\_LOAD} 段分配并装入内存，然后在其上方分配一页保护页和 4 页用户栈，把参数字符串和 \code{argv[]} 指针数组压栈。全部就绪后才替换旧的地址空间——任何一步失败，原进程都不受影响。新页表生效前调用 \code{uvmsync\_icache()}。
+\subsection{\code{exec}}
 
-\code{exit()} 关闭所有文件，把子进程过继给 \code{init}，把自己设为 ZOMBIE 并唤醒父进程，然后 \code{sched()}，再也不会回来。进程的内存和内核栈此时还不能释放（它正在这个内核栈上运行），要等父进程在 \code{wait()} 中找到 ZOMBIE 子进程后调用 \code{freeproc()} 回收。\code{init} 进程在一个循环里不停地 \code{wait()}，负责回收所有孤儿。
+\code{exec(path, argv)} 读取 ELF 文件头，在一张\emph{新}页表上为每个 \code{PT\_LOAD} 段分配并装入内存，然后在其上方分配一页保护页和 4 页用户栈，把参数字符串和 \code{argv[]} 指针数组压栈：
+
+\begin{txtcode}
+sz_top +----------------+  <- sp 初值
+       | argv 字符串     |  每个都按 16 字节对齐
+       | argv[] 指针数组 |  <- x1
+       |  ...           |  USTACKPAGES = 4 页
+       +----------------+  stackbase
+       | 保护页          |  uvmclear 去掉 PTE_U，溢出即 Data Abort
+       +----------------+
+       | text/data/bss  |
+0      +----------------+
+\end{txtcode}
+
+全部就绪后才替换旧的地址空间——任何一步失败，原进程都不受影响。提交时改写 trapframe：\code{elr} 设为 ELF 入口，\code{sp} 设为新栈顶，\code{spsr = 0}，\code{x1} 指向 \code{argv}；返回值 \code{argc} 由 \code{syscall()} 写入 \code{x0}。随后 \code{uvmsync\_icache()}（ARM 的指令缓存与数据缓存不一致，装入代码后必须同步）、\code{switchuvm()} 立即换 \reg{TTBR0\_EL1}，最后释放旧页表。\code{eret} 之后，用户态从 \code{main(argc, argv)} 开始执行。
+
+\code{exec} 不建新进程，也不碰 context，只把 trapframe 改写成“一个新程序刚开始”的样子；pid、打开的文件、当前目录都保留，shell 的重定向正是建立在这一点上。
+
+\subsection{\code{exit} 与 \code{wait}}
+
+\code{exit()} 关闭所有文件，把子进程过继给 \code{init}，把自己设为 ZOMBIE 并唤醒父进程，然后 \code{sched()}，再也不会回来。有两样东西 \code{exit()} 不能当场释放：内核栈（它正运行在这一页上，直到最后的 \code{swtch} 为止）和退出码 \code{xstate}（父进程还没来取）。所以要由父进程在\emph{自己的}内核栈上调用 \code{wait()} 回收。
+
+\code{sys\_wait()} 只是一层薄包装：用 \code{argaddr(0, \&p)} 从 trapframe 的 \code{x0} 取出用户传入的 \code{int *status}，再调用 \code{wait(p)}。\code{p} 是用户虚拟地址，内核不能直接解引用，只能通过用户页表 \code{copyout}。
+
+\begin{ccode}
+int wait(uint64 addr)
+{
+  acquire(&wait_lock);
+  for(;;){
+    havekids = 0;
+    for(np = proc_head; np; np = np->next){
+      if(np->parent == p && !np->is_thread){
+        acquire(&np->lock);
+        havekids = 1;
+        if(np->state == ZOMBIE){                 // 找到一个已退出的子进程
+          pid = np->pid;
+          if(addr != 0) copyout(p->vm->pagetable, addr,
+                                (char *)&np->xstate, sizeof(np->xstate));
+          freeproc(np);                          // 释放 vmspace 和内核栈
+          release(&np->lock); release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+    if(!havekids || p->killed){ release(&wait_lock); return -1; }
+    sleep(p, &wait_lock);                        // 有孩子但都还活着
+  }
+}
+\end{ccode}
+
+\code{wait()} 只在一种情况下睡眠：有子进程，而且它们都还在运行。已经有 ZOMBIE 时它立即回收并返回 pid；没有子进程或自己被 kill 时立即返回 $-1$。睡眠的通道是父进程自己的 \code{struct proc} 地址，与 \code{exit()} 中的 \code{wakeup(p->parent)}、\code{reparent()} 中的 \code{wakeup(initproc)} 对应。父进程从扫描到睡下一直持有 \code{wait\_lock}，子进程也必须先拿 \code{wait\_lock} 才能唤醒，所以唤醒不会丢失。被唤醒后回到 \code{for} 循环开头重新扫描，因为可能同时有几个子进程退出，也可能是 \code{reparent} 引起的唤醒。
+
+\code{freeproc()} 依次 \code{vmspace\_put()}（引用计数归零才释放用户内存）、\code{free\_kstack()}（trapframe 也在这一页里，一起释放），最后把状态改回 UNUSED。父进程如果始终不调用 \code{wait()}，子进程就一直以 ZOMBIE 状态占着内核栈和槽位，这就是“僵尸进程”（\file{user/zombie.c} 演示了这一点）。
+
+\code{sh} 执行每条命令都是 \code{fork} $\to$ 子进程 \code{exec} $\to$ 父进程 \code{wait}，所以命令结束才出现下一个提示符。\code{init} 在循环里不停地 \code{wait()}：返回 login/sh 的 pid 时重新 fork 一个，返回别的 pid 说明回收了一个过继来的孤儿。正因为要收养孤儿，\code{init} 绝不能退出。
+
+\subsection{在系统调用里睡眠不是异常}
+
+\code{sleep} $\to$ \code{sched} $\to$ \code{swtch} 都是普通的 \code{bl}/\code{ret} 函数调用，全部在 EL1 内完成，不经过向量表，也不碰 \reg{ESR\_EL1}、\reg{ELR\_EL1}、\reg{SPSR\_EL1}。一次 \code{wait()} 从头到尾只有一次异常进入和一次异常返回：
+
+\begin{txtcode}
+EL0  svc #0  (x7 = SYS_wait)
+       |  <- 唯一一次异常：来源 EL0，同步 -> +0x400 el0sync
+EL1  usavereg -> usertrap -> syscall -> sys_wait -> wait
+       -> sleep -> sched -> bl swtch
+     ... CPU 运行别的进程；子进程 exit -> wakeup(父)，被调度回来 ...
+     swtch ret -> sched -> sleep -> wait 返回 pid -> usertrap 返回
+     urestorereg ; eret        <- 异常返回
+EL0  svc 的下一条指令，x0 = 子进程 pid
+\end{txtcode}
+
+这次 \code{el0sync} 的处理可能持续好几秒，中间夹着许多其他进程的运行，但对硬件来说它一直没有结束。所以“在系统调用里睡眠”属于 \code{el0sync} 而不是 \code{el1sync}：格子由异常\emph{来自}哪一级决定，而睡眠本身根本不是异常（详见第~\ref{sec:exc-events} 节）。
 
 \section{睡眠、唤醒与同步原语}
 

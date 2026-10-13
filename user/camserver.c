@@ -710,13 +710,6 @@ broadcast(const uchar *data, uint len)
   return clock_us() - begin;
 }
 
-static void
-drop_all_viewers(void)
-{
-  while(nclients > 0)
-    close(clients[--nclients]);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -797,10 +790,14 @@ main(int argc, char **argv)
       continue;
     }
     if(job.error || job.len == 0 || job.len > JPEG_CAP){
-      printf("camserver: stream pipeline failed\n");
+      printf("camserver: stream pipeline failed; keeping viewers and "
+             "retrying camera\n");
       sem_post(&encoded_free);
       pipeline_stop_stream();
-      drop_all_viewers();
+      // The capture worker closes both video fds and powers the sensor down
+      // after publishing the error.  Leave the multipart HTTP connections
+      // open: the next main-loop iteration starts a new generation and a
+      // recovered camera can resume without forcing the browser to reconnect.
       sleep(10);
       continue;
     }

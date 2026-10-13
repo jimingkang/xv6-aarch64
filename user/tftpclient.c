@@ -152,7 +152,7 @@ download(uint32 server, const char *remote_name)
   uchar *rrq = tftp_rrq;
   uchar *packet = tftp_packet;
   uint16 server_port = 0, expected_block = 1, last_ack = 0;
-  int rrq_len, packet_len, fd, total = 0, retries = 0, name_len;
+  int rrq_len, packet_len, fd = -1, total = 0, retries = 0, name_len;
   int start_ticks, last_progress = 0;
 
   memset(final_path, 0, TFTP_PATH_SIZE);
@@ -166,15 +166,8 @@ download(uint32 server, const char *remote_name)
     return -1;
   }
   memmove(final_path + sizeof("/boot/") - 1, remote_name, name_len + 1);
-  fd = open(final_path, O_WRONLY | O_CREATE | O_TRUNC);
-  if(fd < 0){
-    printf("tftpclient: cannot create %s (check that /boot is mounted rw)\n",
-           final_path);
-    return -1;
-  }
   if(udp_bind(LOCAL_PORT) < 0){
     printf("tftpclient: cannot bind local UDP port %d\n", LOCAL_PORT);
-    close(fd);
     return -1;
   }
 
@@ -185,6 +178,16 @@ download(uint32 server, const char *remote_name)
   if(receive_first_data(server, LOCAL_PORT, rrq, rrq_len, packet,
                         &packet_len, &server_port) < 0){
     printf("tftpclient: no response from server\n");
+    goto failed;
+  }
+
+  // Do not destroy a known-good boot image merely because Wi-Fi is being
+  // rekeyed or the TFTP server is temporarily unreachable.  Truncate the
+  // destination only after the server has answered the RRQ.
+  fd = open(final_path, O_WRONLY | O_CREATE | O_TRUNC);
+  if(fd < 0){
+    printf("tftpclient: cannot create %s (check that /boot is mounted rw)\n",
+           final_path);
     goto failed;
   }
 
@@ -283,9 +286,13 @@ download(uint32 server, const char *remote_name)
   return 0;
 
 failed:
-  close(fd);
+  if(fd >= 0)
+    close(fd);
   udp_unbind(LOCAL_PORT);
-  printf("tftpclient: incomplete download remains at %s\n", final_path);
+  if(fd >= 0)
+    printf("tftpclient: incomplete download remains at %s\n", final_path);
+  else
+    printf("tftpclient: existing %s was left unchanged\n", final_path);
   return -1;
 }
 

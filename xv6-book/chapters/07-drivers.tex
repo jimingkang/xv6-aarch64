@@ -159,7 +159,7 @@ REGS_AUX->mu_control = 3;              // 打开收发
 \section{USB 与 HID 键盘}
 \label{sec:usb}
 
-USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚：先看硬件路径和三层软件的分工，再看一次事务在总线上如何由 Token、Data、Handshake 三相包组成，然后顺着描述符与 control 传输完成枚举，然后处理高速 Hub 后面低速设备的 split 时序，接着用 URB 和中断把一份按键报告送到输入子系统与 \code{/dev/input/eventN}，最后补上 Hub 中断驱动的热插拔，以及真机上从 STALL 走到第一份报告的九个阶段。
+USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄存器，到 Hub、事务转换器、描述符、HID 报告，再到输入子系统和控制台。本节沿着“插上键盘—识别—配置—读按键”的顺序，把每一层讲清楚：先看硬件路径和三层软件的分工，再看一次事务在总线上如何由 Token、Data、Handshake 三相包组成，然后顺着描述符与 control 传输完成枚举，然后处理高速 Hub 后面低速设备的 split 时序，接着用 URB 和中断把一份按键报告送到输入子系统与 \code{/dev/input/eventN}，最后是真机上从 STALL 走到第一份报告的九个阶段。Hub 中断驱动的热插拔、复合 HID 接口和驱动模块的自动装载放在第~\ref{chap:hotplug} 章。
 
 \subsection{三层软件与硬件路径}
 
@@ -302,6 +302,103 @@ USB 键盘（低速 1.5 Mb/s）
 \paragraph{host channel 与 DMA.} DWC2 有 8 个 host channel，每个 channel 是一组寄存器，描述“对哪个设备的哪个端点做一次什么传输”：\reg{HCCHAR}（设备地址、端点号、方向、传输类型、最大包长、是否低速）、\reg{HCSPLT}（split 事务参数）、\reg{HCTSIZ}（字节数、包数、DATA0/1）、\reg{HCDMA}（缓冲区的总线地址）、\reg{HCINT}（完成、ACK、NAK、NYET、错误等状态）。本项目固定分工：ch0 做枚举时的 control 传输，ch6 给键盘的 interrupt-IN，ch4 给 MT7601U 的 bulk-IN。和 Arasan 不同，DWC2 自己用 DMA 读写内存，所以缓冲区在提交前要 clean、完成后要 invalidate 缓存，地址也要换成 \code{0xC0000000|PA} 的总线地址。
 
 \paragraph{一切都在 Hub 后面.} 树莓派 3 的 SoC 只有一个 USB 口，直接接板载 LAN9514，它内部是一个高速 Hub 加一块 USB 以太网卡（在 3B+ 上还有第二层 Hub）。外面插的键盘一般是低速（1.5\,Mb/s）设备，而 DWC2 和 Hub 之间跑的是高速（480\,Mb/s）。两种速率之间靠 Hub 里的\emph{事务转换器}（TT）衔接，这就是后面 split transaction 的由来。
+
+\subsection{内核软件框架：五层栈与三条抽象边界}
+
+上一小节把驱动粗分成 HCD、USB core、类驱动三层；落到代码里，一份键盘输入实际要穿过\textbf{五层}软件栈，外加一层正交的通用设备模型（图~\ref{fig:usb-stack}）。这套分层照搬 Linux 的 \file{drivers/usb} 加 \file{drivers/base}：相邻两层之间由一张\emph{函数指针表}（ops）隔开，上层只认这张表、不认下层的具体实现——于是换一块控制器（改 \file{dwc2.c}）不动任何类驱动，加一个类驱动（\file{usbmouse.c}、\file{mt7601u.c}）也不动 core 和 HCD。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.82\linewidth}{!}{%
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      L/.style={draw=structurecolor!70!black, rounded corners=2pt, align=center,
+        text width=62mm, minimum height=11mm, inner sep=2.5pt},
+      bnd/.style={font=\tiny\itshape, text=gray!55!black, align=center, text width=72mm},
+      dn/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=structurecolor!80!black},
+      up/.style={-{Stealth[length=2.2mm]}, dashed, line width=1pt, draw=red!65!black}]
+    \node[L, fill=gray!10, draw=gray!70!black] (h0) at (0,0)
+      {\textbf{硬件}\\DWC2 控制器 → 高速 Hub → 低速键盘};
+    \node[L, fill=orange!8] (h1) at (0,18)
+      {\textbf{HCD}\ \file{kernel/dwc2.c}\\host channel + DMA + IRQ 9};
+    \node[L] (h2) at (0,36)
+      {\textbf{USB core}\ \file{kernel/usb.c}\\\code{struct usb\_device} · \code{struct urb}};
+    \node[L] (h3) at (0,54)
+      {\textbf{类驱动 HID}\ \file{usbkbd.c}\\\code{struct usb\_driver} · \code{usbkbd\_state}};
+    \node[L, fill=blue!6] (h4) at (0,72)
+      {\textbf{输入核心}\ \file{kernel/input.c}\\\code{struct input\_dev}};
+    \node[L, fill=teal!8, draw=teal!60!black] (h5) at (0,90)
+      {\textbf{用户空间}\\read(\file{/dev/input/eventN}) · \code{struct input\_event}};
+    % boundary ops tables (the abstraction edges)
+    \node[bnd] at (0,9)  {寄存器 \reg{HCCHAR}/\reg{HCSPLT}/\reg{HCTSIZ}/\reg{HCDMA} · DMA · IRQ};
+    \node[bnd] at (0,27) {\textbf{边界 1} \code{struct usb\_host\_ops}：\\
+      \code{submit\_urb}/\code{kill\_urb}/\code{control}/\code{bulk}  ↓\ ·\ \code{usb\_hcd\_giveback\_urb()}  ↑};
+    \node[bnd] at (0,45) {\textbf{边界 2} \code{usb\_submit\_urb()}  ↓\ ·\ \code{urb->complete()}  ↑};
+    \node[bnd] at (0,63) {\textbf{边界 3} \code{input\_report\_key()}/\code{input\_sync()}  ↑};
+    \node[bnd] at (0,81) {\code{evdev\_fops}（\code{open}/\code{release}/\code{fread}）· \code{struct input\_event}};
+    % side arrows: down = submit, up = completion
+    \draw[dn] (-38,88) -- (-38,2);
+    \node[bnd, rotate=90] at (-39.5,45) {下行：提交请求};
+    \draw[up] (38,2) -- (38,88);
+    \node[bnd, rotate=-90] at (39.5,45) {上行：完成 / 事件};
+  \end{tikzpicture}%
+  }
+  \caption{USB 键盘在内核里的五层软件栈。相邻层之间是一张 ops 回调表（图中三条加粗编号的边界），
+  它把上层的调用与下层实现解耦。左实线是自上而下提交请求的路径，右虚线是自下而上送回完成与事件的路径；
+  两条路径合起来构成一次 URB 的往返}
+  \label{fig:usb-stack}
+\end{figure}
+
+\paragraph{边界 1：\code{usb\_host\_ops}——core 与 HCD 之间.}
+这是本项目里 Linux \code{usb\_hcd} 的等价物（\file{usb.h}）。core 层只通过这张表驱使硬件：下行有 \code{submit\_urb}/\code{kill\_urb}（异步 URB）和 \code{control}/\code{bulk}/\code{bulk\_rx\_arm}（同步请求）；上行则\emph{只留一个入口} \code{usb\_hcd\_giveback\_urb()}——HCD 完成一笔传输后必须回到这个函数，由 core 再把结果转交给发起者的 \code{urb->complete} 回调。整张表在 \file{dwc2.c} 里实例化为 \code{dwc2\_usb\_ops}，枚举出的每个设备、乃至合成的根 Hub，都把 \code{udev->ops} 指向它。
+
+\paragraph{边界 2：\code{urb} 与 \code{urb->complete}——core 与类驱动之间.}
+类驱动不直接碰寄存器，而是填一个 Linux 风格的 \code{struct urb}（端点号、方向、缓冲区、\code{complete} 回调），交给 \code{usb\_submit\_urb()}。下行链是：
+
+\begin{txtcode}
+usbkbd_submit / usb_submit_urb(urb)          # usbkbd.c -> usb.c
+  -> urb->dev->ops->submit_urb(urb)          # 函数指针跳转：core -> HCD
+     -> dwc2_submit_urb                      # dwc2.c
+        -> 占用 interrupt_rx[] 槽位，编程 ch6 的 HCCHAR/HCSPLT/HCTSIZ/HCDMA
+\end{txtcode}
+
+上行链把完成一路送回用户空间，中间两次跨越“硬中断→工作队列”的上下半部边界：
+
+\begin{txtcode}
+IRQ 9 -> dwc2_irq -> dwc2_interrupt_urb_work # 硬中断只 schedule_work
+  -> usb_hcd_giveback_urb(urb, status, len)  # HCD -> core（唯一入口）
+     -> urb->complete(urb)                   # 函数指针跳转：core -> 类驱动
+        -> usbkbd_irq_complete -> queue_work(usbkbd_wq, rx_work)
+           -> usbkbd_rx_work -> input_report_key()/input_sync()   # 边界3
+              -> evdev_pass_event -> wake_up(client)
+                 -> read(/dev/input/eventN) 返回一个 input_event   # 用户空间
+\end{txtcode}
+
+\paragraph{边界 3：\code{input\_dev}——类驱动与输入核心之间.}
+类驱动解析完 HID 报告后，只调用 \code{input\_report\_key()}/\code{input\_sync()} 把语义化事件丢进输入核心，完全不知道 evdev、控制台或任何具体消费者。输入核心再把它分发给每个打开的 \code{evdev\_client}（图里最上面那条边界），同时另一路经 \code{consoleintr()} 复用串口 TTY 的回显与行规程——一份报告、两个消费者。
+
+\paragraph{正交的一层：通用设备模型.}
+上面五层是“数据通路”，还有一层\emph{横向}的注册/绑定机制把它们接起来，即 \file{device.c} 的 \code{struct bus\_type}。USB core 向设备模型注册一条名为 \code{usb} 的总线（\code{usb\_bus}，带 \code{match}/\code{probe}/\code{remove}/\code{modalias} 四个钩子），类驱动 \code{usb\_register\_driver()}、枚举出的设备 \code{usb\_device\_register()} 分别把自己挂上去；一旦设备和驱动在总线上相遇，\code{usb\_match()} 按 class/subclass/protocol 或 ID 表判定匹配，\code{usb\_probe()} 调用类驱动的 \code{probe()}。热插拔与自动装载正来自这一层：匹配失败时 \code{modalias} 生成 \code{usb:cXXsXXpXX} 触发 \code{request\_module()} 去加载对应的 \code{.ko}（详见 §\ref{sec:usb-hotplug} 与 §\ref{sec:usb-mouse-autoload} 鼠标自动装载一节）。
+
+\paragraph{与 Linux 的对应与简化.}
+表~\ref{tab:usb-stack-map} 给出每层对应的 Linux 路径。本项目有两处刻意的简化：其一，没有独立的 \code{usb\_hcd} 对象，也没有单独的 hub-driver 层——\file{dwc2.c} 同时充当 platform 驱动（HCD）、根 Hub 的模拟者（\code{dwc2\_root\_hub} 复用自己的 \code{dwc2\_usb\_ops}）和总线枚举者；其二，\code{usb\_host\_ops} 把异步 URB 接口和遗留的同步 \code{control}/\code{bulk} 混在同一张表里，类驱动在枚举阶段可以直接调用同步接口，运行期才走 URB。
+
+\begin{table}[htbp]
+  \centering
+  \caption{本项目 USB 软件栈各层与 Linux 的对应}
+  \label{tab:usb-stack-map}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    本项目 & Linux 对应 & 职责 \\
+    \midrule
+    \file{dwc2.c}（\code{usb\_host\_ops}） & \file{drivers/usb/host/dwc2} + \code{usb\_hcd} & 把 URB 翻译成 host channel 寄存器与 DMA，收完成中断 \\
+    \file{usb.c} & \file{drivers/usb/core} & URB 生命周期、\code{giveback}、设备/驱动注册入口 \\
+    \file{device.c}（\code{bus\_type}） & \file{drivers/base} & 总线/设备/驱动模型，match–probe、热插拔、自动装载 \\
+    \file{usbkbd.c}、\file{mt7601u.c} & \file{drivers/hid/usbhid}、\file{drivers/net/usb} & 类驱动：解析各自协议的报告/报文 \\
+    \file{input.c} + evdev & \file{drivers/input} + \file{drivers/input/evdev} & 事件分发到 \file{/dev/input/eventN} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
 
 \subsection{事务格式：Token、Data、Handshake 三相}
 
@@ -624,7 +721,7 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
 
 \code{SET\_PROTOCOL(boot)} 很关键。HID 设备本来用“报告描述符”描述自己的报告格式，解析它需要一个不小的解释器；而 Boot 协议是 BIOS 时代为了不解析报告描述符而规定的固定格式，所有键盘都必须支持。用它，驱动只需理解图~\ref{fig:hid-report} 这 8 个字节。
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
   \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize]
     \foreach \i/\t/\c in {0/{修饰键}/orange!20, 1/{保留}/gray!10, 2/{键 1}/structurecolor!15, 3/{键 2}/structurecolor!15, 4/{键 3}/structurecolor!15, 5/{键 4}/structurecolor!15, 6/{键 5}/structurecolor!15, 7/{键 6}/structurecolor!15}{
@@ -642,7 +739,7 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
 
 最后，\code{usb\_device\_register()} 把设备交给 USB 总线，总线按 class/subclass/protocol 匹配到 \code{usbhid-keyboard} 驱动，调用 \code{usbkbd\_probe()}：发送上面两个 HID 请求，分配每设备的 \code{usbkbd\_state} 和 URB，注册 \code{input\_dev}，然后第一次提交 URB。
 
-% 总线报文时序图（fig:usb-hid-enum-sequence）已移到 §7.4.9 热插拔一节；这里给出同一过程的软件调用链。
+% 总线报文时序图（fig:usb-hid-enum-sequence）已移到 §\ref{sec:usb-hotplug} 热插拔一节；这里给出同一过程的软件调用链。
 \paragraph{枚举与配置的软件函数调用链.}
 图~\ref{fig:usb-hid-enum-call-chain}回答的是“这些报文由哪一个 C 函数发起、
 设备何时进入通用设备模型，以及键盘的 interrupt-IN 请求最终在哪里启动”；
@@ -756,9 +853,6 @@ for(int off = 0; off + 9 <= total && ctrl_buf[off] >= 2; off += ctrl_buf[off]){
     交给设备模型；\code{usb\_match()}选择驱动，\code{usbkbd\_probe()}完成
     HID 类请求、输入设备注册和第一只运行期 URB 的提交。
 \end{enumerate}
-
-% 两张图均在 7.4.4 之前排完，防止小节标题越过浮动体。
-\clearpage
 
 \subsection{Split transaction：高速 Hub 后面的低速设备}
 
@@ -1112,6 +1206,58 @@ $ evtest /dev/input/event0 # 每次按下/松开各一条 EV_KEY，帧尾一条 
 
 \paragraph{引用计数与生命周期.} \code{input\_dev} 由 \code{kalloc()} 分配，初始引用属于类驱动；每个打开的 event fd 再加一个引用。\code{usb\_free\_urb()} 和 \code{kfree(kbd)} 发生在 remove 路径上，而 \code{input\_dev} 的内存要等最后一个 fd 关闭才释放——这样“驱动已经卸载”和“用户还在读旧事件”两件事可以同时成立。注销路径因此不会睡眠等待用户空间关闭 \code{/dev/input/event0}。
 
+\subsection{中断传输：小、周期、低延迟}
+\label{sec:usb-interrupt}
+
+上一节把一份报告\emph{到手之后}的软件分发讲完了，这一节回到总线上，看\emph{一次} interrupt 传输到底搬了些什么。§\ref{sec:usb} 开头已经点破“interrupt”这个名字的误会：设备从不主动打断主机，是主机每 \code{bInterval} 毫秒替 CPU 问一次。interrupt 与 bulk 用的是同一套可靠机制（Handshake 加 \code{DATA0}/\code{DATA1} 翻转），唯一的区别就是这条\emph{周期承诺}——主机必须按时来问，于是延迟有界；代价是每次问的量很小（不超过端点的 \code{mps}），正合 HID 按键这种“来得快、内容短”的负载。
+
+把这三句话落到一次真实按键上。按下字母 \code{l}（没有配合任何修饰键）时，串口上会滚出三行：
+
+\begin{txtcode}
+dwc2: ch6 transfer complete addr=4 ep=1 bytes=8 data=0,0,f,0,0,0,0,0
+usbkbd: channel 6 IRQ received
+usbkbd: first HID report mod=0 keys=f,0,0,0,0,0
+\end{txtcode}
+
+这三行正好是三层各说一句。第一行来自 HCD（\file{dwc2.c}）：ch6 这一轮 interrupt-IN 完成，\reg{HCINT} 的传输完成位置位，DMA 已经把 \code{bytes=8} 个字节写进内存，于是把缓冲区原样打出来——\code{addr=4 ep=1} 说明这是对地址 4 的设备、端点 1（IN）的轮询。第二行是 USB core 经唯一入口 \code{usb\_hcd\_giveback\_urb()} 回调进类驱动（边界 2，见 §\ref{sec:usb}“内核软件框架”一节），\file{usbkbd.c} 报告“ch6 的事件到了”。第三行才是类驱动把这 8 字节\emph{拆开读}：\code{mod=0} 是修饰位图，\code{keys=f,...} 是六个键槽的内容。
+
+\paragraph{8 字节报文的逐字段格式.} Boot Keyboard（HID boot protocol）的报告是\emph{定长} 8 字节，一次 interrupt-IN 恰好搬一个完整报告，所以 \code{bytes=8} 就等于 \code{mps}，不需要像 bulk 那样靠“短包”标志结束：
+
+\begin{table}[htbp]
+  \centering
+  \caption{按下 \code{l} 时那 8 字节报告（\code{0,0,f,0,0,0,0,0}）的逐字段拆解}
+  \label{tab:usb-hid-report}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llcX@{}}
+    \toprule
+    偏移 & 字段 & 本次值 & 含义 \\
+    \midrule
+    byte 0 & Modifier 位图 & \code{0x00} & 八个修饰键各占一位（bit0--3＝左 Ctrl/Shift/Alt/GUI，bit4--7＝右侧四个），全 0 表示没按任何修饰键 \\
+    byte 1 & Reserved & \code{0x00} & Boot 协议固定保留字节，恒 0 \\
+    byte 2 & Key 0 & \code{0x0F} & 第一个键槽：HID usage \code{0x0f}，即字母 \code{l} \\
+    byte 3--7 & Key 1--5 & \code{0x00} & 其余五个键槽，\code{0x00}＝该槽无按键（一份报告最多同时报 6 个键） \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+关键在于 byte 2 的 \code{0x0f} 是 \emph{HID usage ID}，不是 ASCII。HID 键盘用途表从 \code{0x04} 起排字母，\code{0x04}＝\code{a}，所以 \code{l} 是第 12 个字母、usage＝\code{0x04}+11＝\code{0x0f}；而 \code{l} 的 ASCII 是 \code{0x6c}，两者毫无关系。这正是 \file{usbkbd.c} 里 \code{keymap[]}/\code{hid\_to\_key[]} 要\emph{按 usage 编号索引}（\code{[4]='a'}）而不能直接当字符输出的原因。六个键槽全 \code{0x00} 才表示“没键按下”，而 \code{0x01}～\code{0x03} 是保留的错误码（rollover 等），驱动会原样保留上一份报告——这条特判在 §\ref{sec:usb-input} 展开。
+
+\paragraph{总线上的一来一回.} 这 8 字节是被一次普通的 IN 事务取回的，三相结构和 §\ref{sec:usb} 里画的完全一样，只是没有 SETUP/STATUS 那套“先谈请求”的外壳：
+
+\begin{txtcode}
+主机每 bInterval(10 ms) 用 ch6 发起一次 IN：
+  IN token    ADDR=4 ENDP=1              主机 -> 键盘   "EP1 有报告吗？"
+键盘有新数据时：
+  DATA0/DATA1  [8 字节负载] CRC16         键盘 -> 主机   <- 就是 data=0,0,f,0,0,0,0,0
+  ACK                                     主机 -> 键盘   "收下"
+键盘没有键按下时：
+  NAK                                     键盘 -> 主机   "暂无数据"，本轮不算完成，ch6 稍后重新 arm
+\end{txtcode}
+
+设备只在\emph{有新报告}时才翻转 \code{DATA0}/\code{DATA1}，回 NAK 的空轮询保持翻转不变；主机侧对应地用 \code{udev->interrupt\_in\_toggle} 跟进，两边对不上就报 \reg{HCINT} 的数据翻转错。因为键盘挂在高速 Hub 后面、自己是低速设备，上面这组 IN/DATA/ACK 实际是被拆成 SSPLIT/CSPLIT 两拍由事务转换器代跑的（§\ref{sec:usb} 的 split transaction 一节）——但对类驱动而言，看到的仍是“ch6 完成、8 字节到手”这一个干净的事件。
+
+数据到手之后的事——与 \code{kbd->previous} 逐槽比较、\code{input\_report\_key()} 上报、查 \code{keymap} 生成字符送 \code{consoleintr()}、再 \code{usb\_submit\_urb()} 重新 arm ch6——就是 §\ref{sec:usb-input} 的内容了。下一小节把这份一模一样的 8 字节报告拿去和 bulk 对照，看“周期承诺”这一条差异如何决定键盘非用 interrupt 不可。
+
 \subsection{Bulk 传输：量大、可等待、不许出错}
 
 前面反复出现的键盘，其实\emph{不是} bulk 设备：它那份 8 字节 Boot 报告走的是 interrupt-IN（ch6）。把这份报告拿来和 bulk 对照，最能划清两者的边界。bulk 的定位是“数据多、什么时候到都行、但一个字节都不能错”——它和 interrupt 一样靠 Handshake 与 DATA0/DATA1 翻转保证可靠，却\textbf{放弃了周期承诺}：不预留带宽，只在每帧里别人用完剩下的时间见缝插针地搬，一次可以推很多包，发不动时靠设备回 NAK 做背压，主机稍后重发，直到回 ACK。
@@ -1135,155 +1281,7 @@ $ evtest /dev/input/event0 # 每次按下/松开各一条 EV_KEY，帧尾一条 
 
 一次 bulk 事务仍是三相，只是没有 SETUP/STATUS 那套“先谈请求”的结构，纯做单向搬运：OUT 方向主机发 \code{OUT} token 加 Data 包，设备回 ACK（收下）、NAK（缓冲区满，稍后再试）或 STALL（端点被 halt）；IN 方向主机发 \code{IN} token，设备回 Data、NAK（暂无数据）或 STALL。数据翻转保证主机不会把重传包误当成新数据，短于 mps 的包标志一次 bulk 传输结束。
 
-本项目里真正的 bulk 用户是 MT7601U 无线网卡的 bulk-IN/bulk-OUT（ch4，详见 §7.7）：收空中进来的网络帧、发待发送的报文，数据量随流量起伏、又绝不容错，正是 bulk 的教科书场景——与“小、周期、低延迟”的键盘 interrupt 恰好互补。
-
-\subsection{Hub 中断驱动的 USB 热插拔}
-\label{sec:usb-hotplug}
-
-键盘按键报告和 USB 拓扑变化是两种不同的事件。按键数据由键盘自己的
-interrupt-IN URB 接收；热插拔则由 LAN951x Hub 的 interrupt-IN endpoint
-通知主机。当前 DWC2 为 Hub 的长期 URB 固定使用 channel 7，为唯一 HID
-数据 URB 使用 channel 6。Hub 空闲时会对 interrupt-IN 返回 NAK，HCD 按
-\code{bInterval} 重新调度请求；只有端口变化位图非零时才唤醒 Hub 事件
-worker，不再每隔固定时间轮询所有端口的 EP0。
-
-整个“插入键盘→枚举→可按键”的过程，可以串成一条从端口变化到第一个按键的总线时间线（图~\ref{fig:usb-hid-enum-sequence}）：开机时四个端口都空载，控制器把 ch7 挂在 Hub 的 interrupt-IN 上等待热插拔；插入 port 3 之后由端口变化中断触发 reprobe，低速键盘的 EP0 枚举全部经 Hub 的 TT 拆成 SSPLIT/CSPLIT；驱动绑定完成后，周期 interrupt-IN 固定交给 ch6，直到某个按键的 HID 报告变成用户空间的事件。
-
-\begin{figure}[p]
-  \centering
-  \resizebox{\linewidth}{!}{%
-  \input{chapters/fig-usbkbd-hotplug-seq}
-  }
-  \caption{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。
-  ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT
-  经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子
-  系统发布为事件}
-  \label{fig:usb-hid-enum-sequence}
-\end{figure}
-
-\begin{txtcode}
-Hub interrupt endpoint
-  -> DWC2 channel 7 DMA receives change bitmap
-  -> IRQ 9 records completion and queues hub_event_work
-  -> dwc2_hub_wq examines changed ports only
-  -> GET_STATUS / CLEAR_FEATURE for those ports
-  -> compare connected bitmap
-\end{txtcode}
-
-硬中断只处理 host-channel 完成并排入工作项，不在 IRQ 中进行 Hub control
-传输。独立的 \code{dwc2\_hub\_wq} 根据 bitmap 中标记的端口发送
-\code{GET\_STATUS}，读取连接状态和变化位，再用 \code{CLEAR\_FEATURE}
-清除已处理的 port change feature。比较新旧 connected bitmap 后，只有拓扑
-确实变化才启动重枚举；因此空闲 NAK 不会造成无意义的全端口扫描。
-
-设备拔出时，类驱动和 input/evdev 的资源按逆序回收：
-
-\begin{txtcode}
-usb_device_unregister(old_child)
-  -> usbhid remove()
-  -> mark device disconnected
-  -> usb_kill_urb()
-       -> stop/mask the HID host channel
-       -> wait for completion callback
-  -> cancel_work_sync()
-  -> input_unregister_device()
-       -> remove event-minor registration
-       -> wake blocked event readers
-  -> release driver-owned references
-\end{txtcode}
-
-注销 event 设备会唤醒阻塞在 \code{read()} 的客户端，剩下的语义与
-\ref{sec:usb-input} 小节一致：旧 fd 先读完已提交的完整帧，内存等最后一个
-引用释放。热插拔在这里第一次真正考验了这套引用计数——拔掉的瞬间
-\code{evtest} 往往还活着，它必须看到断开错误而不是继续读到一个已经不属于
-自己的设备。
-
-\paragraph{channel 7 怎么保证自己活着.} Hub 的 interrupt-IN 是有周期要求的：
-\code{dwc2\_hub\_interrupt\_start()} 提交 ch7 时按当前 \reg{HFNUM} 的奇偶选择
-\code{HCCHAR.ODDFRM}，把事务安排在下一个 USB frame；同时在
-\code{dwc2\_hub\_wq} 上用 \code{mod\_delayed\_work()} 登记一个 \code{bInterval}
-期限的看门狗。正常的 NAK 完成 IRQ 会把这条期限往后推；如果控制器复位后的
-第一笔事务根本没有产生完成 IRQ，期限到期就会重新启动 ch7。它只恢复 Hub 的
-interrupt URB，不做任何 \code{GET\_STATUS}，因此不是退回旧的端口轮询。
-新一代监控还会先等一个 \code{bInterval} 再首次提交，确保触发重枚举的那只旧
-URB 的 completion 已经完全退出。下面这三行里后两行各只打印一次，合起来正好
-证明 delayed work 和 DWC2 host channel 两段链路都在运行：
-
-\begin{txtcode}
-dwc2: event-driven hub hotplug v2 scheduled on channel 7
-dwc2: hub ch7 scheduler alive active=0 urb-state=0
-dwc2: hub ch7 first IRQ hcint=... hctsiz=...
-\end{txtcode}
-
-一次真机热插 port 3 键盘时，连接位图从 \code{0x2} 变为 \code{0xa}：
-\code{0x2} 表示 port 1 已连接，\code{0xa} 则表示 port 1 和 port 3 已连接，
-位图的 bit 号就是 root hub 的端口号，所以新增设备来自 port 3。Hub
-interrupt URB 通知 worker 后，可看到类似日志：
-
-\begin{txtcode}
-dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
-dwc2: hub IRQ change=8 connected=2->a; reprobe
-dwc2: hub port 3 status=301 change=1
-dwc2: hub port 3 after-reset status=303 speed=low
-dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8
-input: USB HID Boot Keyboard registered as event0
-usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
-\end{txtcode}
-
-\code{status=0x301} 表示设备已连接、端口已供电且设备为低速；
-reset 后的 \code{0x303} 还包含端口使能状态。若插入的是 Boot Mouse，USB
-core 会绑定鼠标驱动并注册相应 input 设备。枚举和 probe 日志只证明新设备
-已绑定、接收 URB 已提交；要证明实际按键路径恢复，还应看到 channel 6 的
-completion 和首份有效 HID report。
-
-\paragraph{拔出后的短暂 \code{ch6 error} 是正常窗口.} 键盘刚拔掉、Hub 的状态
-端点还没把变化报上来之前，常见这几行：
-
-\begin{txtcode}
-dwc2: keyboard ch6 error intr=82 hctsiz=... hcsplt=...
-usbkbd: channel 6 transfer error; rearming
-\end{txtcode}
-
-\code{0x82} 是 \code{CHHLTD | XACTERR}：ch6 仍在访问一个已经离线的低速端点，
-这在“Hub 状态端点的下一个周期到来之前”是必然窗口，不是键盘驱动的残留问题。
-判断依据是后续日志：只要接着出现 \code{hub IRQ change} 和
-\code{... event0 disconnected}，remove 生命周期就已经收敛。反过来，如果只有
-\code{ch6 error} 而没有 Hub 的变化事件，那要查的是 ch7 那条链路。
-
-\paragraph{DMA 缓冲的所有权.} 插回键盘时如果连续打印
-
-\begin{txtcode}
-dwc2: control data failed req=0 addr=1 result=-1
-\end{txtcode}
-
-其中 \code{req=0, addr=1} 是事件 worker 向根 Hub 发端口
-\code{GET\_STATUS}，并不是周期拓扑轮询出错了。这里的根因很隐蔽：早期实现把
-4 字节的端口状态数组放在 worker 的内核栈上，又直接把它交给 DWC2 做 DMA。
-缓存维护按 64 字节 cache line 向外取整，\emph{invalidate} 时会把同一条
-cache line 里的其它局部变量一起覆盖掉；而且这样一个短生命周期的栈对象本来
-就不该成为 DMA 目标。现在端口状态用独立的、静态存续且 64 字节对齐的
-\code{dwc2\_hub\_port\_status[64]}，控制传输仍只接收前 4 字节；Hub 状态位图、
-端口状态缓冲和枚举用的 \code{ctrl\_buf} 三者彼此分离，DMA 与缓存的归属才不会
-互相污染。这也是本章反复出现的那条规则的又一次兑现：交给 DMA 的缓冲区必须
-由传输的 owner 独占，并且活得比传输久。
-
-变化之后的恢复过程是这样的：HCD 先注销那个唯一的发布用
-\code{usb\_child}，停止并屏蔽相关 channel、清理待处理中断，
-然后重新初始化 DWC2 并扫描 Hub。新设备按地址 0 开始枚举，读取 Device
-Descriptor 前 8 字节确定 EP0 最大包长，设置 USB 地址、读取配置描述符并
-选择 Boot Keyboard 或 Boot Mouse 接口；随后 USB bus 匹配驱动，执行 probe，
-重新注册 input 设备并提交对应 HID URB。对低速键盘，地址路由还需记录父 Hub、
-端口和速度，以便 EP0 与 channel 6 的传输正确使用 split transaction。
-
-\paragraph{与 Linux 还差什么.} 把这套驱动和真正的 Linux USB 栈对比，剩下的差距是明确的几条：
-
-\begin{itemize}
-  \item \textbf{重枚举的粒度。}Linux 只增删发生变化的 port 和 device；这里的一次拓扑变化会注销旧设备、停止并屏蔽相关 channel，然后重新初始化整个 DWC2。嵌套 Hub 的下游端口变化甚至不会出现在根 Hub 的连接位图里。
-  \item \textbf{host channel 的分配。}ch7 固定给 Hub 的 interrupt URB；ch6 不再独占某一只 HID 数据 URB，而是由 \code{interrupt\_rx[DWC2\_INT\_REQUESTS]} 数组在多个 interrupt-IN 请求之间轮转仲裁（同一时刻只有一个请求拥有 ch6）。这让键盘与鼠标可以共处一只 channel，但它是时分复用，不是 Linux 那种按设备/端点动态分配多 channel 的通用调度。
-  \item \textbf{周期调度表。}空闲 NAK 已经用 \code{retry\_work} 加 \code{dwc2\_periodic\_wq} 按 \code{bInterval} 重排，不再占着公共 worker 自旋；但 10\,ms 的 delayed-work 粒度只适合这只低速键盘，通用的 HCD 需要以 USB frame/SOF 为不同端点各自维护周期表。
-  \item \textbf{硬中断里的忙等。}为了满足 split 的 125\,$\mu$s microframe 期限，快速路径最多在 IRQ 里等 500\,$\mu$s 并重启 channel。Linux DWC2 用更完整的 SOF/periodic 状态机把这部分忙等压得更低。
-  \item \textbf{多设备发布。}Boot HID 接口现在按接口逐个发布独立的 \code{usb\_device}（\code{usb\_hid\_child[]}，最多 \code{DWC2\_HID\_CHILDREN}=4 个），各自保存地址、接口三元组与拔出生命周期，因此复合接收器的键盘接口与鼠标接口能被不同驱动分别认领。非 HID 的 CDC/bulk 设备（如 MT7601U、usbnet）仍共用单个 \code{usb\_child}，与 HID 子设备尚未统一成一张按 Hub 端口排列的数组。
-\end{itemize}
+本项目里真正的 bulk 用户是 MT7601U 无线网卡的 bulk-IN/bulk-OUT（ch4，详见 §\ref{sec:mt7601u}）：收空中进来的网络帧、发待发送的报文，数据量随流量起伏、又绝不容错，正是 bulk 的教科书场景——与“小、周期、低延迟”的键盘 interrupt 恰好互补。
 
 \subsection{真机排错：从 STALL 到第一份报告}
 \label{sec:usb-debug}
@@ -1376,124 +1374,6 @@ usbkbd_wq                          进程上下文下半部
 \end{txtcode}
 
 图~\ref{fig:usb-irq-seq} 是同一条链的时间顺序版本，两种结果（NAK 与完整报告）在那里分开画。
-
-\subsection{复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}
-\label{sec:usb-mouse-autoload}
-
-上一小节的那台接收器是 low-speed、单键盘接口。真机上更常见的是 Logitech 无线接收器
-\code{046d:c534} 这类 \textbf{full-speed 复合 HID}：同一个 USB 地址上接口 0 是 Boot
-Keyboard（\code{3/1/1}）、接口 1 是 Boot Mouse（\code{3/1/2}）。这一节沿一份真实串口日志
-把“插入—split 枚举—双接口分别登记—键盘即时绑定—鼠标经 MODALIAS 从 ext2 根自动装载
-\texttt{.ko}—拔出触发整树重枚举”走一遍，并说明 \file{dwc2.c} 的分接口发布
-与 \file{module.c} 的自动装载链在这里如何被验证。
-
-\paragraph{拓扑与速度.} 连接位图 \code{connected=2->a}（bit1\,|bit3）说明新增设备来自
-port 3；复位后 \code{status=103} 的速度域是 \textbf{full-speed}。这是与低速键盘最容易混淆
-的一点：full-speed 设备在高速 Hub 之后\emph{同样}要经 TT 做 split 事务，但
-\reg{HCCHAR} 的 \code{LSPDDEV} 位\textbf{不置}（只有 low-speed 才置）。表~\ref{tab:usbmouse-regs}
-用本日志的真实寄存器值把这条规则摊开。
-
-\begin{table}[htbp]
-  \centering
-  \caption{鼠标接收器（046d:c534）日志中的报文解码}
-  \label{tab:usbmouse-regs}
-  \small
-  \begin{tabularx}{\linewidth}{@{}lX@{}}
-    \toprule
-    样本 & 含义 \\
-    \midrule
-    \reg{HCSPLT}$=$\code{0x8000c083} & \code{SPLTENA}、XACTPOS$=$ALL、Hub 地址 1、端口 3；\code{COMPSPLT}$=0$ 即当前是 SSPLIT（错误行里的 \code{0x8001c083} 则 \code{COMPSPLT}$=1$，为 CSPLIT） \\
-    \reg{HCCHAR}$=$\code{0x810c8808} & 地址 4、端点 1、IN、interrupt 类型、最大包长 8，\code{LSPDDEV}$=0$：full-speed \\
-    \reg{HCINT}$=$\code{0x22} & \code{ACK | CHHLTD}：TT 接受 SSPLIT \\
-    \reg{HCINT}$=$\code{0x23} & \code{XFERCOMPL | ACK | CHHLTD}：CSPLIT 取回完整数据 \\
-    \reg{HCINT}$=$\code{0x0a} & \code{STALL | CHHLTD}：\code{control status failed req=10} 的 STALL（\code{req=10}$=$\code{0x0a}$=$SET\_IDLE） \\
-    \reg{HCINT}$=$\code{0x82} & \code{XACTERR | CHHLTD}：拔出前 \code{HID ch6 error} \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
-
-一次 EP0 完成事务的 SSPLIT/CSPLIT 时序，与图~\ref{fig:usb-split} 形状相同（只是本例是
-full-speed），日志里的 \code{hfnum} 记录了两拍的帧号；interrupt-IN 阶段的
-\code{dwc2 ch6 final p=0/1 ...} 打印则显示 ch6 在键盘与鼠标两只 URB 之间轮转：\code{p} 是
-\code{req->complete\_split}（0=SSPLIT、1=CSPLIT），\code{issue}/\code{ssack}/\code{age} 分别是发出帧、
-TT 接受 SSPLIT 帧与距发出的帧数，是 CSPLIT 有效窗口的判据。
-
-\paragraph{分接口发布.} \file{dwc2.c} 的枚举在 \code{SET\_CONFIGURATION} 后遍历整段配置描述符，
-对每个带 interrupt-IN 端点的 Boot HID 接口各建一个 \code{usb\_device}（\code{usb\_hid\_child[]}），
-逐个 \code{usb\_device\_register()}。日志因此出现两行：
-
-\begin{txtcode}
-dwc2: HID boot keyboard intf 0 handed to usb bus
-dwc2: HID boot mouse   intf 1 handed to usb bus
-\end{txtcode}
-
-接口 0 的 \code{3/1/1} 命中内置 \file{usbkbd}，同步 probe 并占用 ch6；接口 1 的
-\code{3/1/2} 没有任何已注册驱动匹配（内置键盘只认 \code{protocol=1}），于是设备 core 走
-未匹配分支：用 bus 的 \code{modalias()} 生成别名并 \code{request\_module()}。
-
-\begin{table}[htbp]
-  \centering
-  \caption{Boot Mouse 的 MODALIAS 与 HID control、报告报文}
-  \label{tab:usbmouse-packets}
-  \small
-  \begin{tabularx}{\linewidth}{@{}lX@{}}
-    \toprule
-    项 & 内容 \\
-    \midrule
-    MODALIAS & \code{usb:c03s01p02}（class/subclass/protocol 的十六进制）；静态 alias 表映射到 \code{usbmouse.ko} \\
-    SET\_PROTOCOL & SETUP：\code{0x21 0x0b}，\code{wValue=0, wIndex=interface, wLength=0}；失败才放弃 probe \\
-    SET\_IDLE & SETUP：\code{0x21 0x0a}，同上；失败不致命 \\
-    Boot Mouse 报告 & 4 字节：byte0 按钮位图（左/右/中），byte1 X、byte2 Y、byte3 滚轮（均为 signed char）；\code{actual\_length>=3} 即接受 \\
-    输入事件 & 按钮变化 \code{input\_report\_key(BTN\_*)}；位移 \code{input\_report\_rel(REL\_X/Y/WHEEL)}；末尾 \code{input\_sync()} \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
-
-\paragraph{自动装载链.} 从设备注册到鼠标驱动绑定，跨越 USB core、设备 core 与模块
-加载器：
-
-\begin{txtcode}
-usb_device_register(接口1)  ->  device_register()  ->  无驱动匹配
-  ->  usb_modalias() = "usb:c03s01p02"
-  ->  request_module(alias)                     (见 device.c)
-       ->  命中静态 alias 表 ->  queue_work(kmod_wq, slot)
-            ->  kmod_run() ->  kmod_load("/lib/modules/usbmouse.ko")
-                 ->  begin_op(); namei(); ilock()
-                 ->  ip->iop->read(ip, 0, ko_image, 0, sz)   % ext2 分派，非经典 readi()
-                 ->  load_module_image()：模块区分配、符号解析、RELA 重定位
-                 ->  run init: usbmouse_driver_init()
-                      ->  init_workqueue(usbmouse_wq)        % 日志 "usbmouse_wq worker=0 pid=17"
-                      ->  usb_register_driver() -> driver_register()
-                           ->  重扫已登记设备 -> usb_match(接口1) 命中
-                           ->  usbmouse_probe() -> usb_submit_urb()
-                                ->  dwc2_submit_urb() -> dwc2_interrupt_schedule_locked()
-                                     若 ch6 空闲则 rx_start，否则排入 interrupt_rx[] 等轮转
-\end{txtcode}
-
-两个要点。其一，\code{driver\_register()} 会重新遍历总线上\textbf{已存在}的设备，所以“设备
-先登记并异步排队装载、驱动后注册”的次序仍能绑定接口 1，无需手动 \code{insmod}。其二，
-\code{kmod\_load()} 里读 \texttt{.ko} 必须走 \code{ip->iop->read}（VFS 分派），不能用经典
-xv6fs 的 \code{readi()}：\code{readi()} 的 \code{bmap()->getsb()} 假设设备带 xv6 超级块，在
-ext2 根上会直接 \code{panic: getsb: device has no xv6 filesystem}。本日志的验收点正是这行：
-
-\begin{txtcode}
-request_module: loading /lib/modules/usbmouse.ko
-module: loaded usbhid-mouse (1808 bytes)
-\end{txtcode}
-
-出现这两行、且不再有 \code{getsb} panic，说明方案 A 的分接口发布、MODALIAS 自动装载
-与 ext2 上的模块读取在真机跑通。
-
-\paragraph{本日志尚未证明的部分.} 按“只承认证据”的原则，这次链路证明了\textbf{自动装载}，
-却没有证明\textbf{鼠标数据端到端接收}：全程未出现 \code{usbmouse: IRQ-driven boot mouse
-ready}，也没有 \code{usbmouse: first report}；拔出前是连续四次的
-\code{dwc2: HID ch6 error intr=82}（\code{XACTERR | CHHLTD}）与 \code{usbkbd: channel 6 transfer
-error; rearming}。也就是说 full-speed 复合设备在共享 ch6、经 TT 的 split interrupt-IN
-调度仍未收敛，键盘与鼠标争用同一 channel 的时序是主要嫌疑；拔出仍触发
-\code{connected=a->2} 的\textbf{整棵拓扑重枚举}，而非只对 port 3 局部增删。下一步诊断应在
-\code{usbmouse\_probe()} 各返回前打印失败的 control 请求，并把 ch6 错误路径的
-\reg{HCSPLT}/\reg{HCTSIZ}/\reg{HCCHAR} 一并 dump，以区分是 SET\_PROTOCOL 被 STALL、还是
-interrupt-IN 的 CSPLIT 窗口错过。
 
 \section{I2C}
 
@@ -1924,7 +1804,58 @@ dwc2: MT7601U handed to usb bus                 usb_device_register(&usb_child)
   \label{fig:mt7601u-topo}
 \end{figure}
 
-图~\ref{fig:mt7601u-sequence}把“控制器先枚举设备、根文件系统就绪后驱动才
+
+复位后的端口状态 \code{0x0503} 里 bit10 表示高速（480\,Mbit/s），正因为如此，后面 bulk 端点的最大包长才是 512。
+
+\subsection{设备、配置、接口与端点描述符}
+\label{sec:mt7601u-desc}
+
+USB 设备用一组描述符介绍自己。打开 \code{USB\_ENUM\_TRACE} 后，\code{dwc2\_trace\_device\_descriptor()} 和 \code{dwc2\_trace\_config\_descriptor()} 把它们逐项打印出来：
+
+\begin{txtcode}
+usb-enum: device addr=0 usb=201 class=0 subclass=0 protocol=0 mps0=64 vid=148f pid=7601 configs=1
+usb-enum: config addr=3 value=1 total=74 interfaces=1 attributes=80 maxpower=160 mA
+usb-enum:  interface=0 alt=0 eps=8 class=255 subclass=255 protocol=255
+usb-enum:   endpoint=84 IN type=2 mps=512 interval=0
+usb-enum:   endpoint=85 IN type=2 mps=512 interval=0
+usb-enum:   endpoint=8 OUT type=2 mps=512 interval=0
+usb-enum:   endpoint=4 OUT type=2 mps=512 interval=0    （5、6、7、9 同）
+\end{txtcode}
+
+\paragraph{设备描述符}（18 字节，类型 1）. \code{bcdUSB}=0x0201；设备类为 0，表示类别由接口描述符给出；\code{bMaxPacketSize0}=64 是 EP0 的最大包长；\code{idVendor}/\code{idProduct}=148f/7601，\code{is\_mt7601()} 和驱动的 \code{id\_table} 都按这一对匹配；只有一种配置。
+
+\paragraph{配置描述符}（9 字节，类型 2）. \code{wTotalLength}=74 是配置描述符连同其后所有接口、端点描述符的总长，\code{bConfigurationValue}=1 是 \code{SET\_CONFIGURATION} 用的编号，\code{bmAttributes}=0x80 表示总线供电、不支持远程唤醒，\code{bMaxPower}=80（单位 2\,mA，即 160\,mA）。\code{dwc2\_init()} 分两次读：先读 9 字节拿到总长，再一次读满 74 字节。$74 = 9 + 9 + 8\times 7$，正好是一个配置、一个接口、八个端点。
+
+\paragraph{接口描述符}（9 字节，类型 4）. 唯一的接口 0、备用设置 0、8 个端点（不含 EP0）。类别、子类、协议都是 0xFF，即厂商自定义：没有通用的类驱动可用，只能按 VID/PID 绑定专用驱动；HID 键盘的接口类是 3，就可以按类别匹配（\ref{sec:devmodel} 节）。
+
+\paragraph{端点描述符}（7 字节，类型 5）. \code{bEndpointAddress} 的 bit7 是方向（1 为 IN），低 4 位是端点号；\code{bmAttributes} 的低 2 位是传输类型（0 控制、1 等时、2 bulk、3 中断）；高速 bulk 端点的 \code{wMaxPacketSize} 必须是 512，\code{bInterval} 对 bulk 无意义。表~\ref{tab:mt7601u-ep} 是八个端点的用途。
+
+\begin{table}[htbp]
+  \centering
+  \caption{MT7601U 的端点与 DWC2 主机通道}
+  \label{tab:mt7601u-ep}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    地址 & 方向/类型 & 本驱动的用途 & 主机通道 \\
+    \midrule
+    0x00 & 控制 & 寄存器读写、固件 DMA 配置（厂商请求） & ch0，同步 \\
+    0x84 & IN bulk 512 & EP4：802.11 帧（多帧聚合） & ch4 异步，4 个 16\,KiB 缓冲；初始化期间 ch3 同步清空 \\
+    0x85 & IN bulk 512 & EP5：MCU 命令应答 & ch4 异步，命令发出前预挂 \\
+    0x08 & OUT bulk 512 & EP8：固件、MCU 命令、全部 802.11 帧 & ch5，同步 \\
+    0x04--0x07, 0x09 & OUT bulk 512 & 未用（Linux 用作 WMM 队列和管理队列） & --- \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{dwc2\_init()} 的选取规则是：解析循环跳过非端点、非 bulk 的描述符，第一个 bulk IN 记为 \code{bulk\_in\_ep}，第二个记为 \code{bulk\_in\_ep2}，第一个 bulk OUT 记为 \code{bulk\_out\_ep}，三者缺一就放弃；然后 \code{SET\_CONFIGURATION(1)}，打印 \code{bulk-in=4,5/512 bulk-out=8/512}。DWC2 没有通用的 URB 调度，端点固定绑在主机通道上：ch0 做控制传输，ch3 做同步 bulk IN，ch4 做异步 bulk IN（5 个槽：EP4 四个、EP5 一个，轮流调度），ch5 做 bulk OUT。发往芯片的所有东西都走 EP8，靠包头的 TXINFO 区分去向。
+
+\subsection{探测时序：从枚举到 \code{wlan1}}
+\label{sec:mt7601u-probe}
+
+设备在 \code{dwc2\_probe()} 里就登记到 usb 总线上了，这时 mt7601u 驱动还没有登记。\code{main()} 故意把 \code{mt7601u\_driver\_init()} 放在 \code{rootdev\_init()} 挂好 FAT32 之后，因为 probe 要从 \file{/boot} 读固件。\code{driver\_register()} 会回头遍历已登记的设备，按 \code{id\_table} 匹配到 \code{148f:7601}，再调用 \code{mt7601u\_probe()}。先登记设备、后登记驱动也能正确绑定，这正是驱动核心的作用。
+
+图~\ref{fig:mt7601u-sequence} 用四条泳道画出整个过程：主机控制器驱动 \file{dwc2.c}、驱动核心的 usb 总线（\file{usb.c}/\file{device.c}）、网卡驱动 \file{mt7601u.c}、芯片本身。它把“控制器先枚举设备、根文件系统就绪后驱动才
 绑定、probe 再下载固件”这三个容易混淆的时间点分开。USB core 中的设备对象
 可以先于驱动存在；这是为什么必须等 \file{/boot} 可读后才登记
 \code{mt7601u} 驱动，而不必重新枚举硬件。
@@ -1986,7 +1917,7 @@ dwc2: MT7601U handed to usb bus                 usb_device_register(&usb_child)
     \draw[seqcall] (90,139) -- node[msg,above]{开 WLAN 时钟；复位 MAC；开启 USB DMA} (135,139);
     \draw[seqcall] (90,145) -- node[msg,above]{MCU \code{FUN\_SET(Q\_SELECT=1)}} (135,145);
     \draw[seqcall] (90,151) -- node[msg,above]{MAC 表 44 项；BBP 59 项；RF 138 项} (135,151);
-    \draw[seqcall] (90,157) -- node[msg,above]{MCU CALIBRATE $\times6$} (135,157);
+    \draw[seqcall] (90,157) -- node[msg,above]{MCU CALIBRATE $\times8$（R … DPD）} (135,157);
     \draw[seqret] (135,161) -- node[msg,above]{每条命令经 EP5 返回带序号的应答} (90,161);
     \draw[seqcall] (90,164) -- node[msg,above]{打开 RX filter；\code{MAC\_SYS\_CTRL=0x0c}} (135,164);
 
@@ -2007,84 +1938,36 @@ dwc2: MT7601U handed to usb bus                 usb_device_register(&usb_child)
   \label{fig:mt7601u-sequence}
 \end{figure}
 
-复位后的端口状态 \code{0x0503} 里 bit10 表示高速（480\,Mbit/s），正因为如此，后面 bulk 端点的最大包长才是 512。
-
-\subsection{设备、配置、接口与端点描述符}
-\label{sec:mt7601u-desc}
-
-USB 设备用一组描述符介绍自己。打开 \code{USB\_ENUM\_TRACE} 后，\code{dwc2\_trace\_device\_descriptor()} 和 \code{dwc2\_trace\_config\_descriptor()} 把它们逐项打印出来：
-
-\begin{txtcode}
-usb-enum: device addr=0 usb=201 class=0 subclass=0 protocol=0 mps0=64 vid=148f pid=7601 configs=1
-usb-enum: config addr=3 value=1 total=74 interfaces=1 attributes=80 maxpower=160 mA
-usb-enum:  interface=0 alt=0 eps=8 class=255 subclass=255 protocol=255
-usb-enum:   endpoint=84 IN type=2 mps=512 interval=0
-usb-enum:   endpoint=85 IN type=2 mps=512 interval=0
-usb-enum:   endpoint=8 OUT type=2 mps=512 interval=0
-usb-enum:   endpoint=4 OUT type=2 mps=512 interval=0    （5、6、7、9 同）
-\end{txtcode}
-
-\paragraph{设备描述符}（18 字节，类型 1）. \code{bcdUSB}=0x0201；设备类为 0，表示类别由接口描述符给出；\code{bMaxPacketSize0}=64 是 EP0 的最大包长；\code{idVendor}/\code{idProduct}=148f/7601，\code{is\_mt7601()} 和驱动的 \code{id\_table} 都按这一对匹配；只有一种配置。
-
-\paragraph{配置描述符}（9 字节，类型 2）. \code{wTotalLength}=74 是配置描述符连同其后所有接口、端点描述符的总长，\code{bConfigurationValue}=1 是 \code{SET\_CONFIGURATION} 用的编号，\code{bmAttributes}=0x80 表示总线供电、不支持远程唤醒，\code{bMaxPower}=80（单位 2\,mA，即 160\,mA）。\code{dwc2\_init()} 分两次读：先读 9 字节拿到总长，再一次读满 74 字节。$74 = 9 + 9 + 8\times 7$，正好是一个配置、一个接口、八个端点。
-
-\paragraph{接口描述符}（9 字节，类型 4）. 唯一的接口 0、备用设置 0、8 个端点（不含 EP0）。类别、子类、协议都是 0xFF，即厂商自定义：没有通用的类驱动可用，只能按 VID/PID 绑定专用驱动；HID 键盘的接口类是 3，就可以按类别匹配（\ref{sec:devmodel} 节）。
-
-\paragraph{端点描述符}（7 字节，类型 5）. \code{bEndpointAddress} 的 bit7 是方向（1 为 IN），低 4 位是端点号；\code{bmAttributes} 的低 2 位是传输类型（0 控制、1 等时、2 bulk、3 中断）；高速 bulk 端点的 \code{wMaxPacketSize} 必须是 512，\code{bInterval} 对 bulk 无意义。表~\ref{tab:mt7601u-ep} 是八个端点的用途。
-
-\begin{table}[htbp]
-  \centering
-  \caption{MT7601U 的端点与 DWC2 主机通道}
-  \label{tab:mt7601u-ep}
-  \small
-  \begin{tabularx}{\linewidth}{@{}lllX@{}}
-    \toprule
-    地址 & 方向/类型 & 本驱动的用途 & 主机通道 \\
-    \midrule
-    0x00 & 控制 & 寄存器读写、固件 DMA 配置（厂商请求） & ch0，同步 \\
-    0x84 & IN bulk 512 & EP4：802.11 帧（多帧聚合） & ch4 异步，4 个 16\,KiB 缓冲；初始化期间 ch3 同步清空 \\
-    0x85 & IN bulk 512 & EP5：MCU 命令应答 & ch4 异步，命令发出前预挂 \\
-    0x08 & OUT bulk 512 & EP8：固件、MCU 命令、全部 802.11 帧 & ch5，同步 \\
-    0x04--0x07, 0x09 & OUT bulk 512 & 未用（Linux 用作 WMM 队列和管理队列） & --- \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
-
-\code{dwc2\_init()} 的选取规则是：解析循环跳过非端点、非 bulk 的描述符，第一个 bulk IN 记为 \code{bulk\_in\_ep}，第二个记为 \code{bulk\_in\_ep2}，第一个 bulk OUT 记为 \code{bulk\_out\_ep}，三者缺一就放弃；然后 \code{SET\_CONFIGURATION(1)}，打印 \code{bulk-in=4,5/512 bulk-out=8/512}。DWC2 没有通用的 URB 调度，端点固定绑在主机通道上：ch0 做控制传输，ch3 做同步 bulk IN，ch4 做异步 bulk IN（5 个槽：EP4 四个、EP5 一个，轮流调度），ch5 做 bulk OUT。发往芯片的所有东西都走 EP8，靠包头的 TXINFO 区分去向。
-
-\subsection{探测时序}
-\label{sec:mt7601u-probe}
-
-设备在 \code{dwc2\_probe()} 里就登记到 usb 总线上了，这时 mt7601u 驱动还没有登记。\code{main()} 故意把 \code{mt7601u\_driver\_init()} 放在 \code{rootdev\_init()} 挂好 FAT32 之后，因为 probe 要从 \file{/boot} 读固件。\code{driver\_register()} 会回头遍历已登记的设备，按 \code{id\_table} 匹配到 \code{148f:7601}，再调用 \code{mt7601u\_probe()}。整个过程如下：
+对应的函数调用链如下：
 
 \begin{txtcode}
 main()
   usb_bus_init()                       登记 usb 总线
-  dwc2_driver_init() -> dwc2_probe()   ① 枚举：集线器 addr 1，以太网 addr 2，网卡 addr 3
-    usb_device_register(&usb_child)    ② 设备进总线；驱动表里还没有 mt7601u，暂不绑定
+  dwc2_driver_init() -> dwc2_probe()   [1] 枚举：集线器 addr 1，以太网 addr 2，网卡 addr 3
+    usb_device_register(&usb_child)    [2] 设备进总线；驱动表里还没有 mt7601u，暂不绑定
   ...
   rootdev_init()                       挂上 FAT32 启动分区
-  mt7601u_driver_init()                ③ driver_register -> usb_match 命中 -> usb_probe
+  mt7601u_driver_init()                [3] driver_register -> usb_match 命中 -> usb_probe
     mt7601u_probe(udev)
-      read32(0x0000), read32(0x1000)   ④ ASIC 0x76010001，高 16 位必须是 0x7601
+      read32(0x0000), read32(0x1000)   [4] ASIC 0x76010001，高 16 位必须是 0x7601
       mt7601u_validate_firmware()         /boot/MT7601U.BIN：32 B 头 + ILM 45380（含 64 B IVB）+ DLM 0
       mt7601u_load_firmware()             DEV_MODE=1 复位 MCU，配 FCE/PDMA
         4 次 bulk OUT：ILM 14336×3 + 2308   每块写 FCE_DMA_ADDR/LEN，等 COM_REG1 bit31
         DEV_MODE=0x12 + 64 B IVB          启动 MCU，轮询 COM_REG0 == 1
-      mt7601u_read_eeprom()            ⑤ eFuse 每次 16 B，共 256 B：MAC、频偏、RSSI、LNA
+      mt7601u_read_eeprom()            [5] eFuse 每次 16 B，共 256 B：MAC、频偏、RSSI、LNA
       mt7601u_basic_hw_init()             开 WLAN 时钟等 PLL，复位 MAC，开 USB DMA，写 MAC 地址
       mt7601u_mcu_channel_init()          MCU 命令 FUN_SET(Q_SELECT=1)，此后应答走 EP5
-      mt7601u_full_hw_init()           ⑥ MAC 表 44 项，BBP 表 59 项
+      mt7601u_full_hw_init()           [6] MAC 表 44 项，BBP 表 59 项
                                           WCID 地址表、共享密钥模式、WCID 属性表清零
                                           RF 表 138 项
                                           calibrate(R) → VCO → calibrate(TXDCOC) → rxdc_cal()
                                           → set_bw_filter(1) → calibrate(LOFT, TXIQ, RXIQ, DPD)
                                           → rxdc_cal()；开接收过滤，MAC_SYS_CTRL = 0x0c
-      mt7601u_set_channel(1)           ⑦ RANDOM_WRITE 写 RF R17–R20，VCO，BW 滤波
+      mt7601u_set_channel(1)           [7] RANDOM_WRITE 写 RF R17–R20，VCO，BW 滤波
       wpa_pbkdf2()                        PMK 预先算出
       bulk_rx_arm(EP4) ×4                 挂 4 个 16 KiB 接收缓冲
       queue_delayed_work(state_work)      扫描交给后台状态机，probe 返回
-EP4 完成中断 -> mt7601u_rx_irq()        ⑧ napi -> rx_parse -> rx_mgmt / rx_eapol
+EP4 完成中断 -> mt7601u_rx_irq()        [8] napi -> rx_parse -> rx_mgmt / rx_eapol
 state_work                                扫描 1→11 -> 认证 -> 关联 -> WPA2 -> register_netdev(wlan1)
 \end{txtcode}
 
@@ -2195,16 +2078,16 @@ EP4 由 DWC2 的主机通道中断驱动：probe 末尾预先挂 4 个 16\,KiB �
   \end{tabularx}
 \end{table}
 
-\paragraph{① 芯片身份.} \code{USB device 148f:7601 ASIC=76010001 MAC=76010500} 是两次 EP0 控制读：
+\paragraph{(1) 芯片身份.} \code{USB device 148f:7601 ASIC=76010001 MAC=76010500} 是两次 EP0 控制读：
 \begin{txtcode}
 SETUP C0 07 0000 0000 0400 -> IN 01 00 01 76 -> STATUS   0x0000 ASIC_VERSION = 0x76010001
 SETUP C0 07 0000 0010 0400 -> IN 00 05 01 76 -> STATUS   0x1000 MAC_CSR0    = 0x76010500
 \end{txtcode}
 VID/PID 是 dwc2 从设备描述符读来的；这里再读芯片自己的版本寄存器，确认高 16 位是 0x7601。
 
-\paragraph{②③ 不走 USB.} \code{driver WPA2-v4} 只是打印；\code{firmware ... validated} 从 SD 卡的 FAT32 读 \file{/boot/MT7601U.BIN} 并检查 32 字节头：ILM 45380 字节（前 64 字节是 IVB，即中断向量），DLM 为 0，$32+45380=45412$。
+\paragraph{(2)(3) 不走 USB.} \code{driver WPA2-v4} 只是打印；\code{firmware ... validated} 从 SD 卡的 FAT32 读 \file{/boot/MT7601U.BIN} 并检查 32 字节头：ILM 45380 字节（前 64 字节是 IVB，即中断向量），DLM 为 0，$32+45380=45412$。
 
-\paragraph{④ 上传固件.} \code{ILM firmware upload ...} 把代码写进 MCU 的指令内存，分 4 块（$14336\times 3 + 2308$）。每块是一组传输：
+\paragraph{(4) 上传固件.} \code{ILM firmware upload ...} 把代码写进 MCU 的指令内存，分 4 块（$14336\times 3 + 2308$）。每块是一组传输：
 \begin{txtcode}
 EP0  40 42 a840 0230 ... 0236   FCE_DMA_ADDR / FCE_DMA_LEN：目标地址和长度
 EP8  bulk OUT 2316 B:  04 09 00 10 | 2308 B 固件 | 00 00 00 00
@@ -2213,24 +2096,24 @@ EP0  读 0x0734 = 0xc9040000        COM_REG1 bit31 = 1：这块收完了
 \end{txtcode}
 TXINFO \code{04 09 00 10} 即小端 0x10000904：低 14 位 0x904 = 2308 是长度，bit27--29 = 2 表示发往 CPU\_TX 端口（交给 FCE/DMA，而不是射频）。14336 字节的一块加上首尾 8 字节共 14344 字节，DWC2 把它切成 28 个 512 字节的包和一个 8 字节短包。
 
-\paragraph{⑤ 启动 MCU.} \code{MCU firmware running} 前是一次带数据阶段的控制写和一次轮询：
+\paragraph{(5) 启动 MCU.} \code{MCU firmware running} 前是一次带数据阶段的控制写和一次轮询：
 \begin{txtcode}
 EP0  SETUP 40 01 0012 0000 4000 + DATA OUT 64 B (IVB)   DEV_MODE 0x12：带中断向量启动 MCU
 EP0  读 0x0730 -> 1                                     COM_REG0 == 1：固件在跑
 \end{txtcode}
 
-\paragraph{⑥ eFuse.} \code{EEPROM ... permanent mac=...}：每 16 字节一块，读 \reg{EFUSE\_CTRL}（0x24），写入块地址和 KICK，轮询 KICK 清零，再读 4 个数据寄存器（0x28--0x34）。一块约 8--10 次控制传输，读满 256 字节约 150 次。偏移 4 是 MAC，\code{freq=96} 是晶振频偏，\code{lna} 是接收增益，\code{temp} 是参考温度。
+\paragraph{(6) eFuse.} \code{EEPROM ... permanent mac=...}：每 16 字节一块，读 \reg{EFUSE\_CTRL}（0x24），写入块地址和 KICK，轮询 KICK 清零，再读 4 个数据寄存器（0x28--0x34）。一块约 8--10 次控制传输，读满 256 字节约 150 次。偏移 4 是 MAC，\code{freq=96} 是晶振频偏，\code{lna} 是接收增益，\code{temp} 是参考温度。
 
-\paragraph{⑦ 基础初始化.} \code{MAC/BBP/RF bootstrap ready} 仍全走 EP0：开 WLAN 时钟并轮询 \reg{CMB\_CTRL} 等 PLL；\reg{MAC\_SYS\_CTRL} 先写 3 复位再写 0；写 \reg{USB\_DMA\_CFG}（0x238）打开 bulk 收发 DMA 和接收聚合——此后芯片才会经 EP4 送帧；MAC 地址写入 0x1008/0x100c；频偏写入 RF R12。
+\paragraph{(7) 基础初始化.} \code{MAC/BBP/RF bootstrap ready} 仍全走 EP0：开 WLAN 时钟并轮询 \reg{CMB\_CTRL} 等 PLL；\reg{MAC\_SYS\_CTRL} 先写 3 复位再写 0；写 \reg{USB\_DMA\_CFG}（0x238）打开 bulk 收发 DMA 和接收聚合——此后芯片才会经 EP4 送帧；MAC 地址写入 0x1008/0x100c；频偏写入 RF R12。
 
-\paragraph{⑧ 第一条 MCU 命令.} \code{MCU command channel ready ... async-prearmed} 是 FUN\_SET(Q\_SELECT=1)：
+\paragraph{(8) 第一条 MCU 命令.} \code{MCU command channel ready ... async-prearmed} 是 FUN\_SET(Q\_SELECT=1)：
 \begin{txtcode}
 EP8  bulk OUT 16 B:  08 00 10 50 | 01 00 00 00 01 00 00 00 | 00 00 00 00
                      TXINFO 0x50100008：bit30 命令、端口 2、cmd 1、seq 0、长度 8
 \end{txtcode}
 意思是“以后命令的应答从 EP5 送出”，本身不要应答。\code{async-prearmed} 指之后每条要应答的命令，发出前先在 EP5 上挂好接收缓冲（DWC2 ch4）。
 
-\paragraph{⑨ 寄存器表.} \code{MAC/BBP/RF register table initialized} 全是 EP0 控制写（表~\ref{tab:mt7601u-ctrlcount}）。BBP 和 RF 寄存器不能直接寻址，要把“寄存器号 + 值 + 忙位”写进间接端口 0x101c 或 0x0500，再轮询忙位清零，芯片内部才把值送到基带或射频。这是探测过程中 USB 往返最多的一段。
+\paragraph{(9) 寄存器表.} \code{MAC/BBP/RF register table initialized} 全是 EP0 控制写（表~\ref{tab:mt7601u-ctrlcount}）。BBP 和 RF 寄存器不能直接寻址，要把“寄存器号 + 值 + 忙位”写进间接端口 0x101c 或 0x0500，再轮询忙位清零，芯片内部才把值送到基带或射频。这是探测过程中 USB 往返最多的一段。
 
 \begin{table}[htbp]
   \centering
@@ -2249,7 +2132,7 @@ EP8  bulk OUT 16 B:  08 00 10 50 | 01 00 00 00 01 00 00 00 | 00 00 00 00
   \end{tabularx}
 \end{table}
 
-\paragraph{⑩ 校准.} \code{RF calibration complete} 之前，主机发了 8 条 CALIBRATE（31 号）命令——R、TXDCOC、BW$\times$2、LOFT、TXIQ、RXIQ、DPD——并逐条等应答；中间穿插经 EP0 读写 BBP 158/159 的 RX DC 校准。以 R 校准为例：
+\paragraph{(10) 校准.} \code{RF calibration complete} 之前，主机发了 8 条 CALIBRATE（31 号）命令——R、TXDCOC、BW$\times$2、LOFT、TXIQ、RXIQ、DPD——并逐条等应答；中间穿插经 EP0 读写 BBP 158/159 的 RX DC 校准。以 R 校准为例：
 \begin{txtcode}
 EP8  bulk OUT 16 B:  08 00 f1 51 | 01 00 00 00 00 00 00 00 | 00 00 00 00
                      0x51f10008：命令、cmd 31、seq 1、长度 8；载荷 {id = 1 (R), value = 0}
@@ -2258,7 +2141,7 @@ EP5  bulk IN  16 B:  08 00 01 4a | ...
 \end{txtcode}
 主机靠 seq 把应答和命令配对。最后写 RX 过滤 0x1400 和 \reg{MAC\_SYS\_CTRL} = 0x0c 打开收发，从这一刻起空中的信标开始在接收 DMA 里排队，等着从 EP4 送出。
 
-\paragraph{⑪ 初始换台.} 下面这行日志来自 \code{mt7601u\_set\_channel(1)} 的 RANDOM\_WRITE（12 号）：
+\paragraph{(11) 初始换台.} 下面这行日志来自 \code{mt7601u\_set\_channel(1)} 的 RANDOM\_WRITE（12 号）：
 \begin{txtcode}
 mt7601u: MCU cmd 12 seq 9 answered after 2 ms; drained 1684 bytes from EP4
 \end{txtcode}
@@ -2270,9 +2153,9 @@ EP8  bulk OUT 40 B:  20 00 c9 50 | 11 00 00 80 99 00 00 00 | 12 00 00 80 ... | 0
 \end{txtcode}
 seq 是 9，因为前 8 条校准用掉了 1--8。MAC 已经在收，EP4 里排着 1684 字节信标；接收 DMA 按顺序吐数据，不读走它们，EP5 的应答就出不来。驱动等应答时用 ch3 同步读空 EP4（此时还没挂接收缓冲，读出的帧丢弃），应答 2\,ms 就到了。
 
-\paragraph{⑫ 挂上接收.} \code{EP4 receive uses DWC2 IRQ with 4 buffers} 是 4 次 \code{bulk\_rx\_arm(EP4, 16 KiB)}：在 ch4 上填 \reg{HCDMA}（总线地址）、\reg{HCTSIZ}（16384 字节 = 32 包，DATA0/1）、\reg{HCCHAR}（地址 3、EP4、IN、bulk、512），打开中断。之后 DWC2 自动反复发 IN 令牌：网卡没数据回 NAK，有数据就送一个以短包结尾的聚合包，触发 ch4 中断，经 \code{dwc2\_irq()}、\code{mt7601u\_rx\_irq()}、NAPI 到 \code{mt7601u\_rx\_parse()} 拆帧，随即重挂。4 个缓冲轮转，EP4 总有人在收，⑪ 那种拥堵不再出现。
+\paragraph{(12) 挂上接收.} \code{EP4 receive uses DWC2 IRQ with 4 buffers} 是 4 次 \code{bulk\_rx\_arm(EP4, 16 KiB)}：在 ch4 上填 \reg{HCDMA}（总线地址）、\reg{HCTSIZ}（16384 字节 = 32 包，DATA0/1）、\reg{HCCHAR}（地址 3、EP4、IN、bulk、512），打开中断。之后 DWC2 自动反复发 IN 令牌：网卡没数据回 NAK，有数据就送一个以短包结尾的聚合包，触发 ch4 中断，经 \code{dwc2\_irq()}、\code{mt7601u\_rx\_irq()}、NAPI 到 \code{mt7601u\_rx\_parse()} 拆帧，随即重挂。4 个缓冲轮转，EP4 总有人在收，(11) 那种拥堵不再出现。
 
-\paragraph{⑬ probe 返回.} \code{transport and MCU ready; SoftMAC initialization pending} 之后不再有同步 USB 通信；扫描、认证、关联和握手由 \code{state\_work} 推进：发帧走 EP8（802.11 TXINFO + 20 字节 TXWI），收帧靠 EP4 中断，换信道再发 RANDOM\_WRITE/CALIBRATE 并等 EP5。
+\paragraph{(13) probe 返回.} \code{transport and MCU ready; SoftMAC initialization pending} 之后不再有同步 USB 通信；扫描、认证、关联和握手由 \code{state\_work} 推进：发帧走 EP8（802.11 TXINFO + 20 字节 TXWI），收帧靠 EP4 中断，换信道再发 RANDOM\_WRITE/CALIBRATE 并等 EP5。
 
 表~\ref{tab:mt7601u-epuse} 汇总了探测期间各端点的用量。
 
@@ -2293,10 +2176,10 @@ seq 是 9，因为前 8 条校准用掉了 1--8。MAC 已经在收，EP4 里排�
   \end{tabularx}
 \end{table}
 
-\subsection{空口：扫描、认证、关联与 WPA2}
+\subsection{空口：扫描、认证、关联、WPA2 四次握手}
 \label{sec:mt7601u-air}
 
-SoftMAC 的 802.11 状态机全在 \file{mt7601u.c} 里，由两样东西推进：EP4 接收中断送来的帧，以及按截止时间重排的延迟工作 \code{state\_work}。图~\ref{fig:mt7601u-join} 是这次启动的交换过程。
+MT7601U 是 SoftMAC 网卡：芯片只负责收发帧和加解密，扫描、认证、关联和 WPA2 状态机都在 \file{mt7601u.c} 里，由两样东西推进：EP4 接收中断送来的帧，以及按截止时间重排的延迟工作 \code{state\_work}。图~\ref{fig:mt7601u-join} 是这次启动的交换过程。
 
 \begin{figure}[htbp]
   \centering

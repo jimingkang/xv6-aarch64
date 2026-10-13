@@ -313,6 +313,7 @@ static char *brcmf_wq_names[BRCMF_MAX_DEVICES] = {
 
 static int brcmf_napi_poll(struct napi_struct*, int);
 static void brcmf_state_worker(struct work_struct*);
+static int brcmf_finish_wpa_handshake(struct brcmf_bus_state*);
 
 static struct brcmf_bus_state *
 brcmf_alloc_bus(void)
@@ -1078,6 +1079,16 @@ brcmf_wpa_rx_locked(struct brcmf_bus_state *bus, uint8 *ether, int length)
     // does, instead of inventing a different M2 on every retry.
     if(!brcmf_bus.handshake_started ||
        memcmp(brcmf_bus.anonce, key + 13, 32) != 0){
+      // A new ANonce after the controlled port was opened is a fresh
+      // pairwise-key handshake, not a retransmission of the old M1.  Stop
+      // ordinary data TX until the replacement PTK/GTK have been installed.
+      // Keeping handshake_done set here used to let UDP packets escape with
+      // the old key and made short transfers (notably TFTP) time out.
+      if(brcmf_bus.handshake_done){
+        brcmf_bus.handshake_done = 0;
+        brcmf_bus.keys_pending = 0;
+        printf("brcmfmac: WPA2 pairwise rekey started; data port paused\n");
+      }
       memmove(brcmf_bus.anonce, key + 13, 32);
       wpa_make_snonce(brcmf_bus.pmk, key + 13, r_cntvct_el0(),
                       brcmf_bus.snonce);
@@ -1296,7 +1307,7 @@ static int
 brcmf_napi_poll(struct napi_struct *napi, int budget)
 {
   struct brcmf_bus_state *bus = napi && napi->dev ? napi->dev->priv : 0;
-  int work_done = 0, drained = 0;
+  int work_done = 0, drained = 0, finish_keys = 0;
 
   if(bus == 0 || !bus->used || !bus->ready){
     napi_complete_done(napi, 0);
@@ -1324,7 +1335,14 @@ brcmf_napi_poll(struct napi_struct *napi, int budget)
     }
   }
   brcmf_bus.polling = 0;
+  // During the initial /bin/wifi connection, brcmfmac_connect() owns key
+  // installation and DHCP sequencing.  Once that connection loop has
+  // stopped, NAPI must finish later AP-initiated pairwise rekeys itself.
+  finish_keys = brcmf_bus.keys_pending && !brcmf_bus.connect_active;
   release(&brcmf_bus.lock);
+
+  if(finish_keys && brcmf_finish_wpa_handshake(bus) < 0)
+    printf("brcmfmac: asynchronous WPA2 rekey failed\n");
 
   if(drained && napi_complete_done(napi, work_done))
     arasan_sdio_irq_complete();

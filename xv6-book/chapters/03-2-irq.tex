@@ -106,6 +106,110 @@ alltraps:
 
 只有四个入口真正被使用。其余 12 个入口是 \code{b .}，一旦进入就原地停住。这在调试初期足够了，但也有缺点：FIQ 或 SError 发生时，现象只是“毫无输出地死机”。更好的做法是让这些入口也保存现场，然后打印入口编号、\reg{ESR\_EL1} 和 \reg{ELR\_EL1} 再停机。
 
+\subsection{异常级别与栈指针}
+\label{sec:el-sp}
+
+ARMv8 有四个异常级别，本系统实际只常驻其中两个（表~\ref{tab:el-use}）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{四个异常级别在 xv6-aarch64 中的用途}
+  \label{tab:el-use}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    级别 & 一般用途 & 本移植 \\
+    \midrule
+    EL3 & 安全监控（Secure Monitor） & 只在启动时经过：用自定义 armstub 时 CPU 从 EL3 起步 \\
+    EL2 & 虚拟机管理器（Hypervisor） & 只在启动时经过：固件的 armstub 和 QEMU 把 CPU 交到 EL2 \\
+    EL1 & 操作系统内核 & xv6 内核全部运行在这里，始终是 EL1h \\
+    EL0 & 用户程序 & initcode、init、sh 等，EL0t、AArch64 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\file{entry.S} 一开始读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进来，都用 \code{eret} 降到 EL1：先伪造一个“异常返回现场”，再返回过去。
+
+\begin{asmcode}
+        mov x0, #(1 << 31)       // HCR_EL2.RW = 1：EL1 运行 AArch64
+        msr hcr_el2, x0
+        mov x0, #0x3c5           // M = 0b0101 = EL1h，D/A/I/F 全屏蔽
+        msr spsr_el2, x0         // 从 EL3 来则写 spsr_el3，另设 SCR_EL3 = 0x431
+        adr x0, 3f
+        msr elr_el2, x0
+        eret                     // “返回”到 EL1 的标号 3
+\end{asmcode}
+
+此后 EL2、EL3 不再使用，也没有安装 \reg{VBAR\_EL2}、\reg{VBAR\_EL3}。进入 EL0 用的是同一个技巧：\code{trapframe->spsr = 0}（\code{M = 0b0000}，即 EL0t，\code{DAIF} 全清），然后 \code{urestorereg; eret}。
+
+每个异常级别都有自己的栈指针寄存器 \reg{SP\_EL0}～\reg{SP\_EL3}，指令里的 \code{sp} 指哪一个由 \code{PSTATE.M}（其中的 SPSel 位）决定，见表~\ref{tab:spsel}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{执行模式与 \code{sp} 的对应}
+  \label{tab:spsel}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \code{PSTATE.M} & 名称 & 级别 & 指令里的 \code{sp} \\
+    \midrule
+    \code{0b0000} & EL0t & EL0 & \reg{SP\_EL0}（EL0 只能用它） \\
+    \code{0b0100} & EL1t & EL1 & \reg{SP\_EL0} \\
+    \code{0b0101} & EL1h & EL1 & \reg{SP\_EL1} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+后缀 t 指 thread，h 指 handler。向量表第一组“当前 EL，使用 \reg{SP\_EL0}”对应的就是异常发生时 CPU 处于 EL1t 的情形。有的内核让每个线程在 EL1t 下以 \reg{SP\_EL0} 作为线程栈，把 \reg{SP\_EL1} 留作每个 CPU 的专用异常栈（与 Cortex-M 的 PSP/MSP 双栈同一思路），这样线程栈坏了，异常处理仍有一块可靠的栈。xv6 不这样用：内核始终是 EL1h，\reg{SP\_EL0} 专门保存用户栈指针。
+
+\begin{itemize}
+  \item \textbf{用户态（EL0t）}：\code{sp} 就是 \reg{SP\_EL0}，值是 \code{exec()} 设置的用户栈虚拟地址，经 \reg{TTBR0\_EL1} 翻译；
+  \item \textbf{陷入时}：硬件把 \code{sp} 切到 \reg{SP\_EL1}，即当前进程内核栈的顶端；\reg{SP\_EL0} 保持用户的值不动，由 \code{usavereg} 用 \code{mrs x11, sp\_el0} 存进 trapframe；
+  \item \textbf{返回时}：\code{urestorereg} 用 \code{msr sp\_el0, x11} 写回，\code{eret} 回到 EL0t。
+\end{itemize}
+
+用户无法读写 \reg{SP\_EL1}（\code{msr sp\_el1} 是特权指令），所以用户把自己的栈弄坏了，陷入内核后用的仍是可靠的内核栈。这正是硬件为每个 EL 单独准备一个栈指针的意义。
+
+\subsection{各种事件落到哪一个入口}
+\label{sec:exc-events}
+
+选择入口的规则只有一条：看\emph{异常发生的那一刻} CPU 在哪一级、用的是哪个栈指针。处理程序本身总是运行在 EL1h、使用 \reg{SP\_EL1}。所以 \code{el0sync} 的意思是“来自 EL0 的同步异常”，它自己的每一条指令都在 EL1 执行；\code{el1sync} 则表示异常来自 EL1 本身。
+
+“低一级 EL”又按低一级的执行状态分成 AArch64 和 AArch32 两组。32 位用户程序的寄存器视图不同（\code{r0}～\code{r14} 映射到 \code{x0}～\code{x14} 的低 32 位），系统调用的 EC 也不同（\code{0x11} SVC32 对 \code{0x15} SVC64），硬件直接让它们进不同的入口，内核不必先判断。Linux 打开 \code{CONFIG\_COMPAT} 后就用 \code{0x600} 组运行 armhf 程序。本系统只装入 64 位 ELF，\code{spsr} 的 \code{M[4]} 总是 0，而执行状态只能在内核 \code{eret} 时切换，用户代码改不了，所以 \code{0x600} 组不可能被触发。也就是说，在本系统里\emph{用户态的一切异常都落在 \code{0x400} 组}。
+
+表~\ref{tab:exc-events} 把常见事件逐一对照。
+
+\begin{table}[htbp]
+  \centering
+  \caption{常见事件与向量表入口}
+  \label{tab:exc-events}
+  \small
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{30mm}lX@{}}
+    \toprule
+    事件 & 入口 & 结果 \\
+    \midrule
+    用户执行 \code{svc} & \code{0x400} \code{el0sync} & EC \code{0x15}，进入 \code{syscall()}；\reg{ELR\_EL1} 指向 \code{svc} 的下一条 \\
+    系统调用里睡眠 & 不经过向量表 & 只是 \code{sleep} $\to$ \code{sched} $\to$ \code{swtch} 的函数调用 \\
+    用户态时钟中断 & \code{0x480} \code{el0irq} & 时间片用完则 \code{yield}；\reg{ELR\_EL1} 指向被打断的那条，返回后重新执行它 \\
+    系统调用中来了中断 & \code{0x280} \code{el1irq} & 在当前内核栈上再压 272 字节内核现场 \\
+    内核访存出错、坏指令 & \code{0x200} \code{el1sync} & \code{kerneltrap()} 打印后 \code{panic} \\
+    用户空指针、野指针、用户栈溢出 & \code{0x400} & EC \code{0x24}（Data Abort），\reg{FAR\_EL1} 为出错地址；进程被杀 \\
+    用户跳到未映射地址 & \code{0x400} & EC \code{0x20}（Instruction Abort）；进程被杀 \\
+    用户执行未定义指令 & \code{0x400} & EC \code{0x00}；进程被杀 \\
+    用户执行浮点/SIMD 指令 & \code{0x400} & EC \code{0x07}（\reg{CPACR\_EL1} 未开放 FP）；进程被杀 \\
+    \code{sp} 或 PC 未对齐 & \code{0x400} & EC \code{0x26} / \code{0x22}；进程被杀 \\
+    用户整数除以 0 & 不产生异常 & \code{sdiv}/\code{udiv} 结果为 0，程序继续运行 \\
+    FIQ、SError、EL1t、AArch32 & 各自入口 & \code{b .}，无声挂死 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+两点值得单独说明。
+
+\paragraph{整数除以 0 不陷入.} ARMv8 规定整数除法的除数为 0 时结果为 0，不产生任何异常，这与 x86 的 \code{\#DE} 不同。要像 Linux 那样对除零报 \code{SIGFPE}，只能由编译器在除法前插入检查（例如 \code{-fsanitize=integer-divide-by-zero}）。浮点也走不到这一步：Makefile 用 \code{-mcpu=cortex-a53+nofp}，用户程序不会生成浮点指令；即使打开 FP，$1.0/0.0$ 的结果也是 $\infty$，Cortex-A53 不支持 \reg{FPCR} 的浮点异常陷入。
+
+\paragraph{无声挂死的几个来源.} 板子“突然不动、也没有 panic”时，可以怀疑以下几种情况：访问了不存在的外设地址引起 SError；某段代码误执行了 \code{msr spsel, \#0} 后又发生异常，落进 EL1t 那一组；内核栈溢出。每个内核栈只有一页，\code{KSTACK()} 在栈与栈之间留了一页不映射的保护页，溢出时会触发 EL1 同步异常；但 \code{el1sync} 的 \code{savereg} 仍要往这个坏栈上压寄存器，于是再次出错、反复陷入，结果同样是没有任何输出。
+
 \subsection{保存寄存器状态}
 
 处理完异常回到原来的代码时，所有通用寄存器必须和异常发生前一模一样，否则一个与当前代码毫不相干的中断就会悄悄改变它的行为。进入异常时，硬件只做三件事：把返回地址存入 \reg{ELR\_EL1}，把原来的 PSTATE 存入 \reg{SPSR\_EL1}，换到 \reg{SP\_EL1}。通用寄存器要由软件自己保存。

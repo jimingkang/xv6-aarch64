@@ -62,7 +62,8 @@
   \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，SD 卡驱动，根文件系统的存放方式，VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
   \item \textbf{第 7 章 驱动架构}：设备模型与上下半部；控制台、UART 与 TTY；USB 与输入子系统；I2C；SDIO 与 USB 两种无线网卡；CSI-2 摄像头。
   \item \textbf{第 8 章 用户进程、线程与 libc}：系统调用桩、\code{init} 与 shell、用户线程、POSIX 兼容层和一个能在 xv6 里运行的小型 C 编译器。
-  \item \textbf{第 9 章 可选工作}：主线之外的扩展。目前收录可读写的 ext2、\code{sdflush()} 写屏障和外置事务日志 xjournal，以及用 WAL 程序做的断电测试。
+  \item \textbf{第 9 章 热插拔与驱动自动装载}：Hub 中断驱动的 USB 热插拔，拔出时拆除整棵设备子树；匹配不到驱动时由 MODALIAS 经 \code{request\_module()} 从 \file{/lib/modules} 装载 \file{.ko}，并用一份复合 HID 接收器的真机日志串起全过程。
+  \item \textbf{第 10 章 可选工作}：主线之外的扩展。目前收录可读写的 ext2、\code{sdflush()} 写屏障和外置事务日志 xjournal，以及用 WAL 程序做的断电测试。
 \end{itemize}
 
 \section{阅读方法与约定}

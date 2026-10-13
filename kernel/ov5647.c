@@ -277,8 +277,11 @@ ov5647_power_on(struct camsensor *s)
   int software_target_seen = 0;
 
   // Generate a clean power/reset edge even if boot firmware left the rail on.
+  // Just toggle the rail and leave SDA/SCL alone: driving SCCB low across the
+  // off-window perturbed the boot edge on this module (all addresses NACK), so
+  // we fall back to the rpi3-vfs behaviour of not touching the bus here.
   (void)mbox_set_expgpio(OV5647_PWR_GPIO, 0, 0);
-  delay_ms(20);                    // allow module rails to discharge fully
+  delay_ms(50);                    // allow module rails to discharge fully
   powered = mbox_set_expgpio(OV5647_PWR_GPIO, 1, diag) == 0;
   if(!powered){
     // Report exactly what the firmware said, then probe anyway: the
@@ -330,7 +333,7 @@ ov5647_power_on(struct camsensor *s)
     }
     uint8 reg_hi[2] = { REG_CHIPID_H >> 8, REG_CHIPID_H & 0xff };
     uint8 reg_lo[2] = { REG_CHIPID_L >> 8, REG_CHIPID_L & 0xff };
-    for(int attempt = 1; attempt <= 3; attempt++){
+    for(int attempt = 1; attempt <= 5; attempt++){
       hi = lo = 0;
       int rh = i2c0_bitbang_write_read(OV5647_ADDR, reg_hi, 2, &hi, 1);
       int rl = rh == 0 ?
@@ -350,9 +353,9 @@ ov5647_power_on(struct camsensor *s)
         delay_ms(5);
         continue;
       }
-      printf("ov5647: software SCCB ID read retry %d/3 (probe=%s)\n",
+      printf("ov5647: software SCCB ID read retry %d/5 (probe=%s)\n",
              attempt, bb36 == 0 ? "ACK" : "NACK");
-      delay_ms(5);
+      delay_ms(10);
     }
 
     // If address 0x36 completed real register transactions but returned an
@@ -398,22 +401,10 @@ ov5647_power_on(struct camsensor *s)
              bb36 == 0 ? "ACK" : (bb36 == -2 ? "BUS-STUCK" : "NACK"),
              bb10 == 0 ? "ACK" : (bb10 == -2 ? "BUS-STUCK" : "NACK"),
              bb1a == 0 ? "ACK" : (bb1a == -2 ? "BUS-STUCK" : "NACK"));
-      int found = 0;
-      for(int addr = 0x08; addr <= 0x77; addr++){
-        if(addr == 0x10 || addr == 0x1a || addr == 0x36)
-          continue;
-        int probe = i2c0_bitbang_probe(addr);
-        if(probe == 0){
-          printf("camera: full GPIO I2C scan found ACK at 0x%x\n", addr);
-          found++;
-        } else if(probe == -2){
-          printf("camera: full GPIO I2C scan bus stuck at 0x%x\n", addr);
-          break;
-        }
-      }
-      if(found == 0)
-        printf("camera: full GPIO I2C scan found no additional devices\n");
-      if(bb36 == -1 && bb10 == -1 && bb1a == -1 && found == 0)
+      // Do not sweep all 112 usable addresses here.  This is a recovery path,
+      // not an I2C scanner: hundreds of extra clock pulses delay the stream
+      // worker and made the next power-cycle less reliable on clone modules.
+      if(bb36 == -1 && bb10 == -1 && bb1a == -1)
         printf("camera: no electrical I2C response; BSC0 routing is "
                "GPIO44/45 on Pi 3, check ribbon contacts and module power\n");
       printf("ov5647: no reply at i2c0 0x%x (GPIO44/45), "

@@ -640,3 +640,143 @@ camshot: 320x240 frame 31, WB R x1.0 B x1.0, level x1.0 -> /boot/cam02.bmp
 异常时 `ELR` 对应非访存指令、`FAR` 为随机地址的情况应消失。若仍出现 Data Abort，再用
 实际安装进 SD 卡的用户 ELF 对 `ELR` 执行 `addr2line/objdump`，不要用不同构建版本的符号
 文件判断。
+
+---
+
+## Ctrl+C 结束 camserver 后 TFTP 请求连续超时
+
+### 现象
+
+前台运行 `camserver`，按 `Ctrl+C` 结束后立即执行：
+
+```sh
+/bin/tftpclient
+```
+
+客户端连续五次收不到服务器对 RRQ 的响应：
+
+```text
+tftpclient: timeout waiting for server response (1/5)
+...
+tftpclient: timeout waiting for server response (5/5)
+tftpclient: no response from server
+tftpclient: incomplete download remains at /boot/kernel8-xv6_wifi.img
+```
+
+随后串口出现：
+
+```text
+brcmfmac: received EAPOL frame len=113 key-info=08a
+brcmfmac: sent WPA2 EAPOL M2 replay=0001 rsn=22 firmware
+brcmfmac: received EAPOL frame len=169 key-info=13ca
+brcmfmac: received WPA2 EAPOL M3 key-info=13ca data=56
+brcmfmac: sent WPA2 EAPOL M4
+```
+
+`Ctrl+C` 的直接作用是向前台进程组发送 `SIGINT`，结束 `camserver` 并通过最后一个
+`/dev/video0` 引用执行相机停流。它不会按设计关闭 `wlan0`，也不会关闭后来由另一个进程创建的
+UDP socket。上面的 EAPOL M1/M3 日志说明故障窗口内无线链路正在进行 WPA2 四次握手；因此不能
+把这次现象简单归结为 TFTP 服务器没有启动。`Ctrl+C` 与重键是否存在稳定因果关系仍需真机重复
+测试，目前能够确认的是 TFTP 的五次 RRQ 恰好落在无线数据端口不可用的窗口内。
+
+### 根因
+
+原来的 host-EAPOL 实现只在首次 `/bin/wifi` 的同步连接循环中调用
+`brcmf_finish_wpa_handshake()`。首次连接完成以后，AP 再次发起 pairwise rekey 时：
+
+```text
+AP M1
+  -> brcmf_wpa_rx_locked() 生成新 PTK 并发送 M2
+AP M3
+  -> 驱动校验 MIC
+  -> 因 handshake_done 已经为 1，旧代码直接发送 M4
+  -> 没有安装本轮 PTK/GTK
+```
+
+因此驱动表面仍保持 `associated`，但 AP 已经切换或正在切换密钥。TFTP RRQ 使用旧的数据密钥
+发出后会被 AP 丢弃，而客户端只有约五秒重试窗口，所以最终显示 `no response from server`。
+
+另一个独立的数据安全问题是：旧 `tftpclient` 在发送 RRQ 以前就用 `O_TRUNC` 打开最终目标。
+即使服务器一个包都没有返回，原来可启动的 `/boot/kernel8-xv6_wifi.img` 也已经被截断为零长度，
+失败信息中的“incomplete download remains”实际可能表示原内核已被破坏。
+
+### 修复
+
+#### 1. 补齐在线 WPA2 pairwise rekey
+
+`kernel/brcmfmac.c` 在已完成握手后收到不同 ANonce 的 M1 时，将它识别为新一轮重键：
+
+```text
+new M1 / new ANonce
+  -> handshake_done = 0
+  -> 暂停普通 netdev TX
+  -> 生成 SNonce/PTK并发送 M2
+M3
+  -> 在 SDIO RX 锁内校验 MIC、解包 GTK、设置 keys_pending
+  -> 退出 RX 锁
+NAPI worker
+  -> 安装新 PTK
+  -> 安装新 GTK
+  -> 发送 M4
+  -> handshake_done = 1，重新开放数据发送
+```
+
+密钥安装必须在 `brcmf_bus.lock` 外执行，因为 `bsscfg:wsec_key` 是同步 BCDC iovar；若在 RX
+dispatch 持锁区内调用，会再次申请同一把锁而死锁。首次连接时仍由 `/bin/wifi` 的连接循环负责
+密钥安装和 DHCP；只有 `connect_active == 0` 的在线重键才由 NAPI 完成。
+
+新增诊断日志：
+
+```text
+brcmfmac: WPA2 pairwise rekey started; data port paused
+...
+brcmfmac: WPA2 four-way handshake complete
+```
+
+#### 2. TFTP 收到首包后才截断最终文件
+
+`user/tftpclient.c` 现在采用下面的顺序：
+
+```text
+udp_bind()
+  -> 发送 RRQ并等待首个 DATA/ERROR
+  -> 收到服务器响应后才 open(O_CREATE | O_TRUNC)
+  -> 写入文件
+```
+
+如果首个 DATA 到达前超时，程序输出：
+
+```text
+tftpclient: existing /boot/kernel8-xv6_wifi.img was left unchanged
+```
+
+这项修改保护“服务器完全无响应”的情况。若传输已经收到首包并截断目标、随后在中途失败，当前
+实现仍会留下部分文件；要完全保护旧镜像，后续还应扩展为写入 `.part` 文件、`fsync()` 成功后再
+原子 `rename()`。
+
+### 验证状态与步骤
+
+代码已经通过以下目标的编译检查：
+
+```sh
+make kernel/kernel8-xv6_wifi.img user/_tftpclient
+```
+
+本修复尚待 Raspberry Pi 3 真机验证。安装同时包含新内核和新 `/bin/tftpclient` 的文件系统后，
+执行：
+
+```sh
+/bin/camserver
+# Ctrl+C
+/bin/tftpclient
+```
+
+验证要求：
+
+1. 若发生重键，应先后看到 `pairwise rekey started` 和 `four-way handshake complete`；
+2. 重键完成后 TFTP 能收到首个 DATA 并继续下载；
+3. 重键期间普通数据发送不会继续使用旧 PTK；
+4. 关闭 TFTP 服务或断开服务器网络再次运行客户端，原 `/boot/kernel8-xv6_wifi.img` 的长度和内容
+   应保持不变；
+5. 若每次 `Ctrl+C` 都稳定触发重键，还需继续记录相机停流、SDIO DAT1 IRQ和 AP rekey 的时间戳，
+   判断相机退出路径是否造成 SDIO 服务延迟，而不能仅凭当前一次日志认定二者有直接因果关系。
