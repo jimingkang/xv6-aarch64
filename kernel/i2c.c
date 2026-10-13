@@ -438,39 +438,6 @@ i2c0_init_camera_pins(void)
   return 0;
 }
 
-void
-i2c0_camera_power_cycle_begin(void)
-{
-  i2c_lock_init_once();
-  acquire(&i2c_lock);
-  bsc_force_off(0);
-  // Program the output latches before changing FSEL so neither line glitches
-  // high.  Keeping both lines low while CAM_GPIO0 is low removes the possible
-  // I/O back-power path and guarantees that the next release emits a clean
-  // bus-idle/STOP sequence.
-  volatile uint32 *clr1 = (volatile uint32 *)(GPIO_BASE + 0x28 + 4);
-  *clr1 = (1U << (44 - 32)) | (1U << (45 - 32));
-  gpio_fsel(44, FSEL_OUTPUT);
-  gpio_fsel(45, FSEL_OUTPUT);
-  bsc_order();
-  release(&i2c_lock);
-}
-
-void
-i2c0_camera_power_cycle_release(void)
-{
-  i2c_lock_init_once();
-  acquire(&i2c_lock);
-  bsc_force_off(0);
-  // Open-drain high is represented by an input.  Release both wires before
-  // applying sensor power: booting the OV5647 while SCL/SDA are forced low
-  // leaves SCCB looking permanently busy even though the lines rise later.
-  gpio_fsel(44, FSEL_INPUT);
-  gpio_fsel(45, FSEL_INPUT);
-  bsc_order();
-  release(&i2c_lock);
-}
-
 uint32
 i2c0_set_rate(uint32 hz)
 {

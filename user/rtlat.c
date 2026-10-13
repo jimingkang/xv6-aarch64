@@ -6,8 +6,8 @@
 // to the same CPU, 30 samples.  A waker on another CPU sends clock_us()
 // through a pipe every 100 ms; the reader reports how long it took to run
 // after the write.  Compare `rtlat -p fifo` with `rtlat -p other`.
-#include "kernel/types.h"
-#include "kernel/param.h"
+#include <uapi/types.h>
+#include <uapi/limits.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

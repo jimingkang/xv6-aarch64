@@ -5,8 +5,8 @@
 // (the user toolchain builds without FP): unpack CSI-2 RAW10 -> subtract black
 // level -> bilinear demosaic -> gray-world white balance -> auto level (99th
 // percentile) -> gamma 2.2 -> baseline JPEG 4:2:0.
-#include "kernel/types.h"
-#include "kernel/camera.h"
+#include <uapi/types.h>
+#include <uapi/camera.h>
 #include "user/user.h"
 #include "user/jpeg.h"
 #include "user/camproc.h"

@@ -1,7 +1,7 @@
 // nice: run a command with a different nice value (SCHED_OTHER time slice).
 //
 //   nice [-n N] CMD [ARG...]     N in -20..19, default 10
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

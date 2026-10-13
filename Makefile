@@ -44,6 +44,7 @@ OBJS = \
   $K/start.o \
   $K/console.o \
 	$K/device.o \
+	$K/kobject.o \
 	$K/module.o \
 	$K/export.o \
 	$K/sdio.o \
@@ -306,7 +307,7 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 # separate from the raw-device recipe makes it possible to inspect/test the
 # exact bytes which will be installed before touching an SD-card partition.
 .PHONY: ext2root-image
-ext2root-image: $$(UPROGS) modules_install
+ext2root-image: $$(UPROGS) $U/libc.so modules_install
 	truncate -s $(EXT2_SIZE) "$(EXT2_IMAGE)"
 	$(MKE2FS) -F -t ext2 -b 4096 \
 	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
@@ -314,7 +315,8 @@ ext2root-image: $$(UPROGS) modules_install
 	@{ echo "mkdir bin"; \
 	   for f in $(UPROGS); do n=$${f#$U/_}; echo "write $$f bin/$$n"; done; \
 	   echo "write $U/_init init"; \
-	   echo "mkdir lib"; echo "mkdir lib/modules"; \
+	   echo "mkdir lib"; echo "write $U/libc.so lib/libc.so"; \
+	   echo "mkdir lib/modules"; \
 	   for f in $(MODULES); do n=$${f##*/}; echo "write $(MODULE_INSTALL_DIR)/$$n lib/modules/$$n"; done; } > ext2root.debugfs
 	$(DEBUGFS) -w -f ext2root.debugfs "$(EXT2_IMAGE)" > ext2root.log 2>&1
 	@echo "built ext2 root image $(EXT2_IMAGE) ($(EXT2_SIZE))"
@@ -390,15 +392,49 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-LIBC_OBJS = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
+LIBC_OBJS = $U/libc_syscall.o $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
 	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o
+LIBC_PIC_OBJS = $(LIBC_OBJS:.o=.pic.o)
+
+# Shared libc is the normal user ABI.  DYNAMIC_USER=0 retains the original
+# static ET_EXEC build for recovery images and dynamic-loader debugging.
+DYNAMIC_USER ?= 1
+ifeq ($(DYNAMIC_USER),1)
+ULIB = $U/libc.so
+USER_LD_MODE = -pie --no-dynamic-linker
+USER_LINK_STAMP = $U/.dynamic-user
+else
 ULIB = $U/libc.a
+USER_LD_MODE = -N -Ttext 0
+USER_LINK_STAMP = $U/.static-user
+endif
 
-$U/libc.a: $(LIBC_OBJS)
-	$(AR) rcs $@ $^
+$U/.dynamic-user:
+	rm -f $U/.static-user
+	touch $@
 
-_%: %.o $(ULIB)
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+$U/.static-user:
+	rm -f $U/.dynamic-user
+	touch $@
+
+$U/libc.o: $(LIBC_OBJS)
+	$(LD) -r -o $@ $^
+
+$U/libc.a: $(LIBC_OBJS) $U/libc.o
+	$(AR) rcs $@ $(LIBC_OBJS)
+
+# ELF shared libc loaded and relocated by exec() for ET_DYN user programs.
+$U/%.pic.o: $U/%.c
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$U/usys.pic.o: $U/usys.S
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$U/libc.so: $(LIBC_PIC_OBJS)
+	$(LD) $(LDFLAGS) -shared --no-undefined -soname libc.so -o $@ $^
+
+_%: %.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
 	$(OBJDUMP) -S $@ > $*.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $*.sym
 
@@ -408,18 +444,18 @@ $U/usys.S : $U/usys.pl
 $U/usys.o : $U/usys.S
 	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
 
-$U/_forktest: $U/forktest.o $(ULIB)
+$U/_forktest: $U/forktest.o $(ULIB) $(USER_LINK_STAMP)
 	# Keep forktest small while it exercises dynamic process-table growth.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $(ULIB)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $U/_forktest $U/forktest.o $(ULIB)
 	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
 
-$U/_camshot: $U/camshot.o $U/jpeg.o $(ULIB)
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+$U/_camshot: $U/camshot.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
 	$(OBJDUMP) -S $@ > $U/camshot.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camshot.sym
 
-$U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB)
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+$U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
@@ -523,8 +559,8 @@ modules_install: $(MODULES)
 	@mkdir -p $(MODULE_INSTALL_DIR)
 	cp $(MODULES) $(MODULE_INSTALL_DIR)/
 
-fs.img: mkfs/mkfs $(UPROGS) modules_install
-	mkfs/mkfs fs.img -M $(MODULE_INSTALL_DIR) $(UPROGS)
+fs.img: mkfs/mkfs $(UPROGS) $U/libc.so modules_install
+	mkfs/mkfs fs.img -L $U/libc.so -M $(MODULE_INSTALL_DIR) $(UPROGS)
 	truncate -s 32M fs.img
 
 # Linux/ext2 image used by the VFS /mnt/ext2 backend.  mke2fs formats a regular
@@ -550,7 +586,7 @@ clean: clean-t113
 	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
 	$(MODULES) $K/*.mod.o $K/*.ko.raw \
-	mkfs/mkfs .gdbinit $U/libc.a \
+	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/.dynamic-user $U/.static-user \
         $U/usys.S \
 	$(UPROGS)
 	# Remove numbered duplicate build products created by repeated Finder/copy

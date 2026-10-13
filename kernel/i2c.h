@@ -4,13 +4,6 @@
 // BCM2837 BSC (I2C master), polled.
 
 int i2c0_init_camera_pins(void);              // BSC0 on GPIO 44/45 (ALT1)
-// Disconnect BSC0 and hold SDA/SCL low while the camera rail is off.  This
-// prevents an externally pulled-up SCCB line from back-powering a marginal
-// module through its I/O protection diodes during a requested power cycle.
-void i2c0_camera_power_cycle_begin(void);
-// Release SDA/SCL to inputs immediately before restoring the camera rail, so
-// the sensor observes an idle-high SCCB bus throughout its boot sequence.
-void i2c0_camera_power_cycle_release(void);
 // Change the BSC0 bus rate and return the actual rate selected.  This is also
 // used by camera probe recovery for modules whose rise time is too slow for
 // the nominal 100 kHz bus.

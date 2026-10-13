@@ -59,8 +59,50 @@ struct {
 
 static int uart_probe(struct device *dev);
 
+// A sysfs attribute for this device, demonstrating the driver-owned attribute
+// group path: /sys/devices/bcm2837-mini-uart/ioaddr shows the MMIO base taken
+// straight from the device's resource table (compare the "resource"/address
+// files Linux devices expose).
+static int
+ioaddr_show(struct device *dev, struct device_attribute *attr, char *buf,
+            int size)
+{
+  static char digits[] = "0123456789abcdef";
+  uint64 base = 0;
+  char tmp[24], *p = tmp + sizeof(tmp);
+
+  for(int i = 0; i < dev->nresource; i++)
+    if(dev->resource[i].type == IORESOURCE_MEM){
+      base = dev->resource[i].start;
+      break;
+    }
+  *--p = 0;
+  *--p = '\n';
+  for(int n = 0; n < 16; n++){
+    *--p = digits[base & 15];
+    base >>= 4;
+  }
+  *--p = 'x';
+  *--p = '0';
+  int len = strlen(p);
+  if(len >= size)
+    len = size - 1;
+  memmove(buf, p, len);
+  buf[len] = 0;
+  return len;
+}
+
+static DEVICE_ATTR_RO(ioaddr);
+
+static struct attribute *uart_attrs[] = {
+  &dev_attr_ioaddr.attr,
+  0,
+};
+
 static struct device uartdev = {
   .name = "bcm2837-mini-uart",
+  .class = "tty",
+  .driver_attrs = uart_attrs,
   .id = 0,
   .resource = {
     { PERIPHERAL_BASE_PA + 0x215000, PERIPHERAL_BASE_PA + 0x215fff,

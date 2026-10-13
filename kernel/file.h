@@ -1,6 +1,8 @@
 struct epoll;
 struct pty;
 
+#include "../include/uapi/device.h"
+
 struct file {
   enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_SOCKET,
          FD_EPOLL, FD_PTY } type;
@@ -20,10 +22,6 @@ struct file {
   struct pty *pty;     // FD_PTY
   char pty_master;     // FD_PTY: master endpoint when non-zero
 };
-
-#define major(dev)  ((dev) >> 16 & 0xFFFF)
-#define minor(dev)  ((dev) & 0xFFFF)
-#define	mkdev(m,n)  ((uint)((m)<<16| (n)))
 
 // in-memory copy of an inode
 struct inode_ops;
@@ -47,11 +45,3 @@ struct inode {
   uint addrs[NDIRECT+1]; // xv6fs only
   uint32 fsdata[4];   // filesystem private (FAT32 write handle)
 };
-
-#define CONSOLE 1
-#define TTY     2   // current process controlling terminal (/dev/tty)
-#define TTYS0   3   // Mini UART terminal (/dev/ttyS0)
-#define INPUT   4   // input subsystem evdev (/dev/input/event0)
-#define CAMERA  5   // Unicam CSI-2 camera (/dev/video0)
-#define ROOTUPDATE 6 // guarded raw-root updater (/dev/sdroot)
-#define BLOCKDEV 7  // block device files, minor = blkdev number (/dev/mmcblk0p2)

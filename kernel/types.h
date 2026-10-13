@@ -1,10 +1,8 @@
-typedef unsigned int   uint;
-typedef unsigned short ushort;
-typedef unsigned char  uchar;
+#ifndef XV6_KERNEL_TYPES_H
+#define XV6_KERNEL_TYPES_H
 
-typedef unsigned char uint8;
-typedef unsigned short uint16;
-typedef unsigned int  uint32;
-typedef unsigned long uint64;
+#include "../include/uapi/types.h"
 
 typedef uint64 pde_t;
+
+#endif

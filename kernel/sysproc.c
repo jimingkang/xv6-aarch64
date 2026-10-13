@@ -26,6 +26,18 @@ sys_getpid(void)
 }
 
 uint64
+sys_getppid(void)
+{
+  struct proc *p = myproc();
+  int pid = 0;
+  acquire(&wait_lock);
+  if(p->parent)
+    pid = p->parent->tgid;
+  release(&wait_lock);
+  return pid;
+}
+
+uint64
 sys_gettid(void)
 {
   return myproc()->pid;
@@ -74,6 +86,17 @@ sys_wait(void)
   if(argaddr(0, &p) < 0)
     return -1;
   return wait(p);
+}
+
+uint64
+sys_waitpid(void)
+{
+  int pid, options;
+  uint64 status;
+  if(argint(0, &pid) < 0 || argaddr(1, &status) < 0 ||
+     argint(2, &options) < 0)
+    return -1;
+  return waitpid(pid, status, options);
 }
 
 uint64

@@ -4,6 +4,7 @@
 #include "aarch64.h"
 #include "defs.h"
 #include "device.h"
+#include "kobject.h"
 #include "module.h"
 
 volatile static int started = 0;
@@ -57,6 +58,9 @@ main()
     // The device model and the two bus cores are not modules: consoleinit()
     // below already calls register_chrdev() and platform_device_register(),
     // so they must exist before do_initcalls() runs the driver table.
+    // The object model must exist before the driver core, which registers
+    // kobjects into the sysfs tree it builds.  Neither is a module.
+    kobject_subsys_init();
     device_init();
     sdio_bus_init();
     usb_bus_init();

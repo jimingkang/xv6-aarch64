@@ -1,5 +1,5 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
 
 #include <stdarg.h>
@@ -65,7 +65,7 @@ printptr(int fd, uint64 x) {
 
 // Print to the given fd. Only understands %d, %x, %p, %s.
 static int
-vprintf(int fd, const char *fmt, va_list ap)
+vfdprintf(int fd, const char *fmt, va_list ap)
 {
   char *s;
   int c, i, state, written = 0;
@@ -118,7 +118,7 @@ fprintf(int fd, const char *fmt, ...)
   int result;
 
   va_start(ap, fmt);
-  result = vprintf(fd, fmt, ap);
+  result = vfdprintf(fd, fmt, ap);
   va_end(ap);
   return result;
 }
@@ -130,7 +130,136 @@ printf(const char *fmt, ...)
   int result;
 
   va_start(ap, fmt);
-  result = vprintf(1, fmt, ap);
+  result = vfdprintf(1, fmt, ap);
   va_end(ap);
   return result;
+}
+
+int
+vfprintf(int fd, const char *fmt, va_list ap)
+{
+  return vfdprintf(fd, fmt, ap);
+}
+
+int
+vprintf(const char *fmt, va_list ap)
+{
+  return vfdprintf(1, fmt, ap);
+}
+
+static void
+bufchar(char *buffer, uint size, int *total, char c)
+{
+  if(size > 0 && (uint)*total < size - 1)
+    buffer[*total] = c;
+  (*total)++;
+}
+
+static void
+bufuint(char *buffer, uint size, int *total, uint64 value, int base,
+        int negative)
+{
+  char temporary[32];
+  int n = 0;
+  do {
+    temporary[n++] = digits[value % base];
+    value /= base;
+  } while(value);
+  if(negative)
+    temporary[n++] = '-';
+  while(n)
+    bufchar(buffer, size, total, temporary[--n]);
+}
+
+int
+vsnprintf(char *buffer, uint size, const char *fmt, va_list ap)
+{
+  int total = 0;
+  if(buffer == 0 && size != 0)
+    return -1;
+  for(int i = 0; fmt[i]; i++){
+    int c = fmt[i] & 0xff;
+    if(c != '%'){
+      bufchar(buffer, size, &total, c);
+      continue;
+    }
+    c = fmt[++i] & 0xff;
+    if(c == 0)
+      break;
+    if(c == '%'){
+      bufchar(buffer, size, &total, '%');
+    } else if(c == 'c'){
+      bufchar(buffer, size, &total, va_arg(ap, int));
+    } else if(c == 's'){
+      char *s = va_arg(ap, char*);
+      if(s == 0)
+        s = "(null)";
+      while(*s)
+        bufchar(buffer, size, &total, *s++);
+    } else if(c == 'd' || c == 'i'){
+      int value = va_arg(ap, int);
+      uint magnitude = value < 0 ? -(uint)value : (uint)value;
+      bufuint(buffer, size, &total, magnitude, 10, value < 0);
+    } else if(c == 'u'){
+      bufuint(buffer, size, &total, va_arg(ap, uint), 10, 0);
+    } else if(c == 'x'){
+      bufuint(buffer, size, &total, va_arg(ap, uint), 16, 0);
+    } else if(c == 'p'){
+      uint64 value = va_arg(ap, uint64);
+      bufchar(buffer, size, &total, '0');
+      bufchar(buffer, size, &total, 'x');
+      bufuint(buffer, size, &total, value, 16, 0);
+    } else if(c == 'l'){
+      int signed_value = fmt[i + 1] == 'd' || fmt[i + 1] == 'i';
+      int base = fmt[i + 1] == 'x' ? 16 : 10;
+      uint64 value;
+      int negative = 0;
+      if(fmt[i + 1] == 'd' || fmt[i + 1] == 'i' ||
+         fmt[i + 1] == 'u' || fmt[i + 1] == 'x')
+        i++;
+      if(signed_value){
+        long signed_long = va_arg(ap, long);
+        negative = signed_long < 0;
+        value = negative ? -(uint64)signed_long : (uint64)signed_long;
+      } else {
+        value = va_arg(ap, uint64);
+      }
+      bufuint(buffer, size, &total, value, base, negative);
+    } else {
+      bufchar(buffer, size, &total, '%');
+      bufchar(buffer, size, &total, c);
+    }
+  }
+  if(size > 0)
+    buffer[(uint)total < size ? total : size - 1] = 0;
+  return total;
+}
+
+int
+snprintf(char *buffer, uint size, const char *fmt, ...)
+{
+  va_list ap;
+  int result;
+  va_start(ap, fmt);
+  result = vsnprintf(buffer, size, fmt, ap);
+  va_end(ap);
+  return result;
+}
+
+int
+sprintf(char *buffer, const char *fmt, ...)
+{
+  va_list ap;
+  int result;
+  va_start(ap, fmt);
+  result = vsnprintf(buffer, (uint)-1, fmt, ap);
+  va_end(ap);
+  return result;
+}
+
+int
+getchar(void)
+{
+  uchar c;
+  return read(0, &c, 1) == 1 ? c : -1;
 }

@@ -14,7 +14,7 @@ typedef uint16_t ushort;
 typedef uint32_t uint;
 typedef uint64_t uint64;
 #else
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #endif
 #include "user/jpeg.h"

@@ -1,8 +1,8 @@
 // Verify that the growable process table can exceed xv6's former 64-slot
 // limit, and that every dynamically allocated slot can be reaped.
 
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
 
 #define N  128

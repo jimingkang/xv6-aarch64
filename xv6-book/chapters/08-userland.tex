@@ -2,7 +2,7 @@
 \label{chap:user}
 
 \begin{introduction}[本章内容]
-  \item 用户程序的形态与系统调用桩
+  \item 用户程序的形态与系统调用网关
   \item 从 \code{init} 到 shell
   \item 用户程序一览
   \item 用户线程：\code{clone}、\code{texit}、\code{tjoin}
@@ -22,28 +22,53 @@
 
 \subsection{链接与装载}
 
-xv6 的用户程序是静态链接的 ELF64 文件，链接在虚拟地址 0，入口是 \code{main}：
+xv6 原版把用户程序和用户库\emph{静态}链接成一个 ELF64 文件，链接在虚拟地址 0，入口是 \code{main}。本项目在 \code{make DYNAMIC\_USER=0} 时仍退回这一形态（默认形态改为动态链接，见第~\ref{sec:dynamic-libc} 节）：
 
 \begin{makecode}
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
 \end{makecode}
 
-\code{-N} 让代码段和数据段放在同一个可读写可执行的段里，\code{exec()} 只需处理一个 \code{PT\_LOAD}。没有动态链接，也没有 C 运行时启动代码：\code{exec()} 把 \code{argc}、\code{argv} 放进 \code{x0}、\code{x1}，把 PC 设为入口地址，\code{main} 返回后由用户库调用 \code{exit()}——实际上 xv6 的程序习惯在 \code{main} 末尾显式调用 \code{exit(0)}。
+\code{-N} 让代码段和数据段放在同一个可读写可执行的段里，\code{exec()} 只需处理一个 \code{PT\_LOAD}，也没有 C 运行时启动代码：\code{exec()} 把 \code{argc}、\code{argv} 放进 \code{x0}、\code{x1}，把 PC 设为入口地址，\code{main} 返回后由用户库调用 \code{exit()}——实际上 xv6 的程序习惯在 \code{main} 末尾显式调用 \code{exit(0)}。这一形态简单，但代价是每个程序都各自携带一份 libc 的代码；把用户库改成共享的 \code{libc.so}、让程序默认以位置无关（PIE）\code{ET\_DYN} 形式动态链接它，就是第~\ref{sec:dynamic-libc} 节的内容。
 
-\subsection{系统调用桩}
+\subsection{系统调用网关}
 
-\file{user/usys.pl} 为每个系统调用生成三条指令：
+\file{user/usys.pl} 只生成\emph{一个}私有陷入网关 \code{\_\_syscall}，而不是每个系统调用一条桩。它把系统调用号从第一个参数 \code{x0} 挪进 \code{x7}，其余参数整体下移一格，然后陷入 EL1：
 
 \begin{asmcode}
-.global write
-write:
- mov x7, #SYS_write      // 系统调用号放 x7
- svc #0                  // 陷入 EL1
- ret                     // 返回值已在 x0
+.global __syscall
+__syscall:
+ mov x7, x0      // 第 0 个实参是系统调用号
+ mov x0, x1      // 真正的参数 x1..x6 下移成 x0..x5
+ mov x1, x2
+ mov x2, x3
+ mov x3, x4
+ mov x4, x5
+ mov x5, x6
+ svc #0          // 陷入 EL1
+ ret             // 返回值已在 x0
 \end{asmcode}
 
-参数按 AArch64 调用约定已经在 \code{x0}～\code{x5} 里，所以桩函数什么都不用搬。内核侧 \code{syscall()} 用 \code{trapframe->x7} 索引函数表，返回值写回 \code{trapframe->x0}。目前共有 70 多个系统调用：除了 xv6 原有的 21 个，还有同步对象、网络（UDP、ICMP、TCP socket、epoll）、挂载、TTY 会话、线程、调度属性、高精度时钟等。
+\file{user/libc\_syscall.c} 里的公开 libc 函数（\code{fork}、\code{read}、\code{write}、\code{exec}……）都是对这个网关的薄包装：一个 \code{sc()} 帮助函数把 \code{SYS\_*} 号作为第一个实参传给 \code{\_\_syscall}，再用 \code{SC0/SC1/\ldots/SC6} 按参数个数展开（\code{I}/\code{P} 只做到 \code{long} 的转换）：
+
+\begin{ccode}
+extern long __syscall(long, long, long, long, long, long, long);
+
+static long sc(long number, long a0, long a1, long a2, long a3, long a4, long a5){
+  long result = __syscall(number, a0, a1, a2, a3, a4, a5);
+  if(result < 0)                 // 内核目前只返回 -1，尚无 Linux 式 -errno
+    errno = EIO;
+  return result;
+}
+
+#define SC3(n,a,b,c) sc(SYS_##n, (a), (b), (c), 0, 0, 0)
+int write(int fd, const void *buf, int count)
+{ return SC3(write, I(fd), P(buf), I(count)); }
+\end{ccode}
+
+这样分层有两个好处。其一，\code{svc} 只出现在这一个网关里，应用和大部分 libc 都不再直接执行陷入指令，系统调用号这套内核 ABI 被收进 \code{libc.so} 内部。其二，在动态链接下（第~\ref{sec:dynamic-libc} 节），应用对 \code{write} 的调用经 PLT 落到共享 libc，再由 libc 内部经 \code{\_\_syscall} 陷入，用户程序镜像里不再各自携带一份桩代码。
+
+内核侧 \code{syscall()} 用 \code{trapframe->x7} 索引函数表，返回值写回 \code{trapframe->x0}。目前共有 70 多个系统调用：除了 xv6 原有的 21 个，还有同步对象、网络（UDP、ICMP、TCP socket、epoll）、挂载、TTY 会话、线程、调度属性、高精度时钟等。
 
 \begin{note}
   系统调用号放在 \code{x7}，这是本项目沿用的约定；Linux AArch64 用的是 \code{x8}。所以 Linux 的二进制或汇编系统调用包装不能直接拿来用，第~\ref{sec:posix} 节的 POSIX 层是\emph{源码}兼容，不是二进制兼容。
@@ -257,17 +282,76 @@ int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 
 \subsection{\code{libc.a}}
 
-用户库被打包成一个静态库：
+在最简形态里，用户库被打包成一个静态库 \code{libc.a}（也就是 \code{make DYNAMIC\_USER=0} 时保留的回退路径）：
 
 \begin{itemize}
   \item \file{ulib.c}：字符串、内存函数、\code{gets}、\code{stat}、\code{atoi}；
-  \item \file{usys.S}：系统调用桩；
+  \item \file{usys.S}：唯一的 \code{\_\_syscall} 陷入网关；
   \item \file{printf.c}：\code{printf}/\code{fprintf}，支持 \code{\%d \%x \%p \%s \%c}；
   \item \file{umalloc.c}：K\&R 风格的 \code{malloc}/\code{free}，用 \code{sbrk} 向内核要内存；
   \item \file{thread.c}：上一节的线程包装；
   \item \file{posix.c}：POSIX 包装层；
   \item \file{tweetnacl.c}、\file{ssh\_crypto.c}：密码学原语（\code{sshd} 使用）。
 \end{itemize}
+
+\subsection{动态链接 \code{libc.so}}
+\label{sec:dynamic-libc}
+
+上面的静态 \code{libc.a} 让每个程序各自携带一份 libc 代码。本项目把默认形态改成共享库：\file{Makefile} 先把每个 libc 源文件编成位置无关对象（\code{-fPIC}），再用 \code{ld -shared} 链成 \code{ET\_DYN} 的 \code{libc.so}，SONAME 取名 \code{libc.so}；用户程序则以 \code{-pie} 链接到它：
+
+\begin{makecode}
+$U/%.pic.o: $U/%.c
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+$U/libc.so: $(LIBC_PIC_OBJS)
+	$(LD) $(LDFLAGS) -shared --no-undefined -soname libc.so -o $@ $^
+_%: %.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) -pie --no-dynamic-linker -e main -o $@ ...
+\end{makecode}
+
+关键在最后一条：\code{-pie} 产出 \code{ET\_DYN} 可执行文件，\code{--no-dynamic-linker} 则\emph{不}写 \code{PT\_INTERP}——因为本项目没有用户态 \code{ld.so}，动态装载的活由内核 \code{exec()} 自己完成。要退回上一节的静态形态，只需 \code{make DYNAMIC\_USER=0}；构建用 \file{.dynamic-user}/\file{.static-user} 两个模式戳保证切换时重链所有用户程序，根文件系统构建再把共享库安装到 \file{/lib/libc.so}。
+
+\paragraph{\code{exec()} 里的装载流程.} 对每个 \code{ET\_DYN} 程序，\file{kernel/exec.c}：
+
+\begin{enumerate}
+  \item 校验 ELF 头后按程序头把主镜像映射到虚拟地址 0，并记下 \code{PT\_DYNAMIC} 位置。为此 \code{loadseg()} 放宽了老 xv6 的页对齐要求，只校验 GNU \code{ld} 保证的 \code{p\_vaddr $\equiv$ p\_offset (mod p\_align)}，以容纳非页对齐的段边界。
+  \item \code{parsedynamic()} 逐条读 \code{DT\_*} 项，收集 \code{DT\_NEEDED}、\code{DT\_SYMTAB}、\code{DT\_STRTAB}、\code{DT\_HASH}、\code{DT\_RELA/RELASZ/RELAENT} 与 \code{DT\_JMPREL/PLTRELSZ/PLTREL}；符号数取自 ELF hash 表头，动态表必须以 \code{DT\_NULL} 结束。
+  \item 策略校验：\code{DT\_NEEDED} 必须恰好一个、且字符串正是 \code{"libc.so"}，随后打开硬编码路径 \file{/lib/libc.so}。任意依赖搜索留给未来的用户态 \code{ld.so}，不藏进内核。
+  \item libc 的载入基址取 \code{libbase = PGROUNDUP(sz)}，即紧跟主镜像之后的第一个空闲页，\code{loadimage()} 据此把 \code{libc.so} 也映射进本页表。
+  \item \code{relocateimage()} \emph{先}重定位 libc、\emph{再}重定位主镜像：处理 \code{.rela.dyn} 与 \code{.rela.plt}，符号解析顺序为“主镜像优先、libc 兜底”，未定义的强符号会让 \code{exec()} 直接失败。
+  \item 校验入口合法、布置 argv 栈、把 PC 设为 \code{mainimg.base + e\_entry}；由于重定位用 \code{copyout} 改写了用户代码与 GOT 页，返回用户态前必须 \code{uvmsync\_icache()} 做 I-cache 维护。
+\end{enumerate}
+
+\paragraph{支持的重定位类型.} 装载器只认这份 AArch64 libc 实际会生成的四种 \code{R\_AARCH64\_*}，且全部在装载期一次性（eager）绑定，没有延迟 PLT：
+
+\begin{ccode}
+switch(type){
+case R_AARCH64_NONE:                       // 跳过
+  continue;
+case R_AARCH64_RELATIVE:                   // 基址 + addend
+  value = img->base + rela.addend; break;
+case R_AARCH64_ABS64:                      // 解析符号后 + addend
+case R_AARCH64_GLOB_DAT:
+case R_AARCH64_JUMP_SLOT:
+  value = resolvesym(...) + rela.addend; break;
+default:                                   // 其它类型一律失败
+  printf("exec: unsupported AArch64 dynamic relocation %d\n", type);
+  return -1;
+}
+\end{ccode}
+
+真机上以默认配置启动、登录后，串口打印每个动态程序里 \code{libc.so} 的载入基址，这两行即证明主 ELF 与 \code{libc.so} 都被成功装载、符号被解析、重定位已完成：
+
+\begin{txtcode}
+exec: dynamic /bin/login, libc.so base=0x0000000000002000
+xv6-rpi3 login: root
+Password: xv6
+Welcome root
+exec: dynamic /bin/sh, libc.so base=0x0000000000003000
+\end{txtcode}
+
+这里的 \code{base} 就是上文的 \code{libbase}：\code{login} 主镜像最大到 \code{0x1a20}，页对齐后落在第 2 页 \code{0x2000}；\code{sh} 更大，跨到第 3 页 \code{0x3000}。若某个程序没有打印 \code{exec: dynamic} 却能运行，说明它是静态 \code{ET\_EXEC} 回退路径。
+
+\paragraph{收敛与限制.} 这是一个刻意为之的最小 \textbf{xv6 原生}装载 ABI，而不是完整的 \code{ld.so}：只支持 RELA（无 \code{DT\_REL}）；只认上面四种动态重定位，带 GOT 数据重定位（\code{ADR\_GOT\_PAGE}/\code{LD64\_GOT\_LO12\_NC}）的二进制会失败；只允许受信任的单个 \file{/lib/libc.so}，libc 自身不得再有依赖；没有 \code{PT\_INTERP}、\code{dlopen/dlsym}、延迟 PLT 绑定、\code{IFUNC}、TLS、符号 interposition 与 ASLR；\code{libc.so} 每次 \code{exec} 都重新读盘并复制进本进程地址空间，进程间不共享只读物理页。于是它消除了每个程序静态携带 libc 的磁盘冗余，却还没省下运行时的物理内存。可插拔 \code{.ko} 模块的装载器与它共用 \file{kernel/elf.h} 里的数据结构，却是两套独立逻辑：模块装载器处理 \code{ET\_REL}、做的是指令位域修补，而这里处理 \code{ET\_DYN}、做的是把基址与符号值写回 64 位槽。
 
 \subsection{POSIX 层}
 

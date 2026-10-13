@@ -1,4 +1,4 @@
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 
 // Kernel PTY smoke test. It verifies both independent byte streams without

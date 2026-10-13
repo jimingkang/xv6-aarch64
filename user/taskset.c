@@ -3,7 +3,7 @@
 //   taskset -p PID              show the mask of PID
 //   taskset -p MASK PID         change it (MASK like 0x8 = CPU3 only)
 //   taskset MASK CMD [ARG...]   run CMD restricted to MASK
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

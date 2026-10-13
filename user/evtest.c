@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
-#include "kernel/fcntl.h"
+#include <fcntl.h>
 
 struct input_event {
   uint16 type;

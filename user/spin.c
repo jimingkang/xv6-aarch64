@@ -2,7 +2,7 @@
 //
 //   spin [SECONDS]      default 5.  Prints its CPU, the CPU time it got and
 //                       when (clock_us, ms) its first and last instruction ran.
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

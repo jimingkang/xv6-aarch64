@@ -5,8 +5,8 @@
 // relocation and runs the driver's init.  This is the same division of labour
 // as Linux's insmod, which is little more than open + read + finit_module.
 
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/types.h>
+#include <uapi/stat.h>
 #include "user/user.h"
 
 #define MAX_IMAGE (64 * 1024)

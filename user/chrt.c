@@ -5,7 +5,7 @@
 //   chrt [-f|-r|-o] PRIO CMD [ARG...]  run CMD with the given policy
 //
 //   -f SCHED_FIFO   -r SCHED_RR (default)   -o SCHED_OTHER (PRIO must be 0)
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 #include "user/schedutil.h"
 

@@ -1,7 +1,7 @@
 // Minimal read-only TFTP server.  RRQ requests arrive on UDP 69 and each
 // transfer uses its own server TID port, as required by RFC 1350.
-#include "kernel/types.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <fcntl.h>
 #include "user/user.h"
 
 #define TFTP_PORT             69

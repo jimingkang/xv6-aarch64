@@ -2,8 +2,7 @@
 #define _SYS_STAT_H
 
 #include <sys/types.h>
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include <uapi/stat.h>
 
 #define st_dev   dev
 #define st_ino   ino

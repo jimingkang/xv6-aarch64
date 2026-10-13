@@ -25,11 +25,11 @@
 // the four Bayer orders, taken from the frame header) -> gray-world white
 // balance -> auto level (99th percentile) -> gamma 2.2.  Width, height and
 // line length also come from the header, so other sensors and modes work.
-#include "kernel/types.h"
-#include "kernel/fcntl.h"
+#include <uapi/types.h>
+#include <fcntl.h>
 #include "user/user.h"
 #include "user/jpeg.h"
-#include "kernel/camera.h"
+#include <uapi/camera.h>
 
 #define BLACK 16                      // black level, 10-bit units (OV5647)
 #define BMP_BATCH_ROWS 16             // amortise FAT32/syscall overhead

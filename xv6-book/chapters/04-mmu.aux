@@ -1,65 +1,65 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第四章}MMU}{26}{chapter.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第四章}MMU}{28}{chapter.4}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:mmu}{{4}{26}{MMU}{chapter.4}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4.1}AArch64 的地址翻译}{26}{section.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.1}地址空间划分}{26}{subsection.4.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.2}三级页表}{26}{subsection.4.1.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4.1}{\ignorespaces 39 位虚拟地址的划分\relax }}{26}{figure.caption.13}\protected@file@percent }
-\newlabel{fig:va}{{4.1}{26}{39 位虚拟地址的划分\relax }{figure.caption.13}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.3}硬件如何遍历页表}{27}{subsection.4.1.3}\protected@file@percent }
-\newlabel{sec:hw-walk}{{4.1.3}{27}{硬件如何遍历页表}{subsection.4.1.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{块映射.}{27}{Item.12}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.4}描述符的属性位}{27}{subsection.4.1.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4.1}{\ignorespaces 页表项属性位（\texttt  {\color  {structurecolor!80!black}kernel/aarch64.h}）\relax }}{27}{table.caption.14}\protected@file@percent }
-\newlabel{tab:pte-bits}{{4.1}{27}{页表项属性位（\file {kernel/aarch64.h}）\relax }{table.caption.14}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.5}内存属性间接表}{27}{subsection.4.1.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.2}启动页表}{28}{section.4.2}\protected@file@percent }
-\newlabel{sec:bootpgt}{{4.2}{28}{启动页表}{section.4.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.1}清 BSS 与早期栈}{28}{subsection.4.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.2}两棵临时页表}{28}{subsection.4.2.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4.2}{\ignorespaces 启动页表：同一段物理内存同时映射到低地址和高地址\relax }}{28}{figure.caption.15}\protected@file@percent }
-\newlabel{fig:bootpgt}{{4.2}{28}{启动页表：同一段物理内存同时映射到低地址和高地址\relax }{figure.caption.15}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.3}打开 MMU：TCR、MAIR 与 SCTLR}{29}{subsection.4.2.3}\protected@file@percent }
-\newlabel{sec:mmu-on}{{4.2.3}{29}{打开 MMU：TCR、MAIR 与 SCTLR}{subsection.4.2.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.4}跳到高地址}{30}{subsection.4.2.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.3}多核启动}{31}{section.4.3}\protected@file@percent }
-\newlabel{sec:smp-boot}{{4.3}{31}{多核启动}{section.4.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{第一道闸门：启动页表。}{31}{section.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第二道闸门：内核初始化。}{31}{lstnumber.-40.13}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.4}两阶段的物理内存初始化}{32}{section.4.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.5}最终内核页表}{32}{section.4.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.1}\texttt  {\hyphenchar \font =-1 kvmmake()}}{32}{subsection.4.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.2}\texttt  {\hyphenchar \font =-1 walk()} 与 \texttt  {\hyphenchar \font =-1 mappages()}}{32}{subsection.4.5.2}\protected@file@percent }
-\newlabel{sec:walk-mappages}{{4.5.2}{32}{\code {walk()} 与 \code {mappages()}}{subsection.4.5.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.3}页表的规模}{33}{subsection.4.5.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4.2}{\ignorespaces 最终内核页表的组成（一次运行时快照）\relax }}{33}{table.caption.16}\protected@file@percent }
-\newlabel{tab:kpgt}{{4.2}{33}{最终内核页表的组成（一次运行时快照）\relax }{table.caption.16}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4.6}用户地址空间}{34}{section.4.6}\protected@file@percent }
-\newlabel{sec:uvm}{{4.6}{34}{用户地址空间}{section.4.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.1}内核空间与用户空间}{34}{subsection.4.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.2}\texttt  {\hyphenchar \font =-1 exec()} 之后的布局}{34}{subsection.4.6.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4.3}{\ignorespaces \texttt  {\hyphenchar \font =-1 exec()} 之后的用户地址空间\relax }}{34}{figure.caption.17}\protected@file@percent }
-\newlabel{fig:uas}{{4.3}{34}{\code {exec()} 之后的用户地址空间\relax }{figure.caption.17}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.3}第一个用户进程的页表}{34}{subsection.4.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.4}\texttt  {\hyphenchar \font =-1 fork} 时复制地址空间}{35}{subsection.4.6.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.5}TLB 与地址空间切换}{35}{subsection.4.6.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.6}缺页与按需分配}{35}{subsection.4.6.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.7}MMIO、总线地址与 DMA}{36}{section.4.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.7.1}MMIO}{36}{subsection.4.7.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4.3}{\ignorespaces Raspberry Pi 3 的物理地址布局（本内核使用的部分）\relax }}{36}{table.caption.18}\protected@file@percent }
-\newlabel{tab:physmap}{{4.3}{36}{Raspberry Pi 3 的物理地址布局（本内核使用的部分）\relax }{table.caption.18}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.7.2}三种地址视图}{36}{subsection.4.7.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4.8}缓存与 TLB：三个真机故障}{37}{section.4.8}\protected@file@percent }
-\newlabel{sec:caches}{{4.8}{37}{缓存与 TLB：三个真机故障}{section.4.8}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.1}故障一：停在 \texttt  {\hyphenchar \font =-1 BPH0abde}}{37}{subsection.4.8.1}\protected@file@percent }
-\newlabel{sec:fault1}{{4.8.1}{37}{故障一：停在 \code {BPH0abde}}{subsection.4.8.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.2}故障二：\texttt  {\hyphenchar \font =-1 ls} 跳到了不属于它的代码}{37}{subsection.4.8.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.3}故障三：\texttt  {\hyphenchar \font =-1 sbrk} 之后的旧 TLB}{38}{subsection.4.8.3}\protected@file@percent }
+\newlabel{chap:mmu}{{4}{28}{MMU}{chapter.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.1}AArch64 的地址翻译}{28}{section.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.1}地址空间划分}{28}{subsection.4.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.2}三级页表}{28}{subsection.4.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4.1}{\ignorespaces 39 位虚拟地址的划分\relax }}{28}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:va}{{4.1}{28}{39 位虚拟地址的划分\relax }{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.3}硬件如何遍历页表}{29}{subsection.4.1.3}\protected@file@percent }
+\newlabel{sec:hw-walk}{{4.1.3}{29}{硬件如何遍历页表}{subsection.4.1.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{块映射.}{29}{Item.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.4}描述符的属性位}{29}{subsection.4.1.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.1}{\ignorespaces 页表项属性位（\texttt  {\color  {structurecolor!80!black}kernel/aarch64.h}）\relax }}{29}{table.caption.17}\protected@file@percent }
+\newlabel{tab:pte-bits}{{4.1}{29}{页表项属性位（\file {kernel/aarch64.h}）\relax }{table.caption.17}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1.5}内存属性间接表}{29}{subsection.4.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.2}启动页表}{30}{section.4.2}\protected@file@percent }
+\newlabel{sec:bootpgt}{{4.2}{30}{启动页表}{section.4.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.1}清 BSS 与早期栈}{30}{subsection.4.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.2}两棵临时页表}{30}{subsection.4.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4.2}{\ignorespaces 启动页表：同一段物理内存同时映射到低地址和高地址\relax }}{30}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:bootpgt}{{4.2}{30}{启动页表：同一段物理内存同时映射到低地址和高地址\relax }{figure.caption.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.3}打开 MMU：TCR、MAIR 与 SCTLR}{31}{subsection.4.2.3}\protected@file@percent }
+\newlabel{sec:mmu-on}{{4.2.3}{31}{打开 MMU：TCR、MAIR 与 SCTLR}{subsection.4.2.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2.4}跳到高地址}{32}{subsection.4.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.3}多核启动}{33}{section.4.3}\protected@file@percent }
+\newlabel{sec:smp-boot}{{4.3}{33}{多核启动}{section.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{第一道闸门：启动页表。}{33}{section.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第二道闸门：内核初始化。}{33}{lstnumber.-41.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.4}两阶段的物理内存初始化}{34}{section.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.5}最终内核页表}{34}{section.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.1}\texttt  {\hyphenchar \font =-1 kvmmake()}}{34}{subsection.4.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.2}\texttt  {\hyphenchar \font =-1 walk()} 与 \texttt  {\hyphenchar \font =-1 mappages()}}{34}{subsection.4.5.2}\protected@file@percent }
+\newlabel{sec:walk-mappages}{{4.5.2}{34}{\code {walk()} 与 \code {mappages()}}{subsection.4.5.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5.3}页表的规模}{35}{subsection.4.5.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.2}{\ignorespaces 最终内核页表的组成（一次运行时快照）\relax }}{35}{table.caption.19}\protected@file@percent }
+\newlabel{tab:kpgt}{{4.2}{35}{最终内核页表的组成（一次运行时快照）\relax }{table.caption.19}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.6}用户地址空间}{36}{section.4.6}\protected@file@percent }
+\newlabel{sec:uvm}{{4.6}{36}{用户地址空间}{section.4.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.1}内核空间与用户空间}{36}{subsection.4.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.2}\texttt  {\hyphenchar \font =-1 exec()} 之后的布局}{36}{subsection.4.6.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4.3}{\ignorespaces \texttt  {\hyphenchar \font =-1 exec()} 之后的用户地址空间\relax }}{36}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:uas}{{4.3}{36}{\code {exec()} 之后的用户地址空间\relax }{figure.caption.20}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.3}第一个用户进程的页表}{36}{subsection.4.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.4}\texttt  {\hyphenchar \font =-1 fork} 时复制地址空间}{37}{subsection.4.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.5}TLB 与地址空间切换}{37}{subsection.4.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6.6}缺页与按需分配}{37}{subsection.4.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.7}MMIO、总线地址与 DMA}{38}{section.4.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7.1}MMIO}{38}{subsection.4.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.3}{\ignorespaces Raspberry Pi 3 的物理地址布局（本内核使用的部分）\relax }}{38}{table.caption.21}\protected@file@percent }
+\newlabel{tab:physmap}{{4.3}{38}{Raspberry Pi 3 的物理地址布局（本内核使用的部分）\relax }{table.caption.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7.2}三种地址视图}{38}{subsection.4.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4.8}缓存与 TLB：三个真机故障}{39}{section.4.8}\protected@file@percent }
+\newlabel{sec:caches}{{4.8}{39}{缓存与 TLB：三个真机故障}{section.4.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.1}故障一：停在 \texttt  {\hyphenchar \font =-1 BPH0abde}}{39}{subsection.4.8.1}\protected@file@percent }
+\newlabel{sec:fault1}{{4.8.1}{39}{故障一：停在 \code {BPH0abde}}{subsection.4.8.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.2}故障二：\texttt  {\hyphenchar \font =-1 ls} 跳到了不属于它的代码}{39}{subsection.4.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8.3}故障三：\texttt  {\hyphenchar \font =-1 sbrk} 之后的旧 TLB}{40}{subsection.4.8.3}\protected@file@percent }
 \@setckpt{chapters/04-mmu}{
-\setcounter{page}{39}
+\setcounter{page}{41}
 \setcounter{equation}{0}
 \setcounter{enumi}{5}
 \setcounter{enumii}{0}
@@ -79,7 +79,7 @@
 \setcounter{Item}{12}
 \setcounter{Hfootnote}{0}
 \setcounter{Hy@AnnotLevel}{0}
-\setcounter{bookmark@seq@number}{65}
+\setcounter{bookmark@seq@number}{67}
 \setcounter{parentequation}{0}
 \setcounter{blindtext}{1}
 \setcounter{Blindtext}{5}

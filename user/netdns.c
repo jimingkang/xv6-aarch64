@@ -1,4 +1,4 @@
-#include "kernel/types.h"
+#include <uapi/types.h>
 #include "user/user.h"
 
 #define QEMU_DNS 0x0a000203U

@@ -1,5 +1,5 @@
-#include "kernel/types.h"
-#include "kernel/ext2.h"
+#include <uapi/types.h>
+#include <uapi/ext2.h>
 #include "user/user.h"
 
 int

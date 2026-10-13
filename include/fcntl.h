@@ -2,7 +2,7 @@
 #define _FCNTL_H
 
 #include <sys/types.h>
-#include "kernel/fcntl.h"
+#include <uapi/fcntl.h>
 
 #define O_CREAT O_CREATE
 

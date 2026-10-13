@@ -262,6 +262,7 @@ void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
 int             wait(uint64);
+int             waitpid(int, uint64, int);
 void            wakeup(void*);
 void            yield(void);
 void            sched_yield_now(void);
