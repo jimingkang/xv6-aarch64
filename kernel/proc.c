@@ -586,7 +586,9 @@ growproc(int n)
         pte_t *pte = walk(vm->pagetable, first, 0);
         if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_AF) == 0)
           panic("growproc dealloc");
-        pa[count++] = PTE2PA(*pte);
+        // Shared libc.so text belongs to exec's cache: unmap, never free.
+        if((*pte & PTE_SHARED) == 0)
+          pa[count++] = PTE2PA(*pte);
         *pte = 0;
         first += PGSIZE;
       }
@@ -941,9 +943,21 @@ exit(int status)
 int
 wait(uint64 addr)
 {
+  return waitpid(-1, addr, 0);
+}
+
+// Wait for a specific child, or any child when pid is -1.  The only option
+// currently implemented is WNOHANG (bit 0), which is enough for portable
+// event loops without changing the ordinary xv6 wait() semantics.
+int
+waitpid(int wanted, uint64 addr, int options)
+{
   struct proc *np;
   int havekids, pid;
   struct proc *p = myproc();
+
+  if(wanted == 0 || wanted < -1 || (options & ~1) != 0)
+    return -1;
 
   acquire(&wait_lock);
 
@@ -951,7 +965,8 @@ wait(uint64 addr)
     // Scan through table looking for exited children.
     havekids = 0;
     for(np = proc_head; np; np = np->next){
-      if(np->parent == p && !np->is_thread){
+      if(np->parent == p && !np->is_thread &&
+         (wanted == -1 || np->tgid == wanted)){
         // make sure the child isn't still in exit() or swtch().
         acquire(&np->lock);
 
@@ -978,6 +993,10 @@ wait(uint64 addr)
     if(!havekids || p->killed){
       release(&wait_lock);
       return -1;
+    }
+    if(options & 1){
+      release(&wait_lock);
+      return 0;
     }
     
     // Wait for a child to exit.

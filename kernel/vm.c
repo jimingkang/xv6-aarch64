@@ -201,11 +201,12 @@ uvmdump(pagetable_t root, int pid, char *name, char *event)
           continue;
         uint64 va = l2va + ((uint64)k << PXSHIFT(3));
         printf("  -> L1[%d] -> L2[%d] -> L3[%d] VA=%p -> PA=%p"
-               " flags=%p %s %s %s\n",
+               " flags=%p %s %s %s%s\n",
                i, j, k, va, PTE2PA(l3e), PTE_FLAGS(l3e),
                (l3e & PTE_U) ? "user" : "kernel",
                (l3e & PTE_RO) ? "RO" : "RW",
-               (l3e & PTE_UXN) ? "XN" : "X");
+               (l3e & PTE_UXN) ? "XN" : "X",
+               (l3e & PTE_SHARED) ? " shared" : "");
       }
     }
   }
@@ -356,7 +357,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if((*pte & PTE_AF) == 0)
       panic("uvmunmap: not a leaf");
-    if(do_free){
+    // A shared page belongs to its cache, not to this address space.
+    if(do_free && (*pte & PTE_SHARED) == 0){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)P2V(pa));
     }
@@ -510,6 +512,12 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+    if(*pte & PTE_SHARED){
+      // Read-only shared library text: the child maps the same page.
+      if(mappages(new, i, PGSIZE, pa, flags | PTE_SHARED) != 0)
+        goto err;
+      continue;
+    }
     if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)P2V(pa), PGSIZE);
@@ -539,9 +547,27 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+// Like uva2ka(), but only for a page EL0 may write.  The kernel writes user
+// memory through its own direct mapping, which ignores the user PTE's AP bits,
+// so copyout() must check them itself.  Otherwise read(fd, libc_text, n) would
+// let one process overwrite the libc.so text page shared by every process.
+static uint64
+uva2ka_writable(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+
+  if(va >= MAXVA)
+    return 0;
+  pte = walk(pagetable, va, 0);
+  if(pte == 0 || (*pte & PTE_V) != PTE_V || (*pte & PTE_AF) == 0 ||
+     (*pte & PTE_U) == 0 || (*pte & PTE_RO) != 0)
+    return 0;
+  return (uint64)P2V(PTE2PA(*pte));
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
-// Return 0 on success, -1 on error.
+// Return 0 on success, -1 on error (unmapped or read-only destination).
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
@@ -549,7 +575,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = uva2ka(pagetable, va0);
+    pa0 = uva2ka_writable(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);

@@ -230,6 +230,11 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PTE_PXN (1UL << 53)   // Privileged eXecute Never
 #define PTE_UXN (1UL << 54)   // Unprivileged(user) eXecute Never
 #define PTE_XN (PTE_PXN|PTE_UXN)  // eXecute Never
+// Bits [58:55] of a stage-1 descriptor are ignored by the MMU and reserved for
+// software.  PTE_SHARED marks a user leaf that maps a page owned by a shared
+// cache (the libc.so text cache in exec.c): per-process teardown must not
+// kfree it, and fork maps the same physical page instead of copying it.
+#define PTE_SHARED (1UL << 55)
 
 // attribute index
 // index is set by mair_el1
