@@ -102,6 +102,7 @@ main(int argc, char *argv[])
   // The option and its argument are blanked so the /bin loop skips them.
   char *moddir = 0;
   char *libfile = 0;
+  char *interpfile = 0;
   for(i = 2; i < argc; i++){
     if(strcmp(argv[i], "-M") == 0 && i + 1 < argc){
       moddir = argv[i + 1];
@@ -109,6 +110,10 @@ main(int argc, char *argv[])
       i++;
     } else if(strcmp(argv[i], "-L") == 0 && i + 1 < argc){
       libfile = argv[i + 1];
+      argv[i] = argv[i + 1] = 0;
+      i++;
+    } else if(strcmp(argv[i], "-I") == 0 && i + 1 < argc){
+      interpfile = argv[i + 1];
       argv[i] = argv[i + 1] = 0;
       i++;
     }
@@ -240,6 +245,27 @@ main(int argc, char *argv[])
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, libname, DIRSIZ);
+    iappend(libino, &de, sizeof(de));
+    while((cc = read(fd, buf, sizeof(buf))) > 0)
+      iappend(inum, buf, cc);
+    rinode(inum, &din);
+    din.nlink = xshort(1);
+    winode(inum, &din);
+    close(fd);
+  }
+
+  // Install the user-space ELF interpreter named by PT_INTERP.  It lives in
+  // /lib beside libc.so but is a standalone static executable: the loader
+  // cannot itself depend on the library it is responsible for relocating.
+  if(interpfile){
+    char *name = strrchr(interpfile, '/');
+    name = name ? name + 1 : interpfile;
+    if((fd = open(interpfile, 0)) < 0)
+      die(interpfile);
+    inum = ialloc(T_FILE);
+    bzero(&de, sizeof(de));
+    de.inum = xshort(inum);
+    strncpy(de.name, name, DIRSIZ);
     iappend(libino, &de, sizeof(de));
     while((cc = read(fd, buf, sizeof(buf))) > 0)
       iappend(inum, buf, cc);

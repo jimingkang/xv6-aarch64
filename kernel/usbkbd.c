@@ -111,18 +111,22 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
   int control = (modifiers & ((1U << 0) | (1U << 4))) != 0;
   int c;
 
-  if(hid_to_key[code])
-    input_report_key(kbd->input, hid_to_key[code], 1);
+  // The console/TTY input path must not depend on evdev.  In particular an
+  // event0 reader (or an input-core lock problem) must never be able to stop
+  // the system console.  Translate and inject the character first, then fan
+  // the key event out through the generic input subsystem below.  This is the
+  // same separation Linux has between the keyboard/VT handler and evdev:
+  // they are independent consumers of one input event.
   if(code == 57){
     kbd->capslock ^= 1;
-    return;
+    goto report_key;
   }
-  if(code == 79){ emit_escape('C'); return; }
-  if(code == 80){ emit_escape('D'); return; }
-  if(code == 81){ emit_escape('B'); return; }
-  if(code == 82){ emit_escape('A'); return; }
+  if(code == 79){ emit_escape('C'); goto report_key; }
+  if(code == 80){ emit_escape('D'); goto report_key; }
+  if(code == 81){ emit_escape('B'); goto report_key; }
+  if(code == 82){ emit_escape('A'); goto report_key; }
   if(code >= sizeof(keymap) || keymap[code] == 0)
-    return;
+    goto report_key;
   if(code >= 4 && code <= 29)
     shifted ^= kbd->capslock;
   c = shifted ? shiftmap[code] : keymap[code];
@@ -131,6 +135,10 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
   else if(control && c >= 'A' && c <= 'Z')
     c = c - 'A' + 1;
   consoleintr(c);
+
+report_key:
+  if(hid_to_key[code])
+    input_report_key(kbd->input, hid_to_key[code], 1);
 }
 
 static void

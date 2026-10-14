@@ -307,7 +307,7 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 # separate from the raw-device recipe makes it possible to inspect/test the
 # exact bytes which will be installed before touching an SD-card partition.
 .PHONY: ext2root-image
-ext2root-image: $$(UPROGS) $U/libc.so modules_install
+ext2root-image: $$(UPROGS) $U/libc.so $U/ld-xv6.so modules_install
 	truncate -s $(EXT2_SIZE) "$(EXT2_IMAGE)"
 	$(MKE2FS) -F -t ext2 -b 4096 \
 	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
@@ -316,6 +316,7 @@ ext2root-image: $$(UPROGS) $U/libc.so modules_install
 	   for f in $(UPROGS); do n=$${f#$U/_}; echo "write $$f bin/$$n"; done; \
 	   echo "write $U/_init init"; \
 	   echo "mkdir lib"; echo "write $U/libc.so lib/libc.so"; \
+	   echo "write $U/ld-xv6.so lib/ld-xv6.so"; \
 	   echo "mkdir lib/modules"; \
 	   for f in $(MODULES); do n=$${f##*/}; echo "write $(MODULE_INSTALL_DIR)/$$n lib/modules/$$n"; done; } > ext2root.debugfs
 	$(DEBUGFS) -w -f ext2root.debugfs "$(EXT2_IMAGE)" > ext2root.log 2>&1
@@ -401,7 +402,7 @@ LIBC_PIC_OBJS = $(LIBC_OBJS:.o=.pic.o)
 DYNAMIC_USER ?= 1
 ifeq ($(DYNAMIC_USER),1)
 ULIB = $U/libc.so
-USER_LD_MODE = -pie --no-dynamic-linker
+USER_LD_MODE = -pie -dynamic-linker /lib/ld-xv6.so
 USER_LINK_STAMP = $U/.dynamic-user
 else
 ULIB = $U/libc.a
@@ -423,7 +424,7 @@ $U/libc.o: $(LIBC_OBJS)
 $U/libc.a: $(LIBC_OBJS) $U/libc.o
 	$(AR) rcs $@ $(LIBC_OBJS)
 
-# ELF shared libc loaded and relocated by exec() for ET_DYN user programs.
+# ELF shared libc loaded and relocated by the user-space interpreter.
 $U/%.pic.o: $U/%.c
 	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 
@@ -432,6 +433,13 @@ $U/usys.pic.o: $U/usys.S
 
 $U/libc.so: $(LIBC_PIC_OBJS)
 	$(LD) $(LDFLAGS) -shared --no-undefined -soname libc.so -o $@ $^
+
+# The ELF interpreter is deliberately self-contained.  It executes before
+# libc has been mapped or relocated and uses raw syscalls through usys.pic.o.
+# It is a relocation-free ET_DYN image, so exec may choose its load bias and
+# only has to map PT_LOAD segments and transfer control, as Linux does.
+$U/ld-xv6.so: $U/ldso.pic.o $U/usys.pic.o
+	$(LD) $(LDFLAGS) -shared -Bsymbolic -e ldso_start -o $@ $^
 
 _%: %.o $(ULIB) $(USER_LINK_STAMP)
 	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
@@ -559,8 +567,8 @@ modules_install: $(MODULES)
 	@mkdir -p $(MODULE_INSTALL_DIR)
 	cp $(MODULES) $(MODULE_INSTALL_DIR)/
 
-fs.img: mkfs/mkfs $(UPROGS) $U/libc.so modules_install
-	mkfs/mkfs fs.img -L $U/libc.so -M $(MODULE_INSTALL_DIR) $(UPROGS)
+fs.img: mkfs/mkfs $(UPROGS) $U/libc.so $U/ld-xv6.so modules_install
+	mkfs/mkfs fs.img -L $U/libc.so -I $U/ld-xv6.so -M $(MODULE_INSTALL_DIR) $(UPROGS)
 	truncate -s 32M fs.img
 
 # Linux/ext2 image used by the VFS /mnt/ext2 backend.  mke2fs formats a regular
@@ -586,7 +594,7 @@ clean: clean-t113
 	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
 	$(MODULES) $K/*.mod.o $K/*.ko.raw \
-	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/.dynamic-user $U/.static-user \
+	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/ld-xv6.so $U/.dynamic-user $U/.static-user \
         $U/usys.S \
 	$(UPROGS)
 	# Remove numbered duplicate build products created by repeated Finder/copy
@@ -614,7 +622,7 @@ clean: clean-t113
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
 # QEMU's gdb stub command line changed in 0.11
 QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
-	then echo "-gdb tcp::$(GDBPORT)"; \
+	then echo "-gdb tcp:127.0.0.1:$(GDBPORT)"; \
 	else echo "-s -p $(GDBPORT)"; fi)
 ifndef CPUS
 CPUS := 4

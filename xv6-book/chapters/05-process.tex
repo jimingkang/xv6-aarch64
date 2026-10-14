@@ -262,7 +262,7 @@ int fork(void) {
 
 \begin{enumerate}
   \item 分配进程描述符、内核栈和空的地址空间，context 设为“从 \code{forkret} 开始”；
-  \item 逐页复制父进程的用户内存：为每一页新分配物理页，拷贝内容，用相同的权限映射到子进程页表。复制完调用 \code{uvmsync\_icache()}，避免子进程的新物理页命中旧的指令缓存；
+  \item 共享父进程的用户内存：不复制，子进程页表指向同一组物理页，可写页在父子两边都改成只读并打上 \code{PTE\_COW}，每页的引用计数加一；以后谁先写某一页，谁就在写保护异常里得到自己的副本（写时复制，见第~\ref{sec:cow} 节）。\code{mmap()} 的区域由紧接着的 \code{vma\_copy()} 同样处理；
   \item 复制整个 trapframe——子进程回到用户态时，PC、栈指针、全部寄存器都和父进程在 \code{svc} 之后一模一样；
   \item 唯一的区别：子进程的 \code{x0}（系统调用返回值）改成 0；
   \item 复制文件描述符表。注意复制的是 \code{struct file} 的\emph{引用}，父子共享同一个文件偏移，这正是 \code{sh} 实现重定向和管道的基础；

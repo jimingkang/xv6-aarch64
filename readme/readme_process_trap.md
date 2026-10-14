@@ -416,3 +416,191 @@ EL0 /init: fork() ─svc─► fork：复制页表与 trapframe，子进程 x0 =
 定时器 IRQ ─► el0irq → userirq → sched_tick 时间片用完 → yield → sched ─► 换下一个进程
 login/sh exit ─► ZOMBIE → wakeup(init) ─► init 的 wait → freeproc 回收内核栈
 ```
+
+---
+
+# 第二部分：共享物理页——引用计数、写时复制、页缓存、mmap 与 ld.so
+
+以下内容对应三步改造（分支 `wip-cow-mmap-ldso`，基于 `rpi3-dynmodel` 的 c0aeb0e）：
+
+| 步骤 | 内容 | 主要文件 |
+|---|---|---|
+| 第一步 | 共享 libc.so 的代码页 | `exec.c` |
+| 第二步 | 物理页引用计数 + fork 写时复制 | `kalloc.c`、`vm.c`、`trap.c`、`proc.c` |
+| 第三步 | 页缓存 + 通用 mmap + 用户态 `/lib/ld.so` | `pcache.c`、`mmap.c`、`exec.c`、`user/ldso.c` |
+
+## 10. 第一步：共享 libc 代码页
+
+libc.so 是位置无关的，没有 `DT_TEXTREL`，所有重定位都落在 RW 段。所以它的只读页在任何基址下都逐字节相同，可以让所有进程共用一份物理内存；RW 页（GOT、.data、.bss）仍然每个进程一份。
+
+```
+LOAD  vaddr 0x0     memsz 0x9272   R-X   第 0..9 页，可以共享
+LOAD  vaddr 0xa278  memsz 0x390    RW-   0xa000 这一页，每个进程一份
+重定位：71 条 R_AARCH64_JUMP_SLOT，目标全部在 RW 段
+```
+
+- **第一版**：`exec()` 里专门缓存 `/lib/libc.so` 的代码页，第一次读盘，以后直接映射；用软件位 `PTE_SHARED` 标记"这一页不归我释放"。
+- **踩到的坑**：`growproc()` 缩小内存时有一个自己写的释放循环，绕过了 `PTE_SHARED` 检查。usertests 的 `sbrkbugs` 让子进程 `sbrk(-sz)` 释放全部内存，结果把所有进程共用的 libc 代码页还给了空闲链表。父进程、sh、init 随后在 libc 的同一地址 0x1617c 遇到未定义指令（EC 0，kfree 用垃圾字节填满了页），最后 `panic: init exiting`。
+- **现在**：用引用计数取代特判，代码页改由通用页缓存提供（见第 12 节）。`login` 和 `sh` 的 libc 基址不同（0x2000 和 0x3000，由主镜像大小决定）不影响共享：同一组物理页只是被映射到不同的虚拟地址。
+
+另外，`copyout()` 是通过内核直接映射写用户内存的，**不受用户页表项 AP 位约束**。必须让它自己检查只读页，否则 `read(fd, libc_text, n)` 能让一个进程改写所有进程共用的代码。
+
+## 11. 第二步：物理页引用计数与写时复制
+
+### 11.1 引用计数（kalloc.c）
+
+```c
+static uint16 pageref[PHYSTOP / PGSIZE];   // 受 kmem.lock 保护，以物理页号为下标
+kalloc()       // 取出空闲页时置为 1
+kref_inc(pa)   // 多一个映射：COW、页缓存、共享库
+kref_get(pa)
+kfree(va)      // 减一，减到 0 才放回空闲链表
+```
+
+"释放"从此意味着"放弃我这一份"：`uvmunmap`、`growproc` 缩小、进程退出一律调用 `kfree`。相机 DMA 缓冲、模块区等不归 kalloc 管的页不计数。
+
+### 11.2 fork 不再复制（vm.c `uvmcopy_range`）
+
+```c
+acquire(&pte_lock);
+for(va = start; va < end; va += PGSIZE){
+  pte = walk(old, va, 0);  pa = PTE2PA(*pte);
+  if((*pte & PTE_U) && (*pte & PTE_RO) == 0)              // 用户可写的页
+    *pte = (*pte & ~PTE_AP(3)) | PTE_URO | PTE_COW;        // 父进程也改成只读 + COW
+  mappages(new, va, PGSIZE, pa, PTE_FLAGS(*pte) | (*pte & PTE_COW));
+  kref_inc(pa);
+}
+release(&pte_lock);
+flush_tlb();     // 其他 CPU 上同一地址空间的线程可能缓存着可写的翻译
+```
+
+`PTE_COW` 是描述符的 bit 55。ARMv8 把 [58:55] 留给软件，MMU 不看这几位。
+
+### 11.3 写保护异常（trap.c + vm.c `uvm_cowfault`）
+
+```c
+} else if(ec == 0x24 && ((esr >> 6) & 1) && (esr & 0x3c) == 0x0c &&
+          (cow = uvm_cowfault(p->vm->pagetable, r_far_el1())) != -1){
+  if(cow == -2){ printf("pid %d %s: out of memory for a copy-on-write fault at %p\n", ...); p->killed = 1; }
+}
+```
+
+条件含义：EC 0x24 是来自 EL0 的数据中止；WnR=1 表示写；DFSC 0b0011xx 是权限错误。
+
+`uvm_cowfault` 的处理：
+- 引用计数为 1：别的使用者都已复制或退出，直接把页表项改回可写。
+- 否则：`kalloc` 一页，复制内容；如果是可执行页，还要做 I-cache 同步；然后改页表项，再 `kfree` 掉旧页的那一份引用。
+- 改完后 `flush_tlb()`，然后返回用户态，那条 `str` 重新执行。
+
+### 11.4 copyout 与 pte_lock
+
+- `copyout()` 在 `pte_lock` 下逐页处理：COW 页先复制，只读页返回 -1，并且**持锁完成这一页的拷贝**，防止另一个线程的 `fork()` 恰好在检查和写入之间把这一页重新共享出去。
+- `pte_lock` 串行化所有把页变成 COW、把 COW 页改回可写的操作：fork 标记、写保护异常、`copyout`、区间撤销映射（`uvm_unmap_range`）。
+
+### 11.5 测试与副作用
+
+`cowtest` 的结果：
+```
+cowtest: 8 MiB parent: fork used 52 KiB, child's writes 8192 KiB
+cowtest: 50 forks of 8 MiB: free memory changed by 0 KiB
+cowtest: OK
+```
+
+副作用有两个：
+- **内存不足从 fork 时推迟到写入时。** usertests 的 `countfree()` 子进程先吃光内存，再写一个仍与父进程共享的页，于是被杀，并打印 `out of memory for a copy-on-write fault`。这和 Linux 的 OOM 行为一样。
+- **fork 太便宜，进程数不再受内存限制。** 动态增长的进程表加上线性扫描的调度器，承受不了几万个进程。因此在 `param.h` 加了 `NPROC_MAX = 1024`，相当于 Linux 的 `threads-max`。
+
+## 12. 第三步（上）：页缓存与 mmap
+
+### 12.1 页缓存（kernel/pcache.c）
+
+```c
+struct pcfile { struct inode *ip; uint64 *pa; uint64 lastuse; };   // 持有 inode 引用
+uint64 pcache_getpage(struct inode *ip, uint64 pgidx);  // 返回 pa，并为调用者 kref_inc
+void   pcache_invalidate(struct inode *ip);             // 文件被写或 truncate 后调用
+void   pcache_reap(void);                                // 锁外 iput 被淘汰的 inode
+```
+
+- **容量**：最多 8 个文件（`NINODE` 只有 50），每个文件最多 512 页（2 MiB），满了按最近使用淘汰。文件末尾之后的字节读作 0；页读入后统一做一次 I-cache 同步。
+- **一致性**：`filewrite`、`ftruncate`、`open(O_TRUNC)` 之后作废该文件的缓存页。已有的映射保留旧页（相当于 MAP_PRIVATE 快照），新的映射看到新内容。
+- **加锁顺序**：先 `ilock(ip)`，再页缓存的睡眠锁。被淘汰的 inode 不能在持锁时 `iput`，先挂起，由 `pcache_reap()` 在锁外自开事务释放。
+
+### 12.2 地址空间布局与 VMA
+
+```
+[0, sz)                      程序、内核加载的 libc 或 ld.so、栈、sbrk 堆（sbrk 不许越过 MMAP_BASE）
+[0x10_0000_0000, 0x3f_0000_0000)  mmap 区：ld.so 映射的 libc.so、文件与匿名映射
+0x3f_f000_0000               相机 DMA 窗口（驱动自己映射）
+```
+
+每个 `struct vmspace` 有一张 32 项的 VMA 表：`struct vma { start, end, prot, flags }`。mmap 时整段立即映射（没有按需调页），所以 VMA 只需要记录区间。
+
+### 12.3 mmap 的语义（kernel/mmap.c）
+
+| 形式 | 实现 |
+|---|---|
+| `MAP_ANONYMOUS` | 新分配的清零页 |
+| 文件 + `MAP_PRIVATE` | 页缓存页；只读映射直接共享，可写映射以只读 + COW 共享，写时复制 |
+| 文件 + `MAP_SHARED` | 只允许只读（没有回写） |
+| `MAP_FIXED` | 先撤销该区间原有的映射 |
+| `munmap` | 可以只撤销一部分，必要时把一个 VMA 切成两个 |
+
+- `PROT_EXEC` 决定 UXN 位；内核永远不执行用户页（PXN）；`PROT_NONE` 映射成 AP=00，EL0 无法访问。
+- fork 时 `vma_copy()` 对每个区间调用 `uvmcopy_range`（同样写时复制）；exit 和 exec 时 `vma_unmap_all()` 撤销全部区间。
+- 字符设备（`/dev/video0`）仍交给 `chrdev_mmap()`。
+
+`mmaptest` 覆盖了以下情况，全部通过：只读映射与文件内容一致；私有写不影响其他映射和文件；写 `PROT_READ` 映射的进程被杀；fork 后子进程的写入不影响父进程；匿名页为零；munmap 掉的中间页不可再访问；`MAP_FIXED` 覆盖已有映射；文件被改写后新映射看到新内容。
+
+## 13. 第三步（下）：PT_INTERP 与用户态 /lib/ld.so
+
+### 13.1 链接与安装
+
+```make
+USER_LD_MODE = -pie -dynamic-linker /lib/ld.so --hash-style=sysv
+$U/ld.so: $U/ldso_start.o $U/ldso.o
+	$(LD) $(LDFLAGS) -shared -Bsymbolic --no-undefined -z text --hash-style=sysv -e _start -soname ld.so -o $@ $^
+```
+
+- 每个程序都带 `PT_INTERP /lib/ld.so` 和 `PT_PHDR`。
+- 模式戳改名为 `.dynamic-ldso`，这样旧的二进制会被重新链接。
+- `mkfs` 支持多个 `-L`；fs.img 和 ext2 根镜像同时安装 `/lib/libc.so` 与 `/lib/ld.so`。
+
+### 13.2 exec 的工作
+
+1. 主程序照旧装到 VA 0。
+2. 发现 `PT_INTERP`：读出路径，把 ld.so 装在主镜像之后。ld.so 的只读页也取自页缓存，所有进程共用一份。
+3. 从 ld.so 的入口开始运行。寄存器约定：`x0 = argc, x1 = argv, x2 = auxv`。auxv 的标签取 Linux 的值：`AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_BASE, AT_ENTRY, AT_NULL`，定义在 `include/uapi/auxv.h`。
+4. 没有 `PT_INTERP` 的程序仍走内核内置的加载器（第 10 节），作为兼容路径；它的 libc 代码同样来自页缓存，日志显示 `text shared`。
+
+### 13.3 ld.so 的工作（user/ldso.c）
+
+ld.so 是独立的：不依赖 libc，用原始 `svc` 做系统调用，全部符号 hidden。它依次执行：
+
+1. **自重定位**：根据 `AT_BASE` 处理自己 `_DYNAMIC` 里的 RELATIVE 重定位。实际构建出的 ld.so 没有任何重定位项。
+2. **找到程序**：用 `AT_PHDR` 和 `PT_PHDR` 算出主程序基址，找到它的 `PT_DYNAMIC`。
+3. **装载依赖**：对每个 `DT_NEEDED`（不带路径的名字到 `/lib` 下找）：
+   - 用 `mmap` 映射第 0 页，读出 ELF 头和程序头；
+   - 用 `mmap(NULL, span)` 把整个镜像映射成文件内容，这一步决定了基址；
+   - 其余段用 `MAP_FIXED` 按各自的地址和权限重新映射；
+   - `.bss` 清零，不足的部分补匿名页。
+   依赖按广度优先装载，可以有多个库。
+4. **重定位**：先库后程序，处理 RELATIVE、ABS64、GLOB_DAT、JUMP_SLOT。符号用 SysV 哈希在全局作用域"程序 → 各库"中查找，因此程序可以覆盖（interpose）libc 的符号。
+5. **运行**：以 `(argc, argv)` 调用 `AT_ENTRY`，用返回值调用 `exit`。
+
+**文本重定位的规则**：用户程序以 `-fno-pie` 编译、`-pie` 链接，只读段里的指针表需要重定位，所以带 `DT_TEXTREL`（usertests 就是这样）。程序是 exec 装进来的私有可写副本，改写无妨；库的代码页是所有进程共用的只读页。所以 ld.so **只对库**拒绝 `DT_TEXTREL`，libc 本身也用 `-z text` 链接来保证这一点。
+
+### 13.4 vmmap 验证（QEMU，gcc 13 构建，libc 代码段 12 页）
+
+- libc 映射在 `0x10_0000_1000` 起；12 个代码页在 init、sh、vmmap 三个进程里是同一组物理页，每页 "shared by 4 mappings"（页缓存加 3 个进程）。
+- 文件第 0xb000 页既是代码段的尾巴（只读可执行），又是 .data 的开头（只读 + COW），被引用 7 次。
+- 被重定位写过的 GOT 页已经各自复制成私有 RW 页。
+- ld.so 的代码页只有一份物理页（0x6f60000）。
+
+## 14. 现状与待办
+
+- 代码在分支 `wip-cow-mmap-ldso`（commit ac9c288），还没有合入 `rpi3-dynmodel`。
+- 已通过：`cowtest`、`mmaptest`、`forktest`、`usertests sbrkbugs`、旧方式链接程序的兼容路径、usertests 中已跑完的 14 项。
+- **待解决**：
+  - `usertests forkforkfork` 在 QEMU 里有时跑不完。现象是约 900 个进程同时在 `open()` 上争抢日志，并非死锁。需要和改动前的内核对比耗时，必要时把 `NPROC_MAX` 调低。
+  - 完整的 usertests 还没跑完。
+- 与 Linux 相比还缺：环境变量与 `AT_EXECFN`、`dlopen/dlsym`、延迟绑定、IFUNC、TLS、ASLR、按需调页、可回写的 `MAP_SHARED`；页缓存不服务普通 `read()`。

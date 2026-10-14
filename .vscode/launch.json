@@ -2,17 +2,26 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug xv6-arm64",
+            "name": "Debug xv6-arm64 (QEMU GDB)",
             "type": "cppdbg",
-            "request": "attach",
+            "request": "launch",
             "program": "${workspaceFolder}/kernel/kernel",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
             "miDebuggerPath": "/opt/homebrew/bin/aarch64-elf-gdb",
             "miDebuggerServerAddress": "127.0.0.1:25501",
-            "useExtendedRemote": true,
+            "stopAtEntry": false,
             "setupCommands": [
-                { "description": "设置 ARM64 架构", "text": "set architecture aarch64", "ignoreFailures": false }
+                {
+                    "description": "设置 ARM64 架构",
+                    "text": "set architecture aarch64",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "在内核入口停止",
+                    "text": "break main",
+                    "ignoreFailures": false
+                }
             ],
             "externalConsole": false,
             "logging": {

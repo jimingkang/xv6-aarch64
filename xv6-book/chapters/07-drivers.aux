@@ -11,357 +11,364 @@
 \newlabel{fig:devmodel}{{7.1}{90}{设备与驱动的绑定\relax }{figure.caption.52}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {7.1}{\ignorespaces 字符设备主设备号\relax }}{90}{table.caption.53}\protected@file@percent }
 \newlabel{tab:majors}{{7.1}{90}{字符设备主设备号\relax }{table.caption.53}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7.2}上半部与下半部}{90}{section.7.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.3}控制台、UART 与 TTY}{91}{section.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.1}Mini UART}{91}{subsection.7.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.2}控制台与行规程}{91}{subsection.7.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.3}TTY 层}{91}{subsection.7.3.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.4}USB 与 HID 键盘}{91}{section.7.4}\protected@file@percent }
-\newlabel{sec:usb}{{7.4}{91}{USB 与 HID 键盘}{section.7.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.1}三层软件与硬件路径}{92}{subsection.7.4.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.2}{\ignorespaces USB 键盘的硬件路径。DWC2 用 host channel 发起事务、用 DMA 读写内存；树莓派 3 的 USB 口都在板载 LAN9514 Hub 后面，低速键盘与 Hub 之间靠事务转换器（TT）完成速率转换\relax }}{92}{figure.caption.54}\protected@file@percent }
-\newlabel{fig:usb-hw}{{7.2}{92}{USB 键盘的硬件路径。DWC2 用 host channel 发起事务、用 DMA 读写内存；树莓派 3 的 USB 口都在板载 LAN9514 Hub 后面，低速键盘与 Hub 之间靠事务转换器（TT）完成速率转换\relax }{figure.caption.54}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.3}{\ignorespaces USB 键盘的物理连接与 split transaction 数据路径。实线表示总线连接和 速率，红色虚线表示一次端口变化通知以及低速事务的 SSPLIT--设备响应--CSPLIT 往返。Hub interrupt-IN不是设备主动把数据推给 CPU，而是 DWC2 周期提交事务； 端口变化完成后才产生 host-channel IRQ\relax }}{93}{figure.caption.55}\protected@file@percent }
-\newlabel{fig:usb-kbd-topology}{{7.3}{93}{USB 键盘的物理连接与 split transaction 数据路径。实线表示总线连接和 速率，红色虚线表示一次端口变化通知以及低速事务的 SSPLIT--设备响应--CSPLIT 往返。Hub interrupt-IN不是设备主动把数据推给 CPU，而是 DWC2 周期提交事务； 端口变化完成后才产生 host-channel IRQ\relax }{figure.caption.55}{}}
-\@writefile{toc}{\contentsline {paragraph}{主机发起一切.}{94}{figure.caption.55}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{host channel 与 DMA.}{94}{figure.caption.55}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{一切都在 Hub 后面.}{94}{figure.caption.55}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.2}kobject：一切皆对象}{90}{subsection.7.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.3}sysfs：把对象树渲染成文件系统}{91}{subsection.7.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.4}属性文件与 \texttt  {\hyphenchar \font =-1 DEVICE\_ATTR}}{91}{subsection.7.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.5}\texttt  {\hyphenchar \font =-1 uevent} 与 \texttt  {\hyphenchar \font =-1 drivers\_probe}：手工触发热插拔}{91}{subsection.7.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.6}\texttt  {\hyphenchar \font =-1 /sys/class} 与符号链接}{91}{subsection.7.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.2}上半部与下半部}{92}{section.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.3}控制台、UART 与 TTY}{92}{section.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.1}Mini UART}{92}{subsection.7.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.2}控制台与行规程}{93}{subsection.7.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3.3}TTY 层}{93}{subsection.7.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.4}USB 与 HID 键盘}{93}{section.7.4}\protected@file@percent }
+\newlabel{sec:usb}{{7.4}{93}{USB 与 HID 键盘}{section.7.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.1}三层软件与硬件路径}{93}{subsection.7.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{主机发起一切.}{94}{figure.caption.56}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{host channel 与 DMA.}{94}{figure.caption.56}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{一切都在 Hub 后面.}{94}{figure.caption.56}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {7.4.2}内核软件框架：五层栈与三条抽象边界}{94}{subsection.7.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{边界 1：\texttt  {\hyphenchar \font =-1 usb\_host\_ops}——core 与 HCD 之间.}{94}{figure.caption.56}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{边界 2：\texttt  {\hyphenchar \font =-1 urb} 与 \texttt  {\hyphenchar \font =-1 urb->complete}——core 与类驱动之间.}{94}{figure.caption.56}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.4}{\ignorespaces USB 键盘在内核里的五层软件栈。相邻层之间是一张 ops 回调表（图中三条加粗编号的边界）， 它把上层的调用与下层实现解耦。左实线是自上而下提交请求的路径，右虚线是自下而上送回完成与事件的路径； 两条路径合起来构成一次 URB 的往返\relax }}{95}{figure.caption.56}\protected@file@percent }
-\newlabel{fig:usb-stack}{{7.4}{95}{USB 键盘在内核里的五层软件栈。相邻层之间是一张 ops 回调表（图中三条加粗编号的边界）， 它把上层的调用与下层实现解耦。左实线是自上而下提交请求的路径，右虚线是自下而上送回完成与事件的路径； 两条路径合起来构成一次 URB 的往返\relax }{figure.caption.56}{}}
-\@writefile{toc}{\contentsline {paragraph}{边界 3：\texttt  {\hyphenchar \font =-1 input\_dev}——类驱动与输入核心之间.}{96}{lstnumber.-121.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{正交的一层：通用设备模型.}{96}{lstnumber.-121.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{与 Linux 的对应与简化.}{96}{lstnumber.-121.7}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.2}{\ignorespaces 本项目 USB 软件栈各层与 Linux 的对应\relax }}{96}{table.caption.57}\protected@file@percent }
-\newlabel{tab:usb-stack-map}{{7.2}{96}{本项目 USB 软件栈各层与 Linux 的对应\relax }{table.caption.57}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.3}事务格式：Token、Data、Handshake 三相}{96}{subsection.7.4.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.5}{\ignorespaces USB 三种包的场布局。Token 包用 CRC5 保护“地址+端点”，Data 包用 CRC16 保护负载，Handshake 包只有 SYNC/PID/EOP、既无负载也无 CRC 场。关键区别：\textbf  {PID 场本身占 8 位（4 位本体再取反重发一次）}，双重编码已足以自校验，所以 PID 不需要额外 CRC，握手包也因此不必带 CRC\relax }}{97}{figure.caption.58}\protected@file@percent }
-\newlabel{fig:usb-packet-format}{{7.5}{97}{USB 三种包的场布局。Token 包用 CRC5 保护“地址+端点”，Data 包用 CRC16 保护负载，Handshake 包只有 SYNC/PID/EOP、既无负载也无 CRC 场。关键区别：\textbf {PID 场本身占 8 位（4 位本体再取反重发一次）}，双重编码已足以自校验，所以 PID 不需要额外 CRC，握手包也因此不必带 CRC\relax }{figure.caption.58}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.3}{\ignorespaces PID 分类与各传输类型下的作用\relax }}{97}{table.caption.59}\protected@file@percent }
-\newlabel{tab:usb-pids}{{7.3}{97}{PID 分类与各传输类型下的作用\relax }{table.caption.59}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.6}{\ignorespaces 三相事务的三条主线（对应规范图 8-30 的 bulk 与图 8-36 的 control SETUP，只画成功分支）。蓝色箭头=主机发出，橙色箭头=设备发出。注意 Data 包的方向：SETUP 与 OUT 由主机写向设备，IN 由设备回给主机；Handshake 永远来自\emph  {本事务的接收方}。失败分支不在此图：设备无数据回 \texttt  {\hyphenchar \font =-1 NAK}、端点被停回 \texttt  {\hyphenchar \font =-1 STALL}（都结束本帧、由主机择机重发），高速 bulk OUT 在 OUT 令牌前还插一次 \texttt  {\hyphenchar \font =-1 PING} 探测缓冲\relax }}{98}{figure.caption.60}\protected@file@percent }
-\newlabel{fig:usb-transaction-phases}{{7.6}{98}{三相事务的三条主线（对应规范图 8-30 的 bulk 与图 8-36 的 control SETUP，只画成功分支）。蓝色箭头=主机发出，橙色箭头=设备发出。注意 Data 包的方向：SETUP 与 OUT 由主机写向设备，IN 由设备回给主机；Handshake 永远来自\emph {本事务的接收方}。失败分支不在此图：设备无数据回 \code {NAK}、端点被停回 \code {STALL}（都结束本帧、由主机择机重发），高速 bulk OUT 在 OUT 令牌前还插一次 \code {PING} 探测缓冲\relax }{figure.caption.60}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.4}{\ignorespaces USB 四种传输类型，以及它们在本项目里落在哪个 channel\relax }}{99}{table.caption.61}\protected@file@percent }
-\newlabel{tab:usb-xfer-types}{{7.4}{99}{USB 四种传输类型，以及它们在本项目里落在哪个 channel\relax }{table.caption.61}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.4}描述符：设备、配置、接口与端点}{99}{subsection.7.4.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.7}{\ignorespaces 一个 USB 键盘接收器的描述符层次（示意，方括号里是字节偏移；VID/PID 取自真机日志）。驱动按类别匹配，而不是按 VID/PID：先找 class/subclass/protocol＝3/1/1 的 Boot Keyboard 接口，再只在这个接口里找 interrupt-IN 端点\relax }}{99}{figure.caption.62}\protected@file@percent }
-\newlabel{fig:usb-desc}{{7.7}{99}{一个 USB 键盘接收器的描述符层次（示意，方括号里是字节偏移；VID/PID 取自真机日志）。驱动按类别匹配，而不是按 VID/PID：先找 class/subclass/protocol＝3/1/1 的 Boot Keyboard 接口，再只在这个接口里找 interrupt-IN 端点\relax }{figure.caption.62}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.5}枚举：control 传输与请求序列}{100}{subsection.7.4.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.8}{\ignorespaces 端点 0 control 传输的三种序列（对应规范图 8-37）。框里是令牌（SETUP/OUT/IN）与其后的数据 PID 编号，框下是实际的数据包类型。Data 阶段可长可短（$\cdots  $ 表示按 \texttt  {\hyphenchar \font =-1 wLength} 重复若干包），也可能根本没有（No-data Control）。注意三处不变量：SETUP 恒用 DATA0；Data 阶段第一包用 DATA1、之后逐包翻转；STATUS 恒为反方向的零长 DATA1\relax }}{100}{figure.caption.63}\protected@file@percent }
-\newlabel{fig:usb-control-stages}{{7.8}{100}{端点 0 control 传输的三种序列（对应规范图 8-37）。框里是令牌（SETUP/OUT/IN）与其后的数据 PID 编号，框下是实际的数据包类型。Data 阶段可长可短（$\cdots $ 表示按 \code {wLength} 重复若干包），也可能根本没有（No-data Control）。注意三处不变量：SETUP 恒用 DATA0；Data 阶段第一包用 DATA1、之后逐包翻转；STATUS 恒为反方向的零长 DATA1\relax }{figure.caption.63}{}}
-\@writefile{toc}{\contentsline {paragraph}{SETUP 阶段：一次事务把“要什么、给多少、往哪个方向”先谈定.}{100}{figure.caption.63}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{逐字节拆解：\texttt  {\hyphenchar \font =-1 GET\_DESCRIPTOR(Device, 8)}.}{101}{figure.caption.63}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.5}{\ignorespaces \texttt  {\hyphenchar \font =-1 GET\_DESCRIPTOR(Device, 8)} 在 SETUP 阶段发出的 8 字节请求（USB 为小端，多字节字段低字节在前）\relax }}{101}{table.caption.64}\protected@file@percent }
-\newlabel{tab:setup-request}{{7.5}{101}{\code {GET\_DESCRIPTOR(Device, 8)} 在 SETUP 阶段发出的 8 字节请求（USB 为小端，多字节字段低字节在前）\relax }{table.caption.64}{}}
-\@writefile{toc}{\contentsline {paragraph}{Data 阶段：方向沿用 SETUP，逐包翻转 DATA1/DATA0.}{101}{table.caption.64}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{STATUS 阶段：反方向的零长 DATA1，兼作握手与翻转复位.}{101}{table.caption.64}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{对回本项目：\texttt  {\hyphenchar \font =-1 control()} 如何走这三相.}{101}{table.caption.64}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.6}{\ignorespaces 从 Hub 端口到可用键盘的请求序列\relax }}{102}{table.caption.65}\protected@file@percent }
-\newlabel{tab:usb-enum}{{7.6}{102}{从 Hub 端口到可用键盘的请求序列\relax }{table.caption.65}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.10}{\ignorespaces HID Boot 键盘报告（8 字节）。byte 0 是 8 个修饰键的位图，byte 2～7 是当前按着的最多 6 个键的 usage 编号\relax }}{102}{figure.caption.67}\protected@file@percent }
-\newlabel{fig:hid-report}{{7.10}{102}{HID Boot 键盘报告（8 字节）。byte 0 是 8 个修饰键的位图，byte 2～7 是当前按着的最多 6 个键的 usage 编号\relax }{figure.caption.67}{}}
-\@writefile{toc}{\contentsline {paragraph}{枚举与配置的软件函数调用链.}{102}{figure.caption.67}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.9}{\ignorespaces USB 键盘枚举与配置的决策流程。从上到下是五个阶段：控制器上电、识别 Hub 并供电、扫描端口与判速、描述符与接口匹配、注册绑定与武装 interrupt-IN。橙色框是判断， 灰色框是提前退出的分支，虚线表示递归与低速分支。整条链上只有地址、配置和接口三类判断 与“这是一只键盘”有关，其余部分对任何 USB 设备都一样\relax }}{103}{figure.caption.66}\protected@file@percent }
-\newlabel{fig:usb-enum-flow}{{7.9}{103}{USB 键盘枚举与配置的决策流程。从上到下是五个阶段：控制器上电、识别 Hub 并供电、扫描端口与判速、描述符与接口匹配、注册绑定与武装 interrupt-IN。橙色框是判断， 灰色框是提前退出的分支，虚线表示递归与低速分支。整条链上只有地址、配置和接口三类判断 与“这是一只键盘”有关，其余部分对任何 USB 设备都一样\relax }{figure.caption.66}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.11}{\ignorespaces USB 键盘枚举与配置的软件函数调用链；同一行的浅灰等宽字是这一步实际打印的串口 日志，可与真机输出逐行对照。图中的描述符和配置请求都由 \texttt  {\hyphenchar \font =-1 control()} 经 ch0 同步完成；设备完成 \texttt  {\hyphenchar \font =-1 SET\_CONFIGURATION} 后才进入 USB 设备模型，类驱动的 \texttt  {\hyphenchar \font =-1 probe()} 注册 \texttt  {\hyphenchar \font =-1 event0}，最后由 \texttt  {\hyphenchar \font =-1 dwc2\_submit\_urb()} 把逻辑端点 EP1 映射到本机 host channel 6\relax }}{104}{figure.caption.68}\protected@file@percent }
-\newlabel{fig:usb-hid-enum-call-chain}{{7.11}{104}{USB 键盘枚举与配置的软件函数调用链；同一行的浅灰等宽字是这一步实际打印的串口 日志，可与真机输出逐行对照。图中的描述符和配置请求都由 \code {control()} 经 ch0 同步完成；设备完成 \code {SET\_CONFIGURATION} 后才进入 USB 设备模型，类驱动的 \code {probe()} 注册 \code {event0}，最后由 \code {dwc2\_submit\_urb()} 把逻辑端点 EP1 映射到本机 host channel 6\relax }{figure.caption.68}{}}
+\@writefile{toc}{\contentsline {paragraph}{边界 1：\texttt  {\hyphenchar \font =-1 usb\_host\_ops}——core 与 HCD 之间.}{94}{figure.caption.57}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{边界 2：\texttt  {\hyphenchar \font =-1 urb} 与 \texttt  {\hyphenchar \font =-1 urb->complete}——core 与类驱动之间.}{94}{figure.caption.57}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.2}{\ignorespaces 左：\texttt  {\hyphenchar \font =-1 device.c} 内嵌的 kobject 对象树；右：sysfs 把同一棵树渲染成的 \texttt  {\hyphenchar \font =-1 /sys} 目录。属性文件是 (对象, 属性) 现算出来的视图，\texttt  {\hyphenchar \font =-1 /sys/class} 下则是链接回 \texttt  {\hyphenchar \font =-1 /sys/devices} 真身的符号链接。\relax }}{95}{figure.caption.54}\protected@file@percent }
+\newlabel{fig:kobject-sysfs}{{7.2}{95}{左：\code {device.c} 内嵌的 kobject 对象树；右：sysfs 把同一棵树渲染成的 \code {/sys} 目录。属性文件是 (对象, 属性) 现算出来的视图，\code {/sys/class} 下则是链接回 \code {/sys/devices} 真身的符号链接。\relax }{figure.caption.54}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.3}{\ignorespaces USB 键盘的硬件路径。DWC2 用 host channel 发起事务、用 DMA 读写内存；树莓派 3 的 USB 口都在板载 LAN9514 Hub 后面，低速键盘与 Hub 之间靠事务转换器（TT）完成速率转换\relax }}{95}{figure.caption.55}\protected@file@percent }
+\newlabel{fig:usb-hw}{{7.3}{95}{USB 键盘的硬件路径。DWC2 用 host channel 发起事务、用 DMA 读写内存；树莓派 3 的 USB 口都在板载 LAN9514 Hub 后面，低速键盘与 Hub 之间靠事务转换器（TT）完成速率转换\relax }{figure.caption.55}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.4}{\ignorespaces USB 键盘的物理连接与 split transaction 数据路径。实线表示总线连接和 速率，红色虚线表示一次端口变化通知以及低速事务的 SSPLIT--设备响应--CSPLIT 往返。Hub interrupt-IN不是设备主动把数据推给 CPU，而是 DWC2 周期提交事务； 端口变化完成后才产生 host-channel IRQ\relax }}{96}{figure.caption.56}\protected@file@percent }
+\newlabel{fig:usb-kbd-topology}{{7.4}{96}{USB 键盘的物理连接与 split transaction 数据路径。实线表示总线连接和 速率，红色虚线表示一次端口变化通知以及低速事务的 SSPLIT--设备响应--CSPLIT 往返。Hub interrupt-IN不是设备主动把数据推给 CPU，而是 DWC2 周期提交事务； 端口变化完成后才产生 host-channel IRQ\relax }{figure.caption.56}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.5}{\ignorespaces USB 键盘在内核里的五层软件栈。相邻层之间是一张 ops 回调表（图中三条加粗编号的边界）， 它把上层的调用与下层实现解耦。左实线是自上而下提交请求的路径，右虚线是自下而上送回完成与事件的路径； 两条路径合起来构成一次 URB 的往返\relax }}{97}{figure.caption.57}\protected@file@percent }
+\newlabel{fig:usb-stack}{{7.5}{97}{USB 键盘在内核里的五层软件栈。相邻层之间是一张 ops 回调表（图中三条加粗编号的边界）， 它把上层的调用与下层实现解耦。左实线是自上而下提交请求的路径，右虚线是自下而上送回完成与事件的路径； 两条路径合起来构成一次 URB 的往返\relax }{figure.caption.57}{}}
+\@writefile{toc}{\contentsline {paragraph}{边界 3：\texttt  {\hyphenchar \font =-1 input\_dev}——类驱动与输入核心之间.}{98}{lstnumber.-124.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{正交的一层：通用设备模型.}{98}{lstnumber.-124.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{与 Linux 的对应与简化.}{98}{lstnumber.-124.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.2}{\ignorespaces 本项目 USB 软件栈各层与 Linux 的对应\relax }}{98}{table.caption.58}\protected@file@percent }
+\newlabel{tab:usb-stack-map}{{7.2}{98}{本项目 USB 软件栈各层与 Linux 的对应\relax }{table.caption.58}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.3}事务格式：Token、Data、Handshake 三相}{98}{subsection.7.4.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.6}{\ignorespaces USB 三种包的场布局。Token 包用 CRC5 保护“地址+端点”，Data 包用 CRC16 保护负载，Handshake 包只有 SYNC/PID/EOP、既无负载也无 CRC 场。关键区别：\textbf  {PID 场本身占 8 位（4 位本体再取反重发一次）}，双重编码已足以自校验，所以 PID 不需要额外 CRC，握手包也因此不必带 CRC\relax }}{99}{figure.caption.59}\protected@file@percent }
+\newlabel{fig:usb-packet-format}{{7.6}{99}{USB 三种包的场布局。Token 包用 CRC5 保护“地址+端点”，Data 包用 CRC16 保护负载，Handshake 包只有 SYNC/PID/EOP、既无负载也无 CRC 场。关键区别：\textbf {PID 场本身占 8 位（4 位本体再取反重发一次）}，双重编码已足以自校验，所以 PID 不需要额外 CRC，握手包也因此不必带 CRC\relax }{figure.caption.59}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.3}{\ignorespaces PID 分类与各传输类型下的作用\relax }}{99}{table.caption.60}\protected@file@percent }
+\newlabel{tab:usb-pids}{{7.3}{99}{PID 分类与各传输类型下的作用\relax }{table.caption.60}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.7}{\ignorespaces 三相事务的三条主线（对应规范图 8-30 的 bulk 与图 8-36 的 control SETUP，只画成功分支）。蓝色箭头=主机发出，橙色箭头=设备发出。注意 Data 包的方向：SETUP 与 OUT 由主机写向设备，IN 由设备回给主机；Handshake 永远来自\emph  {本事务的接收方}。失败分支不在此图：设备无数据回 \texttt  {\hyphenchar \font =-1 NAK}、端点被停回 \texttt  {\hyphenchar \font =-1 STALL}（都结束本帧、由主机择机重发），高速 bulk OUT 在 OUT 令牌前还插一次 \texttt  {\hyphenchar \font =-1 PING} 探测缓冲\relax }}{100}{figure.caption.61}\protected@file@percent }
+\newlabel{fig:usb-transaction-phases}{{7.7}{100}{三相事务的三条主线（对应规范图 8-30 的 bulk 与图 8-36 的 control SETUP，只画成功分支）。蓝色箭头=主机发出，橙色箭头=设备发出。注意 Data 包的方向：SETUP 与 OUT 由主机写向设备，IN 由设备回给主机；Handshake 永远来自\emph {本事务的接收方}。失败分支不在此图：设备无数据回 \code {NAK}、端点被停回 \code {STALL}（都结束本帧、由主机择机重发），高速 bulk OUT 在 OUT 令牌前还插一次 \code {PING} 探测缓冲\relax }{figure.caption.61}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.4}{\ignorespaces USB 四种传输类型，以及它们在本项目里落在哪个 channel\relax }}{101}{table.caption.62}\protected@file@percent }
+\newlabel{tab:usb-xfer-types}{{7.4}{101}{USB 四种传输类型，以及它们在本项目里落在哪个 channel\relax }{table.caption.62}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.8}{\ignorespaces 一个 USB 键盘接收器的描述符层次（示意，方括号里是字节偏移；VID/PID 取自真机日志）。驱动按类别匹配，而不是按 VID/PID：先找 class/subclass/protocol＝3/1/1 的 Boot Keyboard 接口，再只在这个接口里找 interrupt-IN 端点\relax }}{101}{figure.caption.63}\protected@file@percent }
+\newlabel{fig:usb-desc}{{7.8}{101}{一个 USB 键盘接收器的描述符层次（示意，方括号里是字节偏移；VID/PID 取自真机日志）。驱动按类别匹配，而不是按 VID/PID：先找 class/subclass/protocol＝3/1/1 的 Boot Keyboard 接口，再只在这个接口里找 interrupt-IN 端点\relax }{figure.caption.63}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.4}描述符：设备、配置、接口与端点}{102}{subsection.7.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.5}枚举：control 传输与请求序列}{102}{subsection.7.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{SETUP 阶段：一次事务把“要什么、给多少、往哪个方向”先谈定.}{102}{figure.caption.64}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{逐字节拆解：\texttt  {\hyphenchar \font =-1 GET\_DESCRIPTOR(Device, 8)}.}{102}{figure.caption.64}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.9}{\ignorespaces 端点 0 control 传输的三种序列（对应规范图 8-37）。框里是令牌（SETUP/OUT/IN）与其后的数据 PID 编号，框下是实际的数据包类型。Data 阶段可长可短（$\cdots  $ 表示按 \texttt  {\hyphenchar \font =-1 wLength} 重复若干包），也可能根本没有（No-data Control）。注意三处不变量：SETUP 恒用 DATA0；Data 阶段第一包用 DATA1、之后逐包翻转；STATUS 恒为反方向的零长 DATA1\relax }}{103}{figure.caption.64}\protected@file@percent }
+\newlabel{fig:usb-control-stages}{{7.9}{103}{端点 0 control 传输的三种序列（对应规范图 8-37）。框里是令牌（SETUP/OUT/IN）与其后的数据 PID 编号，框下是实际的数据包类型。Data 阶段可长可短（$\cdots $ 表示按 \code {wLength} 重复若干包），也可能根本没有（No-data Control）。注意三处不变量：SETUP 恒用 DATA0；Data 阶段第一包用 DATA1、之后逐包翻转；STATUS 恒为反方向的零长 DATA1\relax }{figure.caption.64}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.5}{\ignorespaces \texttt  {\hyphenchar \font =-1 GET\_DESCRIPTOR(Device, 8)} 在 SETUP 阶段发出的 8 字节请求（USB 为小端，多字节字段低字节在前）\relax }}{103}{table.caption.65}\protected@file@percent }
+\newlabel{tab:setup-request}{{7.5}{103}{\code {GET\_DESCRIPTOR(Device, 8)} 在 SETUP 阶段发出的 8 字节请求（USB 为小端，多字节字段低字节在前）\relax }{table.caption.65}{}}
+\@writefile{toc}{\contentsline {paragraph}{Data 阶段：方向沿用 SETUP，逐包翻转 DATA1/DATA0.}{104}{table.caption.65}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{STATUS 阶段：反方向的零长 DATA1，兼作握手与翻转复位.}{104}{table.caption.65}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{对回本项目：\texttt  {\hyphenchar \font =-1 control()} 如何走这三相.}{104}{table.caption.65}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.6}{\ignorespaces 从 Hub 端口到可用键盘的请求序列\relax }}{104}{table.caption.66}\protected@file@percent }
+\newlabel{tab:usb-enum}{{7.6}{104}{从 Hub 端口到可用键盘的请求序列\relax }{table.caption.66}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.11}{\ignorespaces HID Boot 键盘报告（8 字节）。byte 0 是 8 个修饰键的位图，byte 2～7 是当前按着的最多 6 个键的 usage 编号\relax }}{105}{figure.caption.68}\protected@file@percent }
+\newlabel{fig:hid-report}{{7.11}{105}{HID Boot 键盘报告（8 字节）。byte 0 是 8 个修饰键的位图，byte 2～7 是当前按着的最多 6 个键的 usage 编号\relax }{figure.caption.68}{}}
+\@writefile{toc}{\contentsline {paragraph}{枚举与配置的软件函数调用链.}{105}{figure.caption.68}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {7.4.6}Split transaction：高速 Hub 后面的低速设备}{105}{subsection.7.4.6}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.12}{\ignorespaces 低速键盘在高速 Hub 后面的一次 interrupt-IN 轮询。主机先向 TT 发 start-split，TT 在低速总线上替主机完成 IN 事务，主机再在随后的微帧里发 complete-split 取回结果。{\Pifont {pzd}\char 172}、{\Pifont {pzd}\char 173} 两种中间事件必须在中断里当场处理，晚一个帧就错过了窗口\relax }}{105}{figure.caption.69}\protected@file@percent }
-\newlabel{fig:usb-split}{{7.12}{105}{低速键盘在高速 Hub 后面的一次 interrupt-IN 轮询。主机先向 TT 发 start-split，TT 在低速总线上替主机完成 IN 事务，主机再在随后的微帧里发 complete-split 取回结果。\ding {172}、\ding {173} 两种中间事件必须在中断里当场处理，晚一个帧就错过了窗口\relax }{figure.caption.69}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.7}{\ignorespaces 真机日志中的寄存器样本解码\relax }}{105}{table.caption.70}\protected@file@percent }
-\newlabel{tab:usb-regs}{{7.7}{105}{真机日志中的寄存器样本解码\relax }{table.caption.70}{}}
-\@writefile{toc}{\contentsline {paragraph}{HCSPLT：把一次事务拆成两拍的寄存器.}{105}{figure.caption.71}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.13}{\ignorespaces \texttt  {\textsc  {HCSPLT}} 的位域。只要 \texttt  {\hyphenchar \font =-1 SPLTENA}$=1$，这次 channel 事务就不由 DWC2 自己驱动总线，而是交给 \texttt  {\hyphenchar \font =-1 HUBADDR}$+$\texttt  {\hyphenchar \font =-1 PORT} 指定的那颗 Hub 事务转换器（TT）代跑；两拍之间只有 \texttt  {\hyphenchar \font =-1 COMPSPLT} 一位不同（SSPLIT 为 0、CSPLIT 为 1），日志里 \texttt  {\hyphenchar \font =-1 0x8000c083} 与 \texttt  {\hyphenchar \font =-1 0x8001c083} 正是这一位之差。\texttt  {\hyphenchar \font =-1 XACTPOS} 本项目恒取 ALL（一次搬整包，不做首/尾微帧的分段）\relax }}{106}{figure.caption.71}\protected@file@percent }
-\newlabel{fig:usb-hcsplt}{{7.13}{106}{\reg {HCSPLT} 的位域。只要 \code {SPLTENA}$=1$，这次 channel 事务就不由 DWC2 自己驱动总线，而是交给 \code {HUBADDR}$+$\code {PORT} 指定的那颗 Hub 事务转换器（TT）代跑；两拍之间只有 \code {COMPSPLT} 一位不同（SSPLIT 为 0、CSPLIT 为 1），日志里 \code {0x8000c083} 与 \code {0x8001c083} 正是这一位之差。\code {XACTPOS} 本项目恒取 ALL（一次搬整包，不做首/尾微帧的分段）\relax }{figure.caption.71}{}}
-\@writefile{toc}{\contentsline {paragraph}{SSPLIT→CSPLIT 的状态机.}{106}{figure.caption.71}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{微帧窗口：CSPLIT 为什么必须在中断里发.}{106}{figure.caption.71}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{一次 split 只搬一个最大包，DATA 逐包翻转.}{106}{figure.caption.71}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{full-speed 也要 split，但不置 LSPDDEV.}{106}{figure.caption.71}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.7}URB 与中断驱动的接收}{107}{subsection.7.4.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{每设备状态，不是全局单例.}{107}{lstnumber.-125.9}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.14}{\ignorespaces 一份键盘报告从硬件到 shell 的路径。每一列是一种执行上下文：硬中断只做与微帧时序有关的最少工作；HCD 的完成 work 负责缓存维护并把 URB 归还类驱动；HID 解析、输入事件和控制台都在键盘自己的 workqueue 里完成，最后重新提交 URB。键盘回 NAK（没有新按键）时，HCD completion 只登记 \texttt  {\hyphenchar \font =-1 bInterval} 期限，到期后由专用 DWC2 periodic workqueue 重发，URB 不归还类驱动\relax }}{108}{figure.caption.72}\protected@file@percent }
-\newlabel{fig:usb-rx}{{7.14}{108}{一份键盘报告从硬件到 shell 的路径。每一列是一种执行上下文：硬中断只做与微帧时序有关的最少工作；HCD 的完成 work 负责缓存维护并把 URB 归还类驱动；HID 解析、输入事件和控制台都在键盘自己的 workqueue 里完成，最后重新提交 URB。键盘回 NAK（没有新按键）时，HCD completion 只登记 \code {bInterval} 期限，到期后由专用 DWC2 periodic workqueue 重发，URB 不归还类驱动\relax }{figure.caption.72}{}}
-\@writefile{toc}{\contentsline {paragraph}{NAK 的无忙等周期重试.}{108}{figure.caption.73}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.15}{\ignorespaces 运行期一次 interrupt-IN 轮询的完整时序。类驱动提交 URB 之后就不再参与： DWC2 与 Hub 的 TT 用 SSPLIT／CSPLIT 完成低速事务，有微帧截止时间的中间事件在硬中断里 当场推进。上半段是键盘没有新按键的情况，控制器只登记 \texttt  {\hyphenchar \font =-1 bInterval} 期限，到期后由 专用 periodic workqueue 重发，URB 不归还类驱动；下半段才是真正的一份报告，依次经过 DMA、IRQ、HCD completion、\texttt  {\hyphenchar \font =-1 usbkbd\_wq}，最后落到控制台与 \texttt  {\hyphenchar \font =-1 event0}\relax }}{109}{figure.caption.73}\protected@file@percent }
-\newlabel{fig:usb-irq-seq}{{7.15}{109}{运行期一次 interrupt-IN 轮询的完整时序。类驱动提交 URB 之后就不再参与： DWC2 与 Hub 的 TT 用 SSPLIT／CSPLIT 完成低速事务，有微帧截止时间的中间事件在硬中断里 当场推进。上半段是键盘没有新按键的情况，控制器只登记 \code {bInterval} 期限，到期后由 专用 periodic workqueue 重发，URB 不归还类驱动；下半段才是真正的一份报告，依次经过 DMA、IRQ、HCD completion、\code {usbkbd\_wq}，最后落到控制台与 \code {event0}\relax }{figure.caption.73}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.16}{\ignorespaces 空闲键盘 NAK 后的调用链。\texttt  {\hyphenchar \font =-1 system\_wq} 与 \texttt  {\hyphenchar \font =-1 dwc2\_periodic\_wq}使用同一种 FIFO/kworker 执行机制；定时语义来自二者 之外的 \texttt  {\hyphenchar \font =-1 delayed\_head}。因此 \texttt  {\hyphenchar \font =-1 mod\_delayed\_work()}会立即返回， 不会把等待转移成另一个 kworker 上的忙等\relax }}{109}{figure.caption.74}\protected@file@percent }
-\newlabel{fig:dwc2-periodic-wq}{{7.16}{109}{空闲键盘 NAK 后的调用链。\code {system\_wq} 与 \code {dwc2\_periodic\_wq}使用同一种 FIFO/kworker 执行机制；定时语义来自二者 之外的 \code {delayed\_head}。因此 \code {mod\_delayed\_work()}会立即返回， 不会把等待转移成另一个 kworker 上的忙等\relax }{figure.caption.74}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.8}HID 报告与输入子系统}{110}{subsection.7.4.8}\protected@file@percent }
-\newlabel{sec:usb-input}{{7.4.8}{110}{HID 报告与输入子系统}{subsection.7.4.8}{}}
-\@writefile{toc}{\contentsline {paragraph}{内核侧的按键序列.}{110}{figure.caption.75}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.17}{\ignorespaces 一份 HID 报告进入输入子系统后的两条出路。上面两行是事件路径：类驱动解析报告、 转成 Linux 键码，由 input core 去重、成帧，再复制到每个 \texttt  {\hyphenchar \font =-1 open} 自己的 evdev 队列； 最后一行是字符路径：同一份报告查表转成字符后交给 \texttt  {\hyphenchar \font =-1 consoleintr()}，与 UART 收到的 字节共用同一套行规程。两条路径互不依赖，因此读 \texttt  {\hyphenchar \font =-1 /dev/input/eventN} 的程序和登录 会话可以同时存在，谁也不会把按键“读走”\relax }}{111}{figure.caption.75}\protected@file@percent }
-\newlabel{fig:usb-input-flow}{{7.17}{111}{一份 HID 报告进入输入子系统后的两条出路。上面两行是事件路径：类驱动解析报告、 转成 Linux 键码，由 input core 去重、成帧，再复制到每个 \code {open} 自己的 evdev 队列； 最后一行是字符路径：同一份报告查表转成字符后交给 \code {consoleintr()}，与 UART 收到的 字节共用同一套行规程。两条路径互不依赖，因此读 \code {/dev/input/eventN} 的程序和登录 会话可以同时存在，谁也不会把按键“读走”\relax }{figure.caption.75}{}}
-\@writefile{toc}{\contentsline {paragraph}{evdev 队列：每个读者一份.}{111}{lstnumber.-129.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{引用计数与生命周期.}{112}{lstnumber.-130.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.9}中断传输：小、周期、低延迟}{112}{subsection.7.4.9}\protected@file@percent }
-\newlabel{sec:usb-interrupt}{{7.4.9}{112}{中断传输：小、周期、低延迟}{subsection.7.4.9}{}}
-\@writefile{toc}{\contentsline {paragraph}{8 字节报文的逐字段格式.}{112}{lstnumber.-131.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.8}{\ignorespaces 按下 \texttt  {\hyphenchar \font =-1 l} 时那 8 字节报告（\texttt  {\hyphenchar \font =-1 0,0,f,0,0,0,0,0}）的逐字段拆解\relax }}{112}{table.caption.76}\protected@file@percent }
-\newlabel{tab:usb-hid-report}{{7.8}{112}{按下 \code {l} 时那 8 字节报告（\code {0,0,f,0,0,0,0,0}）的逐字段拆解\relax }{table.caption.76}{}}
-\@writefile{toc}{\contentsline {paragraph}{总线上的一来一回.}{112}{table.caption.76}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.10}Bulk 传输：量大、可等待、不许出错}{113}{subsection.7.4.10}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.9}{\ignorespaces 同一份 8 字节键盘报告，走 interrupt 与“假设走 bulk”的差别\relax }}{113}{table.caption.77}\protected@file@percent }
-\newlabel{tab:usb-int-vs-bulk}{{7.9}{113}{同一份 8 字节键盘报告，走 interrupt 与“假设走 bulk”的差别\relax }{table.caption.77}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.11}真机排错：从 STALL 到第一份报告}{113}{subsection.7.4.11}\protected@file@percent }
-\newlabel{sec:usb-debug}{{7.4.11}{113}{真机排错：从 STALL 到第一份报告}{subsection.7.4.11}{}}
-\@writefile{toc}{\contentsline {paragraph}{阶段 4：“读到了”但其实没读全.}{113}{table.caption.78}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.10}{\ignorespaces USB 键盘真机排错的九个阶段\relax }}{114}{table.caption.78}\protected@file@percent }
-\newlabel{tab:usb-bugs}{{7.10}{114}{USB 键盘真机排错的九个阶段\relax }{table.caption.78}{}}
-\@writefile{toc}{\contentsline {paragraph}{阶段 7～8：时间窗口.}{114}{table.caption.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{阶段 9：观察者效应.}{114}{table.caption.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{限量日志各自证明什么.}{114}{table.caption.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{诊断顺序.}{115}{table.caption.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{从两层轮询到中断驱动.}{115}{table.caption.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.5}I2C}{116}{section.7.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.1}开漏电气规则与总线时序}{116}{subsection.7.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.2}OV5647 寄存器收发序列}{117}{subsection.7.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{驱动中的调用路径.}{117}{lstnumber.-137.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{一位、一个字节要多长时间.}{118}{lstnumber.-139.21}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.11}{\ignorespaces 软件 SCCB 各阶段的时长（线路正常回高时）\relax }}{118}{table.caption.79}\protected@file@percent }
-\newlabel{tab:sccb-timing}{{7.11}{118}{软件 SCCB 各阶段的时长（线路正常回高时）\relax }{table.caption.79}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.18}{\ignorespaces 软件 SCCB 发送 START 和地址字节 \texttt  {\hyphenchar \font =-1 0x6c}（$0110\,1100$）的波形，横轴是由 \texttt  {\hyphenchar \font =-1 bb\_delay()} 决定的时间。虚线是 SCL 高电平中点，从机在这里采样数据位；红色虚线是主机采样 ACK 的时刻；橙色区域里 SDA 由 OV5647 驱动——它在第 8 个时钟下降沿之后拉低 SDA，第 9 个时钟下降沿之后再释放\relax }}{118}{figure.caption.80}\protected@file@percent }
-\newlabel{fig:sccb-wave}{{7.18}{118}{软件 SCCB 发送 START 和地址字节 \code {0x6c}（$0110\,1100$）的波形，横轴是由 \code {bb\_delay()} 决定的时间。虚线是 SCL 高电平中点，从机在这里采样数据位；红色虚线是主机采样 ACK 的时刻；橙色区域里 SDA 由 OV5647 驱动——它在第 8 个时钟下降沿之后拉低 SDA，第 9 个时钟下降沿之后再释放\relax }{figure.caption.80}{}}
-\@writefile{toc}{\contentsline {paragraph}{ACK 与 NACK 的细节.}{118}{figure.caption.80}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{完整事务与总耗时.}{118}{figure.caption.80}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.19}{\ignorespaces 寄存器写与分离式寄存器读的组成。读操作是两个独立事务：先写入 16 位寄存器索引并 STOP，再以读方向重新 START，读一个字节后主机 NACK\relax }}{119}{figure.caption.81}\protected@file@percent }
-\newlabel{fig:sccb-trans}{{7.19}{119}{寄存器写与分离式寄存器读的组成。读操作是两个独立事务：先写入 16 位寄存器索引并 STOP，再以读方向重新 START，读一个字节后主机 NACK\relax }{figure.caption.81}{}}
-\@writefile{toc}{\contentsline {paragraph}{写事务末尾的两个 STOP.}{119}{figure.caption.81}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.6}网络协议栈}{119}{section.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.7}SDIO 无线网卡：BCM43430/43455}{119}{section.7.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.1}硬件路径}{119}{subsection.7.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.2}硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{119}{subsection.7.7.2}\protected@file@percent }
-\newlabel{sec:wifi-hw}{{7.7.2}{119}{硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{subsection.7.7.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{两颗处理器.}{119}{figure.caption.82}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.20}{\ignorespaces SDIO Wi-Fi 的硬件拓扑。细实线是控制面：CMD 线上的 CMD52/CMD53 经 F0 配置总线、经 F1 访问芯片内部背板（读 chip ID、下载固件、控制 CR4 复位）；粗线是数据面：CPU 以 PIO 方式经 Arasan 的 \texttt  {\hyphenchar \font =-1 DATA} 寄存器读写 F2 的 SDPCM FIFO，芯片固件再与 802.11 帧互转；虚线是事件：固件经 DAT1 发出卡中断，成为 BCM2837 的 IRQ 62\relax }}{120}{figure.caption.82}\protected@file@percent }
-\newlabel{fig:wifi-hw}{{7.20}{120}{SDIO Wi-Fi 的硬件拓扑。细实线是控制面：CMD 线上的 CMD52/CMD53 经 F0 配置总线、经 F1 访问芯片内部背板（读 chip ID、下载固件、控制 CR4 复位）；粗线是数据面：CPU 以 PIO 方式经 Arasan 的 \code {DATA} 寄存器读写 F2 的 SDPCM FIFO，芯片固件再与 802.11 帧互转；虚线是事件：固件经 DAT1 发出卡中断，成为 BCM2837 的 IRQ 62\relax }{figure.caption.82}{}}
-\@writefile{toc}{\contentsline {paragraph}{SDIO 总线.}{120}{figure.caption.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{一个 SDIO 设备，三个 function.}{120}{figure.caption.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Arasan 是主机控制器，而且工作在 PIO 模式.}{120}{figure.caption.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{中断要过三道闸门.}{121}{figure.caption.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{固件从哪里来.}{121}{figure.caption.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.3}SDIO 枚举}{121}{subsection.7.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.4}固件装载}{121}{subsection.7.7.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.5}SDPCM 与 BCDC}{121}{subsection.7.7.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.21}{\ignorespaces F2 上一帧的封装。SDPCM 是总线一层的帧格式，用通道号区分控制、事件和数据；控制通道里是 BCDC 命令（ioctl/iovar），数据通道里是 BCDC 数据头加一个完整的以太网帧\relax }}{121}{figure.caption.83}\protected@file@percent }
-\newlabel{fig:wifi-frame}{{7.21}{121}{F2 上一帧的封装。SDPCM 是总线一层的帧格式，用通道号区分控制、事件和数据；控制通道里是 BCDC 命令（ioctl/iovar），数据通道里是 BCDC 数据头加一个完整的以太网帧\relax }{figure.caption.83}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.6}WPA2 四次握手}{122}{subsection.7.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.7}数据流与并发}{122}{subsection.7.7.7}\protected@file@percent }
-\newlabel{sec:wifi-flow}{{7.7.7}{122}{数据流与并发}{subsection.7.7.7}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.22}{\ignorespaces SDIO Wi-Fi 的数据流。发送在调用者的上下文里一路同步向下；接收由 DAT1 卡中断触发，上半部只屏蔽中断并调度 NAPI，真正的 CMD53 读取和分流在 \texttt  {\hyphenchar \font =-1 brcmf0\_wq} 内核线程里完成，读空后才重新打开卡中断。两个方向都要经过 \texttt  {\hyphenchar \font =-1 mmc\_request\_sync()} 的 host 锁，且每个字都由 CPU 经 \texttt  {\hyphenchar \font =-1 DATA} 寄存器搬运\relax }}{122}{figure.caption.84}\protected@file@percent }
-\newlabel{fig:wifi-flow}{{7.22}{122}{SDIO Wi-Fi 的数据流。发送在调用者的上下文里一路同步向下；接收由 DAT1 卡中断触发，上半部只屏蔽中断并调度 NAPI，真正的 CMD53 读取和分流在 \code {brcmf0\_wq} 内核线程里完成，读空后才重新打开卡中断。两个方向都要经过 \code {mmc\_request\_sync()} 的 host 锁，且每个字都由 CPU 经 \code {DATA} 寄存器搬运\relax }{figure.caption.84}{}}
-\@writefile{toc}{\contentsline {paragraph}{发送是同步的.}{122}{figure.caption.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{接收是中断触发、线程执行的.}{122}{figure.caption.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{同步的控制命令.}{123}{figure.caption.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{两把锁，两个粒度.}{123}{figure.caption.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{从轮询到中断的演进.}{123}{figure.caption.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.8}USB 无线网卡：MT7601U}{123}{section.7.8}\protected@file@percent }
-\newlabel{sec:mt7601u}{{7.8}{123}{USB 无线网卡：MT7601U}{section.7.8}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.12}{\ignorespaces 两块无线网卡的对比\relax }}{123}{table.caption.85}\protected@file@percent }
-\newlabel{tab:fullsoft}{{7.12}{123}{两块无线网卡的对比\relax }{table.caption.85}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.1}USB 拓扑与枚举}{123}{subsection.7.8.1}\protected@file@percent }
-\newlabel{sec:mt7601u-topo}{{7.8.1}{123}{USB 拓扑与枚举}{subsection.7.8.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.23}{\ignorespaces MT7601U 所在的 USB 拓扑与芯片内部结构\relax }}{124}{figure.caption.86}\protected@file@percent }
-\newlabel{fig:mt7601u-topo}{{7.23}{124}{MT7601U 所在的 USB 拓扑与芯片内部结构\relax }{figure.caption.86}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.2}设备、配置、接口与端点描述符}{124}{subsection.7.8.2}\protected@file@percent }
-\newlabel{sec:mt7601u-desc}{{7.8.2}{124}{设备、配置、接口与端点描述符}{subsection.7.8.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{设备描述符}{124}{lstnumber.-141.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{配置描述符}{124}{lstnumber.-141.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{接口描述符}{124}{lstnumber.-141.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{端点描述符}{124}{lstnumber.-141.7}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.13}{\ignorespaces MT7601U 的端点与 DWC2 主机通道\relax }}{125}{table.caption.87}\protected@file@percent }
-\newlabel{tab:mt7601u-ep}{{7.13}{125}{MT7601U 的端点与 DWC2 主机通道\relax }{table.caption.87}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.3}探测时序：从枚举到 \texttt  {\hyphenchar \font =-1 wlan1}}{125}{subsection.7.8.3}\protected@file@percent }
-\newlabel{sec:mt7601u-probe}{{7.8.3}{125}{探测时序：从枚举到 \code {wlan1}}{subsection.7.8.3}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.24}{\ignorespaces MT7601U 从 USB 枚举、延迟驱动匹配、MCU 固件下载、射频校准到 SoftMAC 关联和数据接收的完整时序。设备先注册在 USB core，待 FAT32 上的固件 可读后才绑定驱动；运行时 EP4 承载接收，EP5 返回 MCU 应答，EP8 承载固件、 MCU 命令和发送帧\relax }}{126}{figure.caption.88}\protected@file@percent }
-\newlabel{fig:mt7601u-sequence}{{7.24}{126}{MT7601U 从 USB 枚举、延迟驱动匹配、MCU 固件下载、射频校准到 SoftMAC 关联和数据接收的完整时序。设备先注册在 USB core，待 FAT32 上的固件 可读后才绑定驱动；运行时 EP4 承载接收，EP5 返回 MCU 应答，EP8 承载固件、 MCU 命令和发送帧\relax }{figure.caption.88}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.4}主机与芯片之间的四种报文}{127}{subsection.7.8.4}\protected@file@percent }
-\newlabel{sec:mt7601u-wire}{{7.8.4}{127}{主机与芯片之间的四种报文}{subsection.7.8.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{寄存器读写：EP0 厂商请求.}{127}{subsection.7.8.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{bulk 包：同一个 EP8，靠 TXINFO 分流.}{127}{lstnumber.-145.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{接收：EP4 上的聚合包.}{128}{lstnumber.-145.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.25}{\ignorespaces EP8 上的三种 bulk OUT 包与 EP4 上的接收包\relax }}{128}{figure.caption.89}\protected@file@percent }
-\newlabel{fig:mt7601u-wire}{{7.25}{128}{EP8 上的三种 bulk OUT 包与 EP4 上的接收包\relax }{figure.caption.89}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.5}启动日志分析：USB 总线上发生了什么}{128}{subsection.7.8.5}\protected@file@percent }
-\newlabel{sec:mt7601u-probelog}{{7.8.5}{128}{启动日志分析：USB 总线上发生了什么}{subsection.7.8.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{两种传输.}{128}{subsection.7.8.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(1) 芯片身份.}{128}{table.caption.90}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.14}{\ignorespaces MT7601U 的 EP0 厂商请求\relax }}{129}{table.caption.90}\protected@file@percent }
-\newlabel{tab:mt7601u-vendor}{{7.14}{129}{MT7601U 的 EP0 厂商请求\relax }{table.caption.90}{}}
-\@writefile{toc}{\contentsline {paragraph}{(2)(3) 不走 USB.}{129}{lstnumber.-147.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(4) 上传固件.}{129}{lstnumber.-147.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(5) 启动 MCU.}{129}{lstnumber.-148.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(6) eFuse.}{129}{lstnumber.-149.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(7) 基础初始化.}{129}{lstnumber.-149.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(8) 第一条 MCU 命令.}{129}{lstnumber.-149.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(9) 寄存器表.}{129}{lstnumber.-150.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.15}{\ignorespaces 寄存器表阶段的控制传输次数\relax }}{130}{table.caption.91}\protected@file@percent }
-\newlabel{tab:mt7601u-ctrlcount}{{7.15}{130}{寄存器表阶段的控制传输次数\relax }{table.caption.91}{}}
-\@writefile{toc}{\contentsline {paragraph}{(10) 校准.}{130}{table.caption.91}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(11) 初始换台.}{130}{lstnumber.-151.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(12) 挂上接收.}{130}{lstnumber.-153.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{(13) probe 返回.}{130}{lstnumber.-153.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.16}{\ignorespaces 探测期间各端点的用量\relax }}{130}{table.caption.92}\protected@file@percent }
-\newlabel{tab:mt7601u-epuse}{{7.16}{130}{探测期间各端点的用量\relax }{table.caption.92}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.6}空口：扫描、认证、关联、WPA2 四次握手}{131}{subsection.7.8.6}\protected@file@percent }
-\newlabel{sec:mt7601u-air}{{7.8.6}{131}{空口：扫描、认证、关联、WPA2 四次握手}{subsection.7.8.6}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.26}{\ignorespaces MT7601U 的扫描、认证、关联与 WPA2 四次握手\relax }}{131}{figure.caption.93}\protected@file@percent }
-\newlabel{fig:mt7601u-join}{{7.26}{131}{MT7601U 的扫描、认证、关联与 WPA2 四次握手\relax }{figure.caption.93}{}}
-\@writefile{toc}{\contentsline {paragraph}{一帧怎样从主机到空中.}{131}{figure.caption.93}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{扫描.}{131}{table.caption.94}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.17}{\ignorespaces MT7601U 与 AP 之间的报文\relax }}{132}{table.caption.94}\protected@file@percent }
-\newlabel{tab:mt7601u-frames}{{7.17}{132}{MT7601U 与 AP 之间的报文\relax }{table.caption.94}{}}
-\@writefile{toc}{\contentsline {paragraph}{认证与关联.}{132}{lstnumber.-155.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{EAPOL-Key 帧.}{132}{lstnumber.-155.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{密钥推导.}{132}{lstnumber.-156.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{装密钥.}{133}{lstnumber.-157.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{加密数据帧.}{133}{lstnumber.-158.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.7}调试实录}{133}{subsection.7.8.7}\protected@file@percent }
-\newlabel{sec:mt7601u-debug}{{7.8.7}{133}{调试实录}{subsection.7.8.7}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.18}{\ignorespaces MT7601U 调试记录\relax }}{133}{table.caption.95}\protected@file@percent }
-\newlabel{tab:mt7601u-debug}{{7.18}{133}{MT7601U 调试记录\relax }{table.caption.95}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.8}现状与待改进}{134}{subsection.7.8.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7.9}CSI-2 摄像头：OV5647}{134}{section.7.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.1}路线选择}{134}{subsection.7.9.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.2}硬件结构：I2C、CSI-2、Unicam 与 DMA}{134}{subsection.7.9.2}\protected@file@percent }
-\newlabel{sec:cam-hw}{{7.9.2}{134}{硬件结构：I2C、CSI-2、Unicam 与 DMA}{subsection.7.9.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{传感器有两个接口.}{134}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{CSI-2 链路上传的是包.}{134}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Unicam 是接收器，也是 DMA 主设备.}{134}{figure.caption.96}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.27}{\ignorespaces 摄像头的硬件拓扑。细实线是控制面：mailbox 上电和电源域、SCCB 写传感器寄存器、lp 时钟；粗线是数据面：CSI-2 → Unicam → DMA → 内存；虚线是事件：Unicam 的帧开始/结束中断（IRQ 39），另有 10\,ms 的 watchdog 兜底（\ref  {sec:cam-dma} 小节）\relax }}{135}{figure.caption.96}\protected@file@percent }
-\newlabel{fig:cam-hw}{{7.27}{135}{摄像头的硬件拓扑。细实线是控制面：mailbox 上电和电源域、SCCB 写传感器寄存器、lp 时钟；粗线是数据面：CSI-2 → Unicam → DMA → 内存；虚线是事件：Unicam 的帧开始/结束中断（IRQ 39），另有 10\,ms 的 watchdog 兜底（\ref {sec:cam-dma} 小节）\relax }{figure.caption.96}{}}
-\@writefile{toc}{\contentsline {paragraph}{内存一侧的约束.}{135}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{电源和时钟由谁管.}{135}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{CPU 只在两头出现.}{135}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{顺序约束.}{135}{figure.caption.96}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.3}\texttt  {\hyphenchar \font =-1 sensor\_ops}：仿照 V4L2 子设备}{136}{subsection.7.9.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.4}板级资源}{136}{subsection.7.9.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.19}{\ignorespaces 摄像头相关的板级资源（Pi 3B+）\relax }}{136}{table.caption.97}\protected@file@percent }
-\newlabel{tab:cam-board}{{7.19}{136}{摄像头相关的板级资源（Pi 3B+）\relax }{table.caption.97}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.5}硬件连接与工作流程}{136}{subsection.7.9.5}\protected@file@percent }
-\newlabel{sec:cam-wiring}{{7.9.5}{136}{硬件连接与工作流程}{subsection.7.9.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.28}{\ignorespaces 摄像头的硬件连接。橙色粗线是 D-PHY 差分对（每条线代表一对 P/N）；蓝色是 SCCB 的 SCL/SDA，开漏、靠相机板上的上拉电阻回高；绿色是供电：排线第 15 脚的 3.3\,V 和第 11 脚 CAM\_IO0 的使能；虚线是帧事件中断；灰色细线是芯片内部的控制路径\relax }}{137}{figure.caption.98}\protected@file@percent }
-\newlabel{fig:cam-wiring}{{7.28}{137}{摄像头的硬件连接。橙色粗线是 D-PHY 差分对（每条线代表一对 P/N）；蓝色是 SCCB 的 SCL/SDA，开漏、靠相机板上的上拉电阻回高；绿色是供电：排线第 15 脚的 3.3\,V 和第 11 脚 CAM\_IO0 的使能；虚线是帧事件中断；灰色细线是芯片内部的控制路径\relax }{figure.caption.98}{}}
-\@writefile{toc}{\contentsline {paragraph}{结合连线看一次完整的工作流程.}{137}{figure.caption.98}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.29}{\ignorespaces 各条线在一次工作周期中的活动（时间轴示意，不按比例）。CAM\_IO0 在上电时先低后高、停流时拉低；SCCB 只在配置和停流时有事务；lane 在退出软件待机之后才从 LP-11 进入高速传输\relax }}{137}{figure.caption.100}\protected@file@percent }
-\newlabel{fig:cam-lines}{{7.29}{137}{各条线在一次工作周期中的活动（时间轴示意，不按比例）。CAM\_IO0 在上电时先低后高、停流时拉低；SCCB 只在配置和停流时有事务；lane 在退出软件待机之后才从 LP-11 进入高速传输\relax }{figure.caption.100}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {7.20}{\ignorespaces 按连线看摄像头的工作流程\relax }}{138}{table.caption.99}\protected@file@percent }
-\newlabel{tab:cam-flow}{{7.20}{138}{按连线看摄像头的工作流程\relax }{table.caption.99}{}}
-\@writefile{toc}{\contentsline {paragraph}{一帧数据在连线上走过的路.}{138}{figure.caption.100}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.6}上电与探测}{138}{subsection.7.9.6}\protected@file@percent }
-\newlabel{sec:cam-probe}{{7.9.6}{138}{上电与探测}{subsection.7.9.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{mailbox.}{138}{lstnumber.-160.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{控制总线：从 BSC0 到软件 SCCB.}{139}{lstnumber.-160.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{延迟探测.}{139}{lstnumber.-160.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.7}拍一帧}{139}{subsection.7.9.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.30}{\ignorespaces 一次 \texttt  {\hyphenchar \font =-1 read("/dev/video0")} 的调用关系。\texttt  {\hyphenchar \font =-1 unicam.c} 只通过 \texttt  {\hyphenchar \font =-1 sensor\_ops} 调用传感器驱动；传感器驱动再经 mailbox 上电、经 BSC0 或软件 SCCB 写寄存器。第 6 步每 1\,ms 轮询一次 Unicam 状态，直到 \textsc  {done} 或 4\,s 超时，是目前采集帧的唯一路径，中断入口已屏蔽；第 9 步的 \texttt  {\hyphenchar \font =-1 ov5647\_power\_off} 同样经 mailbox 断电\relax }}{139}{figure.caption.101}\protected@file@percent }
-\newlabel{fig:cam-calls}{{7.30}{139}{一次 \code {read("/dev/video0")} 的调用关系。\code {unicam.c} 只通过 \code {sensor\_ops} 调用传感器驱动；传感器驱动再经 mailbox 上电、经 BSC0 或软件 SCCB 写寄存器。第 6 步每 1\,ms 轮询一次 Unicam 状态，直到 \textsc {done} 或 4\,s 超时，是目前采集帧的唯一路径，中断入口已屏蔽；第 9 步的 \code {ov5647\_power\_off} 同样经 mailbox 断电\relax }{figure.caption.101}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.31}{\ignorespaces 帧状态机的时序。\texttt  {\hyphenchar \font =-1 IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS\relax }}{140}{figure.caption.102}\protected@file@percent }
-\newlabel{fig:cam-fsm}{{7.31}{140}{帧状态机的时序。\code {IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS\relax }{figure.caption.102}{}}
-\@writefile{toc}{\contentsline {paragraph}{为什么用轮询而不是中断.}{140}{figure.caption.102}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.8}从 D-PHY 到内存：FIFO、双缓冲与帧通知}{140}{subsection.7.9.8}\protected@file@percent }
-\newlabel{sec:cam-dma}{{7.9.8}{140}{从 D-PHY 到内存：FIFO、双缓冲与帧通知}{subsection.7.9.8}{}}
-\@writefile{toc}{\contentsline {paragraph}{排线与 D-PHY.}{140}{subsection.7.9.8}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.21}{\ignorespaces 摄像头 15 芯排线的引脚\relax }}{141}{table.caption.103}\protected@file@percent }
-\newlabel{tab:cam-pins}{{7.21}{141}{摄像头 15 芯排线的引脚\relax }{table.caption.103}{}}
-\@writefile{toc}{\contentsline {paragraph}{CSI-2 包.}{141}{table.caption.103}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.32}{\ignorespaces 一帧在 CSI-2 数据 lane 上的样子。每个包是一次独立的 HS 突发，包与包之间回到 LP 状态。FS、FE 短包标出帧的边界，每一行像素是一个 RAW10 长包\relax }}{141}{figure.caption.104}\protected@file@percent }
-\newlabel{fig:csi2-lane}{{7.32}{141}{一帧在 CSI-2 数据 lane 上的样子。每个包是一次独立的 HS 突发，包与包之间回到 LP 状态。FS、FE 短包标出帧的边界，每一行像素是一个 RAW10 长包\relax }{figure.caption.104}{}}
-\@writefile{toc}{\contentsline {paragraph}{Unicam 内部：FIFO 与 AXI 写主机.}{141}{figure.caption.104}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DMA 缓冲区的布局.}{141}{figure.caption.105}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.33}{\ignorespaces Unicam 的接收流水线。粗线是像素数据，由 Unicam 作为 AXI 主设备自己写进 DDR，不经过 CPU，也不使用 BCM2837 的通用 DMA 通道；虚线是帧事件；细线是 CPU 为下一帧排好的槽地址\relax }}{142}{figure.caption.105}\protected@file@percent }
-\newlabel{fig:unicam-pipe}{{7.33}{142}{Unicam 的接收流水线。粗线是像素数据，由 Unicam 作为 AXI 主设备自己写进 DDR，不经过 CPU，也不使用 BCM2837 的通用 DMA 通道；虚线是帧事件；细线是 CPU 为下一帧排好的槽地址\relax }{figure.caption.105}{}}
-\@writefile{toc}{\contentsline {paragraph}{双缓冲：槽的状态机.}{142}{lstnumber.-162.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.34}{\ignorespaces DMA 槽的状态机。若两个槽都处于 \textsc  {active}、\textsc  {done} 或 \textsc  {user}，没有 \textsc  {free} 槽可排，驱动就把 dummy 写进 \texttt  {\hyphenchar \font =-1 IBSA0/IBEA0}，下一帧被丢弃而不会覆盖用户仍在读的像素\relax }}{142}{figure.caption.106}\protected@file@percent }
-\newlabel{fig:cam-slots}{{7.34}{142}{DMA 槽的状态机。若两个槽都处于 \textsc {active}、\textsc {done} 或 \textsc {user}，没有 \textsc {free} 槽可排，驱动就把 dummy 写进 \code {IBSA0/IBEA0}，下一帧被丢弃而不会覆盖用户仍在读的像素\relax }{figure.caption.106}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7.35}{\ignorespaces 双缓冲的时序（示意）。每个槽的地址都在前一个 FS 时排好；读者从 FE 之后开始处理，处理期间另一个槽继续接收\relax }}{143}{figure.caption.107}\protected@file@percent }
-\newlabel{fig:cam-dbuf}{{7.35}{143}{双缓冲的时序（示意）。每个槽的地址都在前一个 FS 时排好；读者从 FE 之后开始处理，处理期间另一个槽继续接收\relax }{figure.caption.107}{}}
-\@writefile{toc}{\contentsline {paragraph}{帧通知：中断为主，watchdog 兜底.}{143}{figure.caption.107}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{零拷贝 mmap.}{143}{lstnumber.-164.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.9}用户程序 \texttt  {\hyphenchar \font =-1 camshot}}{144}{subsection.7.9.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.10}一次成功拍照的日志解读}{144}{subsection.7.9.10}\protected@file@percent }
-\newlabel{sec:cam-log}{{7.9.10}{144}{一次成功拍照的日志解读}{subsection.7.9.10}{}}
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 172} 启动时的探测与绑定.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 173} 每次拍照都重新上电.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 174} 先接收器、后出流.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 175} 一帧到手.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 176} 数字对得上.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 177} 创建输出文件.}{145}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{这份日志证明了什么.}{146}{lstnumber.-166.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.11}真机调试记录}{146}{subsection.7.9.11}\protected@file@percent }
-\newlabel{sec:cam-bugs}{{7.9.11}{146}{真机调试记录}{subsection.7.9.11}{}}
-\@writefile{toc}{\contentsline {subsubsection}{问题 1：mailbox 打开摄像头电源失败}{146}{subsection.7.9.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{146}{subsection.7.9.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{146}{lstnumber.-167.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{147}{lstnumber.-167.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 2：BSC0 对 \texttt  {\hyphenchar \font =-1 0x36} 始终 NACK}{147}{lstnumber.-167.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{147}{lstnumber.-167.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{147}{lstnumber.-168.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{147}{lstnumber.-168.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 3：bit-bang 探测时而 ACK、时而 NACK}{147}{lstnumber.-168.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{147}{lstnumber.-168.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{147}{lstnumber.-169.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{147}{lstnumber.-169.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 4：BSC 四档降速全部失败}{147}{lstnumber.-169.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{147}{lstnumber.-169.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{148}{lstnumber.-170.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{148}{lstnumber.-170.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 5：软件 SCCB 偶发读出 \texttt  {\hyphenchar \font =-1 0x3631}，随后 BUS-STUCK}{148}{lstnumber.-170.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{148}{lstnumber.-170.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{148}{lstnumber.-171.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{148}{lstnumber.-171.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 6：\texttt  {\hyphenchar \font =-1 0x36} ACK，但三次读 ID 都失败}{148}{lstnumber.-171.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{148}{lstnumber.-171.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{148}{lstnumber.-172.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{148}{lstnumber.-172.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 7：开始出流后整机无响应}{149}{lstnumber.-172.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{149}{lstnumber.-172.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{149}{lstnumber.-173.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{149}{lstnumber.-173.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 8：转换期间偶发 \texttt  {\hyphenchar \font =-1 SDIO CMD52 failed}}{149}{lstnumber.-173.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{149}{lstnumber.-173.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{149}{lstnumber.-174.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{149}{lstnumber.-174.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 9：执行不访存的指令却报数据中止}{149}{lstnumber.-174.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{149}{lstnumber.-174.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{149}{lstnumber.-175.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{150}{lstnumber.-175.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 10：输出到 \texttt  {\hyphenchar \font =-1 fixed WB/level} 后长时间停顿}{150}{lstnumber.-175.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{150}{lstnumber.-175.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{150}{lstnumber.-176.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{150}{lstnumber.-176.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{问题 11：新建文件停在 \texttt  {\hyphenchar \font =-1 directory-entry begin}}{150}{lstnumber.-176.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志输出.}{150}{lstnumber.-176.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{问题分析.}{150}{lstnumber.-177.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解决方案.}{151}{lstnumber.-177.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{小结.}{151}{lstnumber.-177.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.12}连续取流与 HTTP 推流}{151}{subsection.7.9.12}\protected@file@percent }
-\newlabel{sec:cam-http}{{7.9.12}{151}{连续取流与 HTTP 推流}{subsection.7.9.12}{}}
-\@writefile{toc}{\contentsline {paragraph}{内核：传感器一直出流.}{151}{subsection.7.9.12}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{用户态：一个进程扇出给所有观看者.}{151}{subsection.7.9.12}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.36}{\ignorespaces \texttt  {\hyphenchar \font =-1 camserver} 的结构。一次采集、一次编码，写给全部观看者；没人观看时传感器断电\relax }}{151}{figure.caption.108}\protected@file@percent }
-\newlabel{fig:cam-http}{{7.36}{151}{\code {camserver} 的结构。一次采集、一次编码，写给全部观看者；没人观看时传感器断电\relax }{figure.caption.108}{}}
-\@writefile{toc}{\contentsline {paragraph}{接口与 MJPEG 格式.}{152}{figure.caption.108}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.22}{\ignorespaces \texttt  {\hyphenchar \font =-1 camserver} 的 HTTP 接口\relax }}{152}{table.caption.109}\protected@file@percent }
-\newlabel{tab:cam-http}{{7.22}{152}{\code {camserver} 的 HTTP 接口\relax }{table.caption.109}{}}
-\@writefile{toc}{\contentsline {paragraph}{测试.}{152}{lstnumber.-178.14}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.13}提高推流帧率}{153}{subsection.7.9.13}\protected@file@percent }
-\newlabel{sec:cam-perf}{{7.9.13}{153}{提高推流帧率}{subsection.7.9.13}{}}
-\@writefile{toc}{\contentsline {paragraph}{先测量，再优化.}{153}{subsection.7.9.13}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{方法一：三级流水线.}{153}{lstnumber.-181.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7.37}{\ignorespaces 串行与三级流水线的时间线（按实测的 70.8/308.2/199.2\,ms 画，比例尺相同）。流水线中 JPEG 线程几乎一直在工作，帧周期由最慢的这一段决定\relax }}{153}{figure.caption.110}\protected@file@percent }
-\newlabel{fig:cam-pipe}{{7.37}{153}{串行与三级流水线的时间线（按实测的 70.8/308.2/199.2\,ms 画，比例尺相同）。流水线中 JPEG 线程几乎一直在工作，帧周期由最慢的这一段决定\relax }{figure.caption.110}{}}
-\@writefile{toc}{\contentsline {paragraph}{方法二：RAW 帧零拷贝.}{153}{figure.caption.110}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{方法三：有界队列与背压.}{154}{lstnumber.-182.12}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7.23}{\ignorespaces 流水线中的同步对象\relax }}{154}{table.caption.111}\protected@file@percent }
-\newlabel{tab:cam-sems}{{7.23}{154}{流水线中的同步对象\relax }{table.caption.111}{}}
-\@writefile{toc}{\contentsline {paragraph}{方法四：减少每帧的工作量.}{154}{lstnumber.-183.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{按测量结果定位瓶颈.}{155}{lstnumber.-183.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{还可以继续做的.}{155}{lstnumber.-183.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.14}当前状态}{155}{subsection.7.9.14}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.10}{\ignorespaces USB 键盘枚举与配置的决策流程。从上到下是五个阶段：控制器上电、识别 Hub 并供电、扫描端口与判速、描述符与接口匹配、注册绑定与武装 interrupt-IN。橙色框是判断， 灰色框是提前退出的分支，虚线表示递归与低速分支。整条链上只有地址、配置和接口三类判断 与“这是一只键盘”有关，其余部分对任何 USB 设备都一样\relax }}{106}{figure.caption.67}\protected@file@percent }
+\newlabel{fig:usb-enum-flow}{{7.10}{106}{USB 键盘枚举与配置的决策流程。从上到下是五个阶段：控制器上电、识别 Hub 并供电、扫描端口与判速、描述符与接口匹配、注册绑定与武装 interrupt-IN。橙色框是判断， 灰色框是提前退出的分支，虚线表示递归与低速分支。整条链上只有地址、配置和接口三类判断 与“这是一只键盘”有关，其余部分对任何 USB 设备都一样\relax }{figure.caption.67}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.12}{\ignorespaces USB 键盘枚举与配置的软件函数调用链；同一行的浅灰等宽字是这一步实际打印的串口 日志，可与真机输出逐行对照。图中的描述符和配置请求都由 \texttt  {\hyphenchar \font =-1 control()} 经 ch0 同步完成；设备完成 \texttt  {\hyphenchar \font =-1 SET\_CONFIGURATION} 后才进入 USB 设备模型，类驱动的 \texttt  {\hyphenchar \font =-1 probe()} 注册 \texttt  {\hyphenchar \font =-1 event0}，最后由 \texttt  {\hyphenchar \font =-1 dwc2\_submit\_urb()} 把逻辑端点 EP1 映射到本机 host channel 6\relax }}{107}{figure.caption.69}\protected@file@percent }
+\newlabel{fig:usb-hid-enum-call-chain}{{7.12}{107}{USB 键盘枚举与配置的软件函数调用链；同一行的浅灰等宽字是这一步实际打印的串口 日志，可与真机输出逐行对照。图中的描述符和配置请求都由 \code {control()} 经 ch0 同步完成；设备完成 \code {SET\_CONFIGURATION} 后才进入 USB 设备模型，类驱动的 \code {probe()} 注册 \code {event0}，最后由 \code {dwc2\_submit\_urb()} 把逻辑端点 EP1 映射到本机 host channel 6\relax }{figure.caption.69}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.13}{\ignorespaces 低速键盘在高速 Hub 后面的一次 interrupt-IN 轮询。主机先向 TT 发 start-split，TT 在低速总线上替主机完成 IN 事务，主机再在随后的微帧里发 complete-split 取回结果。{\Pifont {pzd}\char 172}、{\Pifont {pzd}\char 173} 两种中间事件必须在中断里当场处理，晚一个帧就错过了窗口\relax }}{108}{figure.caption.70}\protected@file@percent }
+\newlabel{fig:usb-split}{{7.13}{108}{低速键盘在高速 Hub 后面的一次 interrupt-IN 轮询。主机先向 TT 发 start-split，TT 在低速总线上替主机完成 IN 事务，主机再在随后的微帧里发 complete-split 取回结果。\ding {172}、\ding {173} 两种中间事件必须在中断里当场处理，晚一个帧就错过了窗口\relax }{figure.caption.70}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.7}{\ignorespaces 真机日志中的寄存器样本解码\relax }}{108}{table.caption.71}\protected@file@percent }
+\newlabel{tab:usb-regs}{{7.7}{108}{真机日志中的寄存器样本解码\relax }{table.caption.71}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.14}{\ignorespaces \texttt  {\textsc  {HCSPLT}} 的位域。只要 \texttt  {\hyphenchar \font =-1 SPLTENA}$=1$，这次 channel 事务就不由 DWC2 自己驱动总线，而是交给 \texttt  {\hyphenchar \font =-1 HUBADDR}$+$\texttt  {\hyphenchar \font =-1 PORT} 指定的那颗 Hub 事务转换器（TT）代跑；两拍之间只有 \texttt  {\hyphenchar \font =-1 COMPSPLT} 一位不同（SSPLIT 为 0、CSPLIT 为 1），日志里 \texttt  {\hyphenchar \font =-1 0x8000c083} 与 \texttt  {\hyphenchar \font =-1 0x8001c083} 正是这一位之差。\texttt  {\hyphenchar \font =-1 XACTPOS} 本项目恒取 ALL（一次搬整包，不做首/尾微帧的分段）\relax }}{108}{figure.caption.72}\protected@file@percent }
+\newlabel{fig:usb-hcsplt}{{7.14}{108}{\reg {HCSPLT} 的位域。只要 \code {SPLTENA}$=1$，这次 channel 事务就不由 DWC2 自己驱动总线，而是交给 \code {HUBADDR}$+$\code {PORT} 指定的那颗 Hub 事务转换器（TT）代跑；两拍之间只有 \code {COMPSPLT} 一位不同（SSPLIT 为 0、CSPLIT 为 1），日志里 \code {0x8000c083} 与 \code {0x8001c083} 正是这一位之差。\code {XACTPOS} 本项目恒取 ALL（一次搬整包，不做首/尾微帧的分段）\relax }{figure.caption.72}{}}
+\@writefile{toc}{\contentsline {paragraph}{HCSPLT：把一次事务拆成两拍的寄存器.}{109}{figure.caption.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{SSPLIT→CSPLIT 的状态机.}{109}{figure.caption.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{微帧窗口：CSPLIT 为什么必须在中断里发.}{109}{figure.caption.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{一次 split 只搬一个最大包，DATA 逐包翻转.}{109}{figure.caption.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{full-speed 也要 split，但不置 LSPDDEV.}{109}{figure.caption.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.7}URB 与中断驱动的接收}{109}{subsection.7.4.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{每设备状态，不是全局单例.}{110}{lstnumber.-128.9}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.15}{\ignorespaces 一份键盘报告从硬件到 shell 的路径。每一列是一种执行上下文：硬中断只做与微帧时序有关的最少工作；HCD 的完成 work 负责缓存维护并把 URB 归还类驱动；HID 解析、输入事件和控制台都在键盘自己的 workqueue 里完成，最后重新提交 URB。键盘回 NAK（没有新按键）时，HCD completion 只登记 \texttt  {\hyphenchar \font =-1 bInterval} 期限，到期后由专用 DWC2 periodic workqueue 重发，URB 不归还类驱动\relax }}{111}{figure.caption.73}\protected@file@percent }
+\newlabel{fig:usb-rx}{{7.15}{111}{一份键盘报告从硬件到 shell 的路径。每一列是一种执行上下文：硬中断只做与微帧时序有关的最少工作；HCD 的完成 work 负责缓存维护并把 URB 归还类驱动；HID 解析、输入事件和控制台都在键盘自己的 workqueue 里完成，最后重新提交 URB。键盘回 NAK（没有新按键）时，HCD completion 只登记 \code {bInterval} 期限，到期后由专用 DWC2 periodic workqueue 重发，URB 不归还类驱动\relax }{figure.caption.73}{}}
+\@writefile{toc}{\contentsline {paragraph}{NAK 的无忙等周期重试.}{111}{figure.caption.74}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.8}HID 报告与输入子系统}{111}{subsection.7.4.8}\protected@file@percent }
+\newlabel{sec:usb-input}{{7.4.8}{111}{HID 报告与输入子系统}{subsection.7.4.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.16}{\ignorespaces 运行期一次 interrupt-IN 轮询的完整时序。类驱动提交 URB 之后就不再参与： DWC2 与 Hub 的 TT 用 SSPLIT／CSPLIT 完成低速事务，有微帧截止时间的中间事件在硬中断里 当场推进。上半段是键盘没有新按键的情况，控制器只登记 \texttt  {\hyphenchar \font =-1 bInterval} 期限，到期后由 专用 periodic workqueue 重发，URB 不归还类驱动；下半段才是真正的一份报告，依次经过 DMA、IRQ、HCD completion、\texttt  {\hyphenchar \font =-1 usbkbd\_wq}，最后落到控制台与 \texttt  {\hyphenchar \font =-1 event0}\relax }}{112}{figure.caption.74}\protected@file@percent }
+\newlabel{fig:usb-irq-seq}{{7.16}{112}{运行期一次 interrupt-IN 轮询的完整时序。类驱动提交 URB 之后就不再参与： DWC2 与 Hub 的 TT 用 SSPLIT／CSPLIT 完成低速事务，有微帧截止时间的中间事件在硬中断里 当场推进。上半段是键盘没有新按键的情况，控制器只登记 \code {bInterval} 期限，到期后由 专用 periodic workqueue 重发，URB 不归还类驱动；下半段才是真正的一份报告，依次经过 DMA、IRQ、HCD completion、\code {usbkbd\_wq}，最后落到控制台与 \code {event0}\relax }{figure.caption.74}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.17}{\ignorespaces 空闲键盘 NAK 后的调用链。\texttt  {\hyphenchar \font =-1 system\_wq} 与 \texttt  {\hyphenchar \font =-1 dwc2\_periodic\_wq}使用同一种 FIFO/kworker 执行机制；定时语义来自二者 之外的 \texttt  {\hyphenchar \font =-1 delayed\_head}。因此 \texttt  {\hyphenchar \font =-1 mod\_delayed\_work()}会立即返回， 不会把等待转移成另一个 kworker 上的忙等\relax }}{112}{figure.caption.75}\protected@file@percent }
+\newlabel{fig:dwc2-periodic-wq}{{7.17}{112}{空闲键盘 NAK 后的调用链。\code {system\_wq} 与 \code {dwc2\_periodic\_wq}使用同一种 FIFO/kworker 执行机制；定时语义来自二者 之外的 \code {delayed\_head}。因此 \code {mod\_delayed\_work()}会立即返回， 不会把等待转移成另一个 kworker 上的忙等\relax }{figure.caption.75}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.18}{\ignorespaces 一份 HID 报告进入输入子系统后的两条出路。上面两行是事件路径：类驱动解析报告、 转成 Linux 键码，由 input core 去重、成帧，再复制到每个 \texttt  {\hyphenchar \font =-1 open} 自己的 evdev 队列； 最后一行是字符路径：同一份报告查表转成字符后交给 \texttt  {\hyphenchar \font =-1 consoleintr()}，与 UART 收到的 字节共用同一套行规程。两条路径互不依赖，因此读 \texttt  {\hyphenchar \font =-1 /dev/input/eventN} 的程序和登录 会话可以同时存在，谁也不会把按键“读走”\relax }}{113}{figure.caption.76}\protected@file@percent }
+\newlabel{fig:usb-input-flow}{{7.18}{113}{一份 HID 报告进入输入子系统后的两条出路。上面两行是事件路径：类驱动解析报告、 转成 Linux 键码，由 input core 去重、成帧，再复制到每个 \code {open} 自己的 evdev 队列； 最后一行是字符路径：同一份报告查表转成字符后交给 \code {consoleintr()}，与 UART 收到的 字节共用同一套行规程。两条路径互不依赖，因此读 \code {/dev/input/eventN} 的程序和登录 会话可以同时存在，谁也不会把按键“读走”\relax }{figure.caption.76}{}}
+\@writefile{toc}{\contentsline {paragraph}{内核侧的按键序列.}{113}{figure.caption.76}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{evdev 队列：每个读者一份.}{114}{lstnumber.-132.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{引用计数与生命周期.}{114}{lstnumber.-133.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.9}中断传输：小、周期、低延迟}{115}{subsection.7.4.9}\protected@file@percent }
+\newlabel{sec:usb-interrupt}{{7.4.9}{115}{中断传输：小、周期、低延迟}{subsection.7.4.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{8 字节报文的逐字段格式.}{115}{lstnumber.-134.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.8}{\ignorespaces 按下 \texttt  {\hyphenchar \font =-1 l} 时那 8 字节报告（\texttt  {\hyphenchar \font =-1 0,0,f,0,0,0,0,0}）的逐字段拆解\relax }}{115}{table.caption.77}\protected@file@percent }
+\newlabel{tab:usb-hid-report}{{7.8}{115}{按下 \code {l} 时那 8 字节报告（\code {0,0,f,0,0,0,0,0}）的逐字段拆解\relax }{table.caption.77}{}}
+\@writefile{toc}{\contentsline {paragraph}{总线上的一来一回.}{115}{table.caption.77}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.10}Bulk 传输：量大、可等待、不许出错}{116}{subsection.7.4.10}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.9}{\ignorespaces 同一份 8 字节键盘报告，走 interrupt 与“假设走 bulk”的差别\relax }}{116}{table.caption.78}\protected@file@percent }
+\newlabel{tab:usb-int-vs-bulk}{{7.9}{116}{同一份 8 字节键盘报告，走 interrupt 与“假设走 bulk”的差别\relax }{table.caption.78}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4.11}真机排错：从 STALL 到第一份报告}{116}{subsection.7.4.11}\protected@file@percent }
+\newlabel{sec:usb-debug}{{7.4.11}{116}{真机排错：从 STALL 到第一份报告}{subsection.7.4.11}{}}
+\@writefile{toc}{\contentsline {paragraph}{阶段 4：“读到了”但其实没读全.}{116}{table.caption.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{阶段 7～8：时间窗口.}{116}{table.caption.79}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.10}{\ignorespaces USB 键盘真机排错的九个阶段\relax }}{117}{table.caption.79}\protected@file@percent }
+\newlabel{tab:usb-bugs}{{7.10}{117}{USB 键盘真机排错的九个阶段\relax }{table.caption.79}{}}
+\@writefile{toc}{\contentsline {paragraph}{阶段 9：观察者效应.}{117}{table.caption.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{限量日志各自证明什么.}{117}{table.caption.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{诊断顺序.}{117}{table.caption.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{从两层轮询到中断驱动.}{117}{table.caption.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.5}I2C}{118}{section.7.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.1}开漏电气规则与总线时序}{119}{subsection.7.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5.2}OV5647 寄存器收发序列}{119}{subsection.7.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{驱动中的调用路径.}{120}{lstnumber.-140.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{一位、一个字节要多长时间.}{120}{lstnumber.-142.21}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.11}{\ignorespaces 软件 SCCB 各阶段的时长（线路正常回高时）\relax }}{121}{table.caption.80}\protected@file@percent }
+\newlabel{tab:sccb-timing}{{7.11}{121}{软件 SCCB 各阶段的时长（线路正常回高时）\relax }{table.caption.80}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.19}{\ignorespaces 软件 SCCB 发送 START 和地址字节 \texttt  {\hyphenchar \font =-1 0x6c}（$0110\,1100$）的波形，横轴是由 \texttt  {\hyphenchar \font =-1 bb\_delay()} 决定的时间。虚线是 SCL 高电平中点，从机在这里采样数据位；红色虚线是主机采样 ACK 的时刻；橙色区域里 SDA 由 OV5647 驱动——它在第 8 个时钟下降沿之后拉低 SDA，第 9 个时钟下降沿之后再释放\relax }}{121}{figure.caption.81}\protected@file@percent }
+\newlabel{fig:sccb-wave}{{7.19}{121}{软件 SCCB 发送 START 和地址字节 \code {0x6c}（$0110\,1100$）的波形，横轴是由 \code {bb\_delay()} 决定的时间。虚线是 SCL 高电平中点，从机在这里采样数据位；红色虚线是主机采样 ACK 的时刻；橙色区域里 SDA 由 OV5647 驱动——它在第 8 个时钟下降沿之后拉低 SDA，第 9 个时钟下降沿之后再释放\relax }{figure.caption.81}{}}
+\@writefile{toc}{\contentsline {paragraph}{ACK 与 NACK 的细节.}{121}{figure.caption.81}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{完整事务与总耗时.}{121}{figure.caption.81}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.20}{\ignorespaces 寄存器写与分离式寄存器读的组成。读操作是两个独立事务：先写入 16 位寄存器索引并 STOP，再以读方向重新 START，读一个字节后主机 NACK\relax }}{121}{figure.caption.82}\protected@file@percent }
+\newlabel{fig:sccb-trans}{{7.20}{121}{寄存器写与分离式寄存器读的组成。读操作是两个独立事务：先写入 16 位寄存器索引并 STOP，再以读方向重新 START，读一个字节后主机 NACK\relax }{figure.caption.82}{}}
+\@writefile{toc}{\contentsline {paragraph}{写事务末尾的两个 STOP.}{122}{figure.caption.82}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.6}网络协议栈}{122}{section.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.7}SDIO 无线网卡：BCM43430/43455}{122}{section.7.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.1}硬件路径}{122}{subsection.7.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.2}硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{122}{subsection.7.7.2}\protected@file@percent }
+\newlabel{sec:wifi-hw}{{7.7.2}{122}{硬件结构：Arasan、SDIO 总线与 FullMAC 芯片}{subsection.7.7.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{两颗处理器.}{122}{figure.caption.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{SDIO 总线.}{122}{figure.caption.83}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.21}{\ignorespaces SDIO Wi-Fi 的硬件拓扑。细实线是控制面：CMD 线上的 CMD52/CMD53 经 F0 配置总线、经 F1 访问芯片内部背板（读 chip ID、下载固件、控制 CR4 复位）；粗线是数据面：CPU 以 PIO 方式经 Arasan 的 \texttt  {\hyphenchar \font =-1 DATA} 寄存器读写 F2 的 SDPCM FIFO，芯片固件再与 802.11 帧互转；虚线是事件：固件经 DAT1 发出卡中断，成为 BCM2837 的 IRQ 62\relax }}{123}{figure.caption.83}\protected@file@percent }
+\newlabel{fig:wifi-hw}{{7.21}{123}{SDIO Wi-Fi 的硬件拓扑。细实线是控制面：CMD 线上的 CMD52/CMD53 经 F0 配置总线、经 F1 访问芯片内部背板（读 chip ID、下载固件、控制 CR4 复位）；粗线是数据面：CPU 以 PIO 方式经 Arasan 的 \code {DATA} 寄存器读写 F2 的 SDPCM FIFO，芯片固件再与 802.11 帧互转；虚线是事件：固件经 DAT1 发出卡中断，成为 BCM2837 的 IRQ 62\relax }{figure.caption.83}{}}
+\@writefile{toc}{\contentsline {paragraph}{一个 SDIO 设备，三个 function.}{123}{figure.caption.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Arasan 是主机控制器，而且工作在 PIO 模式.}{123}{figure.caption.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{中断要过三道闸门.}{123}{figure.caption.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{固件从哪里来.}{123}{figure.caption.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.3}SDIO 枚举}{124}{subsection.7.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.4}固件装载}{124}{subsection.7.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.5}SDPCM 与 BCDC}{124}{subsection.7.7.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.22}{\ignorespaces F2 上一帧的封装。SDPCM 是总线一层的帧格式，用通道号区分控制、事件和数据；控制通道里是 BCDC 命令（ioctl/iovar），数据通道里是 BCDC 数据头加一个完整的以太网帧\relax }}{124}{figure.caption.84}\protected@file@percent }
+\newlabel{fig:wifi-frame}{{7.22}{124}{F2 上一帧的封装。SDPCM 是总线一层的帧格式，用通道号区分控制、事件和数据；控制通道里是 BCDC 命令（ioctl/iovar），数据通道里是 BCDC 数据头加一个完整的以太网帧\relax }{figure.caption.84}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.6}WPA2 四次握手}{124}{subsection.7.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7.7}数据流与并发}{124}{subsection.7.7.7}\protected@file@percent }
+\newlabel{sec:wifi-flow}{{7.7.7}{124}{数据流与并发}{subsection.7.7.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.23}{\ignorespaces SDIO Wi-Fi 的数据流。发送在调用者的上下文里一路同步向下；接收由 DAT1 卡中断触发，上半部只屏蔽中断并调度 NAPI，真正的 CMD53 读取和分流在 \texttt  {\hyphenchar \font =-1 brcmf0\_wq} 内核线程里完成，读空后才重新打开卡中断。两个方向都要经过 \texttt  {\hyphenchar \font =-1 mmc\_request\_sync()} 的 host 锁，且每个字都由 CPU 经 \texttt  {\hyphenchar \font =-1 DATA} 寄存器搬运\relax }}{125}{figure.caption.85}\protected@file@percent }
+\newlabel{fig:wifi-flow}{{7.23}{125}{SDIO Wi-Fi 的数据流。发送在调用者的上下文里一路同步向下；接收由 DAT1 卡中断触发，上半部只屏蔽中断并调度 NAPI，真正的 CMD53 读取和分流在 \code {brcmf0\_wq} 内核线程里完成，读空后才重新打开卡中断。两个方向都要经过 \code {mmc\_request\_sync()} 的 host 锁，且每个字都由 CPU 经 \code {DATA} 寄存器搬运\relax }{figure.caption.85}{}}
+\@writefile{toc}{\contentsline {paragraph}{发送是同步的.}{125}{figure.caption.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{接收是中断触发、线程执行的.}{125}{figure.caption.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{同步的控制命令.}{125}{figure.caption.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{两把锁，两个粒度.}{125}{figure.caption.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{从轮询到中断的演进.}{126}{figure.caption.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.8}USB 无线网卡：MT7601U}{126}{section.7.8}\protected@file@percent }
+\newlabel{sec:mt7601u}{{7.8}{126}{USB 无线网卡：MT7601U}{section.7.8}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.12}{\ignorespaces 两块无线网卡的对比\relax }}{126}{table.caption.86}\protected@file@percent }
+\newlabel{tab:fullsoft}{{7.12}{126}{两块无线网卡的对比\relax }{table.caption.86}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.1}USB 拓扑与枚举}{126}{subsection.7.8.1}\protected@file@percent }
+\newlabel{sec:mt7601u-topo}{{7.8.1}{126}{USB 拓扑与枚举}{subsection.7.8.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.2}设备、配置、接口与端点描述符}{126}{subsection.7.8.2}\protected@file@percent }
+\newlabel{sec:mt7601u-desc}{{7.8.2}{126}{设备、配置、接口与端点描述符}{subsection.7.8.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.24}{\ignorespaces MT7601U 所在的 USB 拓扑与芯片内部结构\relax }}{127}{figure.caption.87}\protected@file@percent }
+\newlabel{fig:mt7601u-topo}{{7.24}{127}{MT7601U 所在的 USB 拓扑与芯片内部结构\relax }{figure.caption.87}{}}
+\@writefile{toc}{\contentsline {paragraph}{设备描述符}{127}{lstnumber.-144.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{配置描述符}{127}{lstnumber.-144.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{接口描述符}{127}{lstnumber.-144.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{端点描述符}{127}{lstnumber.-144.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.13}{\ignorespaces MT7601U 的端点与 DWC2 主机通道\relax }}{127}{table.caption.88}\protected@file@percent }
+\newlabel{tab:mt7601u-ep}{{7.13}{127}{MT7601U 的端点与 DWC2 主机通道\relax }{table.caption.88}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.3}探测时序：从枚举到 \texttt  {\hyphenchar \font =-1 wlan1}}{128}{subsection.7.8.3}\protected@file@percent }
+\newlabel{sec:mt7601u-probe}{{7.8.3}{128}{探测时序：从枚举到 \code {wlan1}}{subsection.7.8.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.25}{\ignorespaces MT7601U 从 USB 枚举、延迟驱动匹配、MCU 固件下载、射频校准到 SoftMAC 关联和数据接收的完整时序。设备先注册在 USB core，待 FAT32 上的固件 可读后才绑定驱动；运行时 EP4 承载接收，EP5 返回 MCU 应答，EP8 承载固件、 MCU 命令和发送帧\relax }}{129}{figure.caption.89}\protected@file@percent }
+\newlabel{fig:mt7601u-sequence}{{7.25}{129}{MT7601U 从 USB 枚举、延迟驱动匹配、MCU 固件下载、射频校准到 SoftMAC 关联和数据接收的完整时序。设备先注册在 USB core，待 FAT32 上的固件 可读后才绑定驱动；运行时 EP4 承载接收，EP5 返回 MCU 应答，EP8 承载固件、 MCU 命令和发送帧\relax }{figure.caption.89}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.4}主机与芯片之间的四种报文}{130}{subsection.7.8.4}\protected@file@percent }
+\newlabel{sec:mt7601u-wire}{{7.8.4}{130}{主机与芯片之间的四种报文}{subsection.7.8.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{寄存器读写：EP0 厂商请求.}{130}{subsection.7.8.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{bulk 包：同一个 EP8，靠 TXINFO 分流.}{130}{lstnumber.-148.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{接收：EP4 上的聚合包.}{130}{lstnumber.-148.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.26}{\ignorespaces EP8 上的三种 bulk OUT 包与 EP4 上的接收包\relax }}{131}{figure.caption.90}\protected@file@percent }
+\newlabel{fig:mt7601u-wire}{{7.26}{131}{EP8 上的三种 bulk OUT 包与 EP4 上的接收包\relax }{figure.caption.90}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.5}启动日志分析：USB 总线上发生了什么}{131}{subsection.7.8.5}\protected@file@percent }
+\newlabel{sec:mt7601u-probelog}{{7.8.5}{131}{启动日志分析：USB 总线上发生了什么}{subsection.7.8.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{两种传输.}{131}{subsection.7.8.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.14}{\ignorespaces MT7601U 的 EP0 厂商请求\relax }}{131}{table.caption.91}\protected@file@percent }
+\newlabel{tab:mt7601u-vendor}{{7.14}{131}{MT7601U 的 EP0 厂商请求\relax }{table.caption.91}{}}
+\@writefile{toc}{\contentsline {paragraph}{(1) 芯片身份.}{131}{table.caption.91}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(2)(3) 不走 USB.}{132}{lstnumber.-150.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(4) 上传固件.}{132}{lstnumber.-150.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(5) 启动 MCU.}{132}{lstnumber.-151.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(6) eFuse.}{132}{lstnumber.-152.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(7) 基础初始化.}{132}{lstnumber.-152.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(8) 第一条 MCU 命令.}{132}{lstnumber.-152.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(9) 寄存器表.}{132}{lstnumber.-153.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.15}{\ignorespaces 寄存器表阶段的控制传输次数\relax }}{132}{table.caption.92}\protected@file@percent }
+\newlabel{tab:mt7601u-ctrlcount}{{7.15}{132}{寄存器表阶段的控制传输次数\relax }{table.caption.92}{}}
+\@writefile{toc}{\contentsline {paragraph}{(10) 校准.}{133}{table.caption.92}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(11) 初始换台.}{133}{lstnumber.-154.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(12) 挂上接收.}{133}{lstnumber.-156.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(13) probe 返回.}{133}{lstnumber.-156.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.16}{\ignorespaces 探测期间各端点的用量\relax }}{133}{table.caption.93}\protected@file@percent }
+\newlabel{tab:mt7601u-epuse}{{7.16}{133}{探测期间各端点的用量\relax }{table.caption.93}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.6}空口：扫描、认证、关联、WPA2 四次握手}{133}{subsection.7.8.6}\protected@file@percent }
+\newlabel{sec:mt7601u-air}{{7.8.6}{133}{空口：扫描、认证、关联、WPA2 四次握手}{subsection.7.8.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.27}{\ignorespaces MT7601U 的扫描、认证、关联与 WPA2 四次握手\relax }}{134}{figure.caption.94}\protected@file@percent }
+\newlabel{fig:mt7601u-join}{{7.27}{134}{MT7601U 的扫描、认证、关联与 WPA2 四次握手\relax }{figure.caption.94}{}}
+\@writefile{toc}{\contentsline {paragraph}{一帧怎样从主机到空中.}{134}{figure.caption.94}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.17}{\ignorespaces MT7601U 与 AP 之间的报文\relax }}{134}{table.caption.95}\protected@file@percent }
+\newlabel{tab:mt7601u-frames}{{7.17}{134}{MT7601U 与 AP 之间的报文\relax }{table.caption.95}{}}
+\@writefile{toc}{\contentsline {paragraph}{扫描.}{135}{table.caption.95}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{认证与关联.}{135}{lstnumber.-158.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{EAPOL-Key 帧.}{135}{lstnumber.-158.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{密钥推导.}{135}{lstnumber.-159.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{装密钥.}{135}{lstnumber.-160.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{加密数据帧.}{136}{lstnumber.-161.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.7}调试实录}{136}{subsection.7.8.7}\protected@file@percent }
+\newlabel{sec:mt7601u-debug}{{7.8.7}{136}{调试实录}{subsection.7.8.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.18}{\ignorespaces MT7601U 调试记录\relax }}{136}{table.caption.96}\protected@file@percent }
+\newlabel{tab:mt7601u-debug}{{7.18}{136}{MT7601U 调试记录\relax }{table.caption.96}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8.8}现状与待改进}{136}{subsection.7.8.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.9}CSI-2 摄像头：OV5647}{137}{section.7.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.1}路线选择}{137}{subsection.7.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.2}硬件结构：I2C、CSI-2、Unicam 与 DMA}{137}{subsection.7.9.2}\protected@file@percent }
+\newlabel{sec:cam-hw}{{7.9.2}{137}{硬件结构：I2C、CSI-2、Unicam 与 DMA}{subsection.7.9.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.28}{\ignorespaces 摄像头的硬件拓扑。细实线是控制面：mailbox 上电和电源域、SCCB 写传感器寄存器、lp 时钟；粗线是数据面：CSI-2 → Unicam → DMA → 内存；虚线是事件：Unicam 的帧开始/结束中断（IRQ 39），另有 10\,ms 的 watchdog 兜底（\ref  {sec:cam-dma} 小节）\relax }}{137}{figure.caption.97}\protected@file@percent }
+\newlabel{fig:cam-hw}{{7.28}{137}{摄像头的硬件拓扑。细实线是控制面：mailbox 上电和电源域、SCCB 写传感器寄存器、lp 时钟；粗线是数据面：CSI-2 → Unicam → DMA → 内存；虚线是事件：Unicam 的帧开始/结束中断（IRQ 39），另有 10\,ms 的 watchdog 兜底（\ref {sec:cam-dma} 小节）\relax }{figure.caption.97}{}}
+\@writefile{toc}{\contentsline {paragraph}{传感器有两个接口.}{137}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{CSI-2 链路上传的是包.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Unicam 是接收器，也是 DMA 主设备.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{内存一侧的约束.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{电源和时钟由谁管.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{CPU 只在两头出现.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{顺序约束.}{138}{figure.caption.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.3}\texttt  {\hyphenchar \font =-1 sensor\_ops}：仿照 V4L2 子设备}{138}{subsection.7.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.4}板级资源}{139}{subsection.7.9.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.19}{\ignorespaces 摄像头相关的板级资源（Pi 3B+）\relax }}{139}{table.caption.98}\protected@file@percent }
+\newlabel{tab:cam-board}{{7.19}{139}{摄像头相关的板级资源（Pi 3B+）\relax }{table.caption.98}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.5}硬件连接与工作流程}{139}{subsection.7.9.5}\protected@file@percent }
+\newlabel{sec:cam-wiring}{{7.9.5}{139}{硬件连接与工作流程}{subsection.7.9.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{结合连线看一次完整的工作流程.}{139}{figure.caption.99}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.29}{\ignorespaces 摄像头的硬件连接。橙色粗线是 D-PHY 差分对（每条线代表一对 P/N）；蓝色是 SCCB 的 SCL/SDA，开漏、靠相机板上的上拉电阻回高；绿色是供电：排线第 15 脚的 3.3\,V 和第 11 脚 CAM\_IO0 的使能；虚线是帧事件中断；灰色细线是芯片内部的控制路径\relax }}{140}{figure.caption.99}\protected@file@percent }
+\newlabel{fig:cam-wiring}{{7.29}{140}{摄像头的硬件连接。橙色粗线是 D-PHY 差分对（每条线代表一对 P/N）；蓝色是 SCCB 的 SCL/SDA，开漏、靠相机板上的上拉电阻回高；绿色是供电：排线第 15 脚的 3.3\,V 和第 11 脚 CAM\_IO0 的使能；虚线是帧事件中断；灰色细线是芯片内部的控制路径\relax }{figure.caption.99}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7.20}{\ignorespaces 按连线看摄像头的工作流程\relax }}{140}{table.caption.100}\protected@file@percent }
+\newlabel{tab:cam-flow}{{7.20}{140}{按连线看摄像头的工作流程\relax }{table.caption.100}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.30}{\ignorespaces 各条线在一次工作周期中的活动（时间轴示意，不按比例）。CAM\_IO0 在上电时先低后高、停流时拉低；SCCB 只在配置和停流时有事务；lane 在退出软件待机之后才从 LP-11 进入高速传输\relax }}{141}{figure.caption.101}\protected@file@percent }
+\newlabel{fig:cam-lines}{{7.30}{141}{各条线在一次工作周期中的活动（时间轴示意，不按比例）。CAM\_IO0 在上电时先低后高、停流时拉低；SCCB 只在配置和停流时有事务；lane 在退出软件待机之后才从 LP-11 进入高速传输\relax }{figure.caption.101}{}}
+\@writefile{toc}{\contentsline {paragraph}{一帧数据在连线上走过的路.}{141}{figure.caption.101}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.6}上电与探测}{141}{subsection.7.9.6}\protected@file@percent }
+\newlabel{sec:cam-probe}{{7.9.6}{141}{上电与探测}{subsection.7.9.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{mailbox.}{141}{lstnumber.-163.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{控制总线：从 BSC0 到软件 SCCB.}{141}{lstnumber.-163.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{延迟探测.}{142}{lstnumber.-163.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.7}拍一帧}{142}{subsection.7.9.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.31}{\ignorespaces 一次 \texttt  {\hyphenchar \font =-1 read("/dev/video0")} 的调用关系。\texttt  {\hyphenchar \font =-1 unicam.c} 只通过 \texttt  {\hyphenchar \font =-1 sensor\_ops} 调用传感器驱动；传感器驱动再经 mailbox 上电、经 BSC0 或软件 SCCB 写寄存器。第 6 步每 1\,ms 轮询一次 Unicam 状态，直到 \textsc  {done} 或 4\,s 超时，是目前采集帧的唯一路径，中断入口已屏蔽；第 9 步的 \texttt  {\hyphenchar \font =-1 ov5647\_power\_off} 同样经 mailbox 断电\relax }}{142}{figure.caption.102}\protected@file@percent }
+\newlabel{fig:cam-calls}{{7.31}{142}{一次 \code {read("/dev/video0")} 的调用关系。\code {unicam.c} 只通过 \code {sensor\_ops} 调用传感器驱动；传感器驱动再经 mailbox 上电、经 BSC0 或软件 SCCB 写寄存器。第 6 步每 1\,ms 轮询一次 Unicam 状态，直到 \textsc {done} 或 4\,s 超时，是目前采集帧的唯一路径，中断入口已屏蔽；第 9 步的 \code {ov5647\_power\_off} 同样经 mailbox 断电\relax }{figure.caption.102}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.32}{\ignorespaces 帧状态机的时序。\texttt  {\hyphenchar \font =-1 IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS\relax }}{143}{figure.caption.103}\protected@file@percent }
+\newlabel{fig:cam-fsm}{{7.32}{143}{帧状态机的时序。\code {IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS\relax }{figure.caption.103}{}}
+\@writefile{toc}{\contentsline {paragraph}{为什么用轮询而不是中断.}{143}{figure.caption.103}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.8}从 D-PHY 到内存：FIFO、双缓冲与帧通知}{143}{subsection.7.9.8}\protected@file@percent }
+\newlabel{sec:cam-dma}{{7.9.8}{143}{从 D-PHY 到内存：FIFO、双缓冲与帧通知}{subsection.7.9.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{排线与 D-PHY.}{143}{subsection.7.9.8}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.21}{\ignorespaces 摄像头 15 芯排线的引脚\relax }}{143}{table.caption.104}\protected@file@percent }
+\newlabel{tab:cam-pins}{{7.21}{143}{摄像头 15 芯排线的引脚\relax }{table.caption.104}{}}
+\@writefile{toc}{\contentsline {paragraph}{CSI-2 包.}{144}{table.caption.104}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.33}{\ignorespaces 一帧在 CSI-2 数据 lane 上的样子。每个包是一次独立的 HS 突发，包与包之间回到 LP 状态。FS、FE 短包标出帧的边界，每一行像素是一个 RAW10 长包\relax }}{144}{figure.caption.105}\protected@file@percent }
+\newlabel{fig:csi2-lane}{{7.33}{144}{一帧在 CSI-2 数据 lane 上的样子。每个包是一次独立的 HS 突发，包与包之间回到 LP 状态。FS、FE 短包标出帧的边界，每一行像素是一个 RAW10 长包\relax }{figure.caption.105}{}}
+\@writefile{toc}{\contentsline {paragraph}{Unicam 内部：FIFO 与 AXI 写主机.}{144}{figure.caption.105}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.34}{\ignorespaces Unicam 的接收流水线。粗线是像素数据，由 Unicam 作为 AXI 主设备自己写进 DDR，不经过 CPU，也不使用 BCM2837 的通用 DMA 通道；虚线是帧事件；细线是 CPU 为下一帧排好的槽地址\relax }}{144}{figure.caption.106}\protected@file@percent }
+\newlabel{fig:unicam-pipe}{{7.34}{144}{Unicam 的接收流水线。粗线是像素数据，由 Unicam 作为 AXI 主设备自己写进 DDR，不经过 CPU，也不使用 BCM2837 的通用 DMA 通道；虚线是帧事件；细线是 CPU 为下一帧排好的槽地址\relax }{figure.caption.106}{}}
+\@writefile{toc}{\contentsline {paragraph}{DMA 缓冲区的布局.}{144}{figure.caption.106}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{双缓冲：槽的状态机.}{145}{lstnumber.-165.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.35}{\ignorespaces DMA 槽的状态机。若两个槽都处于 \textsc  {active}、\textsc  {done} 或 \textsc  {user}，没有 \textsc  {free} 槽可排，驱动就把 dummy 写进 \texttt  {\hyphenchar \font =-1 IBSA0/IBEA0}，下一帧被丢弃而不会覆盖用户仍在读的像素\relax }}{145}{figure.caption.107}\protected@file@percent }
+\newlabel{fig:cam-slots}{{7.35}{145}{DMA 槽的状态机。若两个槽都处于 \textsc {active}、\textsc {done} 或 \textsc {user}，没有 \textsc {free} 槽可排，驱动就把 dummy 写进 \code {IBSA0/IBEA0}，下一帧被丢弃而不会覆盖用户仍在读的像素\relax }{figure.caption.107}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.36}{\ignorespaces 双缓冲的时序（示意）。每个槽的地址都在前一个 FS 时排好；读者从 FE 之后开始处理，处理期间另一个槽继续接收\relax }}{146}{figure.caption.108}\protected@file@percent }
+\newlabel{fig:cam-dbuf}{{7.36}{146}{双缓冲的时序（示意）。每个槽的地址都在前一个 FS 时排好；读者从 FE 之后开始处理，处理期间另一个槽继续接收\relax }{figure.caption.108}{}}
+\@writefile{toc}{\contentsline {paragraph}{帧通知：中断为主，watchdog 兜底.}{146}{figure.caption.108}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{零拷贝 mmap.}{146}{lstnumber.-167.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.9}用户程序 \texttt  {\hyphenchar \font =-1 camshot}}{147}{subsection.7.9.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.10}一次成功拍照的日志解读}{147}{subsection.7.9.10}\protected@file@percent }
+\newlabel{sec:cam-log}{{7.9.10}{147}{一次成功拍照的日志解读}{subsection.7.9.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 172} 启动时的探测与绑定.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 173} 每次拍照都重新上电.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 174} 先接收器、后出流.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 175} 一帧到手.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 176} 数字对得上.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{{\Pifont {pzd}\char 177} 创建输出文件.}{148}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{这份日志证明了什么.}{149}{lstnumber.-169.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.11}真机调试记录}{149}{subsection.7.9.11}\protected@file@percent }
+\newlabel{sec:cam-bugs}{{7.9.11}{149}{真机调试记录}{subsection.7.9.11}{}}
+\@writefile{toc}{\contentsline {subsubsection}{问题 1：mailbox 打开摄像头电源失败}{149}{subsection.7.9.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{149}{subsection.7.9.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{149}{lstnumber.-170.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{149}{lstnumber.-170.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 2：BSC0 对 \texttt  {\hyphenchar \font =-1 0x36} 始终 NACK}{150}{lstnumber.-170.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{150}{lstnumber.-170.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{150}{lstnumber.-171.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{150}{lstnumber.-171.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 3：bit-bang 探测时而 ACK、时而 NACK}{150}{lstnumber.-171.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{150}{lstnumber.-171.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{150}{lstnumber.-172.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{150}{lstnumber.-172.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 4：BSC 四档降速全部失败}{150}{lstnumber.-172.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{150}{lstnumber.-172.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{150}{lstnumber.-173.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{151}{lstnumber.-173.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 5：软件 SCCB 偶发读出 \texttt  {\hyphenchar \font =-1 0x3631}，随后 BUS-STUCK}{151}{lstnumber.-173.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{151}{lstnumber.-173.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{151}{lstnumber.-174.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{151}{lstnumber.-174.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 6：\texttt  {\hyphenchar \font =-1 0x36} ACK，但三次读 ID 都失败}{151}{lstnumber.-174.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{151}{lstnumber.-174.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{151}{lstnumber.-175.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{151}{lstnumber.-175.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 7：开始出流后整机无响应}{151}{lstnumber.-175.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{151}{lstnumber.-175.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{152}{lstnumber.-176.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{152}{lstnumber.-176.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 8：转换期间偶发 \texttt  {\hyphenchar \font =-1 SDIO CMD52 failed}}{152}{lstnumber.-176.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{152}{lstnumber.-176.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{152}{lstnumber.-177.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{152}{lstnumber.-177.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 9：执行不访存的指令却报数据中止}{152}{lstnumber.-177.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{152}{lstnumber.-177.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{152}{lstnumber.-178.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{152}{lstnumber.-178.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 10：输出到 \texttt  {\hyphenchar \font =-1 fixed WB/level} 后长时间停顿}{153}{lstnumber.-178.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{153}{lstnumber.-178.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{153}{lstnumber.-179.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{153}{lstnumber.-179.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{问题 11：新建文件停在 \texttt  {\hyphenchar \font =-1 directory-entry begin}}{153}{lstnumber.-179.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志输出.}{153}{lstnumber.-179.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{问题分析.}{153}{lstnumber.-180.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解决方案.}{153}{lstnumber.-180.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{小结.}{154}{lstnumber.-180.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.12}连续取流与 HTTP 推流}{154}{subsection.7.9.12}\protected@file@percent }
+\newlabel{sec:cam-http}{{7.9.12}{154}{连续取流与 HTTP 推流}{subsection.7.9.12}{}}
+\@writefile{toc}{\contentsline {paragraph}{内核：传感器一直出流.}{154}{subsection.7.9.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{用户态：一个进程扇出给所有观看者.}{154}{subsection.7.9.12}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.37}{\ignorespaces \texttt  {\hyphenchar \font =-1 camserver} 的结构。一次采集、一次编码，写给全部观看者；没人观看时传感器断电\relax }}{154}{figure.caption.109}\protected@file@percent }
+\newlabel{fig:cam-http}{{7.37}{154}{\code {camserver} 的结构。一次采集、一次编码，写给全部观看者；没人观看时传感器断电\relax }{figure.caption.109}{}}
+\@writefile{toc}{\contentsline {paragraph}{接口与 MJPEG 格式.}{154}{figure.caption.109}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.22}{\ignorespaces \texttt  {\hyphenchar \font =-1 camserver} 的 HTTP 接口\relax }}{155}{table.caption.110}\protected@file@percent }
+\newlabel{tab:cam-http}{{7.22}{155}{\code {camserver} 的 HTTP 接口\relax }{table.caption.110}{}}
+\@writefile{toc}{\contentsline {paragraph}{测试.}{155}{lstnumber.-181.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.13}提高推流帧率}{155}{subsection.7.9.13}\protected@file@percent }
+\newlabel{sec:cam-perf}{{7.9.13}{155}{提高推流帧率}{subsection.7.9.13}{}}
+\@writefile{toc}{\contentsline {paragraph}{先测量，再优化.}{156}{subsection.7.9.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{方法一：三级流水线.}{156}{lstnumber.-184.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.38}{\ignorespaces 串行与三级流水线的时间线（按实测的 70.8/308.2/199.2\,ms 画，比例尺相同）。流水线中 JPEG 线程几乎一直在工作，帧周期由最慢的这一段决定\relax }}{156}{figure.caption.111}\protected@file@percent }
+\newlabel{fig:cam-pipe}{{7.38}{156}{串行与三级流水线的时间线（按实测的 70.8/308.2/199.2\,ms 画，比例尺相同）。流水线中 JPEG 线程几乎一直在工作，帧周期由最慢的这一段决定\relax }{figure.caption.111}{}}
+\@writefile{toc}{\contentsline {paragraph}{方法二：RAW 帧零拷贝.}{156}{figure.caption.111}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{方法三：有界队列与背压.}{157}{lstnumber.-185.12}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7.23}{\ignorespaces 流水线中的同步对象\relax }}{157}{table.caption.112}\protected@file@percent }
+\newlabel{tab:cam-sems}{{7.23}{157}{流水线中的同步对象\relax }{table.caption.112}{}}
+\@writefile{toc}{\contentsline {paragraph}{方法四：减少每帧的工作量.}{157}{lstnumber.-186.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{按测量结果定位瓶颈.}{157}{lstnumber.-186.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{还可以继续做的.}{158}{lstnumber.-186.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9.14}当前状态}{158}{subsection.7.9.14}\protected@file@percent }
 \@setckpt{chapters/07-drivers}{
-\setcounter{page}{156}
+\setcounter{page}{159}
 \setcounter{equation}{0}
 \setcounter{enumi}{7}
 \setcounter{enumii}{0}
@@ -376,12 +383,12 @@
 \setcounter{subsubsection}{0}
 \setcounter{paragraph}{0}
 \setcounter{subparagraph}{0}
-\setcounter{figure}{37}
+\setcounter{figure}{38}
 \setcounter{table}{23}
 \setcounter{Item}{86}
 \setcounter{Hfootnote}{1}
 \setcounter{Hy@AnnotLevel}{0}
-\setcounter{bookmark@seq@number}{200}
+\setcounter{bookmark@seq@number}{205}
 \setcounter{parentequation}{0}
 \setcounter{blindtext}{1}
 \setcounter{Blindtext}{5}

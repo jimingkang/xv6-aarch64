@@ -19,53 +19,11 @@ struct execsrc {
   struct inode *ip;
 };
 
-#define DYN_LIBC_PATH   "/lib/libc.so"
-#define DYN_MAX_NEEDED  4
 #define DYN_NAME_MAX    128
-
-// Shared libc.so text.
-//
-// libc.so is position independent and has no DT_TEXTREL: every dynamic
-// relocation lands in its RW segment (GOT/.data).  Its read-only pages are
-// therefore byte-identical in every process whatever base exec() picks, so the
-// first exec loads them from the file once and later execs map the same
-// physical pages read-only.  The RW page is still loaded and relocated per
-// process.  The cache is keyed by the file's (dev, inum, size); if libc.so is
-// replaced, a new set of pages is cached and the old set is left allocated
-// because processes started earlier may still map it.
-#define SHLIB_MAXPAGES  128
-#define SHLIB_PTE       (PTE_NORMAL | PTE_URO | PTE_PXN | PTE_SHARED)
-
-struct shlib_cache {
-  struct spinlock lock;
-  int valid;
-  uint dev, inum;
-  uint64 size;                  // file size, part of the identity check
-  uint64 textsz;                // bytes of shared text, a page multiple
-  uint64 pa[SHLIB_MAXPAGES];
-};
-static struct shlib_cache libc_cache = { .lock = { .name = "libc_text" } };
 
 struct elf_image {
   uint64 base;
   uint64 end;
-  uint64 sharedend;     // [base, sharedend) is shared read-only text, or 0
-  uint64 dynamic;
-  uint64 dynamicsz;
-  uint64 strtab;
-  uint64 strsz;
-  uint64 symtab;
-  uint64 syment;
-  uint64 hash;
-  uint64 rela;
-  uint64 relasz;
-  uint64 relaent;
-  uint64 jmprel;
-  uint64 pltrelsz;
-  uint64 pltrel;
-  uint64 needed[DYN_MAX_NEEDED];
-  uint nneeded;
-  uint nsyms;
 };
 
 static int
@@ -102,10 +60,36 @@ srcopen(struct execsrc *src, char *path)
 
 static int loadseg(pagetable_t, uint64, struct execsrc *, uint64, uint64);
 static int loadimage(pagetable_t, uint64 *, struct execsrc *, struct elfhdr *,
-                     uint64, struct elf_image *, uint64);
-static int parsedynamic(pagetable_t, struct elf_image *);
-static int relocateimage(pagetable_t, struct elf_image *,
-                         struct elf_image *, struct elf_image *);
+                     uint64, struct elf_image *);
+
+// Return the interpreter pathname named by PT_INTERP.  Dynamic executables
+// without an interpreter are rejected: libc loading and relocation belong to
+// user-space ld.so, not to exec().
+static int
+readinterp(struct execsrc *src, struct elfhdr *elf, char *path, uint size)
+{
+  struct proghdr ph;
+  int found = 0;
+
+  if(size < 2)
+    return -1;
+  path[0] = 0;
+  for(uint i = 0; i < elf->phnum; i++){
+    uint64 off = elf->phoff + (uint64)i * sizeof(ph);
+    if(off > 0xffffffffULL ||
+       srcread(src, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
+      return -1;
+    if(ph.type != PT_INTERP)
+      continue;
+    if(found || ph.filesz < 2 || ph.filesz > size ||
+       ph.off > 0xffffffffULL ||
+       srcread(src, (uint64)path, ph.off, ph.filesz) != (int)ph.filesz ||
+       path[ph.filesz - 1] != 0)
+      return -1;
+    found = 1;
+  }
+  return found ? 0 : -1;
+}
 
 static int
 imagecontains(struct elf_image *img, uint64 addr, uint64 len)
@@ -114,246 +98,11 @@ imagecontains(struct elf_image *img, uint64 addr, uint64 len)
 }
 
 static int
-imageread(pagetable_t pagetable, struct elf_image *img, uint64 addr,
-          void *dst, uint64 len)
-{
-  if(!imagecontains(img, addr, len))
-    return -1;
-  return copyin(pagetable, dst, addr, len);
-}
-
-static int
-imagewrite(pagetable_t pagetable, struct elf_image *img, uint64 addr,
-           void *src, uint64 len)
-{
-  if(!imagecontains(img, addr, len))
-    return -1;
-  return copyout(pagetable, addr, src, len);
-}
-
-static int
-dynstring(pagetable_t pagetable, struct elf_image *img, uint64 off,
-          char *buf, uint max)
-{
-  uint64 remain;
-
-  if(img->strtab == 0 || off >= img->strsz || max == 0)
-    return -1;
-  remain = img->strsz - off;
-  if(remain > max)
-    remain = max;
-  if(!imagecontains(img, img->strtab + off, remain))
-    return -1;
-  return copyinstr(pagetable, buf, img->strtab + off, remain);
-}
-
-static int
-readsym(pagetable_t pagetable, struct elf_image *img, uint idx,
-        struct elf64_sym *sym)
-{
-  uint64 addr;
-
-  if(img->syment != sizeof(*sym) || idx >= img->nsyms)
-    return -1;
-  addr = img->symtab + (uint64)idx * img->syment;
-  return imageread(pagetable, img, addr, sym, sizeof(*sym));
-}
-
-static int
-lookupsym(pagetable_t pagetable, struct elf_image *img, char *name,
-          uint64 *value)
-{
-  struct elf64_sym sym;
-  char candidate[DYN_NAME_MAX];
-
-  for(uint i = 1; i < img->nsyms; i++){
-    if(readsym(pagetable, img, i, &sym) < 0)
-      return -1;
-    if(sym.shndx == SHN_UNDEF ||
-       (ELF64_ST_BIND(sym.info) != STB_GLOBAL &&
-        ELF64_ST_BIND(sym.info) != STB_WEAK))
-      continue;
-    if(dynstring(pagetable, img, sym.name, candidate, sizeof(candidate)) < 0)
-      return -1;
-    if(strncmp(candidate, name, DYN_NAME_MAX) == 0){
-      *value = img->base + sym.value;
-      return 1;
-    }
-  }
-  return 0;
-}
-
-static int
-resolvesym(pagetable_t pagetable, struct elf_image *owner, uint symidx,
-           struct elf_image *mainimg, struct elf_image *libcimg,
-           uint64 *value)
-{
-  struct elf64_sym sym;
-  char name[DYN_NAME_MAX];
-  int found;
-
-  if(readsym(pagetable, owner, symidx, &sym) < 0)
-    return -1;
-  if(ELF64_ST_BIND(sym.info) == STB_LOCAL && sym.shndx != SHN_UNDEF){
-    *value = owner->base + sym.value;
-    return 0;
-  }
-  if(dynstring(pagetable, owner, sym.name, name, sizeof(name)) < 0)
-    return -1;
-  found = lookupsym(pagetable, mainimg, name, value);
-  if(found < 0)
-    return -1;
-  if(found == 0 && libcimg){
-    found = lookupsym(pagetable, libcimg, name, value);
-    if(found < 0)
-      return -1;
-  }
-  if(found == 0){
-    if(ELF64_ST_BIND(sym.info) == STB_WEAK){
-      *value = 0;
-      return 0;
-    }
-    printf("exec: unresolved dynamic symbol %s\n", name);
-    return -1;
-  }
-  return 0;
-}
-
-static int
-relocatetable(pagetable_t pagetable, struct elf_image *img,
-              struct elf_image *mainimg, struct elf_image *libcimg,
-              uint64 table, uint64 tablesz)
-{
-  struct elf64_rela rela;
-  uint64 value, symvalue, where;
-  uint type, symidx;
-
-  if(tablesz == 0)
-    return 0;
-  if(img->relaent != sizeof(rela) || tablesz % sizeof(rela) != 0 ||
-     !imagecontains(img, table, tablesz))
-    return -1;
-  for(uint64 off = 0; off < tablesz; off += sizeof(rela)){
-    if(imageread(pagetable, img, table + off, &rela, sizeof(rela)) < 0)
-      return -1;
-    type = ELF64_R_TYPE(rela.info);
-    symidx = ELF64_R_SYM(rela.info);
-    where = img->base + rela.offset;
-    if(!imagecontains(img, where, sizeof(value)))
-      return -1;
-    if(where < img->sharedend){
-      // A text relocation would make the "shared" pages base-specific.
-      printf("exec: relocation into shared text at %p\n", where);
-      return -1;
-    }
-    switch(type){
-    case R_AARCH64_NONE:
-      continue;
-    case R_AARCH64_RELATIVE:
-      if(symidx != 0)
-        return -1;
-      value = img->base + rela.addend;
-      break;
-    case R_AARCH64_ABS64:
-    case R_AARCH64_GLOB_DAT:
-    case R_AARCH64_JUMP_SLOT:
-      if(symidx == 0 ||
-         resolvesym(pagetable, img, symidx, mainimg, libcimg, &symvalue) < 0)
-        return -1;
-      value = symvalue + rela.addend;
-      break;
-    default:
-      printf("exec: unsupported AArch64 dynamic relocation %d\n", type);
-      return -1;
-    }
-    if(imagewrite(pagetable, img, where, &value, sizeof(value)) < 0)
-      return -1;
-  }
-  return 0;
-}
-
-static int
-relocateimage(pagetable_t pagetable, struct elf_image *img,
-              struct elf_image *mainimg, struct elf_image *libcimg)
-{
-  if(img->rela && relocatetable(pagetable, img, mainimg, libcimg,
-                                img->rela, img->relasz) < 0)
-    return -1;
-  if(img->jmprel){
-    if(img->pltrel != DT_RELA)
-      return -1;
-    if(relocatetable(pagetable, img, mainimg, libcimg,
-                     img->jmprel, img->pltrelsz) < 0)
-      return -1;
-  }
-  return 0;
-}
-
-static int
-parsedynamic(pagetable_t pagetable, struct elf_image *img)
-{
-  struct elf64_dyn dyn;
-  uint32 hashhdr[2];
-  uint64 count;
-  int terminated = 0;
-
-  if(img->dynamic == 0 || img->dynamicsz < sizeof(dyn) ||
-     !imagecontains(img, img->dynamic, img->dynamicsz))
-    return -1;
-  img->syment = sizeof(struct elf64_sym);
-  img->relaent = sizeof(struct elf64_rela);
-  count = img->dynamicsz / sizeof(dyn);
-  for(uint64 i = 0; i < count; i++){
-    if(imageread(pagetable, img, img->dynamic + i*sizeof(dyn),
-                 &dyn, sizeof(dyn)) < 0)
-      return -1;
-    if(dyn.tag == DT_NULL){
-      terminated = 1;
-      break;
-    }
-    switch(dyn.tag){
-    case DT_NEEDED:
-      if(img->nneeded >= DYN_MAX_NEEDED)
-        return -1;
-      img->needed[img->nneeded++] = dyn.val;
-      break;
-    case DT_HASH:     img->hash = img->base + dyn.val; break;
-    case DT_STRTAB:   img->strtab = img->base + dyn.val; break;
-    case DT_STRSZ:    img->strsz = dyn.val; break;
-    case DT_SYMTAB:   img->symtab = img->base + dyn.val; break;
-    case DT_SYMENT:   img->syment = dyn.val; break;
-    case DT_RELA:     img->rela = img->base + dyn.val; break;
-    case DT_RELASZ:   img->relasz = dyn.val; break;
-    case DT_RELAENT:  img->relaent = dyn.val; break;
-    case DT_JMPREL:   img->jmprel = img->base + dyn.val; break;
-    case DT_PLTRELSZ: img->pltrelsz = dyn.val; break;
-    case DT_PLTREL:   img->pltrel = dyn.val; break;
-    }
-  }
-  if(!terminated || img->hash == 0 || img->strtab == 0 || img->strsz == 0 ||
-     img->symtab == 0 || img->syment != sizeof(struct elf64_sym) ||
-     img->relaent != sizeof(struct elf64_rela) ||
-     imageread(pagetable, img, img->hash, hashhdr, sizeof(hashhdr)) < 0)
-    return -1;
-  img->nsyms = hashhdr[1];
-  if(img->nsyms == 0 ||
-     !imagecontains(img, img->symtab,
-                    (uint64)img->nsyms * sizeof(struct elf64_sym)) ||
-     !imagecontains(img, img->strtab, img->strsz))
-    return -1;
-  return 0;
-}
-
-// premapped != 0: the caller already mapped [base, base+premapped) with the
-// shared libc.so text, so only the remaining pages are allocated and only the
-// segments above that range are read from the file.
-static int
 loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
-          struct elfhdr *elf, uint64 base, struct elf_image *img,
-          uint64 premapped)
+          struct elfhdr *elf, uint64 base, struct elf_image *img)
 {
   struct proghdr ph;
-  uint64 maxend = 0, end, newsz;
+  uint64 maxend = 0, minstart = ~0ULL, end, newsz;
   int loads = 0;
 
   if(elf->phentsize != sizeof(ph) || elf->phnum == 0 ||
@@ -370,15 +119,11 @@ loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
     if(off > 0xffffffffULL ||
        srcread(src, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       return -1;
-    if(ph.type == PT_DYNAMIC){
-      if(ph.vaddr + ph.memsz < ph.vaddr || base + ph.vaddr < base)
-        return -1;
-      img->dynamic = base + ph.vaddr;
-      img->dynamicsz = ph.memsz;
-    }
     if(ph.type != ELF_PROG_LOAD)
       continue;
     loads++;
+    if(ph.vaddr < minstart)
+      minstart = ph.vaddr;
     if(ph.memsz < ph.filesz || ph.vaddr + ph.memsz < ph.vaddr ||
        base + ph.vaddr < base || ph.off + ph.filesz < ph.off ||
        ph.off + ph.filesz > 0xffffffffULL)
@@ -392,10 +137,7 @@ loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
   }
   if(loads == 0 || base + maxend < base)
     return -1;
-  if(premapped){
-    if(PGROUNDUP(*psz) != base + premapped || maxend < premapped)
-      return -1;
-  } else if(base < PGROUNDUP(*psz))
+  if(base + minstart < PGROUNDUP(*psz))
     return -1;
   end = base + maxend;
   if((newsz = uvmalloc(pagetable, *psz, end)) == 0)
@@ -411,133 +153,25 @@ loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
       return -1;
     if(ph.type != ELF_PROG_LOAD || ph.filesz == 0)
       continue;
-    if(premapped && ph.vaddr < premapped){
-      // Already present in the shared pages, which must hold all of it.
-      if(ph.vaddr + ph.memsz > premapped)
-        return -1;
-      continue;
-    }
     if(loadseg(pagetable, base + ph.vaddr, src, ph.off, ph.filesz) < 0)
       return -1;
   }
   return 0;
 }
 
-// Bytes at the start of a shared object that can be shared between processes:
-// whole pages holding only read-only PT_LOAD contents, ending below the first
-// page that contains writable data.  0 if the layout does not allow it.
-static uint64
-shlib_textsize(struct execsrc *src, struct elfhdr *elf)
-{
-  struct proghdr ph;
-  uint64 wmin = ~0ULL, romax = 0, lowest = ~0ULL, end;
-
-  for(uint i = 0; i < elf->phnum; i++){
-    uint64 off = elf->phoff + (uint64)i * sizeof(ph);
-    if(off > 0xffffffffULL ||
-       srcread(src, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
-      return 0;
-    if(ph.type != ELF_PROG_LOAD)
-      continue;
-    if(ph.vaddr < lowest)
-      lowest = ph.vaddr;
-    if(ph.flags & ELF_PROG_FLAG_WRITE){
-      if(ph.vaddr < wmin)
-        wmin = ph.vaddr;
-    } else if(ph.vaddr + ph.memsz > romax){
-      romax = ph.vaddr + ph.memsz;
-    }
-  }
-  if(lowest != 0 || romax == 0)
-    return 0;
-  end = wmin == ~0ULL ? PGROUNDUP(romax) : PGROUNDDOWN(wmin);
-  if(romax > end || end / PGSIZE > SHLIB_MAXPAGES)
-    return 0;
-  return end;
-}
-
-static int
-shlib_match(uint dev, uint inum, uint64 size, uint64 textsz)
-{
-  return libc_cache.valid && libc_cache.dev == dev &&
-         libc_cache.inum == inum && libc_cache.size == size &&
-         libc_cache.textsz == textsz;
-}
-
-// Map the cached text pages at base.  Returns 1 if mapped, 0 on a cache miss,
-// -1 if a page-table page could not be allocated.  *psz advances page by page
-// so a failed exec unmaps exactly what was mapped.
-static int
-shlib_map(pagetable_t pagetable, uint64 *psz, uint64 base,
-          uint dev, uint inum, uint64 size, uint64 textsz)
-{
-  int r = 0;
-
-  acquire(&libc_cache.lock);
-  if(shlib_match(dev, inum, size, textsz)){
-    r = 1;
-    for(uint64 off = 0; off < textsz; off += PGSIZE){
-      if(mappages(pagetable, base + off, PGSIZE,
-                  libc_cache.pa[off / PGSIZE], SHLIB_PTE) != 0){
-        r = -1;
-        break;
-      }
-      *psz = base + off + PGSIZE;
-    }
-  }
-  release(&libc_cache.lock);
-  return r;
-}
-
-// Cache miss: this exec loaded and relocated a private copy.  Its text pages
-// are now known to be base-independent, so hand them to the cache and remap
-// them read-only.  The new page table is not live yet, so no TLB flush.
-static void
-shlib_promote(pagetable_t pagetable, uint64 base,
-              uint dev, uint inum, uint64 size, uint64 textsz)
-{
-  pte_t *pte;
-
-  acquire(&libc_cache.lock);
-  if(shlib_match(dev, inum, size, textsz)){
-    // Another exec filled the cache meanwhile; keep this private copy.
-    release(&libc_cache.lock);
-    return;
-  }
-  for(uint64 off = 0; off < textsz; off += PGSIZE){
-    pte = walk(pagetable, base + off, 0);
-    if(pte == 0 || (*pte & PTE_V) != PTE_V){
-      release(&libc_cache.lock);
-      return;
-    }
-  }
-  if(libc_cache.valid)
-    printf("exec: %s changed, caching new text\n", DYN_LIBC_PATH);
-  for(uint64 off = 0; off < textsz; off += PGSIZE){
-    pte = walk(pagetable, base + off, 0);
-    uint64 pa = PTE2PA(*pte);
-    *pte = PA2PTE(pa) | SHLIB_PTE | PTE_AF | PTE_V;
-    libc_cache.pa[off / PGSIZE] = pa;
-  }
-  libc_cache.dev = dev;
-  libc_cache.inum = inum;
-  libc_cache.size = size;
-  libc_cache.textsz = textsz;
-  libc_cache.valid = 1;
-  release(&libc_cache.lock);
-}
-
 int
 exec(char *path, char **argv)
 {
   char *s, *last;
-  int i;
-  uint64 argc, sz = 0, sp, ustack[MAXARG], stackbase;
+  uint64 argc, sz = 0, sp, ustack[MAXARG + 18], stackbase;
   struct elfhdr elf;
   struct execsrc src = { 0 };
-  struct execsrc libsrc = { 0 };
-  struct elfhdr libelf;
-  struct elf_image mainimg, libcimg;
+  struct execsrc interpsrc = { 0 };
+  struct elfhdr interpelf;
+  struct elf_image mainimg;
+  struct elf_image interpimg;
+  char interp[DYN_NAME_MAX];
+  uint64 initial_entry = 0;
   int dynamic = 0;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
@@ -569,60 +203,44 @@ exec(char *path, char **argv)
      (elf.type != ET_EXEC && elf.type != ET_DYN))
     goto bad;
   dynamic = elf.type == ET_DYN;
+  interp[0] = 0;
+  if(dynamic && readinterp(&src, &elf, interp, sizeof(interp)) < 0){
+    printf("exec: dynamic %s has no valid PT_INTERP\n", path);
+    goto bad;
+  }
 
   if((pagetable = uvmcreate()) == 0)
     goto bad;
 
-  if(loadimage(pagetable, &sz, &src, &elf, 0, &mainimg, 0) < 0)
+  if(loadimage(pagetable, &sz, &src, &elf, 0, &mainimg) < 0)
     goto bad;
   srcclose(&src);
 
+  // Linux-style division of responsibility: exec maps the PIE and the ELF
+  // interpreter named by PT_INTERP, but does not open libc, resolve symbols,
+  // or apply dynamic relocations.  The interpreter receives main-image facts
+  // in auxv and performs all of that after entering EL0.
   if(dynamic){
-    char needed[DYN_NAME_MAX];
-    uint64 libbase = PGROUNDUP(sz);
-
-    if(parsedynamic(pagetable, &mainimg) < 0 || mainimg.nneeded != 1)
-      goto bad;
-    // This first ABI intentionally supports one trusted library and one
-    // deterministic pathname.  Arbitrary DT_NEEDED search is left to a future
-    // user-space ld.so rather than being hidden inside the kernel.
-    for(i = 0; i < mainimg.nneeded; i++){
-      if(dynstring(pagetable, &mainimg, mainimg.needed[i], needed,
-                   sizeof(needed)) < 0 ||
-         strncmp(needed, "libc.so", DYN_NAME_MAX) != 0){
-        printf("exec: unsupported shared-library dependency\n");
-        goto bad;
-      }
-    }
-    if(srcopen(&libsrc, DYN_LIBC_PATH) < 0){
-      printf("exec: cannot open %s\n", DYN_LIBC_PATH);
+    uint64 interpbase = PGROUNDUP(sz);
+    if(srcopen(&interpsrc, interp) < 0){
+      printf("exec: cannot open interpreter %s\n", interp);
       goto bad;
     }
-    if(srcread(&libsrc, (uint64)&libelf, 0, sizeof(libelf)) != sizeof(libelf) ||
-       libelf.magic != ELF_MAGIC || libelf.elf[0] != 2 || libelf.elf[1] != 1 ||
-       libelf.machine != EM_AARCH64 || libelf.type != ET_DYN)
+    if(srcread(&interpsrc, (uint64)&interpelf, 0, sizeof(interpelf)) !=
+         sizeof(interpelf) ||
+       interpelf.magic != ELF_MAGIC || interpelf.elf[0] != 2 ||
+       interpelf.elf[1] != 1 || interpelf.machine != EM_AARCH64 ||
+       interpelf.type != ET_DYN ||
+       loadimage(pagetable, &sz, &interpsrc, &interpelf, interpbase,
+                 &interpimg) < 0){
+      printf("exec: invalid interpreter %s\n", interp);
       goto bad;
-    uint libdev = libsrc.ip->dev, libinum = libsrc.ip->inum;
-    uint64 libfsz = libsrc.ip->size;
-    uint64 textsz = shlib_textsize(&libsrc, &libelf);
-    int shared = 0;
-    if(textsz &&
-       (shared = shlib_map(pagetable, &sz, libbase,
-                           libdev, libinum, libfsz, textsz)) < 0)
-      goto bad;
-    if(loadimage(pagetable, &sz, &libsrc, &libelf, libbase, &libcimg,
-                 shared ? textsz : 0) < 0)
-      goto bad;
-    libcimg.sharedend = textsz ? libbase + textsz : 0;
-    srcclose(&libsrc);
-    if(parsedynamic(pagetable, &libcimg) < 0 || libcimg.nneeded != 0 ||
-       relocateimage(pagetable, &libcimg, &mainimg, &libcimg) < 0 ||
-       relocateimage(pagetable, &mainimg, &mainimg, &libcimg) < 0)
-      goto bad;
-    if(textsz && !shared)
-      shlib_promote(pagetable, libbase, libdev, libinum, libfsz, textsz);
-    printf("exec: dynamic %s, libc.so base=%p, text %s\n", path, libbase,
-           shared ? "shared" : textsz ? "loaded" : "private");
+    }
+    initial_entry = interpbase + interpelf.entry;
+    srcclose(&interpsrc);
+    printf("exec: %s -> interpreter %s\n", path, interp);
+  } else {
+    initial_entry = mainimg.base + elf.entry;
   }
 
   if(!imagecontains(&mainimg, mainimg.base + elf.entry, 1))
@@ -650,7 +268,7 @@ exec(char *path, char **argv)
     if(argc >= MAXARG)
       goto bad;
     sp -= strlen(argv[argc]) + 1;
-    sp -= sp % 16; // riscv sp must be 16-byte aligned
+    sp -= sp % 16; // AArch64 user SP must be 16-byte aligned
     if(sp < stackbase)
       goto bad;
     if(copyout(pagetable, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
@@ -659,12 +277,27 @@ exec(char *path, char **argv)
   }
   ustack[argc] = 0;
 
-  // push the array of argv[] pointers.
-  sp -= (argc+1) * sizeof(uint64);
+  // argv is followed by an empty environment and a Linux-compatible auxv.
+  // ld.so discovers the already mapped main executable exclusively through
+  // this user ABI; it receives no kernel pointer or private exec structure.
+  uint64 words = argc + 1;
+  ustack[words++] = 0;                         // envp[0]
+  if(dynamic){
+    ustack[words++] = 3; ustack[words++] = mainimg.base + elf.phoff; // AT_PHDR
+    ustack[words++] = 4; ustack[words++] = elf.phentsize;             // AT_PHENT
+    ustack[words++] = 5; ustack[words++] = elf.phnum;                 // AT_PHNUM
+    ustack[words++] = 6; ustack[words++] = PGSIZE;                    // AT_PAGESZ
+    ustack[words++] = 7; ustack[words++] = interpimg.base;            // AT_BASE
+    ustack[words++] = 9; ustack[words++] = mainimg.base + elf.entry;  // AT_ENTRY
+  }
+  ustack[words++] = 0; ustack[words++] = 0;                           // AT_NULL
+
+  // Push argv[], empty envp, and auxv in one contiguous initial-stack table.
+  sp -= words * sizeof(uint64);
   sp -= sp % 16;
   if(sp < stackbase)
     goto bad;
-  if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
+  if(copyout(pagetable, sp, (char *)ustack, words*sizeof(uint64)) < 0)
     goto bad;
 
   // arguments to user main(argc, argv)
@@ -687,7 +320,7 @@ exec(char *path, char **argv)
   vm->camera_mapped = 0;       // mmap belongs to the replaced address space
   vm->execing = 0;
   release(&vm->lock);
-  p->trapframe->elr = mainimg.base + elf.entry; // initial PC = main
+  p->trapframe->elr = initial_entry; // dynamic: ld.so; static: main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
   // Debug trace (normally disabled): installed entry point and user stack.
@@ -707,7 +340,7 @@ exec(char *path, char **argv)
   if(pagetable)
     uvmfree(pagetable, sz);
   srcclose(&src);
-  srcclose(&libsrc);
+  srcclose(&interpsrc);
   return -1;
 }
 

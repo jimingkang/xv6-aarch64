@@ -31,9 +31,9 @@ POSIX 兼容来自四部分：
 - `user/libc.so`：由独立的 `*.pic.o` 生成的 ELF `ET_DYN` 共享库，SONAME 为 `libc.so`，可用 `make user/libc.so` 单独构建。
 
 用户程序默认以 PIE `ET_DYN` 形式链接 `libc.so`，链接参数为
-`-pie --no-dynamic-linker`。根文件系统构建会把共享库安装到 `/lib/libc.so`；xv6fs 的
-`mkfs` 使用 `-L user/libc.so`，ext2 的 `debugfs` 脚本使用
-`write user/libc.so lib/libc.so`。如需制作不依赖共享库的恢复镜像，可使用
+`-pie -dynamic-linker /lib/ld-xv6.so`。根文件系统构建会把共享库和解释器分别安装到
+`/lib/libc.so`、`/lib/ld-xv6.so`；xv6fs 的 `mkfs` 使用 `-L`/`-I`，ext2 的
+`debugfs` 脚本写入两个文件。如需制作不依赖共享库的恢复镜像，可使用
 `make DYNAMIC_USER=0`，构建标记会保证静态、动态模式切换时重新链接用户程序。
 
 当前动态链接流程如下：
@@ -43,45 +43,52 @@ sequenceDiagram
     participant Make as Make/binutils
     participant FS as rootfs
     participant Exec as kernel exec()
-    participant VM as new user pagetable
+    participant VM as 新用户页表
+    participant LD as user ld-xv6.so
 
     Make->>Make: *.pic.o -> libc.so (ET_DYN, SONAME=libc.so)
-    Make->>Make: program.o + libc.so -> PIE ET_DYN
-    Make->>FS: install program to /bin, libc.so to /lib
-    Exec->>FS: read PIE ELF and PT_DYNAMIC
-    Exec->>VM: map unaligned PT_LOAD segments
-    Exec->>FS: validate DT_NEEDED=libc.so, open /lib/libc.so
-    Exec->>VM: place libc after the program image
-    Exec->>VM: resolve dynsym; apply RELATIVE/JUMP_SLOT/GLOB_DAT/ABS64
-    Exec->>VM: build argv stack and enter PIE e_entry
+    Make->>Make: program.o + libc.so -> PIE + PT_INTERP
+    Make->>Make: build relocation-free ET_DYN ld-xv6.so
+    Make->>FS: install program, libc.so and ld-xv6.so
+    Exec->>FS: read PIE PT_LOAD and PT_INTERP
+    Exec->>VM: map main PIE and interpreter only
+    Exec->>VM: build argv/envp/auxv
+    Exec->>LD: EL0 entry at interpreter e_entry
+    LD->>FS: open/pread /lib/libc.so
+    LD->>VM: allocate and load libc PT_LOAD
+    LD->>LD: resolve dynsym and apply relocations
+    LD->>LD: call main AT_ENTRY(argc, argv)
 ```
 
-这是一个有意收敛的 xv6 原生动态装载 ABI，而不是完整 Linux `ld.so`：重定位由内核
-`exec()` 急切完成，只允许受信任的 `/lib/libc.so`，支持当前 AArch64 工具链生成的
+现在的职责边界与 Linux 相同：内核 `exec()` 不再打开 libc、不解析 `DT_NEEDED`，也不做
+动态符号解析或重定位；它只装入主 ELF 和 `PT_INTERP`，并通过 `AT_PHDR`、`AT_PHENT`、
+`AT_PHNUM`、`AT_PAGESZ`、`AT_BASE`、`AT_ENTRY` 辅助向量把控制权交给用户态解释器。
+`ld-xv6.so` 只允许受信任的 `/lib/libc.so`，支持当前 AArch64 工具链生成的
 `R_AARCH64_RELATIVE`、`R_AARCH64_JUMP_SLOT`、`R_AARCH64_GLOB_DAT` 和
 `R_AARCH64_ABS64`。旧的静态 `ET_EXEC` 仍可执行。尚未实现任意依赖搜索、符号版本、TLS、
-`dlopen/dlsym`、延迟 PLT 绑定、ASLR，以及跨进程共享只读 libc 物理页；因此它已经消除了
-每个程序静态携带 libc 的磁盘重复，但当前每个进程仍会为 libc 分配自己的物理页。
+`dlopen/dlsym`、延迟 PLT 绑定、ASLR、TLS，以及普通文件的按需分页。解释器当前通过
+`sbrk()+pread()` 装入 libc，而不是 Linux 的文件后备 `mmap()`；所以职责已经移到用户态，
+但 libc 页暂时仍是每进程私有页。
 
 ### 真机验证
 
 在 Pi 3 上以默认的 `DYNAMIC_USER=1` 启动，登录后 shell 会以 PIE `ET_DYN` 形式加载，
-`exec()` 为每个动态程序把 `/lib/libc.so` 载入并急切重定位，串口打印：
+内核先报告解释器，随后用户态解释器报告重定位完成：
 
 ```text
-exec: dynamic /bin/login, libc.so base=0x0000000000002000
+exec: /bin/login -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
 
 xv6-rpi3 login: root
 Password: xv6
 Welcome root
-exec: dynamic /bin/sh, libc.so base=0x0000000000003000
+exec: /bin/sh -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
 ```
 
-`base` 是本次 exec 中 libc.so 的载入基址，等于主镜像大小向上取整到页边界
-（`libbase = PGROUNDUP(sz)`，`PGSIZE = 4096`）：`login` 镜像最大到 `0x1a20`，落在第 2 页
-`0x2000`；`sh` 更大、跨到第 3 页 `0x3000`。看到这两行即证明主 ELF 与 libc.so 都被成功装载、
-`libc.so` 符号被解析、`R_AARCH64_*` 重定位已完成，`login`/`sh` 都跑在链接到共享 libc 的 PIE 上。
-若 `exec: dynamic ...` 缺失而进程仍能运行，则该二进制走的是静态 `ET_EXEC` 回退路径。
+第二行由 EL0 中的 `ld-xv6.so` 通过原始 syscall 打印；看到它才能证明 libc 的装载、符号解析和
+重定位确实发生在用户态。若程序没有 `PT_INTERP` 且仍能运行，则它走的是静态 `ET_EXEC`
+恢复路径。
 
 ### UAPI 与内核头文件边界
 
@@ -113,6 +120,7 @@ kernel      -> kernel/{fcntl.h,stat.h,...}   -> include/uapi/*.h
 - `open/read/write/close/fstat/stat`
 - `getcwd/getpid/getppid/gettid`
 - `dup/dup2`，以及 `wait/waitpid(WNOHANG)`
+- `readlink()`：目前只有 sysfs 实现了符号链接读取（`/sys/class` 下指回 `/sys/devices` 的链接），其它文件系统如同 Linux 对非链接一样返回 `EINVAL`
 - `lseek(SEEK_SET/SEEK_CUR/SEEK_END)`
 - `O_CREAT` 到原生 `O_CREATE` 的兼容别名
 - `S_ISREG/S_ISDIR/S_ISCHR`
