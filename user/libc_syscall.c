@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <uapi/poll.h>
 
 // The only user-space entry that executes svc.  Public functions below form
 // the libc ABI and deliberately hide the kernel syscall-number ABI.
@@ -71,6 +72,10 @@ int getppid(void) { return SC0(getppid); }
 int gettid(void) { return SC0(gettid); }
 char *getcwd(char *buf, int size) { return (char *)SC2(getcwd, P(buf), I(size)); }
 int readlink(const char *path, char *buf, int sz) { return SC3(readlink, P(path), P(buf), I(sz)); }
+int reboot(int cmd) { return SC1(reboot, I(cmd)); }
+int connect(int fd, const void *address, int length)
+{ return SC3(connect, I(fd), P(address), I(length)); }
+uint32 net_dns(void) { return (uint32)SC0(net_dns); }
 char *sbrk(int increment) { return (char *)SC1(sbrk, I(increment)); }
 int sleep_ticks(int ticks) { return SC1(sleep, I(ticks)); }
 int uptime(void) { return SC0(uptime); }
@@ -176,6 +181,17 @@ int munmap(void *addr, unsigned long len) { return SC2(munmap, P(addr), I(len));
 int init_module(void *image, unsigned long size, const char *args)
 { return SC3(init_module, P(image), I(size), P(args)); }
 int delete_module(const char *name) { return SC1(delete_module, P(name)); }
+int poll(struct pollfd *fds, unsigned long nfds, int timeout)
+{ return SC3(poll, P(fds), I(nfds), I(timeout)); }
+int ioctl(int fd, unsigned long request, ...)
+{
+  unsigned long argument = 0;
+  va_list arguments;
+  va_start(arguments, request);
+  argument = va_arg(arguments, unsigned long);
+  va_end(arguments);
+  return SC3(ioctl, I(fd), I(request), I(argument));
+}
 
 int
 exit(int status)

@@ -1,7 +1,7 @@
 #ifndef XV6_AUX_H
 #define XV6_AUX_H
 
-#include "types.h"
+#include <kernel/types.h>
 #include "memlayout.h"
 
 // BCM2837 auxiliary peripheral register layout.  The Mini UART registers

@@ -90,8 +90,8 @@ superblock 记录各区的起始块号和大小，魔数为 \code{0x10203040}。
 
 \begin{enumerate}
   \item \textbf{ramdisk}：刚移植到 \code{raspi3b} 时，用 QEMU 的 loader 把 \code{fs.img} 装到物理地址 \code{0x07000000}，\code{bread/bwrite} 直接 \code{memmove}。简单，但改动不会写回宿主机；
-  \item \textbf{Arasan SDHCI}（\file{kernel/sd.c}）：BCM2837 的 EMMC 控制器，GPIO48～53 设为 ALT3。QEMU 用 \code{-drive if=sd} 把 \code{fs.img} 接到 SD 总线，数据终于可以持久保存；
-  \item \textbf{SDHOST}（\file{kernel/sdhost.c}）：后来要驱动板载 Wi-Fi，而 Wi-Fi 芯片只能接在 Arasan 控制器上（GPIO34～39）。于是外置 SD 卡改由 Broadcom 自己的 SDHOST 控制器（\code{0x3f202000}）驱动，GPIO48～53 改为 ALT0。
+  \item \textbf{Arasan SDHCI}（\file{kernel/drivers/mmc/host/sd.c}）：BCM2837 的 EMMC 控制器，GPIO48～53 设为 ALT3。QEMU 用 \code{-drive if=sd} 把 \code{fs.img} 接到 SD 总线，数据终于可以持久保存；
+  \item \textbf{SDHOST}（\file{kernel/drivers/mmc/host/sdhost.c}）：后来要驱动板载 Wi-Fi，而 Wi-Fi 芯片只能接在 Arasan 控制器上（GPIO34～39）。于是外置 SD 卡改由 Broadcom 自己的 SDHOST 控制器（\code{0x3f202000}）驱动，GPIO48～53 改为 ALT0。
 \end{enumerate}
 
 两种 SD 驱动对上都提供同一个接口：
@@ -363,7 +363,7 @@ Linux 把找根和挂根都放在 \code{prepare\_namespace()} 里，xv6 则分�
 \paragraph{xv6fs 根文件系统.} \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p2 rootfstype=xv6fs}（这也是默认情况）：
 
 \begin{txtcode}
-main()                                 kernel/main.c：只在 CPU 0 上运行，此时
+main()                                 kernel/init/main.c：只在 CPU 0 上运行，此时
                                        还没有进程，只能用自旋锁，不能睡眠
   binit()                              初始化块缓存：64 个缓冲区，每个一页
   iinit()                              初始化内存 inode 表
@@ -394,7 +394,7 @@ main()                                 kernel/main.c：只在 CPU 0 上运行，
   vfsinit()                            初始化 netfs；VFS 不再有自己的挂载表
   userinit()                           造出第一个进程，当前目录暂时为空
   scheduler()                          调度第一个进程，它从 forkret() 开始运行
-forkret()                              kernel/proc.c：从这里起可以睡眠，
+forkret()                              kernel/core/proc.c：从这里起可以睡眠，
                                        可以使用块缓存
   prepare_namespace()                  ======== 阶段二（6.6.7）========
     1. ramfs_create(ram0)              分配 32 KiB 内存当作块设备 7，在里面
@@ -576,7 +576,7 @@ VFS: Mounted root (xv6fs filesystem) on device 1 (/dev/root = mmcblk0p2).
 \paragraph{挂载表与路径穿越（第 3、4 步）.} \file{fs.c} 新增一张挂载表，每项记录“目录 \code{mp} 被设备 \code{dev} 的根目录覆盖”。这是系统里\emph{唯一}的挂载表：rootfs 上的根文件系统、devtmpfs，以及阶段三挂上的 procfs、FAT32、ext2 都是其中的一项：
 
 \begin{ccode}
-// kernel/fs.c
+// kernel/fs/fs.c
 struct fsmount {
   int          used;
   struct inode *mp;           // 被覆盖的目录（持引用）
@@ -1022,7 +1022,7 @@ xv6 没有符号链接，所以按文字处理 \code{..} 与沿目录树向上�
 \code{exec()} 读 ELF 的来源也只剩一种：
 
 \begin{ccode}
-struct execsrc {                 // kernel/exec.c
+struct execsrc {                 // kernel/fs/exec.c
   struct inode *ip;              // 任何文件系统上已加锁的 inode
 };
 
@@ -1052,7 +1052,7 @@ relative exec
 \paragraph{按路径的文件系统（\code{pathfs\_iops}）.} FAT32 的磁盘上没有 inode 号，procfs 的对象是现场生成的，netfs 的协议以路径为键。它们共用 \file{vfs.c} 里的一套通用实现：内存 inode 的 \code{path} 字段记下对象在该文件系统内的路径，inode 号取路径的 31 位 FNV 哈希；\code{iget\_path()} 对这类文件系统除了比较 inode 号还比较路径，哈希冲突也不会认错对象。\code{pfs\_lookup()} 把目录路径和名字拼起来（处理 \code{.} 与 \code{..}），问后端 \code{stat} 是否存在；读写、建立、删除、改名都转成后端按路径的调用。三个后端各提供一张小表：
 
 \begin{ccode}
-static struct pathfs_ops fat32_pops = {      // kernel/vfs.c
+static struct pathfs_ops fat32_pops = {      // kernel/fs/vfs.c
   .stat = fat_vstat, .read = fat_vread, .write = fat_vwrite,
   .readdir = fat_vreaddir, .create = fat_vcreate, .truncate = fat_vtruncate,
   .rename = fat_vrename, .openwrite = fat32openwrite, .fsync = fat_vfsync,
@@ -1084,7 +1084,7 @@ ext2    /mnt/ext2  ext2   rw 0 0
 \section{FAT32 与启动分区}
 \label{sec:fat32}
 
-前面几节讲的是 xv6 自己的文件系统。SD 卡上还有一个 xv6 无法回避的 FAT32 分区：树莓派的固件只认 FAT32，内核镜像、\file{config.txt}、Wi-Fi 固件都必须放在这里。本节先看这个分区里放了什么、谁来读，再看 FAT32 在磁盘上的组织，最后逐个讲 \file{kernel/fat32.c} 里的函数。
+前面几节讲的是 xv6 自己的文件系统。SD 卡上还有一个 xv6 无法回避的 FAT32 分区：树莓派的固件只认 FAT32，内核镜像、\file{config.txt}、Wi-Fi 固件都必须放在这里。本节先看这个分区里放了什么、谁来读，再看 FAT32 在磁盘上的组织，最后逐个讲 \file{kernel/fs/fat/fat32.c} 里的函数。
 
 \subsection{bootfs 里有什么，谁来读}
 
@@ -1363,7 +1363,7 @@ static uint32 fat_next(uint32 cluster) {
 
 \subsection{根文件系统怎样被认出来}
 
-\code{rootdev\_init()} 扫描 MBR 时，对每个既不是 FAT32 也不是扩展分区的主分区调用 \code{setup\_raw\_root()}（两者都在 \file{kernel/rootdev.c}）：
+\code{rootdev\_init()} 扫描 MBR 时，对每个既不是 FAT32 也不是扩展分区的主分区调用 \code{setup\_raw\_root()}（两者都在 \file{kernel/drivers/block/rootdev.c}）：
 
 \begin{ccode}
 static int setup_raw_root(uint32 start, uint32 sectors) {
@@ -1388,7 +1388,7 @@ rootdev: raw xv6 root p2 lba=208896 sectors=819200 size=400 MiB
 此后块缓存的每一次读写都经过 \code{rootdev\_rw()}：
 
 \begin{ccode}
-void rootdev_rw(struct buf *b, int write) {         // kernel/rootdev.c
+void rootdev_rw(struct buf *b, int write) {         // kernel/drivers/block/rootdev.c
   uint32 first = b->blockno * SECTORS_PER_BLOCK;    // 1 块 = 2 扇区
   gate_enter();                                     // /dev/sdroot 更新时在此挡住
   for(int i = 0; i < SECTORS_PER_BLOCK; i++)

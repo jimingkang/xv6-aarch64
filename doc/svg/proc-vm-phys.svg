@@ -1,0 +1,538 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2350" height="2678" viewBox="0 0 2350 2678">
+<defs><marker id="m1f4e8c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e8c"/></marker><marker id="mc0662b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0662b"/></marker><marker id="m18897a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#18897a"/></marker><marker id="mb0564a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b0564a"/></marker><marker id="m6a4bb5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6a4bb5"/></marker><marker id="m888888" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888888"/></marker></defs>
+<rect width="2350" height="2678" fill="#ffffff"/>
+<text x="1175.0" y="40" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="30" fill="#222" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve">fork 刚完成时的两个子进程：内核虚拟地址中的 proc / 内核栈，用户地址空间，以及它们落在哪些物理页</text>
+<text x="1175.0" y="80" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="18" fill="#777" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">上半部分：虚拟地址视角（数据来自 procvmtrace &quot;process-create:fork&quot;）。下半部分：物理内存 0x6e9e000–0x6ed3fff，每列一页。彩色箭头从每个对象连到它所在的物理页</text>
+<rect x="190" y="110" width="660" height="1680" rx="16" fill="#fbfaf7" stroke="#e2ded4" stroke-width="1.5"/>
+<text x="520.0" y="138" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="24" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve">pid 16 · name=init（将 exec /bin/sh）</text>
+<rect x="200" y="170" width="640" height="300" rx="10" fill="#eef2fb" stroke="#8fa9d6" stroke-width="2"/>
+<text x="216" y="194" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">struct proc（内核虚拟地址，直接映射区）</text>
+<text x="220" y="224" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006ed3000  = KERNBASE + pa 0x6ed3000</text>
+<text x="220" y="254" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid=16 tgid=16 state=1 USED</text>
+<text x="220" y="279" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">kstack    = 0xffffffbffffe2000  (槽 14)</text>
+<text x="220" y="304" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">trapframe = 0xffffffbffffe2ef0</text>
+<text x="220" y="329" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">vm        = 0xffffff8006ed1000</text>
+<rect x="220" y="350" width="600" height="98" rx="8" fill="#ffffff" stroke="#c0662b" stroke-width="2"/>
+<text x="234" y="368" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">p-&gt;context @ 0xffffff8006ed30b0（proc + 0xb0）</text>
+<text x="234" y="394" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#7a3d0c" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sp  = 0xffffffbffffe2ef0   ← 现在与 trapframe 同址</text>
+<text x="234" y="416" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#7a3d0c" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x30 = forkret   x18–x29 = 0</text>
+<text x="234" y="438" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#9a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">只有 swtch 会改写它（保存当时的内核 sp）</text>
+<rect x="320" y="490" width="400" height="40" rx="8" fill="#ffffff" stroke="#bbb" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="520.0" y="510" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#888" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">0xffffffbffffe3000 … +0x1000：未映射（保护）</text>
+<rect x="200" y="540" width="640" height="540" rx="10" fill="#fff7ef" stroke="#e3a77a" stroke-width="2"/>
+<text x="216" y="562" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">内核栈（KSTACK 槽 14，pa 0x6ed2000）</text>
+<text x="826" y="588" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">top = 0xffffffbffffe3000</text>
+<rect x="220" y="602" width="600" height="226" rx="8" fill="#ffffff" stroke="#c0662b" stroke-width="2"/>
+<text x="234" y="620" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">trapframe（272 B）= top − 0x110：每次 el0sync 都在这里重写</text>
+<text x="246" y="648" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">elr   = 0xd5bc  libc __syscall+0x20</text>
+<text x="246" y="676" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">spsr  = 0x60000000  (Z C · EL0t · 中断开)</text>
+<text x="246" y="704" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sp    = 0x89d0  用户栈指针（SP_EL0）</text>
+<text x="246" y="732" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x0    = 0  子进程的 fork 返回值</text>
+<text x="246" y="760" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x16/x17 = 0x133e0 / 0xd59c  GOT / __syscall</text>
+<text x="246" y="788" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x27   = 0x13650  libc 数据段结尾</text>
+<line x1="220" y1="838" x2="820" y2="838" stroke="#c0662b" stroke-width="2.5"/>
+<text x="816" y="854" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#c0662b" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">0xffffffbffffe2ef0  = p-&gt;trapframe = context.sp（fork 时）</text>
+<rect x="220" y="874" width="600" height="150" rx="8" fill="#fdf9f4" stroke="#e8cbb0" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="234" y="894" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">进入系统调用后：usertrap → syscall → sys_xxx → sleep → sched</text>
+<text x="234" y="918" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">的调用帧依次压在 trapframe 下面（向低地址）</text>
+<line x1="220" y1="966" x2="820" y2="966" stroke="#c0662b" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="234" y="952" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">sched() 调 swtch 时：context.sp ← 此刻的 sp（示意位置）</text>
+<text x="234" y="986" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">下次被调度：swtch 恢复它，从 sched 返回，原路回到 usertrap</text>
+<text x="826" y="1068" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">base = 0xffffffbffffe2000</text>
+<polyline points="820.0,394.0 848.0,394.0 848.0,838.0 822.0,838.0" fill="none" stroke="#c0662b" stroke-width="2.2" stroke-opacity="1.0" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="820.0" cy="394.0" r="3.5" fill="#c0662b"/>
+<polyline points="820.0,398.0 860.0,398.0 860.0,966.0 822.0,966.0" fill="none" stroke="#c0662b" stroke-width="2.2" stroke-opacity="0.7" stroke-dasharray="6 4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="820.0" cy="398.0" r="3.5" fill="#c0662b"/>
+<rect x="200" y="1110" width="640" height="660" rx="10" fill="#f5f8fd" stroke="#8fb3e6" stroke-width="2"/>
+<text x="216" y="1132" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">用户地址空间（TTBR0）</text>
+<text x="826" y="1132" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#1f4e8c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">sz = 0x14000 · 19 个用户页</text>
+<text x="220" y="1162" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">TTBR0 页表根      pa 0x6eb8000</text>
+<text x="220" y="1186" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">L1[0] → L2 页表  pa 0x6eb5000</text>
+<text x="220" y="1210" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">L2[0] → L3 页表  pa 0x6ec0000</text>
+<text x="220" y="1238" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#3d6fb0" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">叶子 flags 0x34b：用户可读写、可执行</text>
+<rect x="350" y="1260" width="470" height="43.99999999999999" rx="6" fill="#e3ecfa" stroke="#8fb3e6" stroke-width="2"/>
+<text x="366" y="1282.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">程序 /init</text>
+<text x="806" y="1282.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x0000–0x2000</text>
+<rect x="350" y="1310.0" width="470" height="43.99999999999999" rx="6" fill="#ddf1ec" stroke="#7cc4b3" stroke-width="2"/>
+<text x="366" y="1332.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">ld-xv6.so</text>
+<text x="806" y="1332.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x2000–0x4000</text>
+<rect x="350" y="1360.0" width="470" height="36" rx="6" fill="#f3f3f3" stroke="#bbb" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="366" y="1378.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">保护页（PTE_U 已清）</text>
+<text x="806" y="1378.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x4000–0x5000</text>
+<rect x="350" y="1402.0" width="470" height="93.99999999999999" rx="6" fill="#fdf0e6" stroke="#e3a77a" stroke-width="2"/>
+<text x="366" y="1449.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">用户栈 4 页</text>
+<text x="806" y="1449.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x5000–0x9000</text>
+<rect x="350" y="1502.0" width="470" height="218.99999999999997" rx="6" fill="#ebe6f7" stroke="#a598d6" stroke-width="2"/>
+<text x="366" y="1611.5" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">libc 代码</text>
+<text x="806" y="1611.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x9000–0x122ba</text>
+<rect x="350" y="1727.0" width="470" height="36" rx="6" fill="#f4eefb" stroke="#c2b4e6" stroke-width="2"/>
+<text x="366" y="1745.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">libc 数据 + 堆</text>
+<text x="806" y="1745.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x132c0–0x14000</text>
+<line x1="350" y1="1477.2" x2="820" y2="1477.2" stroke="#b0564a" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="806" y="1465.2" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#b0564a" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">user sp 0x89d0 → pa 0x6ece9d0</text>
+<line x1="350" y1="1567.7" x2="820" y2="1567.7" stroke="#6a4bb5" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="806" y="1555.7" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#6a4bb5" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">elr 0xd5bc → pa 0x6eaf5bc</text>
+<polyline points="240.0,704.0 230.0,704.0 230.0,1477.2 346.0,1477.2" fill="none" stroke="#b0564a" stroke-width="2.2" stroke-opacity="0.8" stroke-linejoin="round" marker-end="url(#mb0564a)"/>
+<circle cx="240.0" cy="704.0" r="3.5" fill="#b0564a"/>
+<polyline points="240.0,648.0 236.0,648.0 236.0,1567.7 346.0,1567.7" fill="none" stroke="#6a4bb5" stroke-width="2.2" stroke-opacity="0.8" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="240.0" cy="648.0" r="3.5" fill="#6a4bb5"/>
+<text x="290" y="1270" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#555" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">VA 0x0</text>
+<text x="290" y="1759.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#555" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">VA 0x14000</text>
+<rect x="1030" y="110" width="660" height="1680" rx="16" fill="#fbfaf7" stroke="#e2ded4" stroke-width="1.5"/>
+<text x="1360.0" y="138" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="24" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve">pid 17 · name=sh（将 exec /bin/ls）</text>
+<rect x="1040" y="170" width="640" height="300" rx="10" fill="#eef2fb" stroke="#8fa9d6" stroke-width="2"/>
+<text x="1056" y="194" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">struct proc（内核虚拟地址，直接映射区）</text>
+<text x="1060" y="224" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006eb7000  = KERNBASE + pa 0x6eb7000</text>
+<text x="1060" y="254" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid=17 tgid=17 state=1 USED</text>
+<text x="1060" y="279" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">kstack    = 0xffffffbffffe0000  (槽 15)</text>
+<text x="1060" y="304" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">trapframe = 0xffffffbffffe0ef0</text>
+<text x="1060" y="329" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">vm        = 0xffffff8006eb5000</text>
+<rect x="1060" y="350" width="600" height="98" rx="8" fill="#ffffff" stroke="#c0662b" stroke-width="2"/>
+<text x="1074" y="368" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">p-&gt;context @ 0xffffff8006eb70b0（proc + 0xb0）</text>
+<text x="1074" y="394" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#7a3d0c" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sp  = 0xffffffbffffe0ef0   ← 现在与 trapframe 同址</text>
+<text x="1074" y="416" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#7a3d0c" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x30 = forkret   x18–x29 = 0</text>
+<text x="1074" y="438" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#9a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">只有 swtch 会改写它（保存当时的内核 sp）</text>
+<rect x="1160" y="490" width="400" height="40" rx="8" fill="#ffffff" stroke="#bbb" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1360.0" y="510" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#888" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">0xffffffbffffe1000 … +0x1000：未映射（保护）</text>
+<rect x="1040" y="540" width="640" height="540" rx="10" fill="#fff7ef" stroke="#e3a77a" stroke-width="2"/>
+<text x="1056" y="562" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">内核栈（KSTACK 槽 15，pa 0x6ec0000）</text>
+<text x="1666" y="588" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">top = 0xffffffbffffe1000</text>
+<rect x="1060" y="602" width="600" height="226" rx="8" fill="#ffffff" stroke="#c0662b" stroke-width="2"/>
+<text x="1074" y="620" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">trapframe（272 B）= top − 0x110：每次 el0sync 都在这里重写</text>
+<text x="1086" y="648" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">elr   = 0xe5bc  libc __syscall+0x20</text>
+<text x="1086" y="676" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">spsr  = 0x20000000  (C · EL0t · 中断开)</text>
+<text x="1086" y="704" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sp    = 0x9830  用户栈指针（SP_EL0）</text>
+<text x="1086" y="732" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x0    = 0  子进程的 fork 返回值</text>
+<text x="1086" y="760" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x16/x17 = 0x143e0 / 0xe59c  GOT / __syscall</text>
+<text x="1086" y="788" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">x27   = 0x14650  libc 数据段结尾</text>
+<line x1="1060" y1="838" x2="1660" y2="838" stroke="#c0662b" stroke-width="2.5"/>
+<text x="1656" y="854" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#c0662b" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">0xffffffbffffe0ef0  = p-&gt;trapframe = context.sp（fork 时）</text>
+<rect x="1060" y="874" width="600" height="150" rx="8" fill="#fdf9f4" stroke="#e8cbb0" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1074" y="894" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">进入系统调用后：usertrap → syscall → sys_xxx → sleep → sched</text>
+<text x="1074" y="918" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">的调用帧依次压在 trapframe 下面（向低地址）</text>
+<line x1="1060" y1="966" x2="1660" y2="966" stroke="#c0662b" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="1074" y="952" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">sched() 调 swtch 时：context.sp ← 此刻的 sp（示意位置）</text>
+<text x="1074" y="986" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#8a5a2a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">下次被调度：swtch 恢复它，从 sched 返回，原路回到 usertrap</text>
+<text x="1666" y="1068" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">base = 0xffffffbffffe0000</text>
+<polyline points="1660.0,394.0 1688.0,394.0 1688.0,838.0 1662.0,838.0" fill="none" stroke="#c0662b" stroke-width="2.2" stroke-opacity="1.0" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="1660.0" cy="394.0" r="3.5" fill="#c0662b"/>
+<polyline points="1660.0,398.0 1700.0,398.0 1700.0,966.0 1662.0,966.0" fill="none" stroke="#c0662b" stroke-width="2.2" stroke-opacity="0.7" stroke-dasharray="6 4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="1660.0" cy="398.0" r="3.5" fill="#c0662b"/>
+<rect x="1040" y="1110" width="640" height="660" rx="10" fill="#f5f8fd" stroke="#8fb3e6" stroke-width="2"/>
+<text x="1056" y="1132" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="19" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">用户地址空间（TTBR0）</text>
+<text x="1666" y="1132" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#1f4e8c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">sz = 0x15000 · 20 个用户页</text>
+<text x="1060" y="1162" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">TTBR0 页表根      pa 0x6eb8000</text>
+<text x="1060" y="1186" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">L1[0] → L2 页表  pa 0x6ecf000</text>
+<text x="1060" y="1210" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">L2[0] → L3 页表  pa 0x6ecc000</text>
+<text x="1060" y="1238" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#3d6fb0" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">叶子 flags 0x34b：用户可读写、可执行</text>
+<rect x="1190" y="1260" width="470" height="65.35922330097087" rx="6" fill="#e3ecfa" stroke="#8fb3e6" stroke-width="2"/>
+<text x="1206" y="1292.6796116504854" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">程序 /sh</text>
+<text x="1646" y="1292.6796116504854" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x0000–0x3000</text>
+<rect x="1190" y="1331.3592233009708" width="470" height="41.57281553398058" rx="6" fill="#ddf1ec" stroke="#7cc4b3" stroke-width="2"/>
+<text x="1206" y="1352.1456310679612" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">ld-xv6.so</text>
+<text x="1646" y="1352.1456310679612" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x3000–0x5000</text>
+<rect x="1190" y="1378.9320388349513" width="470" height="36" rx="6" fill="#f3f3f3" stroke="#bbb" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1206" y="1396.9320388349513" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">保护页（PTE_U 已清）</text>
+<text x="1646" y="1396.9320388349513" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x5000–0x6000</text>
+<rect x="1190" y="1420.9320388349513" width="470" height="89.14563106796116" rx="6" fill="#fdf0e6" stroke="#e3a77a" stroke-width="2"/>
+<text x="1206" y="1465.5048543689318" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">用户栈 4 页</text>
+<text x="1646" y="1465.5048543689318" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x6000–0xa000</text>
+<rect x="1190" y="1516.0776699029125" width="470" height="208.07766990291262" rx="6" fill="#ebe6f7" stroke="#a598d6" stroke-width="2"/>
+<text x="1206" y="1620.1165048543687" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">libc 代码</text>
+<text x="1646" y="1620.1165048543687" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0xa000–0x132ba</text>
+<rect x="1190" y="1730.1553398058252" width="470" height="36" rx="6" fill="#f4eefb" stroke="#c2b4e6" stroke-width="2"/>
+<text x="1206" y="1748.1553398058252" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#333" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">libc 数据 + 堆</text>
+<text x="1646" y="1748.1553398058252" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#555" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve">0x142c0–0x15000</text>
+<line x1="1190" y1="1492.2485436893203" x2="1660" y2="1492.2485436893203" stroke="#b0564a" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="1646" y="1480.2485436893203" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#b0564a" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">user sp 0x9830 → pa 0x6ea9830</text>
+<line x1="1190" y1="1578.5009708737862" x2="1660" y2="1578.5009708737862" stroke="#6a4bb5" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="1646" y="1566.5009708737862" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13.5" fill="#6a4bb5" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve">elr 0xe5bc → pa 0x6ea45bc</text>
+<polyline points="1080.0,704.0 1070.0,704.0 1070.0,1492.2 1186.0,1492.2" fill="none" stroke="#b0564a" stroke-width="2.2" stroke-opacity="0.8" stroke-linejoin="round" marker-end="url(#mb0564a)"/>
+<circle cx="1080.0" cy="704.0" r="3.5" fill="#b0564a"/>
+<polyline points="1080.0,648.0 1076.0,648.0 1076.0,1578.5 1186.0,1578.5" fill="none" stroke="#6a4bb5" stroke-width="2.2" stroke-opacity="0.8" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1080.0" cy="648.0" r="3.5" fill="#6a4bb5"/>
+<text x="1130" y="1270" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#555" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">VA 0x0</text>
+<text x="1130" y="1762.1553398058252" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#555" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve">VA 0x15000</text>
+<rect x="1710" y="110" width="620" height="1680" rx="16" fill="#fbfaf7" stroke="#e2ded4" stroke-width="1.5"/>
+<text x="2020.0" y="138" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="24" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve">内核虚拟地址（TTBR1）</text>
+<rect x="1720" y="170" width="600" height="600" rx="10" fill="#f6f6f6" stroke="#bbb" stroke-width="2"/>
+<text x="1740" y="200" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#555" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">MAXVA = 0xffffffc000000000（高地址）</text>
+<text x="1740" y="240" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#555" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">KSTACK(slot) = MAXVA − (slot+1)·0x2000：经页表映射</text>
+<rect x="1736" y="264" width="568" height="32" rx="6" fill="#ffffff" stroke="#c9c6bf" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="1748" y="280" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffffbffffe3000  未映射（保护）</text>
+<rect x="1736" y="304" width="568" height="32" rx="6" fill="#fff1e3" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="320" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffffbffffe2000  slot 14 内核栈 → pa 0x6ed2000</text>
+<rect x="1736" y="344" width="568" height="32" rx="6" fill="#ffffff" stroke="#c9c6bf" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="1748" y="360" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffffbffffe1000  未映射（保护）</text>
+<rect x="1736" y="384" width="568" height="32" rx="6" fill="#fff1e3" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="400" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffffbffffe0000  slot 15 内核栈 → pa 0x6ec0000</text>
+<text x="1740" y="440" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#555" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">…</text>
+<text x="1740" y="480" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#555" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">直接映射区：VA = KERNBASE + PA</text>
+<rect x="1736" y="504" width="568" height="32" rx="6" fill="#eef2fb" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="520" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006ed3000  pid 16 struct proc</text>
+<rect x="1736" y="544" width="568" height="32" rx="6" fill="#eef2fb" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="560" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006ed1000  pid 16 vmspace</text>
+<rect x="1736" y="584" width="568" height="32" rx="6" fill="#dcefe6" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="600" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006eb8000  页表根（两个时刻都用）</text>
+<rect x="1736" y="624" width="568" height="32" rx="6" fill="#eef2fb" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="640" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006eb7000  pid 17 struct proc</text>
+<rect x="1736" y="664" width="568" height="32" rx="6" fill="#eef2fb" stroke="#c9c6bf" stroke-width="1.2"/>
+<text x="1748" y="680" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xffffff8006eb5000  pid 17 vmspace</text>
+<text x="1740" y="720" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14.5" fill="#555" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">KERNBASE = 0xffffff8000000000（低地址）</text>
+<rect x="1720" y="810" width="600" height="520" rx="10" fill="#fff7ef" stroke="#e3a77a" stroke-width="2"/>
+<text x="1736" y="836" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">context.sp 什么时候变</text>
+<text x="1740" y="876" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">fork 后（本图）</text>
+<text x="1890" y="876" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">context.sp = trapframe 地址 …ef0</text>
+<text x="1740" y="914" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">第一次调度</text>
+<text x="1890" y="914" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">swtch 载入它 → forkret → usertrapret</text>
+<text x="1890" y="952" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ eret 回到 EL0，SP_EL1 回到栈顶</text>
+<text x="1740" y="990" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">每次 svc / 中断</text>
+<text x="1890" y="990" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">el0sync：SP_EL1 = 栈顶，sub sp, #272</text>
+<text x="1890" y="1028" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ trapframe 总在同一位置被重写</text>
+<text x="1890" y="1066" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">context.sp 不变（只有 swtch 写它）</text>
+<text x="1740" y="1104" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">系统调用里睡眠</text>
+<text x="1890" y="1104" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sleep → sched → swtch(&amp;p-&gt;context, …)</text>
+<text x="1890" y="1142" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">context.sp ← 当时的 sp，低于 trapframe</text>
+<text x="1740" y="1180" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">被唤醒再调度</text>
+<text x="1890" y="1180" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">swtch 恢复 → 从 sched 返回 → syscall</text>
+<text x="1890" y="1218" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ usertrapret 用 trapframe 回到 EL0</text>
+<text x="1740" y="1256" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">被时钟抢占</text>
+<text x="1890" y="1256" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14.5" fill="#5c2f0a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">el0irq → yield → sched：同样更新</text>
+<rect x="1720" y="1360" width="600" height="410" rx="10" fill="#fdf6ee" stroke="#e0b066" stroke-width="2"/>
+<text x="1736" y="1386" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#7a4e0a" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">物理页复用（见下方粗框列）</text>
+<rect x="1732" y="1408" width="576" height="36" rx="6" fill="#ffffff" stroke="#ead2a8" stroke-width="1.2"/>
+<text x="1742" y="1426" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5f420f" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x6eb8000</text>
+<text x="1860" y="1426" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid 16 页表根</text>
+<text x="2080" y="1426" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ pid 17 页表根</text>
+<rect x="1732" y="1454" width="576" height="36" rx="6" fill="#ffffff" stroke="#ead2a8" stroke-width="1.2"/>
+<text x="1742" y="1472" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5f420f" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x6eb5000</text>
+<text x="1860" y="1472" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid 16 L2 页表</text>
+<text x="2080" y="1472" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ pid 17 vmspace</text>
+<rect x="1732" y="1500" width="576" height="36" rx="6" fill="#ffffff" stroke="#ead2a8" stroke-width="1.2"/>
+<text x="1742" y="1518" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5f420f" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x6ec0000</text>
+<text x="1860" y="1518" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid 16 L3 页表</text>
+<text x="2080" y="1518" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ pid 17 内核栈</text>
+<rect x="1732" y="1546" width="576" height="36" rx="6" fill="#ffffff" stroke="#ead2a8" stroke-width="1.2"/>
+<text x="1742" y="1564" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="14" fill="#5f420f" font-weight="700" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x6eb7000</text>
+<text x="1860" y="1564" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid 16 用户页 0x13000</text>
+<text x="2080" y="1564" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="14" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ pid 17 struct proc</text>
+<text x="1740" y="1620" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pid 16 exec sh 时释放旧 init 映像；</text>
+<text x="1740" y="1648" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sh fork pid 17 时 kalloc 后进先出，</text>
+<text x="1740" y="1676" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">先发出的正是这几页。两份快照的</text>
+<text x="1740" y="1704" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">root-pa 相同，并不是共享页表。</text>
+<text x="1175.0" y="2478" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="22" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve">↑ 物理内存（每列一页，地址从左到右递增）</text>
+<rect x="91.0" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="110.0925925925926" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 110.0925925925926 2087.0)">0x6e9e000</text>
+<rect x="91.5" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="110.5925925925926" y="2148" width="18.09259259259259" height="300" rx="3" fill="#f4effb" stroke="#4d3f8a" stroke-width="0.8"/>
+<text x="119.63888888888889" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#4d3f8a" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 119.63888888888889 2156)">VA 0x14000 libc 数据/堆</text>
+<rect x="131.1851851851852" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="150.27777777777777" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 150.27777777777777 2087.0)">0x6e9f000</text>
+<rect x="131.6851851851852" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="150.77777777777777" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="159.82407407407408" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 159.82407407407408 2156)">VA 0x13000 libc 代码</text>
+<rect x="171.37037037037038" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="190.46296296296296" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 190.46296296296296 2087.0)">0x6ea0000</text>
+<rect x="171.87037037037038" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="190.96296296296296" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="200.00925925925927" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 200.00925925925927 2156)">VA 0x12000 libc 代码</text>
+<rect x="211.55555555555554" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="230.64814814814812" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 230.64814814814812 2087.0)">0x6ea1000</text>
+<rect x="212.05555555555554" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="231.14814814814812" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="240.19444444444443" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 240.19444444444443 2156)">VA 0x11000 libc 代码</text>
+<rect x="251.74074074074073" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="270.8333333333333" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 270.8333333333333 2087.0)">0x6ea2000</text>
+<rect x="252.24074074074073" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="271.3333333333333" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="280.3796296296296" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 280.3796296296296 2156)">VA 0x10000 libc 代码</text>
+<rect x="291.9259259259259" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="311.01851851851853" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 311.01851851851853 2087.0)">0x6ea3000</text>
+<rect x="292.4259259259259" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="311.51851851851853" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="320.56481481481484" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 320.56481481481484 2156)">VA 0xf000 libc 代码</text>
+<rect x="332.1111111111111" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="351.2037037037037" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 351.2037037037037 2087.0)">0x6ea4000</text>
+<rect x="332.6111111111111" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="351.7037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="360.75" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 360.75 2156)">VA 0xe000 libc 代码</text>
+<rect x="372.2962962962963" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="391.3888888888889" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 391.3888888888889 2087.0)">0x6ea5000</text>
+<rect x="372.7962962962963" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="391.8888888888889" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="400.9351851851852" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 400.9351851851852 2156)">VA 0xd000 libc 代码</text>
+<rect x="412.48148148148147" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="431.5740740740741" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 431.5740740740741 2087.0)">0x6ea6000</text>
+<rect x="412.98148148148147" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="432.0740740740741" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="441.1203703703704" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 441.1203703703704 2156)">VA 0xc000 libc 代码</text>
+<rect x="452.66666666666663" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="471.75925925925924" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 471.75925925925924 2087.0)">0x6ea7000</text>
+<rect x="453.16666666666663" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="472.25925925925924" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="481.30555555555554" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 481.30555555555554 2156)">VA 0xb000 libc 代码</text>
+<rect x="492.85185185185185" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="511.94444444444446" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 511.94444444444446 2087.0)">0x6ea8000</text>
+<rect x="493.35185185185185" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="512.4444444444445" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="521.4907407407408" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 521.4907407407408 2156)">VA 0xa000 libc 代码</text>
+<rect x="533.037037037037" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="552.1296296296296" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 552.1296296296296 2087.0)">0x6ea9000</text>
+<rect x="533.537037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="552.6296296296296" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="561.6759259259259" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 561.6759259259259 2156)">VA 0x9000 栈</text>
+<rect x="573.2222222222222" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="592.3148148148148" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 592.3148148148148 2087.0)">0x6eaa000</text>
+<rect x="573.7222222222222" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="592.8148148148148" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="601.8611111111111" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 601.8611111111111 2156)">VA 0x8000 栈</text>
+<rect x="613.4074074074074" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="632.5" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 632.5 2087.0)">0x6eab000</text>
+<rect x="613.9074074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="633.0" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="653.5925925925926" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="672.6851851851852" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 672.6851851851852 2087.0)">0x6eac000</text>
+<rect x="654.0925925925926" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="673.1851851851852" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="693.7777777777777" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="712.8703703703703" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 712.8703703703703 2087.0)">0x6ead000</text>
+<rect x="694.2777777777777" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="703.324074074074" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 703.324074074074 2156)">VA 0xb000 libc 代码</text>
+<rect x="713.3703703703703" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="733.9629629629629" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="753.0555555555555" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 753.0555555555555 2087.0)">0x6eae000</text>
+<rect x="734.4629629629629" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="743.5092592592592" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 743.5092592592592 2156)">VA 0xc000 libc 代码</text>
+<rect x="753.5555555555555" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="774.1481481481482" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="793.2407407407408" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 793.2407407407408 2087.0)">0x6eaf000</text>
+<rect x="774.6481481481482" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="783.6944444444445" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 783.6944444444445 2156)">VA 0xd000 libc 代码</text>
+<rect x="793.7407407407408" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="814.3333333333333" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="833.4259259259259" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 833.4259259259259 2087.0)">0x6eb0000</text>
+<rect x="814.8333333333333" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="823.8796296296296" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 823.8796296296296 2156)">VA 0xe000 libc 代码</text>
+<rect x="833.9259259259259" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="854.5185185185185" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="873.6111111111111" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 873.6111111111111 2087.0)">0x6eb1000</text>
+<rect x="855.0185185185185" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="864.0648148148148" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 864.0648148148148 2156)">VA 0xf000 libc 代码</text>
+<rect x="874.1111111111111" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="894.7037037037037" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="913.7962962962963" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 913.7962962962963 2087.0)">0x6eb2000</text>
+<rect x="895.2037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="904.25" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 904.25 2156)">VA 0x10000 libc 代码</text>
+<rect x="914.2962962962963" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="934.8888888888888" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="953.9814814814814" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 953.9814814814814 2087.0)">0x6eb3000</text>
+<rect x="935.3888888888888" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="944.4351851851851" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 944.4351851851851 2156)">VA 0x11000 libc 代码</text>
+<rect x="954.4814814814814" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="975.074074074074" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="994.1666666666666" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 994.1666666666666 2087.0)">0x6eb4000</text>
+<rect x="975.574074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="984.6203703703703" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 984.6203703703703 2156)">VA 0x12000 libc 代码</text>
+<rect x="994.6666666666666" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1015.2592592592592" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#14213D" stroke-width="2.4"/>
+<text x="1034.3518518518517" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1034.3518518518517 2087.0)">0x6eb5000</text>
+<rect x="1015.7592592592592" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#14213D" stroke-width="2"/>
+<text x="1024.8055555555554" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1024.8055555555554 2156)">L2 页表</text>
+<rect x="1034.8518518518517" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dfe8f8" stroke="#14213D" stroke-width="2"/>
+<text x="1043.898148148148" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1f4e8c" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1043.898148148148 2156)">vmspace</text>
+<rect x="1055.4444444444443" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1074.537037037037" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1074.537037037037 2087.0)">0x6eb6000</text>
+<rect x="1055.9444444444443" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e9eefb" stroke="#2c4d86" stroke-width="0.8"/>
+<text x="1064.9907407407406" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#2c4d86" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1064.9907407407406 2156)">VA 0x0 程序</text>
+<rect x="1075.037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1095.6296296296296" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#14213D" stroke-width="2.4"/>
+<text x="1114.7222222222222" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1114.7222222222222 2087.0)">0x6eb7000</text>
+<rect x="1096.1296296296296" y="2148" width="18.09259259259259" height="300" rx="3" fill="#f4effb" stroke="#14213D" stroke-width="2"/>
+<text x="1105.1759259259259" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#4d3f8a" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1105.1759259259259 2156)">VA 0x13000 libc 数据/堆</text>
+<rect x="1115.2222222222222" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dfe8f8" stroke="#14213D" stroke-width="2"/>
+<text x="1124.2685185185185" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1f4e8c" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1124.2685185185185 2156)">struct proc</text>
+<rect x="1135.8148148148148" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#14213D" stroke-width="2.4"/>
+<text x="1154.9074074074074" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1154.9074074074074 2087.0)">0x6eb8000</text>
+<rect x="1136.3148148148148" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#14213D" stroke-width="2"/>
+<text x="1145.361111111111" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1145.361111111111 2156)">页表根 L1</text>
+<rect x="1155.4074074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#14213D" stroke-width="2"/>
+<text x="1164.4537037037037" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1164.4537037037037 2156)">页表根 L1</text>
+<rect x="1176.0" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1195.0925925925926" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1195.0925925925926 2087.0)">0x6eb9000</text>
+<rect x="1176.5" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="1185.5462962962963" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1185.5462962962963 2156)">VA 0xa000 libc 代码</text>
+<rect x="1195.5925925925926" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1216.1851851851852" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1235.2777777777778" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1235.2777777777778 2087.0)">0x6eba000</text>
+<rect x="1216.6851851851852" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="1225.7314814814815" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1225.7314814814815 2156)">VA 0x6000 栈</text>
+<rect x="1235.7777777777778" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1256.3703703703702" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1275.4629629629628" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1275.4629629629628 2087.0)">0x6ebb000</text>
+<rect x="1256.8703703703702" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="1265.9166666666665" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1265.9166666666665 2156)">VA 0x5000 栈</text>
+<rect x="1275.9629629629628" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1296.5555555555554" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1315.648148148148" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1315.648148148148 2087.0)">0x6ebc000</text>
+<rect x="1297.0555555555554" y="2148" width="18.09259259259259" height="300" rx="3" fill="#f0f0f0" stroke="#777" stroke-width="0.8" stroke-dasharray="7 5"/>
+<text x="1306.1018518518517" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#777" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1306.1018518518517 2156)">VA 0x4000 保护页?</text>
+<rect x="1316.148148148148" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1336.7407407407406" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1355.8333333333333" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1355.8333333333333 2087.0)">0x6ebd000</text>
+<rect x="1337.2407407407406" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e1f3ee" stroke="#1d5a50" stroke-width="0.8"/>
+<text x="1346.287037037037" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1d5a50" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1346.287037037037 2156)">VA 0x3000 ld-xv6</text>
+<rect x="1356.3333333333333" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1376.9259259259259" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1396.0185185185185" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1396.0185185185185 2087.0)">0x6ebe000</text>
+<rect x="1377.4259259259259" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e1f3ee" stroke="#1d5a50" stroke-width="0.8"/>
+<text x="1386.4722222222222" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1d5a50" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1386.4722222222222 2156)">VA 0x2000 ld-xv6</text>
+<rect x="1396.5185185185185" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1417.111111111111" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1436.2037037037037" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1436.2037037037037 2087.0)">0x6ebf000</text>
+<rect x="1417.611111111111" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e9eefb" stroke="#2c4d86" stroke-width="0.8"/>
+<text x="1426.6574074074074" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#2c4d86" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1426.6574074074074 2156)">VA 0x1000 程序</text>
+<rect x="1436.7037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1457.2962962962963" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#14213D" stroke-width="2.4"/>
+<text x="1476.388888888889" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1476.388888888889 2087.0)">0x6ec0000</text>
+<rect x="1457.7962962962963" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#14213D" stroke-width="2"/>
+<text x="1466.8425925925926" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1466.8425925925926 2156)">L3 页表</text>
+<rect x="1476.888888888889" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fde6d2" stroke="#14213D" stroke-width="2"/>
+<text x="1485.9351851851852" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="700" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1485.9351851851852 2156)">内核栈</text>
+<rect x="1497.4814814814815" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1516.5740740740741" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1516.5740740740741 2087.0)">0x6ec1000</text>
+<rect x="1497.9814814814815" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1517.0740740740741" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e9eefb" stroke="#2c4d86" stroke-width="0.8"/>
+<text x="1526.1203703703704" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#2c4d86" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1526.1203703703704 2156)">VA 0x0 程序</text>
+<rect x="1537.6666666666665" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1556.7592592592591" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1556.7592592592591 2087.0)">0x6ec2000</text>
+<rect x="1538.1666666666665" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1557.2592592592591" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1577.8518518518517" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1596.9444444444443" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1596.9444444444443 2087.0)">0x6ec3000</text>
+<rect x="1578.3518518518517" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1597.4444444444443" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="1606.4907407407406" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1606.4907407407406 2156)">VA 0x7000 栈</text>
+<rect x="1618.037037037037" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1637.1296296296296" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1637.1296296296296 2087.0)">0x6ec4000</text>
+<rect x="1618.537037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1637.6296296296296" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1658.2222222222222" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1677.3148148148148" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1677.3148148148148 2087.0)">0x6ec5000</text>
+<rect x="1658.7222222222222" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1677.8148148148148" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1698.4074074074074" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1717.5" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1717.5 2087.0)">0x6ec6000</text>
+<rect x="1698.9074074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1718.0" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="1727.0462962962963" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1727.0462962962963 2156)">VA 0x6000 栈</text>
+<rect x="1738.5925925925926" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1757.6851851851852" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1757.6851851851852 2087.0)">0x6ec7000</text>
+<rect x="1739.0925925925926" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1758.1851851851852" y="2148" width="18.09259259259259" height="300" rx="3" fill="#f0f0f0" stroke="#777" stroke-width="0.8" stroke-dasharray="7 5"/>
+<text x="1767.2314814814815" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#777" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1767.2314814814815 2156)">VA 0x5000 保护页?</text>
+<rect x="1778.7777777777776" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1797.8703703703702" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1797.8703703703702 2087.0)">0x6ec8000</text>
+<rect x="1779.2777777777776" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1798.3703703703702" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e1f3ee" stroke="#1d5a50" stroke-width="0.8"/>
+<text x="1807.4166666666665" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1d5a50" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1807.4166666666665 2156)">VA 0x4000 ld-xv6</text>
+<rect x="1818.9629629629628" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1838.0555555555554" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1838.0555555555554 2087.0)">0x6ec9000</text>
+<rect x="1819.4629629629628" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1838.5555555555554" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e1f3ee" stroke="#1d5a50" stroke-width="0.8"/>
+<text x="1847.6018518518517" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1d5a50" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1847.6018518518517 2156)">VA 0x3000 ld-xv6</text>
+<rect x="1859.148148148148" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1878.2407407407406" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1878.2407407407406 2087.0)">0x6eca000</text>
+<rect x="1859.648148148148" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1878.7407407407406" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e9eefb" stroke="#2c4d86" stroke-width="0.8"/>
+<text x="1887.787037037037" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#2c4d86" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1887.787037037037 2156)">VA 0x2000 程序</text>
+<rect x="1899.3333333333333" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1918.4259259259259" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1918.4259259259259 2087.0)">0x6ecb000</text>
+<rect x="1899.8333333333333" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1918.9259259259259" y="2148" width="18.09259259259259" height="300" rx="3" fill="#e9eefb" stroke="#2c4d86" stroke-width="0.8"/>
+<text x="1927.9722222222222" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#2c4d86" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1927.9722222222222 2156)">VA 0x1000 程序</text>
+<rect x="1939.5185185185185" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1958.611111111111" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1958.611111111111 2087.0)">0x6ecc000</text>
+<rect x="1940.0185185185185" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="1959.111111111111" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#145f53" stroke-width="0.8"/>
+<text x="1968.1574074074074" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1968.1574074074074 2156)">L3 页表</text>
+<rect x="1979.7037037037037" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="1998.7962962962963" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1998.7962962962963 2087.0)">0x6ecd000</text>
+<rect x="1980.2037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="1989.25" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 1989.25 2156)">VA 0x7000 栈</text>
+<rect x="1999.2962962962963" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2019.8888888888887" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2038.9814814814813" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2038.9814814814813 2087.0)">0x6ece000</text>
+<rect x="2020.3888888888887" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fdf0e6" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="2029.435185185185" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2029.435185185185 2156)">VA 0x8000 栈</text>
+<rect x="2039.4814814814813" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2060.074074074074" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2079.1666666666665" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2079.1666666666665 2087.0)">0x6ecf000</text>
+<rect x="2060.574074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2079.6666666666665" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dcefe6" stroke="#145f53" stroke-width="0.8"/>
+<text x="2088.7129629629626" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#145f53" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2088.7129629629626 2156)">L2 页表</text>
+<rect x="2100.259259259259" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2119.3518518518517" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2119.3518518518517 2087.0)">0x6ed0000</text>
+<rect x="2100.759259259259" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ece7f8" stroke="#3d2f84" stroke-width="0.8"/>
+<text x="2109.805555555555" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2109.805555555555 2156)">VA 0x9000 libc 代码</text>
+<rect x="2119.8518518518517" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2140.4444444444443" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2159.537037037037" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2159.537037037037 2087.0)">0x6ed1000</text>
+<rect x="2140.9444444444443" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dfe8f8" stroke="#1f4e8c" stroke-width="0.8"/>
+<text x="2149.9907407407404" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1f4e8c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2149.9907407407404 2156)">vmspace</text>
+<rect x="2160.037037037037" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2180.6296296296296" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2199.722222222222" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2199.722222222222 2087.0)">0x6ed2000</text>
+<rect x="2181.1296296296296" y="2148" width="18.09259259259259" height="300" rx="3" fill="#fde6d2" stroke="#7a3d0c" stroke-width="0.8"/>
+<text x="2190.1759259259256" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2190.1759259259256 2156)">内核栈</text>
+<rect x="2200.222222222222" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<rect x="2220.814814814815" y="2030" width="38.18518518518518" height="114" rx="3" fill="#f7f6f2" stroke="#d8d4ca" stroke-width="1"/>
+<text x="2239.9074074074074" y="2087.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="13" fill="#14213D" font-weight="400" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2239.9074074074074 2087.0)">0x6ed3000</text>
+<rect x="2221.314814814815" y="2148" width="18.09259259259259" height="300" rx="3" fill="#dfe8f8" stroke="#1f4e8c" stroke-width="0.8"/>
+<text x="2230.361111111111" y="2156" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="12" fill="#1f4e8c" font-weight="400" text-anchor="end" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 2230.361111111111 2156)">struct proc</text>
+<rect x="2240.4074074074074" y="2148" width="18.09259259259259" height="300" rx="3" fill="#ffffff" stroke="#eeebe4" stroke-width="0.8"/>
+<text x="78" y="2298.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#555" font-weight="700" text-anchor="middle" dominant-baseline="central" xml:space="preserve" transform="rotate(-90 78 2298.0)">左半格 = t1（pid 16 快照）· 右半格 = t2（pid 17 快照）</text>
+<polyline points="198.0,224.0 32.0,224.0 32.0,1816.0 2222.8,1816.0 2222.8,2026.0" fill="none" stroke="#1f4e8c" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m1f4e8c)"/>
+<circle cx="198.0" cy="224.0" r="3.5" fill="#1f4e8c"/>
+<polyline points="198.0,329.0 48.7,329.0 48.7,1825.0 2142.4,1825.0 2142.4,2026.0" fill="none" stroke="#1f4e8c" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m1f4e8c)"/>
+<circle cx="198.0" cy="329.0" r="3.5" fill="#1f4e8c"/>
+<polyline points="198.0,368.0 65.3,368.0 65.3,1834.0 2223.5,1834.0 2223.5,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="198.0" cy="368.0" r="3.5" fill="#c0662b"/>
+<polyline points="198.0,562.0 82.0,562.0 82.0,1843.0 2182.6,1843.0 2182.6,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="198.0" cy="562.0" r="3.5" fill="#c0662b"/>
+<polyline points="198.0,838.0 98.7,838.0 98.7,1852.0 2196.7,1852.0 2196.7,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="198.0" cy="838.0" r="3.5" fill="#c0662b"/>
+<polyline points="198.0,1162.0 115.3,1162.0 115.3,1861.0 1137.8,1861.0 1137.8,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="198.0" cy="1162.0" r="3.5" fill="#18897a"/>
+<polyline points="198.0,1186.0 132.0,1186.0 132.0,1870.0 1017.3,1870.0 1017.3,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="198.0" cy="1186.0" r="3.5" fill="#18897a"/>
+<polyline points="198.0,1210.0 148.7,1210.0 148.7,1879.0 1459.3,1879.0 1459.3,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="198.0" cy="1210.0" r="3.5" fill="#18897a"/>
+<polyline points="198.0,1477.2 165.3,1477.2 165.3,1888.0 2031.1,1888.0 2031.1,2026.0" fill="none" stroke="#b0564a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mb0564a)"/>
+<circle cx="198.0" cy="1477.2" r="3.5" fill="#b0564a"/>
+<polyline points="198.0,1567.7 182.0,1567.7 182.0,1897.0 781.6,1897.0 781.6,2026.0" fill="none" stroke="#6a4bb5" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="198.0" cy="1567.7" r="3.5" fill="#6a4bb5"/>
+<polyline points="1038.0,224.0 872.0,224.0 872.0,1906.0 1116.7,1906.0 1116.7,2026.0" fill="none" stroke="#1f4e8c" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m1f4e8c)"/>
+<circle cx="1038.0" cy="224.0" r="3.5" fill="#1f4e8c"/>
+<polyline points="1038.0,329.0 888.7,329.0 888.7,1915.0 1036.4,1915.0 1036.4,2026.0" fill="none" stroke="#1f4e8c" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m1f4e8c)"/>
+<circle cx="1038.0" cy="329.0" r="3.5" fill="#1f4e8c"/>
+<polyline points="1038.0,368.0 905.3,368.0 905.3,1924.0 1117.4,1924.0 1117.4,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="1038.0" cy="368.0" r="3.5" fill="#c0662b"/>
+<polyline points="1038.0,562.0 922.0,562.0 922.0,1933.0 1478.4,1933.0 1478.4,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="1038.0" cy="562.0" r="3.5" fill="#c0662b"/>
+<polyline points="1038.0,838.0 938.7,838.0 938.7,1942.0 1492.5,1942.0 1492.5,2026.0" fill="none" stroke="#c0662b" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="1038.0" cy="838.0" r="3.5" fill="#c0662b"/>
+<polyline points="1038.0,1162.0 955.3,1162.0 955.3,1951.0 1156.9,1951.0 1156.9,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1038.0" cy="1162.0" r="3.5" fill="#18897a"/>
+<polyline points="1038.0,1186.0 972.0,1186.0 972.0,1960.0 2081.2,1960.0 2081.2,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1038.0" cy="1186.0" r="3.5" fill="#18897a"/>
+<polyline points="1038.0,1210.0 988.7,1210.0 988.7,1969.0 1960.6,1969.0 1960.6,2026.0" fill="none" stroke="#18897a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1038.0" cy="1210.0" r="3.5" fill="#18897a"/>
+<polyline points="1038.0,1492.2 1005.3,1492.2 1005.3,1978.0 561.9,1978.0 561.9,2026.0" fill="none" stroke="#b0564a" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#mb0564a)"/>
+<circle cx="1038.0" cy="1492.2" r="3.5" fill="#b0564a"/>
+<polyline points="1038.0,1578.5 1022.0,1578.5 1022.0,1987.0 358.6,1987.0 358.6,2026.0" fill="none" stroke="#6a4bb5" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1038.0" cy="1578.5" r="3.5" fill="#6a4bb5"/>
+<text x="40" y="2524" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="16.5" fill="#444" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">• 内核对象：直接映射区 VA − 0xffffff8000000000 = PA（struct proc、vmspace、页表）；内核栈在 KSTACK 槽，经内核页表映射：0xffffffbffffe2000 → 0x6ed2000，0xffffffbffffe0000 → 0x6ec0000。</text>
+<text x="40" y="2558" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="16.5" fill="#444" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">• p-&gt;context 在 struct proc 内部（+0xb0），所以箭头落在 proc 那一页；trapframe 和 context.sp（fork 时）落在内核栈那一页的 +0xef0 处。</text>
+<text x="40" y="2592" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="16.5" fill="#444" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">• 用户地址：查 L3 叶子再加页内偏移。pid 16：sp 0x89d0 → 0x6ece9d0，elr 0xd5bc → 0x6eaf5bc；pid 17：sp 0x9830 → 0x6ea9830，elr 0xe5bc → 0x6ea45bc。</text>
+<text x="40" y="2626" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="16.5" fill="#444" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">• 空白半格 = 该时刻快照里没有出现这一页；“?” = 保护页，按页号空缺推测（exec 分配了它，但清掉 PTE_U，dump 不打印）。粗框 = 两个时刻用途不同的复用页。</text>
+</svg>

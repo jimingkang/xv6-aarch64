@@ -10,7 +10,7 @@
   \item 固件自带的 64 位 armstub 会先把核从 EL3 降到 EL2，因此内核通常在 EL2 拿到控制权；QEMU 也是如此。
 \end{enumerate}
 
-项目早期曾使用自制的极简 armstub（\file{kernel/armstub.S}），它只做一次跳转、保留在 EL3。后来发现这样做会让固件的 property mailbox 在真机上完全没有响应——而 SD 时钟查询、USB 上电、摄像头供电都依赖 mailbox。所以现在直接使用固件自带的 armstub，内核启动代码则要能同时处理 EL3、EL2 两种入口。
+项目早期曾使用自制的极简 armstub（\file{kernel/arch/arm64/armstub.S}），它只做一次跳转、保留在 EL3。后来发现这样做会让固件的 property mailbox 在真机上完全没有响应——而 SD 时钟查询、USB 上电、摄像头供电都依赖 mailbox。所以现在直接使用固件自带的 armstub，内核启动代码则要能同时处理 EL3、EL2 两种入口。
 
 \paragraph{固件、\code{config.txt} 与镜像文件名.} 树莓派的固件是闭源的，ARM 一侧能控制它的只有启动分区里的 \code{config.txt}。从一张空白 SD 卡启动一个裸机内核，至少需要四个文件：GPU 引导程序 \code{bootcode.bin}、GPU 固件 \code{start.elf}、\code{config.txt} 和内核镜像。固件根据镜像文件名决定 CPU 的执行状态：以 \code{8} 结尾的 \code{kernel8.img} 表示 ARMv8，固件会让四个核以 AArch64 状态启动；本项目用 \code{kernel=} 指定了自己的文件名，同时写了 \code{arm\_64bit=1}。
 
@@ -87,7 +87,7 @@ AArch64 有四个异常级别：EL0 运行用户程序，EL1 运行操作系统�
 
 调试启动代码时，一个简单而有用的手段是读出 \reg{CurrentEL}：当前级别保存在它的第 [3:2] 位，右移 2 位即得 0～3。用不同的固件或 \code{config.txt} 启动时，读到的值可能是 3 或 2，下面的代码对两者都要处理：
 
-\file{kernel/entry.S} 的第一件事就是读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进入，都降到 EL1：
+\file{kernel/arch/arm64/entry.S} 的第一件事就是读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进入，都降到 EL1：
 
 \begin{asmcode}
 _entry:

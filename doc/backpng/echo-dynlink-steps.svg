@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2010" height="1432" viewBox="0 0 2010 1432">
+<defs><marker id="mc0662b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0662b"/></marker><marker id="m6a4bb5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6a4bb5"/></marker><marker id="m18897a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#18897a"/></marker></defs>
+<rect width="2010" height="1432" fill="#ffffff"/>
+<text x="1005.0" y="46" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="32" fill="#222" font-weight="700" text-anchor="middle" dominant-baseline="central" >运行时动态链接：/bin/echo 如何调用到 libc.so 里的 exit()</text>
+<text x="1005.0" y="90" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#777" font-weight="400" text-anchor="middle" dominant-baseline="central" >内核 exec（①–③） → 用户态 ld-xv6（④–⑥） → 程序运行（⑦–⑧） · 地址取自 readelf，libc 基址 0x9000</text>
+<text x="205.0" y="140" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="22" fill="#333" font-weight="700" text-anchor="middle" dominant-baseline="central" >内核 / 磁盘</text>
+<text x="940.0" y="140" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="22" fill="#333" font-weight="700" text-anchor="middle" dominant-baseline="central" >进程虚拟地址空间（地址向下增长，未按比例）</text>
+<text x="1735.0" y="125" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="22" fill="#333" font-weight="700" text-anchor="middle" dominant-baseline="central" >步骤</text>
+<rect x="640" y="170" width="600" height="160" rx="10" fill="#e3ecfa" stroke="#8fb3e6" stroke-width="2"/>
+<text x="654" y="192.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#1f4e8c" font-weight="700" text-anchor="start" dominant-baseline="central" >/bin/echo · LOAD #1 · R-X</text>
+<text x="1228" y="192.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#1f4e8c" font-weight="400" text-anchor="end" dominant-baseline="central" >0x0000–0x0358</text>
+<rect x="648" y="211.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="224.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.hash .dynsym .dynstr    [2] exit  UND</text>
+<text x="660" y="251.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.rela.plt  0x14a0  JUMP_SLOT  sym=2</text>
+<rect x="648" y="265.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="278.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x2a8 exit@plt: ldr x17,[0x14a0]; br x17</text>
+<text x="660" y="305.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#284f80" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x2c8 main … 0x304: bl exit@plt</text>
+<rect x="640" y="348" width="600" height="160" rx="10" fill="#fbebd0" stroke="#e0b066" stroke-width="2"/>
+<text x="654" y="370.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#7a4e0a" font-weight="700" text-anchor="start" dominant-baseline="central" >/bin/echo · LOAD #2 · RW-</text>
+<text x="1228" y="370.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#7a4e0a" font-weight="400" text-anchor="end" dominant-baseline="central" >0x1358–0x14b0</text>
+<rect x="648" y="389.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="402.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.dynamic NEEDED libc.so · SYMTAB · HASH · JMPREL</text>
+<text x="660" y="429.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.got.plt 0x1498 write   0x278 → 0xc250</text>
+<rect x="648" y="443.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="456.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">         0x14a0 exit    0x278 → 0xccc0</text>
+<text x="660" y="483.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5f420f" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">         0x14a8 strlen  0x278 → 0xcde0</text>
+<rect x="640" y="526" width="600" height="106" rx="10" fill="#ddf1ec" stroke="#7cc4b3" stroke-width="2"/>
+<text x="654" y="548.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#145f53" font-weight="700" text-anchor="start" dominant-baseline="central" >/lib/ld-xv6.so（AT_BASE）</text>
+<text x="1228" y="548.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#145f53" font-weight="400" text-anchor="end" dominant-baseline="central" >0x2000–0x3d20</text>
+<rect x="648" y="567.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="580.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#1d5a50" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0x2750 ldso_start   = 0x2000 + e_entry 0x750</text>
+<text x="660" y="607.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#1d5a50" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">parse_dynamic · load_libc · relocate · lookup</text>
+<rect x="640" y="650" width="600" height="79" rx="10" fill="#f3f3f3" stroke="#c4c4c4" stroke-width="2"/>
+<text x="654" y="672.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#666" font-weight="700" text-anchor="start" dominant-baseline="central" >保护页</text>
+<text x="1228" y="672.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#666" font-weight="400" text-anchor="end" dominant-baseline="central" >0x4000–0x5000</text>
+<rect x="648" y="691.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="704.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#777" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">去掉 PTE_U：栈溢出立即缺页</text>
+<rect x="640" y="747" width="600" height="160" rx="10" fill="#fdf0e6" stroke="#e3a77a" stroke-width="2"/>
+<text x="654" y="769.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#7a3d0c" font-weight="700" text-anchor="start" dominant-baseline="central" >用户栈（4 页）</text>
+<text x="1228" y="769.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#7a3d0c" font-weight="400" text-anchor="end" dominant-baseline="central" >0x5000–0x9000</text>
+<rect x="648" y="788.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="801.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#6a3810" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">sp → argc 由 x0 传 · argv[] · NULL · envp NULL</text>
+<text x="660" y="828.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#6a3810" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">auxv  AT_PHDR=0x40  AT_PHENT=56  AT_PHNUM=5</text>
+<rect x="648" y="842.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="855.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#6a3810" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">      AT_BASE=0x2000  AT_ENTRY=0x2c8  AT_NULL</text>
+<text x="660" y="882.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#6a3810" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">argv 字符串 &quot;echo&quot; &quot;hi&quot; …（靠近栈顶 0x9000）</text>
+<rect x="640" y="925" width="600" height="160" rx="10" fill="#ebe6f7" stroke="#a598d6" stroke-width="2"/>
+<text x="654" y="947.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#3d2f84" font-weight="700" text-anchor="start" dominant-baseline="central" >libc.so · 代码 · R-X（sbrk 所得）</text>
+<text x="1228" y="947.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#3d2f84" font-weight="400" text-anchor="end" dominant-baseline="central" >0x9000–0x122ba</text>
+<rect x="648" y="966.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="979.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#3d3570" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.hash .dynsym .dynstr   exit: st_value 0x3cc0</text>
+<text x="660" y="1006.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#3d3570" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xc250 write    = 0x9000 + 0x3250</text>
+<rect x="648" y="1020.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="1033.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#3d3570" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xccc0 exit     = 0x9000 + 0x3cc0  … svc #0</text>
+<text x="660" y="1060.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#3d3570" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">0xcde0 strlen   = 0x9000 + 0x3de0</text>
+<rect x="640" y="1103" width="600" height="79" rx="10" fill="#f4eefb" stroke="#c2b4e6" stroke-width="2"/>
+<text x="654" y="1125.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#4d3f8a" font-weight="700" text-anchor="start" dominant-baseline="central" >libc.so · 数据 · RW-</text>
+<text x="1228" y="1125.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#4d3f8a" font-weight="400" text-anchor="end" dominant-baseline="central" >0x132c0–0x13650</text>
+<rect x="648" y="1144.0" width="584" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="660" y="1157.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#4d3f8a" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.dynamic · .got.plt 71 槽（ld-xv6 先填 libc 自己的）</text>
+<rect x="40" y="170" width="330" height="133" rx="10" fill="#3b3b3b" stroke="#222" stroke-width="2"/>
+<text x="54" y="192.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#ffffff" font-weight="700" text-anchor="start" dominant-baseline="central" >内核 exec()</text>
+<text x="358" y="192.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#ffffff" font-weight="400" text-anchor="end" dominant-baseline="central" >EL1</text>
+<text x="60" y="224.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#e8e8e8" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">读 ELF 头和程序头</text>
+<text x="60" y="251.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#e8e8e8" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">PT_INTERP → /lib/ld-xv6.so</text>
+<text x="60" y="278.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#e8e8e8" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">eret → EL0</text>
+<rect x="40" y="368" width="330" height="79" rx="10" fill="#f6f4ee" stroke="#c9c3b0" stroke-width="2"/>
+<text x="54" y="390.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#4a4433" font-weight="700" text-anchor="start" dominant-baseline="central" >/bin/echo</text>
+<text x="358" y="390.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#4a4433" font-weight="400" text-anchor="end" dominant-baseline="central" >fs.img</text>
+<rect x="48" y="409.0" width="314" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="60" y="422.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5a5442" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">ET_DYN · INTERP · NEEDED libc.so</text>
+<rect x="40" y="526" width="330" height="79" rx="10" fill="#f6f4ee" stroke="#c9c3b0" stroke-width="2"/>
+<text x="54" y="548.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#4a4433" font-weight="700" text-anchor="start" dominant-baseline="central" >/lib/ld-xv6.so</text>
+<text x="358" y="548.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#4a4433" font-weight="400" text-anchor="end" dominant-baseline="central" >fs.img</text>
+<rect x="48" y="567.0" width="314" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="60" y="580.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5a5442" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">ET_DYN · 无重定位 · entry 0x750</text>
+<rect x="40" y="925" width="330" height="106" rx="10" fill="#f6f4ee" stroke="#c9c3b0" stroke-width="2"/>
+<text x="54" y="947.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="21" fill="#4a4433" font-weight="700" text-anchor="start" dominant-baseline="central" >/lib/libc.so</text>
+<text x="358" y="947.0" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#4a4433" font-weight="400" text-anchor="end" dominant-baseline="central" >fs.img</text>
+<rect x="48" y="966.0" width="314" height="25" rx="4" fill="#fff" fill-opacity="0.5"/>
+<text x="60" y="979.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5a5442" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">write 0x3250 · exit 0x3cc0</text>
+<text x="60" y="1006.5" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="15.5" fill="#5a5442" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">strlen 0x3de0 · 71 JUMP_SLOT</text>
+<text x="205.0" y="350" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#8a8470" font-weight="700" text-anchor="middle" dominant-baseline="central" >fs.img（磁盘文件）</text>
+<polyline points="372,421.5 430,421.5 430,190.0 636,190.0" fill="none" stroke="#c0662b" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="372" cy="421.5" r="3.5" fill="#c0662b"/>
+<circle cx="430.0" cy="305.75" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="430.0" y="306.75" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >1</text>
+<polyline points="372,421.5 470,421.5 470,368.0 636,368.0" fill="none" stroke="#c0662b" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="372" cy="421.5" r="3.5" fill="#c0662b"/>
+<polyline points="372,579.5 470,579.5 470,546.0 636,546.0" fill="none" stroke="#c0662b" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="372" cy="579.5" r="3.5" fill="#c0662b"/>
+<circle cx="470.0" cy="562.75" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="470.0" y="563.75" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >2</text>
+<polyline points="372,250.5 560,250.5 560,767.0 636,767.0" fill="none" stroke="#c0662b" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="372" cy="250.5" r="3.5" fill="#c0662b"/>
+<polyline points="372,277.5 520,277.5 520,579.5 636,579.5" fill="none" stroke="#c0662b" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#mc0662b)"/>
+<circle cx="372" cy="277.5" r="3.5" fill="#c0662b"/>
+<circle cx="520.0" cy="428.5" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="520.0" y="429.5" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >3</text>
+<polyline points="372,978.5 470,978.5 470,945.0 636,945.0" fill="none" stroke="#18897a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="372" cy="978.5" r="3.5" fill="#18897a"/>
+<circle cx="470.0" cy="961.75" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="470.0" y="962.75" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >5</text>
+<polyline points="372,1005.5 520,1005.5 520,1123.0 636,1123.0" fill="none" stroke="#18897a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="372" cy="1005.5" r="3.5" fill="#18897a"/>
+<polyline points="1242,827.5 1280,827.5 1280,401.5 1244,401.5" fill="none" stroke="#18897a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1242" cy="827.5" r="3.5" fill="#18897a"/>
+<circle cx="1280.0" cy="614.5" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1280.0" y="615.5" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >4</text>
+<polyline points="1242,250.5 1325,250.5 1325,978.5 1244,978.5" fill="none" stroke="#18897a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1242" cy="250.5" r="3.5" fill="#18897a"/>
+<circle cx="1325.0" cy="614.5" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1325.0" y="615.5" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >6</text>
+<polyline points="1242,1032.5 1370,1032.5 1370,455.5 1244,455.5" fill="none" stroke="#18897a" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m18897a)"/>
+<circle cx="1242" cy="1032.5" r="3.5" fill="#18897a"/>
+<circle cx="1370.0" cy="744.0" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1370.0" y="745.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >6</text>
+<polyline points="1242,579.5 1415,579.5 1415,304.5 1244,304.5" fill="none" stroke="#6a4bb5" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1242" cy="579.5" r="3.5" fill="#6a4bb5"/>
+<circle cx="1415.0" cy="442.0" r="15" fill="#6a4bb5" stroke="#fff" stroke-width="2.5"/>
+<text x="1415.0" y="443.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >7</text>
+<polyline points="1242,304.5 1280,304.5 1280,277.5 1244,277.5" fill="none" stroke="#6a4bb5" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1242" cy="304.5" r="3.5" fill="#6a4bb5"/>
+<circle cx="1280.0" cy="291.0" r="15" fill="#6a4bb5" stroke="#fff" stroke-width="2.5"/>
+<text x="1280.0" y="292.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >8</text>
+<polyline points="1242,277.5 1455,277.5 1455,455.5 1244,455.5" fill="none" stroke="#6a4bb5" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1242" cy="277.5" r="3.5" fill="#6a4bb5"/>
+<polyline points="1242,455.5 1490,455.5 1490,1032.5 1244,1032.5" fill="none" stroke="#6a4bb5" stroke-width="2.4" stroke-linejoin="round" marker-end="url(#m6a4bb5)"/>
+<circle cx="1242" cy="455.5" r="3.5" fill="#6a4bb5"/>
+<text x="1378" y="814.0" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" >写 0xccc0</text>
+<rect x="1500" y="150" width="470" height="110" rx="10" fill="#fff" stroke="#c0662b" stroke-width="2"/>
+<rect x="1500" y="150" width="8" height="110" rx="4" fill="#c0662b"/>
+<circle cx="1536" cy="176" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="177" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >1</text>
+<text x="1562" y="177" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" >内核 exec 装主程序</text>
+<text x="1530" y="208" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">读 /bin/echo 的程序头：</text>
+<text x="1530" y="233" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">LOAD#1 → 0x0，LOAD#2 → 0x1358</text>
+<rect x="1500" y="274" width="470" height="135" rx="10" fill="#fff" stroke="#c0662b" stroke-width="2"/>
+<rect x="1500" y="274" width="8" height="135" rx="4" fill="#c0662b"/>
+<circle cx="1536" cy="300" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="301" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >2</text>
+<text x="1562" y="301" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" >装解释器、建栈</text>
+<text x="1530" y="332" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">PT_INTERP → 把 ld-xv6.so 装到</text>
+<text x="1530" y="357" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">PGROUNDUP(0x14b0) = 0x2000；</text>
+<text x="1530" y="382" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">保护页 + 4 页栈，压 argv/envp/auxv</text>
+<rect x="1500" y="423" width="470" height="110" rx="10" fill="#fff" stroke="#c0662b" stroke-width="2"/>
+<rect x="1500" y="423" width="8" height="110" rx="4" fill="#c0662b"/>
+<circle cx="1536" cy="449" r="15" fill="#c0662b" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="450" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >3</text>
+<text x="1562" y="450" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#c0662b" font-weight="700" text-anchor="start" dominant-baseline="central" >eret 进入 ld-xv6</text>
+<text x="1530" y="481" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">PC = 0x2000 + 0x750 = 0x2750</text>
+<text x="1530" y="506" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">SP = 栈上参数表，EL0</text>
+<rect x="1500" y="547" width="470" height="135" rx="10" fill="#fff" stroke="#18897a" stroke-width="2"/>
+<rect x="1500" y="547" width="8" height="135" rx="4" fill="#18897a"/>
+<circle cx="1536" cy="573" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="574" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >4</text>
+<text x="1562" y="574" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" >ld-xv6 找到 _echo 的 .dynamic</text>
+<text x="1530" y="605" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">auxv 取 AT_PHDR=0x40 → 扫程序头</text>
+<text x="1530" y="630" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ PT_DYNAMIC 0x1358 → 读出</text>
+<text x="1530" y="655" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">NEEDED / SYMTAB / HASH / JMPREL</text>
+<rect x="1500" y="696" width="470" height="135" rx="10" fill="#fff" stroke="#18897a" stroke-width="2"/>
+<rect x="1500" y="696" width="8" height="135" rx="4" fill="#18897a"/>
+<circle cx="1536" cy="722" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="723" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >5</text>
+<text x="1562" y="723" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" >装入 libc.so</text>
+<text x="1530" y="754" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">open + sbrk → 基址 0x9000</text>
+<text x="1530" y="779" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">pread 两个 PT_LOAD</text>
+<text x="1530" y="804" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">先填 libc 自己的 71 个 GOT 槽</text>
+<rect x="1500" y="845" width="470" height="160" rx="10" fill="#fff" stroke="#18897a" stroke-width="2"/>
+<rect x="1500" y="845" width="8" height="160" rx="4" fill="#18897a"/>
+<circle cx="1536" cy="871" r="15" fill="#18897a" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="872" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >6</text>
+<text x="1562" y="872" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#18897a" font-weight="700" text-anchor="start" dominant-baseline="central" >绑定 _echo 的 GOT</text>
+<text x="1530" y="903" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">.rela.plt：sym=2 → &quot;exit&quot;（UND）</text>
+<text x="1530" y="928" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ 查 libc .hash/.dynsym = 0x3cc0</text>
+<text x="1530" y="953" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ 写 [0x14a0] = 0x9000+0x3cc0</text>
+<text x="1530" y="978" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">   = 0xccc0（write/strlen 同理）</text>
+<rect x="1500" y="1019" width="470" height="110" rx="10" fill="#fff" stroke="#6a4bb5" stroke-width="2"/>
+<rect x="1500" y="1019" width="8" height="110" rx="4" fill="#6a4bb5"/>
+<circle cx="1536" cy="1045" r="15" fill="#6a4bb5" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="1046" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >7</text>
+<text x="1562" y="1046" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#6a4bb5" font-weight="700" text-anchor="start" dominant-baseline="central" >跳到 main</text>
+<text x="1530" y="1077" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">AT_ENTRY = 0x2c8</text>
+<text x="1530" y="1102" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">main(argc, argv)</text>
+<rect x="1500" y="1143" width="470" height="135" rx="10" fill="#fff" stroke="#6a4bb5" stroke-width="2"/>
+<rect x="1500" y="1143" width="8" height="135" rx="4" fill="#6a4bb5"/>
+<circle cx="1536" cy="1169" r="15" fill="#6a4bb5" stroke="#fff" stroke-width="2.5"/>
+<text x="1536" y="1170" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#fff" font-weight="700" text-anchor="middle" dominant-baseline="central" >8</text>
+<text x="1562" y="1170" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="20" fill="#6a4bb5" font-weight="700" text-anchor="start" dominant-baseline="central" >调用 exit()</text>
+<text x="1530" y="1201" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">bl exit@plt (0x2a8)</text>
+<text x="1530" y="1226" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ ldr x17,[0x14a0] = 0xccc0</text>
+<text x="1530" y="1251" font-family="'DejaVu Sans Mono','Menlo','Noto Sans CJK SC',monospace" font-size="16" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" xml:space="preserve">→ br x17 → libc exit → svc #0</text>
+<line x1="60" y1="1342" x2="110" y2="1342" stroke="#c0662b" stroke-width="3" marker-end="url(#mc0662b)"/>
+<text x="122" y="1342" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" >①–③ 内核 exec：只装载、建栈、跳到解释器，不查符号</text>
+<line x1="680" y1="1342" x2="730" y2="1342" stroke="#18897a" stroke-width="3" marker-end="url(#m18897a)"/>
+<text x="742" y="1342" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" >④–⑥ ld-xv6（EL0）：装 libc、查 .dynsym、写 GOT</text>
+<line x1="1300" y1="1342" x2="1350" y2="1342" stroke="#6a4bb5" stroke-width="3" marker-end="url(#m6a4bb5)"/>
+<text x="1362" y="1342" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="17" fill="#333" font-weight="400" text-anchor="start" dominant-baseline="central" >⑦–⑧ 程序运行：每次调用都经 PLT 读 GOT 跳进 libc</text>
+<text x="1005.0" y="1396" font-family="'Noto Sans CJK SC','PingFang SC',sans-serif" font-size="15" fill="#999" font-weight="400" text-anchor="middle" dominant-baseline="central" >数据：readelf -l/-r/--dyn-syms user/_echo、user/ld-xv6.so、user/libc.so；USTACKPAGES = 4</text>
+</svg>

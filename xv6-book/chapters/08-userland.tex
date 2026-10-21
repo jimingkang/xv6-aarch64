@@ -77,7 +77,7 @@ int write(int fd, const void *buf, int count)
 \subsection{内核如何分发系统调用}
 \label{sec:syscall-dispatch}
 
-\code{svc} 进入 \code{el0sync}，\code{usavereg} 把全部用户寄存器存进 trapframe，\code{usertrap()} 检查 \reg{ESR\_EL1} 的异常类别是否为 \code{0x15}（来自 AArch64 的 SVC），然后打开中断、调用 \code{syscall()}（第~\ref{sec:irq} 节）。分发函数在 \file{kernel/syscall.c} 中：
+\code{svc} 进入 \code{el0sync}，\code{usavereg} 把全部用户寄存器存进 trapframe，\code{usertrap()} 检查 \reg{ESR\_EL1} 的异常类别是否为 \code{0x15}（来自 AArch64 的 SVC），然后打开中断、调用 \code{syscall()}（第~\ref{sec:irq} 节）。分发函数在 \file{kernel/core/syscall.c} 中：
 
 \begin{ccode}
 void syscall(void)
@@ -277,6 +277,20 @@ int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 
 \code{threadtest} 创建两个线程，用内核同步对象保护共享计数器，允许它们被调度到不同 CPU，预期输出 \code{threadtest: PASS counter=2000}。
 
+\subsection{实例：threadtest 的运行过程}
+\label{sec:threadtest-fig}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[height=0.93\textheight,keepaspectratio]{threadtest.pdf}
+  \caption{threadtest：exec 之后的两份快照（pid 20），以及 clone 出两个线程之后三个 proc 共享一个 vmspace 的结构}
+  \label{fig:threadtest-run}
+\end{figure}
+
+图~\ref{fig:threadtest-run} 的上半部分是 \code{exec("/bin/threadtest")} 时打印的两份快照，与第~\ref{sec:fork-snapshot} 节 ls 的情况几乎相同。struct proc、vmspace、内核栈用的正是 ls 退出后释放的那几页。有一点不同：新页表的物理页这次是递增分配的（\code{0x6e99} $\to$ \code{0x6ea4}），因为 ls 退出时按顺序还回了页，kalloc 后进先出，取出来的顺序就反过来了。
+
+下半部分是按 \code{thread.c} 与 \code{threadclone()} 推出的线程结构，线程 tid 和线程栈地址为示意。\code{thread\_create()} 先用 malloc 在堆里分配 16\,KiB 的线程栈和一个 start 记录，再调用 \code{clone(thread\_boot, start, 栈顶)}。内核为新线程分配独立的 struct proc、内核栈、trapframe 和 context，但让 \code{np->vm} 指向同一个 vmspace（\code{refcount} 从 1 增到 3），因此三个线程共用页表根 \code{0x6e99000}。新线程的 trapframe 从主线程复制后被改写：\code{elr = thread\_boot}（libc 中 \code{0xe35c}），\code{sp} 设为线程栈顶，\code{x0} 设为 start 记录。线程第一次被调度时经 \code{forkret} $\to$ \code{usertrapret} $\to$ \code{eret} 进入 \code{thread\_boot}，再进入 \code{worker}。全局变量 \code{counter} 和 \code{counter\_lock} 位于程序的 .bss（\code{0x1a04}、\code{0x1a00}），所有线程共享，所以要用 mutex 保护。线程栈只是堆中的普通内存，下方没有保护页，溢出时会悄悄覆盖相邻的堆数据。
+
 \section{libc 与 POSIX 源码兼容层}
 \label{sec:posix}
 
@@ -310,7 +324,7 @@ _%: %.o $(ULIB) $(USER_LINK_STAMP)
 
 关键在最后一条：\code{-pie} 产出 \code{ET\_DYN} 可执行文件，\code{--no-dynamic-linker} 则\emph{不}写 \code{PT\_INTERP}——因为本项目没有用户态 \code{ld.so}，动态装载的活由内核 \code{exec()} 自己完成。要退回上一节的静态形态，只需 \code{make DYNAMIC\_USER=0}；构建用 \file{.dynamic-user}/\file{.static-user} 两个模式戳保证切换时重链所有用户程序，根文件系统构建再把共享库安装到 \file{/lib/libc.so}。
 
-\paragraph{\code{exec()} 里的装载流程.} 对每个 \code{ET\_DYN} 程序，\file{kernel/exec.c}：
+\paragraph{\code{exec()} 里的装载流程.} 对每个 \code{ET\_DYN} 程序，\file{kernel/fs/exec.c}：
 
 \begin{enumerate}
   \item 校验 ELF 头后按程序头把主镜像映射到虚拟地址 0，并记下 \code{PT\_DYNAMIC} 位置。为此 \code{loadseg()} 放宽了老 xv6 的页对齐要求，只校验 GNU \code{ld} 保证的 \code{p\_vaddr $\equiv$ p\_offset (mod p\_align)}，以容纳非页对齐的段边界。
@@ -714,7 +728,7 @@ hello from xv6 C
 
 \begin{itemize}
   \item TCP socket 与 \code{accept}——网络协议栈；
-  \item 密码学全部在用户态完成：基于 TweetNaCl\cite{tweetnacl} 的 X25519 密钥交换和 Ed25519 主机密钥签名，传输层用 AES-128-CTR 加密、HMAC-SHA256 校验；熵来自内核的硬件随机数发生器（\file{kernel/rng.c}）；
+  \item 密码学全部在用户态完成：基于 TweetNaCl\cite{tweetnacl} 的 X25519 密钥交换和 Ed25519 主机密钥签名，传输层用 AES-128-CTR 加密、HMAC-SHA256 校验；熵来自内核的硬件随机数发生器（\file{kernel/lib/rng.c}）；
   \item \code{/etc/passwd} 口令认证；
   \item PTY：为每个会话分配一对伪终端，shell 的 fd 0/1/2 指向 PTY 从端，\code{sshd} 读写主端并加密转发；
   \item 会话与控制终端：SSH 会话中的 \code{/dev/tty} 指向该会话的 PTY。

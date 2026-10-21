@@ -89,5 +89,10 @@
 #define SYS_waitpid       85
 #define SYS_getppid       86
 #define SYS_readlink      87
+#define SYS_reboot        88
+#define SYS_connect       89
+#define SYS_net_dns       90
+#define SYS_poll          91
+#define SYS_ioctl         92
 
 #endif

@@ -4,7 +4,7 @@
 
 与设备打交道的大多数场合都是异步的：内核向设备发出一条命令，设备并不立即完成，而是在工作结束后“通知”处理器。这种通知打断了正在执行的指令流，迫使处理器转去执行一段处理程序，所以叫“中断”。对操作系统来说，最重要的中断源是定时器：调度器靠周期性的定时器中断度量每个进程运行了多久，并在时间片用完时把 CPU 交给别人。
 
-本节沿着一次中断从发生到返回的路径，依次讲解 xv6-aarch64 的实现：\file{kernel/trapasm.S}（向量表与现场保存）、\file{kernel/trap.c}（分发）、\file{kernel/bcm2837.c}（中断控制器）、\file{kernel/timer.c}（定时器）和 \file{kernel/spinlock.c}（中断屏蔽的嵌套）。
+本节沿着一次中断从发生到返回的路径，依次讲解 xv6-aarch64 的实现：\file{kernel/arch/arm64/trapasm.S}（向量表与现场保存）、\file{kernel/core/trap.c}（分发）、\file{kernel/arch/arm64/bcm2837.c}（中断控制器）、\file{kernel/arch/arm64/timer.c}（定时器）和 \file{kernel/core/spinlock.c}（中断屏蔽的嵌套）。
 
 \subsection{中断与异常}
 
@@ -65,7 +65,7 @@ void kerneltrap()
   \end{tabular}
 \end{table}
 
-每组的第三、四个入口是 FIQ 和 SError。\file{kernel/trapasm.S} 用 \code{.balign} 保证对齐，每个入口只放一条跳转指令，真正的处理放在表外（\code{0x80} 字节只够放 32 条指令）：
+每组的第三、四个入口是 FIQ 和 SError。\file{kernel/arch/arm64/trapasm.S} 用 \code{.balign} 保证对齐，每个入口只放一条跳转指令，真正的处理放在表外（\code{0x80} 字节只够放 32 条指令）：
 
 \begin{asmcode}
 .global alltraps
@@ -294,7 +294,7 @@ void pop_off(void)
   \label{fig:irq}
 \end{figure}
 
-为了少改 \file{trap.c}，项目保留了原 GIC 版本的函数名 \code{gicv3init()}、\code{gicv3inithart()}、\code{gic\_iar()}、\code{gic\_eoi()}，实现换成了 \file{kernel/bcm2837.c}。全局初始化先关掉 legacy 控制器的全部中断，再只打开已经有驱动的几个：
+为了少改 \file{trap.c}，项目保留了原 GIC 版本的函数名 \code{gicv3init()}、\code{gicv3inithart()}、\code{gic\_iar()}、\code{gic\_eoi()}，实现换成了 \file{kernel/arch/arm64/bcm2837.c}。全局初始化先关掉 legacy 控制器的全部中断，再只打开已经有驱动的几个：
 
 \begin{ccode}
 void gicv3init(void)

@@ -80,7 +80,7 @@ LDFLAGS = -z max-page-size=4096
 
 \begin{itemize}
   \item \code{-mcpu=cortex-a53+nofp}：生成 A53 指令，但禁止编译器使用浮点/SIMD 寄存器。内核上下文切换只保存通用寄存器，若编译器偷偷用 \code{q0} 做 \code{memcpy}，用户态的浮点状态就会被破坏。
-  \item \code{-ffreestanding -nostdlib}：不假设标准库存在，\code{memset}、\code{memmove} 等由 \file{kernel/string.c} 自己实现。
+  \item \code{-ffreestanding -nostdlib}：不假设标准库存在，\code{memset}、\code{memmove} 等由 \file{kernel/lib/string.c} 自己实现。
   \item \code{-fno-pie}：内核链接在固定的高虚拟地址，不需要位置无关代码。
   \item \code{-Werror}：所有警告视为错误，真机调试的成本很高，宁可在编译期多拦住一些问题。
 \end{itemize}
@@ -207,7 +207,7 @@ camera_auto_detect=0             # 不让固件接管摄像头
 \section{内核初始化顺序}
 \label{sec:init-order}
 
-\file{kernel/main.c} 是整个内核的入口函数，它的初始化顺序就是全书的目录。下面的代码去掉了注释中的细节，保留了调用顺序：
+\file{kernel/init/main.c} 是整个内核的入口函数，它的初始化顺序就是全书的目录。下面的代码去掉了注释中的细节，保留了调用顺序：
 
 \begin{ccode}
 void main() {

@@ -76,6 +76,21 @@ MMU 翻译一个地址的过程叫\emph{页表遍历}（table walk），完全�
 
 \paragraph{块映射.} 有时候要映射一大片连续的物理内存，例如启动时的整个内核镜像。这时可以让 L2 表项直接是一个\emph{块描述符}，指向一个 2\,MiB 对齐的物理块，遍历在第 3 步就结束：省去一级页表，页内偏移变成 VA[20:0] 共 21 位（$2^{21}=2$\,MiB）。同理，L1 块描述符映射 1\,GiB。描述符最低两位区分这几种情况：在 L1/L2 上 \code{01} 是块、\code{11} 是表；在 L3 上只有 \code{11} 合法，表示一个 4\,KiB 页——同样是 \code{11}，含义随所在的级别而变。xv6-aarch64 只在启动页表里用块映射（\ref{sec:bootpgt} 节）。
 
+\paragraph{实例：一次真实的三级翻译.} 图~\ref{fig:mmu-walk} 用一个进程快照里的真实页表项，把上面五步走了一遍：pid 16 的用户栈地址 \code{0x89d0}。\code{TCR\_EL1.T0SZ = 25}，即 39 位 VA。VA[63:39] 全为 0，选 \reg{TTBR0\_EL1} = \code{0x6eb8000}；L1、L2、L3 的下标分别是 0、0、8，页内偏移是 \code{0x9d0}。MMU 依次读三个物理地址：
+\begin{itemize}
+  \item 读 \code{0x6eb8000}，得到表描述符 \code{0x6eb5003}；
+  \item 读 \code{0x6eb5000}，得到表描述符 \code{0x6ec0003}；
+  \item 读 \code{0x6ec0040}，得到页描述符 \code{0x6ece74b}。
+\end{itemize}
+页框 \code{0x6ece000} 拼上偏移，得到物理地址 \code{0x6ece9d0}。描述符低 12 位 \code{0x74b} 的含义见下一小节：AttrIndx=2 表示普通可缓存内存，AP=01 表示 EL0 可读写，SH=11，AF=1，UXN 和 PXN 都是 0。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{mmu-walk.pdf}
+  \caption{MMU 三级页表翻译实例：VA \code{0x89d0} $\to$ PA \code{0x6ece9d0}（数值取自进程快照）}
+  \label{fig:mmu-walk}
+\end{figure}
+
 \subsection{描述符的属性位}
 
 表~\ref{tab:pte-bits} 是项目中用到的属性位。

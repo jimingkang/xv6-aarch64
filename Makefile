@@ -39,70 +39,105 @@ DEBUGFS ?= $(shell if command -v debugfs >/dev/null 2>&1; then \
 WIFI_FIRMWARE_DIR ?= firmware
 SUDO ?= sudo
 
-OBJS = \
-  $K/entry.o \
-  $K/start.o \
-  $K/console.o \
-	$K/device.o \
-	$K/kobject.o \
-	$K/module.o \
-	$K/export.o \
-	$K/sdio.o \
-	$K/usb.o \
-	$K/input.o \
-	$K/usbkbd.o \
-	$K/arasan_sdio.o \
-	$K/mt7601u.o \
-	$K/brcmfmac.o \
-	$K/wpa_crypto.o \
-	$K/tty.o \
-  $K/printf.o \
-  $K/uart.o \
-  $K/kalloc.o \
-  $K/spinlock.o \
-  $K/rng.o \
-  $K/string.o \
-  $K/main.o \
-  $K/vm.o \
-  $K/proc.o \
-  $K/workqueue.o \
-  $K/swtch.o \
-  $K/trap.o \
-  $K/syscall.o \
-  $K/sysproc.o \
-  $K/bio.o \
-  $K/fs.o \
-	$K/vfs.o \
-	$K/netfs.o \
-  $K/log.o \
-  $K/sleeplock.o \
-  $K/sync.o \
-  $K/net.o \
-  $K/sysnet.o \
-  $K/dwc2.o \
-  $K/usbnet.o \
-  $K/file.o \
-  $K/epoll.o \
-  $K/pipe.o \
-  $K/pty.o \
-  $K/exec.o \
-  $K/sysfile.o \
-  $K/trapasm.o \
-  $K/timer.o \
-  $K/sdhost.o \
-	$K/fat32.o \
-	$K/rootdev.o \
-	$K/blkdev.o \
-	$K/cmdline.o \
-	$K/do_mounts.o \
-	$K/rootupdate.o \
-	$K/ext2.o \
-	$K/xjournal.o \
-  $K/bcm2837.o \
-  $K/mbox.o \
-  $K/i2c.o \
-  $K/ov5647.o \
-  $K/unicam.o \
+# Linux-inspired source layering.  Kernel-private common headers live in
+# include/kernel, user/kernel ABI headers live in include/uapi, and
+# implementation files live with their owning subsystem.
+ARCH_OBJS = \
+  $K/arch/arm64/entry.o \
+  $K/arch/arm64/start.o \
+  $K/arch/arm64/swtch.o \
+  $K/arch/arm64/trapasm.o \
+  $K/arch/arm64/timer.o \
+  $K/arch/arm64/bcm2837.o
+
+INIT_OBJS = \
+  $K/init/main.o \
+  $K/init/cmdline.o \
+  $K/init/do_mounts.o
+
+CORE_OBJS = \
+  $K/core/proc.o \
+  $K/core/workqueue.o \
+  $K/core/trap.o \
+  $K/core/syscall.o \
+  $K/core/sysproc.o \
+  $K/core/reboot.o \
+  $K/core/sync.o \
+  $K/core/spinlock.o \
+  $K/core/sleeplock.o
+
+MM_OBJS = \
+  $K/mm/kalloc.o \
+  $K/mm/vm.o
+
+LIB_OBJS = \
+  $K/lib/printf.o \
+  $K/lib/rng.o \
+  $K/lib/string.o
+
+DRIVER_BASE_OBJS = \
+  $K/drivers/base/device.o \
+  $K/drivers/base/kobject.o \
+  $K/drivers/base/module.o \
+  $K/drivers/base/export.o
+
+DRIVER_MMC_OBJS = \
+  $K/drivers/mmc/core/sdio.o \
+  $K/drivers/mmc/host/arasan_sdio.o \
+  $K/drivers/mmc/host/sdhost.o
+
+DRIVER_USB_OBJS = \
+  $K/drivers/usb/core/usb.o \
+  $K/drivers/usb/host/dwc2.o \
+  $K/drivers/input/input.o \
+  $K/drivers/input/usbkbd.o \
+  $K/drivers/net/usb/usbnet.o
+
+DRIVER_NET_OBJS = \
+  $K/drivers/net/wireless/mt7601u.o \
+  $K/drivers/net/wireless/brcmfmac.o \
+  $K/drivers/net/wireless/wpa_crypto.o
+
+DRIVER_TTY_OBJS = \
+  $K/drivers/tty/console.o \
+  $K/drivers/tty/tty.o \
+  $K/drivers/tty/pty.o \
+  $K/drivers/tty/uart.o
+
+DRIVER_BLOCK_OBJS = \
+  $K/drivers/block/blkdev.o \
+  $K/drivers/block/rootdev.o \
+  $K/drivers/block/rootupdate.o
+
+DRIVER_MEDIA_OBJS = \
+  $K/drivers/firmware/mbox.o \
+  $K/drivers/media/i2c/i2c.o \
+  $K/drivers/media/i2c/ov5647.o \
+  $K/drivers/media/platform/unicam.o
+
+FS_OBJS = \
+  $K/fs/bio.o \
+  $K/fs/fs.o \
+  $K/fs/vfs.o \
+  $K/fs/log.o \
+  $K/fs/file.o \
+  $K/fs/epoll.o \
+  $K/fs/pipe.o \
+  $K/fs/exec.o \
+  $K/fs/sysfile.o \
+  $K/fs/fat/fat32.o \
+  $K/fs/ext2/ext2.o \
+  $K/fs/ext2/xjournal.o \
+  $K/fs/netfs/netfs.o
+
+NET_OBJS = \
+  $K/net/net.o \
+  $K/net/sysnet.o
+
+OBJS = $(ARCH_OBJS) $(INIT_OBJS) $(CORE_OBJS) $(MM_OBJS) $(LIB_OBJS) \
+  $(DRIVER_BASE_OBJS) $(DRIVER_MMC_OBJS) $(DRIVER_USB_OBJS) \
+  $(DRIVER_NET_OBJS) $(DRIVER_TTY_OBJS) $(DRIVER_BLOCK_OBJS) \
+  $(DRIVER_MEDIA_OBJS) $(FS_OBJS) $(NET_OBJS)
 
 # Try to infer the correct TOOLPREFIX if not set
 ifndef TOOLPREFIX
@@ -138,12 +173,23 @@ CFLAGS += -MD
 CFLAGS += -ffreestanding -fno-common -nostdlib
 CFLAGS += -I.
 CFLAGS += -Iinclude
+CFLAGS += -I$K
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+
+# Keep libc/POSIX headers out of the kernel include namespace.  Kernel and
+# user code both see include/uapi, while only user objects see user/include.
+USER_CFLAGS = $(CFLAGS) -I$U/include
 
 # Verbose filesystem teaching trace.  Use `make FS_TRACE=1` to print the
 # superblock, inode-cache and pathname-walk call chain (for example `ls /`).
 FS_TRACE ?= 0
 CFLAGS += -DFS_TRACE=$(FS_TRACE)
+
+# Page-table/process-context teaching trace.  VM_TRACE=1 prints every valid
+# L1/L2/L3 descriptor in TTBR1 once at boot and a complete TTBR0/context/
+# trapframe snapshot whenever a user image is created or replaced.
+VM_TRACE ?= 0
+CFLAGS += -DVM_TRACE=$(VM_TRACE)
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
@@ -154,7 +200,7 @@ CFLAGS += -fno-pie -nopie
 endif
 
 LDFLAGS = -z max-page-size=4096
-ASFLAGS = -Og -ggdb -mcpu=cortex-a53 -MD -I.
+ASFLAGS = -Og -ggdb -mcpu=cortex-a53 -MD -I. -Iinclude -I$K
 
 # kernel/buildinfo.c is regenerated on every link, so the boot banner shows
 # when this kernel image was produced (not when main.c last compiled) and
@@ -170,7 +216,7 @@ $K/kernel: $(OBJS) $K/kernel.ld $U/initcode
 $K/kernel8-xv6_wifi.img: $K/kernel
 	$(OBJCOPY) -O binary $< $@
 
-$K/armstub.o: $K/armstub.S
+$K/armstub.o: $K/arch/arm64/armstub.S
 	$(CC) $(ASFLAGS) -c -o $@ $<
 
 $K/armstub.elf: $K/armstub.o
@@ -285,7 +331,7 @@ install-rpi3-rawfs: fs.img
 	@echo "installed fs.img -> $(RPI3_XV6_DEV) (raw xv6 partition)"
 
 .PHONY: install-rpi3-ext2
-install-rpi3-ext2: $(EXT2_IMAGE)
+install-rpi3-ext2: $(KERNEL_IMAGE) $(EXT2_IMAGE)
 	@test -n "$(RPI3_EXT2_DEV)" || { \
 		echo "error: set RPI3_EXT2_DEV to the ext2 partition, never the whole disk" 1>&2; \
 		echo "example: make install-rpi3-ext2 RPI3_EXT2_DEV=/dev/rdisk4s3" 1>&2; \
@@ -299,9 +345,19 @@ install-rpi3-ext2: $(EXT2_IMAGE)
 		echo "error: $(RPI3_EXT2_DEV) does not exist" 1>&2; \
 		exit 1; \
 	}
+	@test -d "$(RPI3_BOOTFS)" || { \
+		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
+		exit 1; \
+	}
 	$(SUDO) dd if=$(EXT2_IMAGE) of="$(RPI3_EXT2_DEV)" bs=1048576 conv=sync
+	$(SUDO) cp -f $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 	sync
+	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
+		echo "error: $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME) differs from $(KERNEL_IMAGE)" 1>&2; \
+		exit 1; \
+	}
 	@echo "installed $(EXT2_IMAGE) -> $(RPI3_EXT2_DEV) (ext2 partition)"
+	@echo "installed $(KERNEL_IMAGE) -> $(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)"
 
 # Build a fresh, self-contained ext2 root image.  Keeping image construction
 # separate from the raw-device recipe makes it possible to inspect/test the
@@ -397,6 +453,10 @@ LIBC_OBJS = $U/libc_syscall.o $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/th
 	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o
 LIBC_PIC_OBJS = $(LIBC_OBJS:.o=.pic.o)
 
+# User programs and libc use the private user-facing libc/POSIX headers.
+$U/%.o: $U/%.c
+	$(CC) $(USER_CFLAGS) -c -o $@ $<
+
 # Shared libc is the normal user ABI.  DYNAMIC_USER=0 retains the original
 # static ET_EXEC build for recovery images and dynamic-loader debugging.
 DYNAMIC_USER ?= 1
@@ -426,10 +486,10 @@ $U/libc.a: $(LIBC_OBJS) $U/libc.o
 
 # ELF shared libc loaded and relocated by the user-space interpreter.
 $U/%.pic.o: $U/%.c
-	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+	$(CC) $(USER_CFLAGS) -fPIC -c -o $@ $<
 
 $U/usys.pic.o: $U/usys.S
-	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+	$(CC) $(USER_CFLAGS) -fPIC -c -o $@ $<
 
 $U/libc.so: $(LIBC_PIC_OBJS)
 	$(LD) $(LDFLAGS) -shared --no-undefined -soname libc.so -o $@ $^
@@ -450,7 +510,7 @@ $U/usys.S : $U/usys.pl
 	perl $U/usys.pl > $U/usys.S
 
 $U/usys.o : $U/usys.S
-	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
+	$(CC) $(USER_CFLAGS) -c -o $U/usys.o $U/usys.S
 
 $U/_forktest: $U/forktest.o $(ULIB) $(USER_LINK_STAMP)
 	# Keep forktest small while it exercises dynamic process-table growth.
@@ -467,8 +527,8 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
-mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c $K/fs.h $K/param.h
-	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
+mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
+	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
 
 # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
 # that disk image changes after first build are persistent until clean.  More
@@ -531,6 +591,8 @@ UPROGS=\
 	$U/_evtest\
 	$U/_spin\
 	$U/_threadtest\
+	$U/_reboot\
+	$U/_wget\
 	$U/_posixtest\
 
 # ---------------------------------------------------------------------------
@@ -544,7 +606,7 @@ UPROGS=\
 # relocates it into the kernel's module arena -- the same build-time split
 # Linux draws between built-in drivers and modules shipped as files.
 # ---------------------------------------------------------------------------
-MODULES = $K/usbmouse.ko
+MODULES = $K/drivers/input/usbmouse.ko
 
 $K/%.mod.o: $K/%.c
 	$(CC) $(CFLAGS) -DMODULE -c -o $@ $<
@@ -572,7 +634,7 @@ fs.img: mkfs/mkfs $(UPROGS) $U/libc.so $U/ld-xv6.so modules_install
 	truncate -s 32M fs.img
 
 # Linux/ext2 image used by the VFS /mnt/ext2 backend.  mke2fs formats a regular
-# file with only the features kernel/ext2.c understands (no journal, no extents,
+# file with only the features kernel/fs/ext2/ext2.c understands (no journal, no extents,
 # no 64-bit block numbers, no metadata checksums); see readme/readme_ext2.md.
 $(EXT2_IMAGE):
 	truncate -s $(EXT2_SIZE) $@
@@ -580,7 +642,8 @@ $(EXT2_IMAGE):
 	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
 	  -L $(EXT2_LABEL) $@
 
--include kernel/*.d user/*.d
+KERNEL_DEPS = $(OBJS:.o=.d) $(MODULES:.ko=.mod.d)
+-include $(KERNEL_DEPS) kernel/buildinfo.d user/*.d
 
 .PHONY: clean-t113 modules_install
 clean-t113:
@@ -593,7 +656,7 @@ clean: clean-t113
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
-	$(MODULES) $K/*.mod.o $K/*.ko.raw \
+	$(MODULES) $(MODULES:.ko=.mod.o) $(MODULES:%=%.raw) \
 	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/ld-xv6.so $U/.dynamic-user $U/.static-user \
         $U/usys.S \
 	$(UPROGS)
@@ -613,6 +676,7 @@ clean: clean-t113
 		-name 'armstub-xv6 [0-9]*.bin' \
 	\) -delete
 	find mkfs -maxdepth 1 -type f -name 'mkfs [0-9]*' -delete
+	find $K -mindepth 2 -type f \( -name '*.o' -o -name '*.d' -o -name '*.asm' -o -name '*.sym' -o -name '*.ko.raw' \) -delete
 	rm -rf $U/obj $U/.deps $U/build $K/obj $K/.deps $K/build
 	rm -rf $(MODULE_INSTALL_DIR)
 

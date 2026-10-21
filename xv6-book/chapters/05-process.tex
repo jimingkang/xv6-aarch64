@@ -143,7 +143,7 @@ void userinit(void) {
 
 \subsection{initcode 做了什么}
 
-\code{initcode} 由 \file{user/initcode.S} 汇编而来，只做一件事：调用 \code{exec("/init")}。\file{kernel/proc.c} 里的 \code{initcode[]} 是它的机器码，按地址展开如下：
+\code{initcode} 由 \file{user/initcode.S} 汇编而来，只做一件事：调用 \code{exec("/init")}。\file{kernel/core/proc.c} 里的 \code{initcode[]} 是它的机器码，按地址展开如下：
 
 \begin{asmcode}
 0x00  ldr x0, =init        // 字面量池 0x38 中是 0x1c，即 "/init"
@@ -321,6 +321,123 @@ void forkret(void)
 要分清 \code{forkret} 的角色：它只是新进程回到用户态的一块跳板，本身运行在 EL1，用的就是 \code{context.sp} 指定的那段栈，即紧挨在 trapframe 下方的内核栈。\code{sp} 的初值之所以设在 trapframe 下沿，是为了让 \code{forkret} 以及它调用的 \code{prepare\_namespace()} 从那里往下用栈，不覆盖 trapframe；trapframe 里准备好的用户现场要一直保持到 \code{eret} 那一刻。
 
 context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、跳到 \code{forkret}；\code{usertrapret} 用 trapframe 恢复用户寄存器并 \code{eret}。context 自己不参与返回用户态，它也不在栈上，而是 \code{struct proc} 的一个字段，\code{context.sp} 只是一个指向内核栈的数值。
+
+\subsection{实例：fork 快照中的虚拟地址与物理页}
+\label{sec:fork-snapshot}
+
+为了看清这些结构在内存里的真实位置，在 \code{fork()} 末尾调用 \code{procvmtrace(np, "process-create:fork")}，打印子进程的 proc、内核栈、trapframe、context 和用户页表。开机后的两份输出分别属于：
+\begin{itemize}
+  \item \textbf{pid 16}：init 刚 fork 出、即将 exec \file{/bin/sh} 的子进程；
+  \item \textbf{pid 17}：在 sh 中输入 \code{ls} 后，sh fork 出、即将 exec \file{/bin/ls} 的子进程。
+\end{itemize}
+两者都是 \code{state=1}（USED），已经建好，还没有被调度过。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[height=0.93\textheight,keepaspectratio]{proc-vm-phys-pid17.pdf}
+  \caption{pid 17 fork 刚完成：上半部分是虚拟地址视角，下半部分是物理页，箭头连接各对象所在的物理页}
+  \label{fig:fork-pid17}
+\end{figure}
+
+\paragraph{一个进程：从虚拟地址到物理页.} 图~\ref{fig:fork-pid17} 选的是 pid 17，也就是后面执行 \file{/bin/ls} 的那个进程；fork 刚完成时它还是 sh 的拷贝。上半部分是虚拟地址视角，下半部分把物理内存 \code{0x6e9e000}--\code{0x6ecffff} 按页横向排开。10 条箭头分别从 struct proc、\code{p->context}、\code{p->vm}、内核栈、trapframe、三级页表、用户 sp 和 elr 连到各自的物理页。内核对象的地址换算见表~\ref{tab:fork-kva}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{pid 17 的内核对象：虚拟地址与物理地址}
+  \label{tab:fork-kva}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    对象 & 内核虚拟地址 & 物理地址 & 换算 \\
+    \midrule
+    struct proc & \code{0xffffff8006eb7000} & \code{0x6eb7000} & 直接映射：PA = VA $-$ KERNBASE \\
+    \code{p->context} & \code{0xffffff8006eb70b0} & \code{0x6eb70b0} & 嵌在 proc 内，偏移 \code{+0xb0} \\
+    vmspace & \code{0xffffff8006eb5000} & \code{0x6eb5000} & 直接映射 \\
+    内核栈（槽 15） & \code{0xffffffbffffe0000} & \code{0x6ec0000} & \code{KSTACK(slot)}，经内核页表映射 \\
+    trapframe & \code{0xffffffbffffe0ef0} & \code{0x6ec0ef0} & 内核栈顶 $-$ 272 \\
+    页表根（L1） & \code{0xffffff8006eb8000} & \code{0x6eb8000} & \code{TTBR0} 指向它 \\
+    L2 页表 & \code{0xffffff8006ecf000} & \code{0x6ecf000} & L1[0] 指向它 \\
+    L3 页表 & \code{0xffffff8006ecc000} & \code{0x6ecc000} & L2[0] 指向它 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+从这张图还能读出以下几点：
+\begin{itemize}
+  \item 这几页并不相邻：它们大多是 pid 16 exec sh 时刚释放、又被 kalloc 发出来的页，见本节后面的图~\ref{fig:fork-phys}。
+  \item trapframe 里的值都能对上。\code{elr = 0xe5bc} 和 \code{x17 = 0xe59c} 是 sh 的 libc 基址 \code{0xa000} 加 \code{0x459c}（\code{\_\_syscall}），\code{elr} 指向其中 \code{svc \#0} 的下一条指令；\code{x16 = 0x143e0} 是 libc 的 GOT 起点；\code{x0 = 0} 是子进程中 \code{fork()} 的返回值。
+  \item 用户地址要查 L3 叶子再加页内偏移：\code{sp 0x9830} 经 L3[9] 得到物理地址 \code{0x6ea9830}，\code{elr 0xe5bc} 经 L3[14] 得到 \code{0x6ea45bc}。sh 比 init 大，所以 ld-xv6 装在 \code{0x3000}，libc 从 \code{0xa000} 开始。
+  \item VA \code{0x5000} 是保护页。exec 为它分配了物理页，但清掉了 \code{PTE\_U}，而 dump 只打印用户可访问的页；按页号空缺推测是 \code{0x6ec7000}。
+\end{itemize}
+
+\paragraph{context.sp 什么时候变.} fork 刚完成时 \code{context.sp} 等于 trapframe 的地址。之后：
+\begin{itemize}
+  \item \textbf{每次 \code{svc} 或中断}：\code{el0sync} 从内核栈顶执行 \code{sub sp, sp, \#272}，trapframe 总在同一位置被重写，\code{context.sp} 不受影响——只有 \code{swtch} 会写它。
+  \item \textbf{在系统调用里睡眠或被抢占}：\code{sleep}/\code{yield} $\to$ \code{sched} $\to$ \code{swtch} 把当时的内核 sp 存入 \code{context.sp}。这个值低于 trapframe，因为 \code{usertrap} $\to$ \code{syscall} $\to$ \code{sys\_xxx} $\to$ \code{sleep} $\to$ \code{sched} 的调用帧压在 trapframe 下面。
+  \item \textbf{再次被调度}：\code{swtch} 恢复这个 sp，从 \code{sched} 返回，沿调用链回到 \code{usertrap}，最后经 trapframe 回到 EL0。
+\end{itemize}
+不睡眠的系统调用（如 \code{getpid}）全程不会改变 \code{context.sp}。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{phys-pages.pdf}
+  \caption{物理内存逐页：同一批物理页在 pid 16（t1）与 pid 17（t2）两次快照中的用途}
+  \label{fig:fork-phys}
+\end{figure}
+
+\paragraph{两个进程：物理页的复用.} 图~\ref{fig:fork-phys} 把物理地址 \code{0x6e9e000}--\code{0x6ed3fff} 共 54 页按行列出：中间是物理地址，左格是 pid 16 快照时（t1）的用途，右格是 pid 17 快照时（t2）的用途，外侧箭头是两个进程的指针，绿色虚线弧是页表遍历。
+
+两份快照的页表根都是 \code{0x6eb8000}，但这\emph{不是}共享页表。在两次快照之间，pid 16 exec 了 sh，旧的 init 映像被释放；sh 再 fork 出 pid 17 时，kalloc 后进先出，最先发出的正是这些刚释放的页：
+\begin{itemize}
+  \item \code{0x6eb8000}：pid 16 的页表根 $\to$ pid 17 的页表根；
+  \item \code{0x6eb5000}：pid 16 的 L2 页表 $\to$ pid 17 的 vmspace；
+  \item \code{0x6ec0000}：pid 16 的 L3 页表 $\to$ pid 17 的内核栈；
+  \item \code{0x6eb7000}：pid 16 的用户页 VA \code{0x13000} $\to$ pid 17 的 struct proc。
+\end{itemize}
+同一个物理页在很短的时间里就换了用途，所以 \code{kfree} 之后仍保留旧指针（use-after-free）的错误，在这里会立刻表现为另一个进程的数据被改坏。另外，从 pid 17 的寄存器可以看出 sh 比 init 大：ld-xv6 装在 \code{0x3000}，libc 基址是 \code{0xa000}，后面的区域整体后移了一页。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[height=0.93\textheight,keepaspectratio]{exec-syscall-pid17.pdf}
+  \caption{pid 17 执行 ls：exec 换上新映像（A）与第一个系统调用 open 返回（B）；内核栈按比例，下方物理页带页内偏移}
+  \label{fig:exec-syscall}
+\end{figure}
+
+\paragraph{同一个进程：exec 之后与第一个系统调用.} 接着图~\ref{fig:fork-pid17}，pid 17 执行 \code{exec("/bin/ls")}。打开 \code{VM\_TRACE} 后在两个时刻打印快照：A 在 \code{exec()} 刚 \code{switchuvm} 换上新页表、还没 \code{return} 时；B 在 exec 之后第一个系统调用即将返回时。这个调用是 ld-xv6 的 \code{open("/lib/libc.so")}，返回 fd 3。图~\ref{fig:exec-syscall} 的左、中两列分别是 A 和 B，内核栈页按比例画；下方是涉及的物理页，实线箭头来自 A，虚线箭头来自 B。
+
+\begin{table}[htbp]
+  \centering
+  \caption{pid 17 内核栈中的三个位置（页内偏移）}
+  \label{tab:exec-ksp}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    & A：exec-image:first & B：first-syscall:return \\
+    \midrule
+    当前内核 sp & \code{+0x940}：还在 \code{sys\_exec} 的深层调用链里，已用 1728 B & \code{+0xe80}：只剩 usertrap、syscall 两帧，272 + 112 B \\
+    context.sp & \code{+0x530}：exec 读 ELF 时等磁盘睡眠 & \code{+0x690}：open 在 \code{namei}/\code{bread} 中睡眠 \\
+    trapframe & \code{+0xef0} & \code{+0xef0}：每次 \code{el0sync} 都在原地重写 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+表~\ref{tab:exec-ksp} 印证了前面的结论：context.sp 只在睡眠时由 \code{swtch} 改写，两次都低于 trapframe，深度取决于睡眠时的调用链。图中还能看到：
+\begin{itemize}
+  \item \textbf{exec 只换用户页表。} proc、vmspace、内核栈都沿用 fork 时的页；页表根从 \code{0x6eb8000} 换成 \code{0x6e8c000}。新映像只有 8 个用户页：\file{/bin/ls}、ld-xv6、保护页和 4 页栈，sz = \code{0x9000}。物理页按分配顺序递减：根 \code{0x6e8c} $\to$ VA 0 页 \code{0x6e8b} $\to$ L2 \code{0x6e8a}、L3 \code{0x6e89} $\to$ 用户页 \code{0x6e88} 到 \code{0x6e81}。
+  \item \textbf{trapframe 已指向新程序。} A 的 \code{elr = 0x2750} 是 ld-xv6 的入口，\code{sp = 0x8f60} 指向 argv 表；但 \code{x0 = 0x97d0} 还是旧值，要等 \code{return argc} 后才由 syscall 写入。B 的 \code{elr = 0x2b9c} 是 ld-xv6 自带的 \code{\_\_syscall}（\code{0xb7c}）+ \code{0x20}，\code{x0 = 3} 是 open 返回的 fd。
+  \item \textbf{exec 不清零通用寄存器。} \code{x16}/\code{x17} 在 A、B 中都还是 sh 留下的 \code{0x143e0}/\code{0xe59c}。Linux 的 exec 会清零，这里没有，算是一个小的信息泄露点。
+  \item 这次的构建在 struct proc 里加了追踪字段，\code{p->context} 从 \code{proc + 0xb0} 移到了 \code{proc + 0xb8}。
+\end{itemize}
+在 B 这一刻 libc 还没有装入；接下来 ld-xv6 用 \code{pread} 和 \code{sbrk} 把它装到 \code{0x9000}，过程见第~\ref{sec:echo-figs} 节。
+
+\paragraph{读图：用户地址怎样落到物理页.} ls 的 8 个用户页逐页映射：VA \code{0x0} 和 \code{0x1000}（程序）分别映射到 \code{0x6e8b000} 和 \code{0x6e88000}，\code{0x2000}、\code{0x3000}（ld-xv6）映射到 \code{0x6e87000}、\code{0x6e86000}，栈 \code{0x5000}--\code{0x8000} 映射到 \code{0x6e84000}--\code{0x6e81000}。有三点值得注意：
+\begin{itemize}
+  \item 图中的“VA \code{0x2000}”是页的起始地址，不是大小。\code{0x2000} 同时也是 ld-xv6 的装载基址：ls 结束于 \code{0x1ac8}，向上取页得到 \code{0x2000}。
+  \item ls 的两页在物理上不相邻。\code{uvmalloc} 每轮先 \code{kalloc} 一个数据页，再调 \code{mappages}；第一次 \code{walk()} 发现缺 L2、L3，当场分配了 \code{0x6e8a} 和 \code{0x6e89}，于是 VA \code{0x1000} 只能拿到 \code{0x6e88}。kalloc 是单页分配器，本来就不保证物理连续。
+  \item \code{0x6e87750} 正是 ls 执行的第一条用户指令：ld-xv6.so 文件偏移 \code{0x750} 处的 \code{ldso\_start}，第一条指令是 \code{sub sp, sp, \#0x530}。因此 B 时刻的用户 sp \code{0x8a30} 恰好等于 \code{0x8f60} $-$ \code{0x530}。
+\end{itemize}
+
+\paragraph{内核对象在哪个地址空间.} 物理条带里，用户页和 struct proc 挨在一起，只说明它们来自同一个页池，并不表示 proc 在用户空间。\code{p = 0xffffff8006eb7000}、\code{p->vm = 0xffffff8006eb5000} 和页表页都位于直接映射区（VA = KERNBASE + PA），由 \reg{TTBR1\_EL1} 翻译，PTE 不给 EL0 权限，用户页表中也没有任何一项指向它们。\code{struct vmspace} 同样是内核数据结构：它用 \code{pagetable} 和 \code{sz} 描述一个用户地址空间，从 proc 中拆出来是为了让线程共享（第~\ref{sec:threadtest-fig} 节）。内核栈则在 KSTACK 槽位（\code{0xffffffbffffe0000}），经内核页表映射到 \code{0x6ec0000}；槽中另一页不映射，作为保护页。同一个物理页可以先后有完全不同的身份，例如 \code{0x6eb7000} 在 pid 16 时是用户页，到 pid 17 时变成了 struct proc。地址翻译的硬件细节见图~\ref{fig:mmu-walk}。
 
 \section{上下文切换与调度器}
 
@@ -606,7 +723,7 @@ xv6 的阻塞机制只有两个函数。\code{sleep(chan, lk)} 原子地释放�
 
 \subsection{用户态同步原语}
 
-在 \code{sleep}/\code{wakeup} 之上，\file{kernel/sync.c} 提供了 64 个内核同步对象槽，用户通过带代数（generation）的整数句柄访问：
+在 \code{sleep}/\code{wakeup} 之上，\file{kernel/core/sync.c} 提供了 64 个内核同步对象槽，用户通过带代数（generation）的整数句柄访问：
 
 \begin{itemize}
   \item \code{mutex}：记录持有者 pid，只有持有者能解锁；

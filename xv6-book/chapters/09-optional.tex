@@ -13,7 +13,7 @@
   \item 安装到真机，以及一次“旧内核”问题的调试
 \end{introduction}
 
-前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2 移植：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致；从驱动原理、编译测试，一直到给真卡分区、格式化和上机调试。代码在 \file{kernel/ext2.c}、\file{kernel/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
+前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2 移植：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致；从驱动原理、编译测试，一直到给真卡分区、格式化和上机调试。代码在 \file{kernel/fs/ext2/ext2.c}、\file{kernel/fs/ext2/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
 
 \section{ext2 移植}
 \label{sec:ext2}
@@ -224,7 +224,7 @@ inode 的分配（\code{alloc\_inode()}）和释放（\code{free\_inode()}）是
 过渡阶段的办法是给 \code{vnode\_ops} 加一组\emph{句柄}操作（\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate}），ext2 的句柄就是 inode 号。改成统一 VFS 以后，这组句柄操作连同 vnode 一起删掉了：ext2 直接以 \code{ext2\_iops} 接入 inode 缓存，内存中的 \code{struct inode} 本身就是“打开的 ext2 inode”：
 
 \begin{ccode}
-static struct inode_ops ext2_iops = {        // kernel/ext2.c
+static struct inode_ops ext2_iops = {        // kernel/fs/ext2/ext2.c
   .read_inode = e2_read_inode,   // 读磁盘 inode，并在 e2.open[] 里占一个引用
   .evict      = e2_evict,        // 最后一个 iput()：ext2release()，孤儿在此回收
   .lookup     = e2_lookup,       // 查目录块，返回 iget(dev, ino)
@@ -247,7 +247,7 @@ static struct inode_ops ext2_iops = {        // kernel/ext2.c
 \code{sdsector(lba, buf, 1)} 返回时，CMD24 的数据已经传给卡，但卡可能还在内部把它编程进 NAND。这时断电，这个扇区可能是新的、旧的，甚至是坏的。要建立“之前的写都已落盘”这样一个边界，需要单独的屏障：
 
 \begin{ccode}
-int sdflush(void) {                                         // kernel/sd.c
+int sdflush(void) {                                         // kernel/drivers/mmc/host/sd.c
   acquire(&sdlock);                                         // 与所有传输互斥
   asm volatile("dsb sy" ::: "memory");
   uint64 deadline = r_cntvct_el0() + 5ULL * r_cntfrq_el0();
@@ -315,7 +315,7 @@ static int e2_wsector(uint32 lba, const void *buf) {
 \end{figure}
 
 \begin{ccode}
-int xj_commit(void) {                                       // kernel/xjournal.c，节选
+int xj_commit(void) {                                       // kernel/fs/ext2/xjournal.c，节选
   ...
   uint32 sum = txsum(count);                               // 描述符 + 载荷的 FNV
   // 1. 描述符和载荷；这次 flush 也保证此前直接写的数据已经落盘
@@ -392,12 +392,12 @@ ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（
     \toprule
     文件 & 作用 \\
     \midrule
-    \file{kernel/ext2.c} & superblock 检查、inode 读写、直接到三级间接块、位图分配、目录项、事务封装、打开表与孤儿回收 \\
-    \file{kernel/xjournal.c} & 外置事务日志：事务缓冲、四步提交、启动恢复 \\
-    \file{kernel/rootdev.c} & \code{rootdev\_raw\_info()} 告诉 ext2 p2 的位置，日志就放在 xv6 镜像之后 \\
-    \file{kernel/sd.c} & \code{sdflush()}：\code{dsb} 加 CMD13 轮询，作为持久化边界 \\
-    \file{kernel/ext2.c}（VFS 部分） & \code{ext2\_iops}、\code{ext2\_register\_super()}：作为统一 VFS 的一种文件系统，可挂在 \code{/mnt/ext2} 或作根文件系统 \\
-    \file{kernel/exec.c}、\file{kernel/sysfile.c} & \code{exec} 经 \code{iop->read} 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
+    \file{kernel/fs/ext2/ext2.c} & superblock 检查、inode 读写、直接到三级间接块、位图分配、目录项、事务封装、打开表与孤儿回收 \\
+    \file{kernel/fs/ext2/xjournal.c} & 外置事务日志：事务缓冲、四步提交、启动恢复 \\
+    \file{kernel/drivers/block/rootdev.c} & \code{rootdev\_raw\_info()} 告诉 ext2 p2 的位置，日志就放在 xv6 镜像之后 \\
+    \file{kernel/drivers/mmc/host/sd.c} & \code{sdflush()}：\code{dsb} 加 CMD13 轮询，作为持久化边界 \\
+    \file{kernel/fs/ext2/ext2.c}（VFS 部分） & \code{ext2\_iops}、\code{ext2\_register\_super()}：作为统一 VFS 的一种文件系统，可挂在 \code{/mnt/ext2} 或作根文件系统 \\
+    \file{kernel/fs/exec.c}、\file{kernel/fs/sysfile.c} & \code{exec} 经 \code{iop->read} 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
     \file{user/waltest.c} & WAL 示例与语义、压力、断电测试 \\
     \file{Makefile} & \code{xjournal.o}、\code{rootdev.o}；\code{fs\_ext2.img} 与 \code{install-rpi3-ext2} 目标 \\
     \bottomrule

@@ -7,6 +7,7 @@ struct stat;
 struct rtcdate;
 struct ext2_user_dirent;
 struct epoll_event;
+struct pollfd;
 
 // system calls
 int fork(void);
@@ -33,6 +34,9 @@ int getppid(void);
 int gettid(void);
 char *getcwd(char*, int);
 int readlink(const char*, char*, int);
+int reboot(int);
+int connect(int, const void*, int);
+uint32 net_dns(void);
 int clone(void (*)(void*), void*, void*);
 int texit(int) __attribute__((noreturn));
 int tjoin(int, int*);
@@ -107,6 +111,8 @@ void *mmap(void*, unsigned long, int, int, int, long);
 int munmap(void*, unsigned long);
 int init_module(void*, unsigned long, const char*);
 int delete_module(const char*);
+int poll(struct pollfd*, unsigned long, int);
+int ioctl(int, unsigned long, ...);
 
 // ulib.c
 int stat(const char*, struct stat*);

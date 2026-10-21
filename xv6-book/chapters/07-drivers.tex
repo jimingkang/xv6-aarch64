@@ -95,7 +95,7 @@ struct file_operations {
 
 \subsection{kobject：一切皆对象}
 
-上面对象只是“数据”，要在运行时看见并操作它们，就得把它们挂上一棵统一对象树，再由一棵伪文件系统把树渲染成目录与文件。Linux 用 \code{kobject}（\file{lib/kobject.c}）与它的渲染器 sysfs（\file{fs/sysfs}）完成此事，本工程照搬同一分层（\file{kernel/kobject.c}、\file{kernel/vfs.c}）。
+上面对象只是“数据”，要在运行时看见并操作它们，就得把它们挂上一棵统一对象树，再由一棵伪文件系统把树渲染成目录与文件。Linux 用 \code{kobject}（\file{lib/kobject.c}）与它的渲染器 sysfs（\file{fs/sysfs}）完成此事，本工程照搬同一分层（\file{kernel/drivers/base/kobject.c}、\file{kernel/fs/vfs.c}）。
 
 \code{/sys} 里没有“设备目录”“驱动文件”的特判：唯一的节点类型就是 \code{struct kobject}——一个带名字、父指针、引用计数与 \code{ktype} 的对象。\code{bus\_type}、\code{device}、\code{device\_driver} 各自\textbf{内嵌}一个 kobject 并给出一个 \code{kobj\_type}，于是 \code{/sys/bus}、\code{/sys/devices}、驱动目录全都出自同一个通用遍历器：
 
@@ -204,7 +204,7 @@ void cancel_work_sync(struct work_struct *work);
 
 \subsection{Mini UART}
 
-Mini UART 驱动（\file{kernel/uart.c}）在 \code{probe()} 中完成与早期汇编相同的初始化，再打开接收中断：
+Mini UART 驱动（\file{kernel/drivers/tty/uart.c}）在 \code{probe()} 中完成与早期汇编相同的初始化，再打开接收中断：
 
 \begin{ccode}
 REGS_AUX->enables |= 1U;               // 使能 AUX 中的 Mini UART
@@ -247,8 +247,8 @@ USB 键盘是本项目里协议层次最多的驱动：从主机控制器的寄�
 USB 驱动分三层：
 
 \begin{itemize}
-  \item \textbf{HCD}（\file{kernel/dwc2.c}）：复位 DWC2 控制器、强制主机模式、开 DMA；给根端口和 Hub 端口上电、复位；用 host channel 发起 control、bulk、interrupt 传输；
-  \item \textbf{USB core}（\file{kernel/usb.c}）：\code{struct usb\_device}、按 ID 或接口类别匹配驱动、Linux 风格的 URB 接口；
+  \item \textbf{HCD}（\file{kernel/drivers/usb/host/dwc2.c}）：复位 DWC2 控制器、强制主机模式、开 DMA；给根端口和 Hub 端口上电、复位；用 host channel 发起 control、bulk、interrupt 传输；
+  \item \textbf{USB core}（\file{kernel/drivers/usb/core/usb.c}）：\code{struct usb\_device}、按 ID 或接口类别匹配驱动、Linux 风格的 URB 接口；
   \item \textbf{类驱动}：HID 键盘（\file{usbkbd.c}）、CDC-ECM 网卡（\file{usbnet.c}，用于 QEMU）、MT7601U 无线网卡（\file{mt7601u.c}）。
 \end{itemize}
 
@@ -400,13 +400,13 @@ USB 键盘（低速 1.5 Mb/s）
     \node[L, fill=gray!10, draw=gray!70!black] (h0) at (0,0)
       {\textbf{硬件}\\DWC2 控制器 → 高速 Hub → 低速键盘};
     \node[L, fill=orange!8] (h1) at (0,18)
-      {\textbf{HCD}\ \file{kernel/dwc2.c}\\host channel + DMA + IRQ 9};
+      {\textbf{HCD}\ \file{kernel/drivers/usb/host/dwc2.c}\\host channel + DMA + IRQ 9};
     \node[L] (h2) at (0,36)
-      {\textbf{USB core}\ \file{kernel/usb.c}\\\code{struct usb\_device} · \code{struct urb}};
+      {\textbf{USB core}\ \file{kernel/drivers/usb/core/usb.c}\\\code{struct usb\_device} · \code{struct urb}};
     \node[L] (h3) at (0,54)
       {\textbf{类驱动 HID}\ \file{usbkbd.c}\\\code{struct usb\_driver} · \code{usbkbd\_state}};
     \node[L, fill=blue!6] (h4) at (0,72)
-      {\textbf{输入核心}\ \file{kernel/input.c}\\\code{struct input\_dev}};
+      {\textbf{输入核心}\ \file{kernel/drivers/input/input.c}\\\code{struct input\_dev}};
     \node[L, fill=teal!8, draw=teal!60!black] (h5) at (0,90)
       {\textbf{用户空间}\\read(\file{/dev/input/eventN}) · \code{struct input\_event}};
     % boundary ops tables (the abstraction edges)
@@ -1208,7 +1208,7 @@ cancel_delayed_work_sync(&interrupt_rx.retry_work);
 
 一份 8 字节报告到手，\code{usbkbd\_rx\_work()} 要同时喂两个消费者：evdev 要的是“哪个键按下、哪个松开”，控制台要的是“打出了什么字符”。两者的判断都建立在同一个动作上——把新报告和 \code{kbd->previous} 逐槽比较。唯一需要提前特判的是 rollover：按键多到键盘自己无法分辨时，六个键槽会被全部填成错误 usage（1～3），这份报告并不说明任何键的真实状态，驱动必须原样保留上一份。若把它当成“全部松开”，就会先上报一串假松开，下一份报告再把同样的键当作新按下，同一个字符因此重复两遍。
 
-之后的事由输入子系统（\file{kernel/input.c}、\file{kernel/input.h}）完成。类驱动只用到七个接口：
+之后的事由输入子系统（\file{kernel/drivers/input/input.c}、\file{kernel/input.h}）完成。类驱动只用到七个接口：
 
 \begin{ccode}
 struct input_dev *input_allocate_device(void);
@@ -1256,7 +1256,7 @@ void input_free_device(struct input_dev *dev);
 字符映射是两张稀疏的表，一张出字符、一张出 Linux 键码：
 
 \begin{ccode}
-// kernel/usbkbd.c，节选。两张表都按 HID usage 编号索引
+// kernel/drivers/input/usbkbd.c，节选。两张表都按 HID usage 编号索引
 static const uchar keymap[58]   = { [4]='a', [16]='m', [30]='1', [40]='\n',
                                     [42]='\b', [43]='\t', [56]='/' };
 static const uchar shiftmap[58] = { [4]='A', [16]='M', [30]='!', [45]='_',
@@ -1514,7 +1514,7 @@ START -> 6d -> ACK -> 56 <- NACK -> STOP
 \paragraph{驱动中的调用路径.} 传感器驱动只用两个函数访问寄存器。v8 起 \code{ov5647\_use\_bitbang} 恒为 1，所以两者都直接走软件 SCCB：
 
 \begin{ccode}
-static int ov5647_write(uint16 reg, uint8 val) {           // kernel/ov5647.c
+static int ov5647_write(uint16 reg, uint8 val) {           // kernel/drivers/media/i2c/ov5647.c
   uint8 b[3] = { reg >> 8, reg & 0xff, val };               // 索引高、低字节，数据
   return i2c0_bitbang_write_read(OV5647_ADDR, b, 3, 0, 0);
 }
@@ -1602,7 +1602,7 @@ release(&i2c_lock);
 
 \section{网络协议栈}
 
-在讲两块无线网卡之前，先看看它们的上层。\file{kernel/net.c} 参考 MIT xv6 网络实验的分层，逐步扩展成了一个小而完整的协议栈：
+在讲两块无线网卡之前，先看看它们的上层。\file{kernel/net/net.c} 参考 MIT xv6 网络实验的分层，逐步扩展成了一个小而完整的协议栈：
 
 \begin{itemize}
   \item \code{struct net\_device}：每块网卡一个，保存 MAC、IP、掩码、网关、DNS 和发送函数 \code{start\_xmit}；驱动收到帧后调用 \code{net\_rx\_dev(dev, frame, len)}；
@@ -2559,7 +2559,7 @@ struct camsensor {
   \end{tabularx}
 \end{table}
 
-供电和电源域都要通过 VideoCore 固件的 property mailbox：内核在一块 16 字节对齐的缓冲区里写好“标签”（如 \code{0x00038041} 设置扩展 GPIO、\code{0x00038030} 设置电源域），把地址写入 mailbox 寄存器，等固件把结果写回同一块缓冲区。项目把原来分散在 SD、USB 驱动里的私有 mailbox 代码收拢成了带锁的 \file{kernel/mbox.c}。电源域编号是一个容易出错的地方：设备树里的 UNICAM1 是 13，发给固件时要加 1。
+供电和电源域都要通过 VideoCore 固件的 property mailbox：内核在一块 16 字节对齐的缓冲区里写好“标签”（如 \code{0x00038041} 设置扩展 GPIO、\code{0x00038030} 设置电源域），把地址写入 mailbox 寄存器，等固件把结果写回同一块缓冲区。项目把原来分散在 SD、USB 驱动里的私有 mailbox 代码收拢成了带锁的 \file{kernel/drivers/firmware/mbox.c}。电源域编号是一个容易出错的地方：设备树里的 UNICAM1 是 13，发给固件时要加 1。
 
 \subsection{硬件连接与工作流程}
 \label{sec:cam-wiring}
@@ -3161,7 +3161,7 @@ ov5647: no reply at i2c0 0x36 (GPIO44/45), ...
 
 \paragraph{问题分析.} 传感器的稳压器由固件扩展 GPIO 133（CAM\_GPIO0）使能，ARM 只能请 VideoCore 固件代办；固件说“不支持”，传感器就没电，I2C 上自然读不到 \code{0x36}。第一行的结果字段可以这样判读：\code{no reply} 是固件根本没回；\code{message rejected} 是整条消息被拒；\code{done 1 len 0} 是标签被应答但没有数据（QEMU 就是这样）；\code{len 8} 且 \code{first word 133} 是固件认识这个标签、但认为 GPIO 133 无效。对照 Linux 的 \code{rpi\_firmware\_property()} 和 \file{gpio-raspberrypi-exp.c}，旧的 mailbox 代码有三处不同：标签的请求长度字填了数据长度，Linux 填 0；发送前不清 FIFO，而 SD、USB 驱动各有一份私有 mailbox 代码，它们超时后留下的回复会被当成本次的回复读走；收到回复不核对地址。另外，旧代码在复制数据之前就因为单个标签的 response 位没置而判失败，Linux 并不这样判。最后一列 \code{stale replies} 就是为验证第二点加的：它统计发送前清掉了多少条别人的回复。
 
-\paragraph{解决方案.} 把各处私有代码收拢成带锁的 \file{kernel/mbox.c}，按 Linux 的约定重写：请求长度字填 0；发送前清空 FIFO；只接受地址与本次请求相同的回复；以“整条消息成功”加“返回结构第一个字为 0”判断 GPIO 操作成败。电源控制也按 Linux 的做法：先 \code{GET\_GPIO\_CONFIG} 读出并保留极性，再设置，最后 \code{GET\_GPIO\_STATE} 回读。修复后的日志是 \code{ov5647: CAM\_GPIO0 direction=output polarity=normal state=1}。如果某个固件确实不处理这个标签，兜底方案是自制 \file{dt-blob.bin}，让固件启动时就把 p133 置为输出高。
+\paragraph{解决方案.} 把各处私有代码收拢成带锁的 \file{kernel/drivers/firmware/mbox.c}，按 Linux 的约定重写：请求长度字填 0；发送前清空 FIFO；只接受地址与本次请求相同的回复；以“整条消息成功”加“返回结构第一个字为 0”判断 GPIO 操作成败。电源控制也按 Linux 的做法：先 \code{GET\_GPIO\_CONFIG} 读出并保留极性，再设置，最后 \code{GET\_GPIO\_STATE} 回读。修复后的日志是 \code{ov5647: CAM\_GPIO0 direction=output polarity=normal state=1}。如果某个固件确实不处理这个标签，兜底方案是自制 \file{dt-blob.bin}，让固件启动时就把 p133 置为输出高。
 
 \subsubsection{问题 2：BSC0 对 \code{0x36} 始终 NACK}
 
