@@ -1,10 +1,12 @@
-// Long-term locks for processes
+#ifndef XV6_SLEEPLOCK_H
+#define XV6_SLEEPLOCK_H
+
+#include <kernel/mutex.h>
+
+// Compatibility name for the original xv6 sleep lock.  New code should use
+// struct mutex directly; existing drivers retain the acquiresleep API.
 struct sleeplock {
-  uint locked;       // Is the lock held?
-  struct spinlock lk; // spinlock protecting this sleep lock
-  
-  // For debugging:
-  char *name;        // Name of lock.
-  int pid;           // Process holding lock
+  struct mutex mutex;
 };
 
+#endif

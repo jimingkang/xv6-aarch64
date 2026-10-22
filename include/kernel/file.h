@@ -3,6 +3,7 @@ struct pty;
 struct file_operations;
 
 #include <uapi/device.h>
+#include <kernel/mutex.h>
 
 struct file {
   enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE, FD_SOCKET,
@@ -14,6 +15,7 @@ struct file {
   int flags;          // open-file-description status flags (O_NONBLOCK, ...)
   struct pipe *pipe; // FD_PIPE
   struct inode *ip;  // FD_INODE and FD_DEVICE
+  struct mutex pos_lock; // serializes the shared open-file offset
   uint64 off;        // shared open-file offset; VFS backends may exceed 4 GiB
   short major;       // FD_DEVICE
   void *private_data; // FD_DEVICE: driver state from file_operations.open
@@ -28,6 +30,8 @@ struct file {
 // in-memory copy of an inode
 struct inode_ops;
 
+#include <kernel/rwsem.h>
+
 // In-memory inode of any mounted filesystem (see vfs.h).  dev names the
 // filesystem instance (its super_block), iop its operations.
 struct inode {
@@ -36,7 +40,7 @@ struct inode {
   int ref;            // Reference count
   struct inode_ops *iop; // operations of the filesystem (set by iget)
   char path[MAXPATH]; // path-based filesystems: path inside the filesystem
-  struct sleeplock lock; // protects everything below here
+  struct rw_semaphore i_rwsem; // shared readers or one metadata writer
   int valid;          // inode has been read from disk?
 
   short type;         // copy of disk inode

@@ -178,9 +178,9 @@ sys_rename(void)
     end_op();
     return -1;
   }
-  ilock(odp);
+  ireadlock(odp);
   t = odp->type == T_DIR ? odp->iop->lookup(odp, oname) : 0;
-  iunlock(odp);
+  ireadunlock(odp);
   if(t){
     int busy = fs_is_mountpoint(t);   // EBUSY: something is mounted on it
     iput(t);
@@ -442,6 +442,7 @@ sys_lseek(void)
   int whence;
   long offset;
   uint64 base, result;
+  long answer = -1;
 
   if(argfd(0, 0, &f) < 0 || argaddr(1, &raw_offset) < 0 ||
      argint(2, &whence) < 0)
@@ -450,6 +451,7 @@ sys_lseek(void)
   int blk = f->type == FD_DEVICE && f->major == BLOCKDEV;
   if(f->type != FD_INODE && !blk)
     return -1;
+  mutex_lock(&f->pos_lock);
   if(whence == 0){
     base = 0;
   } else if(whence == 1){
@@ -457,27 +459,30 @@ sys_lseek(void)
   } else if(whence == 2){
     if(blk){
       if((base = blkdev_size(f->ip->minor)) == 0)
-        return -1;
+        goto out;
     } else {
-      ilock(f->ip);
+      ireadlock(f->ip);
       base = f->ip->size;
-      iunlock(f->ip);
+      ireadunlock(f->ip);
     }
   } else {
-    return -1;
+    goto out;
   }
   if(offset < 0){
     uint64 magnitude = (uint64)(-(offset + 1)) + 1;
-    if(magnitude > base) return -1;
+    if(magnitude > base) goto out;
     result = base - magnitude;
   } else {
-    if(base + (uint64)offset < base) return -1;
+    if(base + (uint64)offset < base) goto out;
     result = base + (uint64)offset;
   }
   if(result > 0x7fffffffffffffffULL)
-    return -1;
+    goto out;
   f->off = result;
-  return result;
+  answer = result;
+out:
+  mutex_unlock(&f->pos_lock);
+  return answer;
 }
 
 uint64
@@ -853,9 +858,9 @@ sys_unlink(void)
     end_op();
     return -1;
   }
-  ilock(dp);
+  ireadlock(dp);
   ip = dp->type == T_DIR ? dp->iop->lookup(dp, name) : 0;
-  iunlock(dp);
+  ireadunlock(dp);
   if(ip){
     int busy = fs_is_mountpoint(ip);    // EBUSY: something is mounted on it
     iput(ip);
@@ -1033,13 +1038,13 @@ sys_chdir(void)
     end_op();
     return -1;
   }
-  ilock(ip);
+  ireadlock(ip);
   if(ip->type != T_DIR){
-    iunlockput(ip);
+    ireadunlockput(ip);
     end_op();
     return -1;
   }
-  iunlock(ip);
+  ireadunlock(ip);
   iput(p->cwd);
   end_op();
   p->cwd = ip;

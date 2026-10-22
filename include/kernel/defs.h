@@ -4,6 +4,8 @@ struct file;
 struct epoll;
 struct epoll_event;
 struct inode;
+struct mutex;
+struct rw_semaphore;
 struct pipe;
 struct pty;
 struct proc;
@@ -78,9 +80,12 @@ struct inode*   ialloc(uint, short);
 struct inode*   idup(struct inode*);
 void            iinit();
 void            ilock(struct inode*);
+void            ireadlock(struct inode*);
 void            iput(struct inode*);
 void            iunlock(struct inode*);
+void            ireadunlock(struct inode*);
 void            iunlockput(struct inode*);
+void            ireadunlockput(struct inode*);
 void            iupdate(struct inode*);
 int             namecmp(const char*, const char*);
 struct inode*   namei(char*);
@@ -376,6 +381,23 @@ void            initlock(struct spinlock*, char*);
 void            release(struct spinlock*);
 void            push_off(void);
 void            pop_off(void);
+
+// mutex.c
+void            mutex_init(struct mutex*, char*);
+void            mutex_lock(struct mutex*);
+int             mutex_trylock(struct mutex*);
+void            mutex_unlock(struct mutex*);
+int             mutex_is_owned(struct mutex*);
+
+// rwsem.c
+void            init_rwsem(struct rw_semaphore*, char*);
+void            down_read(struct rw_semaphore*);
+int             down_read_trylock(struct rw_semaphore*);
+void            up_read(struct rw_semaphore*);
+void            down_write(struct rw_semaphore*);
+int             down_write_trylock(struct rw_semaphore*);
+void            up_write(struct rw_semaphore*);
+int             rwsem_write_held(struct rw_semaphore*);
 
 // sleeplock.c
 void            acquiresleep(struct sleeplock*);

@@ -244,9 +244,9 @@ bfree(int dev, uint b)
 // and ip->dev and ip->inum indicate which i-node an entry
 // holds, one must hold itable.lock while using any of those fields.
 //
-// An ip->lock sleep-lock protects all ip-> fields other than ref,
-// dev, and inum.  One must hold ip->lock in order to
-// read or write that inode's ip->valid, ip->size, ip->type, &c.
+// ip->i_rwsem protects all ip-> fields other than ref, dev and inum.
+// Metadata-changing operations take it for write; lookup/read/stat may take
+// it for read after the inode has been loaded from disk.
 
 struct {
   struct spinlock lock;
@@ -260,7 +260,7 @@ iinit()
   
   initlock(&itable.lock, "itable");
   for(i = 0; i < NINODE; i++) {
-    initsleeplock(&itable.inode[i].lock, "inode");
+    init_rwsem(&itable.inode[i].i_rwsem, "inode");
   }
   loginit();
   fs_mountinit();
@@ -296,7 +296,7 @@ ialloc(uint dev, short type)
 // Copy a modified in-memory inode to disk.
 // Must be called after every change to an ip->xxx field
 // that lives on disk.
-// Caller must hold ip->lock.
+// Caller must hold ip->i_rwsem for write.
 void
 iupdate(struct inode *ip)
 {
@@ -436,7 +436,7 @@ ilock(struct inode *ip)
   if(ip == 0 || ip->ref < 1)
     panic("ilock");
 
-  acquiresleep(&ip->lock);
+  down_write(&ip->i_rwsem);
 
   if(ip->valid == 0){
     struct super_block *sb = getsuper(ip->dev);
@@ -475,14 +475,42 @@ ilock(struct inode *ip)
   }
 }
 
+// Acquire a shared inode lock.  Lazy inode loading modifies the cache, so the
+// first reader temporarily upgrades by dropping the read lock and taking the
+// write lock.  Rechecking valid after the transition handles another task
+// winning that race.
+void
+ireadlock(struct inode *ip)
+{
+  if(ip == 0 || ip->ref < 1)
+    panic("ireadlock");
+
+  down_read(&ip->i_rwsem);
+  if(ip->valid)
+    return;
+  up_read(&ip->i_rwsem);
+
+  ilock(ip);
+  iunlock(ip);
+  down_read(&ip->i_rwsem);
+}
+
 // Unlock the given inode.
 void
 iunlock(struct inode *ip)
 {
-  if(ip == 0 || !holdingsleep(&ip->lock) || ip->ref < 1)
+  if(ip == 0 || !rwsem_write_held(&ip->i_rwsem) || ip->ref < 1)
     panic("iunlock");
 
-  releasesleep(&ip->lock);
+  up_write(&ip->i_rwsem);
+}
+
+void
+ireadunlock(struct inode *ip)
+{
+  if(ip == 0 || ip->ref < 1)
+    panic("ireadunlock");
+  up_read(&ip->i_rwsem);
 }
 
 // Drop a reference to an in-memory inode.
@@ -512,15 +540,15 @@ iput(struct inode *ip)
     // Last reference: let the filesystem release it (xv6fs frees unlinked
     // inodes, ext2 reclaims orphans).
     // ip->ref == 1 means no other process can have ip locked,
-    // so this acquiresleep() won't block (or deadlock).
-    acquiresleep(&ip->lock);
+    // so this write acquisition won't block (or deadlock).
+    down_write(&ip->i_rwsem);
 
     release(&itable.lock);
 
     ip->iop->evict(ip);
     ip->valid = 0;
 
-    releasesleep(&ip->lock);
+    up_write(&ip->i_rwsem);
 
     acquire(&itable.lock);
   }
@@ -534,6 +562,13 @@ void
 iunlockput(struct inode *ip)
 {
   iunlock(ip);
+  iput(ip);
+}
+
+void
+ireadunlockput(struct inode *ip)
+{
+  ireadunlock(ip);
   iput(ip);
 }
 
@@ -582,7 +617,7 @@ bmap(struct inode *ip, uint bn)
 }
 
 // Truncate inode (discard contents).
-// Caller must hold ip->lock.
+// Caller must hold ip->i_rwsem for write.
 void
 itrunc(struct inode *ip)
 {
@@ -614,7 +649,7 @@ itrunc(struct inode *ip)
 }
 
 // Copy stat information from inode.
-// Caller must hold ip->lock.
+// Caller must hold ip->i_rwsem for read or write.
 void
 stati(struct inode *ip, struct stat *st)
 {
@@ -626,7 +661,7 @@ stati(struct inode *ip, struct stat *st)
 }
 
 // Read data from inode.
-// Caller must hold ip->lock.
+// Caller must hold ip->i_rwsem for read or write.
 // If user_dst==1, then dst is a user virtual address;
 // otherwise, dst is a kernel address.
 int
@@ -660,7 +695,7 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 }
 
 // Write data to inode.
-// Caller must hold ip->lock.
+// Caller must hold ip->i_rwsem for write.
 // If user_src==1, then src is a user virtual address;
 // otherwise, src is a kernel address.
 // Returns the number of bytes successfully written.
@@ -1102,18 +1137,18 @@ namex(char *path, int nameiparent, char *name)
             name, ip->dev, ip->inum, *path ? path : "<end>");
     if(namecmp(name, "..") == 0)
       ip = follow_dotdot(ip);
-    ilock(ip);
+    ireadlock(ip);
     if(ip->type != T_DIR){
       FSTRACE("namex: fail component='%s': current inode is type=%d, not directory\n",
               name, ip->type);
-      iunlockput(ip);
+      ireadunlockput(ip);
       return 0;
     }
     if(nameiparent && *path == '\0'){
       // Stop one level early.
       FSTRACE("namex: parent result dev=%d ino=%d final-name='%s'\n",
               ip->dev, ip->inum, name);
-      iunlock(ip);
+      ireadunlock(ip);
       return ip;
     }
     FSTRACE("namex: dispatch lookup through inode_ops fs=%s directory=(%d,%d) name='%s'\n",
@@ -1121,12 +1156,12 @@ namex(char *path, int nameiparent, char *name)
             ip->dev, ip->inum, name);
     if((next = ip->iop->lookup(ip, name)) == 0){
       FSTRACE("namex: lookup miss path='%s' component='%s'\n", original, name);
-      iunlockput(ip);
+      ireadunlockput(ip);
       return 0;
     }
     FSTRACE("namex: lookup hit component='%s' -> dev=%d ino=%d; release parent\n",
             name, next->dev, next->inum);
-    iunlockput(ip);
+    ireadunlockput(ip);
     ip = follow_mount(next);
   }
   if(nameiparent){

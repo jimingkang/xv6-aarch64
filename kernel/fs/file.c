@@ -66,6 +66,7 @@ filealloc(void)
     if(f->ref == 0){
       memset(f, 0, sizeof(*f));
       f->ref = 1;
+      mutex_init(&f->pos_lock, "file-position");
       release(&ftable.lock);
       return f;
     }
@@ -132,11 +133,11 @@ filestat(struct file *f, uint64 addr)
   struct stat st;
   
   if(f->type == FD_INODE || f->type == FD_DEVICE){
-    ilock(f->ip);
+    ireadlock(f->ip);
     stati(f->ip, &st);
     FSTRACE("filestat: fd file -> dev=%d ino=%d type=%d nlink=%d size=%p\n",
             st.dev, st.ino, st.type, st.nlink, st.size);
-    iunlock(f->ip);
+    ireadunlock(f->ip);
     if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;
@@ -234,11 +235,13 @@ static int
 inode_fread(struct file *f, int user_dst, uint64 addr, int n)
 {
   int r;
-  ilock(f->ip);
+  mutex_lock(&f->pos_lock);
+  ireadlock(f->ip);
   r = f->ip->iop->read(f->ip, user_dst, addr, f->off, n);
   if(r > 0)
     f->off += r;
-  iunlock(f->ip);
+  ireadunlock(f->ip);
+  mutex_unlock(&f->pos_lock);
   return r;
 }
 
@@ -247,9 +250,11 @@ inode_fwrite(struct file *f, int user_src, uint64 addr, int n)
 {
   if(!user_src)
     return -1;
+  mutex_lock(&f->pos_lock);
   int done = inode_write(f->ip, addr, f->off, n);
   if(done > 0)
     f->off += done;
+  mutex_unlock(&f->pos_lock);
   return done == n ? n : -1;
 }
 
@@ -309,9 +314,9 @@ filepread(struct file *f, uint64 addr, int n, uint64 off)
   int r;
   if(n < 0 || !f->readable || f->type != FD_INODE)
     return -1;
-  ilock(f->ip);
+  ireadlock(f->ip);
   r = f->ip->iop->read(f->ip, 1, addr, off, n);
-  iunlock(f->ip);
+  ireadunlock(f->ip);
   return r;
 }
 

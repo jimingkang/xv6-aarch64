@@ -64,6 +64,8 @@ CORE_OBJS = \
   $K/core/reboot.o \
   $K/core/sync.o \
   $K/core/spinlock.o \
+  $K/core/mutex.o \
+  $K/core/rwsem.o \
   $K/core/sleeplock.o
 
 MM_OBJS = \
