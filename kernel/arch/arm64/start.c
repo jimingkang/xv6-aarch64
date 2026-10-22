@@ -34,7 +34,7 @@ void entrypgtinit(pte_t *l1entry, pte_t *l2entry,pte_t *l1kernel, pte_t *l2kerne
 {
   const uint64 l2block = 1UL << PXSHIFT(2);
   for(uint64 pa = 0; pa < pa_end; pa += l2block) {
-    //l2entry[PX(2, pa)] = PA2PTE(pa) | PTE_AF | PTE_NORMAL | PTE_VALID;
+    l2entry[PX(2, pa)] = PA2PTE(pa) | PTE_AF | PTE_NORMAL | PTE_VALID;
   }
   l1entry[PX(1, 0)] = PA2PTE((uint64)l2entry) |PTE_TABLE | PTE_VALID;
   

@@ -18,6 +18,35 @@
             "problemMatcher": [
                 "$gcc"
             ]
+        },
+        {
+            "label": "xv6: start QEMU GDB server",
+            "type": "shell",
+            "command": "/bin/zsh",
+            "args": [
+                "${workspaceFolder}/.vscode/start-qemu-gdb.zsh"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": {
+                "owner": "xv6-qemu-gdb",
+                "pattern": {
+                    "regexp": "^QEMU_GDB_ERROR (.*)$",
+                    "message": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*$",
+                    "endsPattern": "^QEMU_GDB_READY port=25501.*$"
+                }
+            }
         }
     ]
 }
