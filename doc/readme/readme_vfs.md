@@ -224,6 +224,51 @@ make FS_TRACE=1
 `FS_TRACE=1` 会输出 `fs-trace:` 前缀。它会显著增加串口输出并改变时序，只应在分析
 文件系统时启用。camera、Wi-Fi 等设备数据本身不属于这组日志。
 
+### `VFS_TRACE`：统一 VFS 路径与操作分派日志
+
+`VFS_TRACE` 与 `FS_TRACE` 是两个相互独立的编译开关。前者观察文件系统无关的 VFS
+控制流；后者观察 xv6fs 的超级块、inode cache 和磁盘块布局。正常构建时两者都默认
+为 `0`。
+
+```sh
+# 只跟踪 VFS，不打开底层 xv6fs 块日志
+make clean
+make VFS_TRACE=1
+
+# 同时观察 VFS 分派和 xv6fs 内部块操作
+make clean
+make VFS_TRACE=1 FS_TRACE=1
+
+# 烧录带 VFS 日志的 ext2-root 内核
+make clean
+make VFS_TRACE=1 install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
+```
+
+改变开关值前执行 `make clean`，因为 Make 不会仅因 `CFLAGS` 值改变而自动重编已有
+对象文件。开启后所有新增行以 `vfs-trace:` 开头，主要覆盖：
+
+- `register_super`、`mount`、`follow_mount`：超级块注册以及路径跨越挂载点；
+- `lookup`：从命名空间根或当前目录开始，逐路径分量调用具体文件系统的
+  `inode_ops->lookup`；
+- `sys_open`：路径最终解析为哪个 `fs/dev/inode`、生成哪个 fd，以及选用 inode
+  file operations 还是字符设备 file operations；
+- `file_read/file_write/file_close/file_stat`：`struct file->f_op` 的统一分派，日志同时
+  标明 pipe、inode、device、socket 或 epoll；
+- `pread/pwrite/truncate/fsync/fdatasync` 和 `mkdir/unlink/rename/mount` 的入口与结果。
+
+例如读取 ext2 文件时可看到：
+
+```text
+vfs-trace: lookup: component=etc at=(4,2) remaining=wifi.conf
+vfs-trace: lookup: hit component=wifi.conf -> (4,37)
+vfs-trace: sys_open: path=/etc/wifi.conf -> fd=3 fs=ext2 dev=4 ino=37 ...
+vfs-trace: file_read: type=inode method=f_op->fread ... fs=ext2 dev=4 ino=37 ...
+```
+
+这些日志说明请求已经经 VFS 分派到 ext2，但不等于 ext2 数据经过 xv6 `bcache`；
+底层是否缓存、是否进入 `xjournal`，仍由 ext2 的 `inode_ops` 实现决定。该开关会在
+每次路径分量和读写操作上打印，串口输出很多并会改变时序，不应在性能测试中开启。
+
 加载 xv6fs 磁盘超级块时逐项打印：
 
 | 字段 | 含义 |

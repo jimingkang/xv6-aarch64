@@ -94,18 +94,51 @@ QEMUOPTS += -drive file=fs.img,if=sd,format=raw
 
 QEMU会把 `fs.img` 连接到 Raspberry Pi 3 的 SD bus。内核必须通过 BCM2837 的 SD/eMMC 寄存器才能访问它。
 
-Makefile通过 `SDIMAGE` 选择SD后端：
+Makefile通过 `SDIMAGE` 选择SD后端。当前默认值已经从裸 `fs.img` 改为完整的
+`build/qemu-rpi3-sd.img`：
 
 ```make
-SDIMAGE ?= fs.img
+SDIMAGE ?= build/qemu-rpi3-sd.img
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
 ```
 
-默认使用仓库中的裸镜像：
+默认先执行 `qemu-sd-image`，再把完整镜像交给 QEMU：
 
 ```sh
+make qemu-sd-image
 make qemu
+make qemu-gdb
 ```
+
+该镜像为 512 MiB 稀疏文件（QEMU SD 模型要求容量为 2 的幂），布局为：
+
+| 分区 | MBR type | start LBA | sectors | 用途 |
+|---|---:|---:|---:|---|
+| p1 | `0x0c` | 2048 | 131072 | 64 MiB FAT32 bootfs |
+| p2 | `0x7f` | 133120 | 131072 | 64 MiB raw xv6fs；前 32 MiB 为 `fs.img`，后部可作 xjournal |
+| p3 | `0x83` | 264192 | 784384 | ext2 分区；开头写入 `fs_ext2.img`，作为根文件系统 |
+
+p1 中包含 `config.txt`、`cmdline.txt`、内核和现有 Wi-Fi 固件。其中
+`cmdline.txt` 来自 `cmdline_ext2.txt`：
+
+```text
+root=/dev/mmcblk0p3 rootfstype=ext2
+```
+
+因此启动路径不再走“无 MBR 的裸 xv6 镜像”兼容分支，而是与真机一致：
+
+```text
+SD LBA 0 MBR
+  -> p1 FAT32 挂载为 bootfs，读取 cmdline.txt
+  -> p2 注册为 mmcblk0p2，并识别 raw xv6fs/xjournal 区
+  -> p3 注册为 mmcblk0p3
+  -> ext2 驱动识别 p3
+  -> prepare_namespace() 将 p3 挂为 /
+```
+
+`tools/mkqemu_sd.py` 直接生成 MBR 和 FAT32，并把两个文件系统镜像写入对应
+LBA，不使用 loop device、不挂载宿主卷，也不需要 root 权限。逻辑大小为 512 MiB，
+但未写区域保持稀疏；当前实际占用约 67 MiB。
 
 也可以在卸载SD卡全部分区后，让QEMU访问整张物理卡：
 
@@ -568,12 +601,12 @@ CMD17
 
 写路径同理，最后使用CMD24。
 
-## 16. QEMU裸镜像自动回退
+## 16. 裸镜像兼容回退（非默认）
 
-QEMU默认命令仍直接把 `fs.img` 作为整张SD卡：
+内核仍保留把 `fs.img` 直接当整张卡的兼容路径，可显式运行：
 
 ```sh
-make qemu
+make qemu SDIMAGE=fs.img
 ```
 
 因为它没有MBR和FAT32，`fat32init()`会打印：
@@ -588,7 +621,8 @@ fat32: no FS.IMG container; using raw xv6 image
 physical_lba = file_sector
 ```
 
-所以QEMU开发流程不需要额外制作FAT32卡镜像。
+该模式适合只调试 xv6fs，但不会覆盖 MBR、FAT32 和 ext2 根的真实启动路径。默认
+`make qemu`/`make qemu-gdb` 已改用第 3 节说明的完整三分区镜像。
 
 ## 17. FAT32模式启动输出
 
@@ -617,7 +651,8 @@ fat32: partition=1 lba=16384 FS.IMG=1048576 bytes clusters=...
 
 ## 18. 读写验证
 
-QEMU裸SD模式已经验证：
+QEMU 分区镜像模式已经验证；文件写入 ext2 根所在的
+`build/qemu-rpi3-sd.img`：
 
 ```sh
 $ echo sd-persist-ok > sdtest
@@ -625,7 +660,8 @@ $ cat sdtest
 sd-persist-ok
 ```
 
-退出并重新启动QEMU后仍然能够读出，证明数据被写回宿主机的 `fs.img`。
+若不重新执行 `make qemu-sd-image`，退出并用同一镜像重新启动 QEMU 后仍能读出，
+证明数据写回了宿主机的整盘镜像。重新构建该目标会用新生成的 ext2 根覆盖它。
 
 FAT32容器模式使用临时MBR/FAT32卡镜像验证：
 
@@ -753,7 +789,7 @@ SD/eMMC命令、时钟和PIO流程参考：
 默认安全模式：
 make qemu
 生成：
--drive file=fs.img,if=sd,format=raw
+-drive file=build/qemu-rpi3-sd.img,if=sd,format=raw
 使用整张物理SD卡：
 diskutil unmountDisk /dev/disk4
 sudo make qemu SDIMAGE=/dev/disk4

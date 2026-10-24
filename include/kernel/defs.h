@@ -104,8 +104,6 @@ void            sdinit(void);
 void            sd_driver_init(void);
 int             sdsector(uint32, void*, int);
 int             sdflush(void);
-void            rootupdate_init(void);
-int             rootupdate_root_frozen(void);
 
 // fat32.c
 void            fat32init(void);
@@ -113,8 +111,11 @@ void            fat32init(void);
 // blkdev.c
 struct blkdev;
 void            blkdev_init(void);
-int             blkdev_register(int, const char*, uint32, uint32, uint32,
-                                int (*)(struct blkdev*, uint32, uchar*, uint32, int));
+int             add_disk(int, const char*, int, uint32, uint32,
+                         int (*)(struct blkdev*, uint32, uchar*, uint32, int),
+                         void*);
+int             del_disk(int);
+struct blkdev*  blkdev_find_partuuid(const char*);
 struct blkdev*  blkdev_get(uint);
 int             blkdev_find(const char*);
 int             blkdev_set_bsize(uint, uint32);
@@ -156,14 +157,12 @@ int             ext2_register_super(int, int);
 
 // rootdev.c
 void            rootdev_init(void);
-int             rootdev_raw_info(uint32*, uint32*);
-char*           rootdev_name(void);
+int             rootdev_dev(void);
+struct blkdev*  rootdev_xv6_part(void);
 int             rootdev_fstype(void);
 int             rootdev_ext2_part(void);
 #define ROOTFS_XV6  0
 #define ROOTFS_EXT2 1
-int             rootdev_update_begin(void);
-int             rootfs_freeze_for_update(void);   // log.c
 struct fat32_file;
 int             fat32openroot(char*, struct fat32_file*);
 int             fat32openpath(char*, struct fat32_file*);
@@ -200,7 +199,7 @@ int             ext2truncino(uint64, uint64);
 int             ext2statino(uint64, uint*, ushort*, uint64*);
 
 // xjournal.c
-int             xj_init(uint32, uint32);
+int             xj_init(struct blkdev*, uint32, uint32);
 int             xj_ready(void);
 uint32          xj_space(void);
 void            xj_begin(void);

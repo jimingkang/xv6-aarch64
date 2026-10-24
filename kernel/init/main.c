@@ -48,13 +48,13 @@ main()
         asm volatile("wfe");
     }
     kinit1(end, P2V(EARLYTOP));  // memory covered by the bootstrap map
-    boot_uart_mark('1');
+    //boot_uart_mark('1');
     kvminit();       // create kernel page table
-    boot_uart_mark('2');
+    //boot_uart_mark('2');
     kvminithart();   // turn on paging
-    boot_uart_mark('3');
+    //boot_uart_mark('3');
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
-    boot_uart_mark('4');
+    //boot_uart_mark('4');
     // The device model and the two bus cores are not modules: consoleinit()
     // below already calls register_chrdev() and platform_device_register(),
     // so they must exist before do_initcalls() runs the driver table.

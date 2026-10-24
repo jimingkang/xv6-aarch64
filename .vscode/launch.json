@@ -2,13 +2,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug xv6-arm64 (QEMU GDB)",
+            "name": "Run xv6-arm64 under GDB",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/kernel/kernel",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
-            "targetArchitecture": "arm64",
             "miDebuggerPath": "/opt/homebrew/bin/aarch64-elf-gdb",
             "miDebuggerArgs": "-nx",
             "miDebuggerServerAddress": "127.0.0.1:25501",
@@ -17,7 +16,40 @@
             "stopAtConnect": false,
             "postRemoteConnectCommands": [
                 {
-                    "description": "远程连接完成后在内核 main 设置断点",
+                    "description": "所有 CPU 在 continue 时都允许运行",
+                    "text": "set scheduler-locking off",
+                    "ignoreFailures": false
+                }
+            ],
+            "launchCompleteCommand": "exec-continue",
+            "externalConsole": false,
+            "logging": {
+                "engineLogging": false,
+                "trace": false,
+                "traceResponse": false
+            }
+        },
+        {
+            "name": "Debug xv6-arm64 (stop at kernel main)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/kernel/kernel",
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/homebrew/bin/aarch64-elf-gdb",
+            "miDebuggerArgs": "-nx",
+            "miDebuggerServerAddress": "127.0.0.1:25501",
+            "preLaunchTask": "xv6: start QEMU GDB server",
+            "stopAtEntry": false,
+            "stopAtConnect": false,
+            "postRemoteConnectCommands": [
+                {
+                    "description": "所有 CPU 在 continue 时都允许运行",
+                    "text": "set scheduler-locking off",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "仅调试配置在内核 main 设置断点",
                     "text": "break main",
                     "ignoreFailures": false
                 }
@@ -25,9 +57,9 @@
             "launchCompleteCommand": "exec-continue",
             "externalConsole": false,
             "logging": {
-                "engineLogging": true,
-                "trace": true,
-                "traceResponse": true
+                "engineLogging": false,
+                "trace": false,
+                "traceResponse": false
             }
         }
     ]

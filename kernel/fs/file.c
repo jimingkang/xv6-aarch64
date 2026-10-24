@@ -26,7 +26,7 @@ struct {
 // Trace only the first operations after boot.  This diagnostic counter is
 // deliberately approximate on SMP: a race may print one extra line, but it
 // avoids pulling libgcc atomic helpers into the freestanding kernel.
-#if FS_TRACE
+#if VFS_TRACE
 static int vfs_io_trace_budget = 0x7fffffff;
 
 static int
@@ -39,13 +39,30 @@ vfs_io_trace_take(void)
 }
 #endif
 
-static void
-vfs_io_trace(char *op, struct inode *ip, uint64 off, int requested, int result)
+static char*
+vfs_file_type_name(int type)
 {
-  struct super_block *sb = getsuper(ip->dev);
-  printf("fs-trace: file_%s: inode_ops->%s fs=%s dev=%d ino=%d off=%p requested=%d result=%d\n",
-         op, op, sb ? sb->type : "unknown", ip->dev, ip->inum, off,
-         requested, result);
+  switch(type){
+  case FD_PIPE: return "pipe";
+  case FD_INODE: return "inode";
+  case FD_DEVICE: return "device";
+  case FD_SOCKET: return "socket";
+  case FD_EPOLL: return "epoll";
+  default: return "none";
+  }
+}
+
+static void
+vfs_io_trace(char *op, struct file *f, char *method, uint64 off,
+             int requested, int result)
+{
+  struct super_block *sb = f->ip ? getsuper(f->ip->dev) : 0;
+  printf("vfs-trace: file_%s: type=%s method=f_op->%s f_op=%p",
+         op, vfs_file_type_name(f->type), method, (uint64)f->f_op);
+  if(f->ip)
+    printf(" fs=%s dev=%d ino=%d", sb ? sb->type : "unknown",
+           f->ip->dev, f->ip->inum);
+  printf(" off=%p requested=%d result=%d\n", off, requested, result);
 }
 
 void
@@ -105,6 +122,10 @@ fileclose(struct file *f)
   f->type = FD_NONE;
   release(&ftable.lock);
 
+  VFSTRACE("file_close: type=%s f_op=%p dev=%d ino=%d\n",
+           vfs_file_type_name(ff.type), (uint64)ff.f_op,
+           ff.ip ? ff.ip->dev : 0, ff.ip ? ff.ip->inum : 0);
+
   if(ff.f_op && ff.f_op->release)
     ff.f_op->release(&ff);
 
@@ -112,12 +133,6 @@ fileclose(struct file *f)
   // Their common lifetime is intentionally outside the operations table:
   // drivers release private state, then the file core drops the VFS inode.
   if(ff.ip){
-    // Releasing a completed sdroot updater must not start a transaction on
-    // the now-replaced root image.  Keep this one in-memory inode reference
-    // until the mandatory reboot instead of touching stale root metadata.
-    if(ff.type == FD_DEVICE && ff.major == ROOTUPDATE &&
-       rootupdate_root_frozen())
-      return;
     begin_op();
     iput(ff.ip);
     end_op();
@@ -135,8 +150,8 @@ filestat(struct file *f, uint64 addr)
   if(f->type == FD_INODE || f->type == FD_DEVICE){
     ireadlock(f->ip);
     stati(f->ip, &st);
-    FSTRACE("filestat: fd file -> dev=%d ino=%d type=%d nlink=%d size=%p\n",
-            st.dev, st.ino, st.type, st.nlink, st.size);
+    VFSTRACE("file_stat: dev=%d ino=%d type=%d nlink=%d size=%p\n",
+             st.dev, st.ino, st.type, st.nlink, st.size);
     ireadunlock(f->ip);
     if(copyout(p->vm->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
@@ -153,8 +168,8 @@ fileread(struct file *f, uint64 addr, int n)
   int r = 0;
   uint64 oldoff = f->off;
   int trace = 0;
-#if FS_TRACE
-  trace = f->type == FD_INODE && vfs_io_trace_take();
+#if VFS_TRACE
+  trace = vfs_io_trace_take();
 #endif
 
   if(f->readable == 0 || f->f_op == 0)
@@ -167,7 +182,8 @@ fileread(struct file *f, uint64 addr, int n)
     return -1;
 
   if(trace)
-    vfs_io_trace("read", f->ip, oldoff, n, r);
+    vfs_io_trace("read", f, f->f_op->fread ? "fread" : "read",
+                 oldoff, n, r);
 
   return r;
 }
@@ -212,8 +228,8 @@ filewrite(struct file *f, uint64 addr, int n)
   int ret = 0;
   uint64 oldoff = f->off;
   int trace = 0;
-#if FS_TRACE
-  trace = f->type == FD_INODE && vfs_io_trace_take();
+#if VFS_TRACE
+  trace = vfs_io_trace_take();
 #endif
 
   if(f->writable == 0 || f->f_op == 0)
@@ -226,7 +242,8 @@ filewrite(struct file *f, uint64 addr, int n)
     return -1;
 
   if(trace)
-    vfs_io_trace("write", f->ip, oldoff, n, ret);
+    vfs_io_trace("write", f, f->f_op->fwrite ? "fwrite" : "write",
+                 oldoff, n, ret);
 
   return ret;
 }
@@ -317,6 +334,8 @@ filepread(struct file *f, uint64 addr, int n, uint64 off)
   ireadlock(f->ip);
   r = f->ip->iop->read(f->ip, 1, addr, off, n);
   ireadunlock(f->ip);
+  VFSTRACE("file_pread: dev=%d ino=%d off=%p requested=%d result=%d\n",
+           f->ip->dev, f->ip->inum, off, n, r);
   return r;
 }
 
@@ -326,6 +345,8 @@ filepwrite(struct file *f, uint64 addr, int n, uint64 off)
   if(n < 0 || !f->writable || f->type != FD_INODE)
     return -1;
   int done = inode_write(f->ip, addr, off, n);
+  VFSTRACE("file_pwrite: dev=%d ino=%d off=%p requested=%d result=%d\n",
+           f->ip->dev, f->ip->inum, off, n, done == n ? n : -1);
   return done == n ? n : -1;
 }
 
@@ -341,6 +362,8 @@ filetruncate(struct file *f, uint64 size)
     r = f->ip->iop->truncate(f->ip, size);
   iunlock(f->ip);
   end_op();
+  VFSTRACE("file_truncate: dev=%d ino=%d size=%p result=%d\n",
+           f->ip->dev, f->ip->inum, size, r);
   return r;
 }
 
@@ -348,12 +371,15 @@ int
 filefsync(struct file *f, int dataonly)
 {
   int r = 0;
-  (void)dataonly;
   if(f->type != FD_INODE)
     return -1;
+  VFSTRACE("file_%s: dispatch dev=%d ino=%d\n",
+           dataonly ? "fdatasync" : "fsync", f->ip->dev, f->ip->inum);
   ilock(f->ip);
   if(f->ip->iop->fsync)
     r = f->ip->iop->fsync(f->ip);
   iunlock(f->ip);
+  VFSTRACE("file_%s: complete dev=%d ino=%d result=%d\n",
+           dataonly ? "fdatasync" : "fsync", f->ip->dev, f->ip->inum, r);
   return r;
 }

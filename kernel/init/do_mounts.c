@@ -413,8 +413,9 @@ mount_root(char *devname, char *dir)
       panic("VFS: Unable to mount root fs (ext2) on /dev/root");
     type = "ext2";
   } else {
+    // sb_set_blocksize(): the partition was added with 512-byte blocks.
     // fill_super: superblock check and log recovery.
-    if(dev < 0 || fsinit(dev) < 0)
+    if(dev < 0 || blkdev_set_bsize(dev, BSIZE) < 0 || fsinit(dev) < 0)
       panic("VFS: Unable to mount root fs on /dev/root");
     type = "xv6fs";
   }
@@ -422,7 +423,7 @@ mount_root(char *devname, char *dir)
   if(mp == 0 || fs_mount(mp, dev, type, devname, dir) < 0)
     panic("VFS: cannot attach root");
   printf("VFS: Mounted root (%s filesystem) on device %d (/dev/root = %s).\n",
-         type, dev, rootdev_fstype() == ROOTFS_EXT2 ? bd->name : rootdev_name());
+         type, dev, bd ? bd->name : "?");
 }
 
 void
@@ -442,10 +443,11 @@ prepare_namespace(void)
 
   devtmpfs_init();
 
-  // mount_root(): ROOT_DEV, chosen by rootdev_init() from root=, is dev 1
-  // for an xv6fs root and the ext2 partition (mmcblk0pN) for an ext2 root.
-  int rootdev = rootdev_fstype() == ROOTFS_EXT2 ?
-                BLKDEV_MMC_PART(rootdev_ext2_part()) : ROOTDEV;
+  // mount_root(): ROOT_DEV, chosen by rootdev_init() from root=, is the
+  // root partition itself (mmcblk0pN), or mmcblk0 for a bare image.
+  int rootdev = rootdev_dev();
+  if(rootdev < 0)
+    panic("prepare_namespace: no ROOT_DEV");
   kmknod("/dev/root", T_DEVICE, BLOCKDEV, rootdev);
   mount_root("/dev/root", "/root");
   if(kchdir("/root") < 0)

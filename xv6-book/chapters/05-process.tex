@@ -721,6 +721,14 @@ xv6 的阻塞机制只有两个函数。\code{sleep(chan, lk)} 原子地释放�
 
 关键是“原子”二字：\code{sleep()} 先拿到 \code{p->lock} 才释放 \code{lk}，而 \code{wakeup()} 必须拿到 \code{p->lock} 才能修改进程状态，所以唤醒不可能落在“检查完条件、还没睡着”的间隙里，不会丢失唤醒。被唤醒的进程总要在 \code{while} 循环中重新检查条件，因为 \code{wakeup} 会唤醒同一通道上的所有进程。
 
+\subsection{内核 mutex 与 rw semaphore}
+
+\code{rpi3-lock} 在 \code{sleep/wakeup} 上实现了 FIFO、可睡眠的 \code{struct mutex}。内部 spinlock 只保护 owner 和 waiter 链表；锁忙时 waiter 放在当前进程的内核栈中并 \code{sleep()}，解锁时所有权直接交给队首 waiter，避免惊群和后来者插队。旧 \code{sleeplock} 已成为该 mutex 的兼容包装。
+
+\code{struct rw\_semaphore} 允许连续的一批 reader 同时进入，但队首 writer 必须等 active reader 归零后独占；writer 排队后，后来的 reader 不能越过它。inode 因此使用 \code{i\_rwsem}：只读路径调用 \code{ireadlock()}，修改和首次加载调用 \code{ilock()} 写锁。\code{struct file.pos\_lock} 则保护经 \code{dup/fork} 共享的文件偏移。
+
+initcall 早于第一个用户进程运行，\code{myproc()} 可能为空。mutex 和写 rwsem 为此分别保存 \code{boot\_owner}/\code{boot\_writer}，允许启动 CPU 无竞争地获取；若此时发生竞争则立即报错，绝不在没有 \code{struct proc} 的上下文调用 \code{sleep()}。该规则修复了 FAT32 bootfs 读取配置时的 \code{panic: mutex\_lock: no process}。
+
 \subsection{用户态同步原语}
 
 在 \code{sleep}/\code{wakeup} 之上，\file{kernel/core/sync.c} 提供了 64 个内核同步对象槽，用户通过带代数（generation）的整数句柄访问：

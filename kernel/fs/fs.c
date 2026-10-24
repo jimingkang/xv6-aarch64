@@ -64,6 +64,9 @@ fs_super_register(int dev, char *type, struct inode_ops *iop, uint rootino,
   sb->priv = priv;
   __sync_synchronize();
   sb->used = 1;
+  VFSTRACE("register_super: fs=%s dev=%d rootino=%d ro=%d logged=%d pathbased=%d\n",
+           sb->type, sb->dev, sb->rootino, sb->readonly, sb->logged,
+           sb->pathbased);
   FSTRACE("register_super: memory superblock installed\n");
   FSTRACE("  used=%d dev=%d type=%s iop=%p rootino=%d\n",
           sb->used, sb->dev, sb->type, (uint64)sb->iop, sb->rootino);
@@ -900,9 +903,9 @@ fs_mountinit(void)
 static struct inode*
 rootdir(void)
 {
-  struct inode *ip = fs_root ? idup(fs_root) : iget(ROOTDEV, ROOTINO);
+  struct inode *ip = fs_root ? idup(fs_root) : iget(rootdev_dev(), ROOTINO);
   FSTRACE("rootdir: namespace '/' -> dev=%d ino=%d source=%s\n",
-          ip->dev, ip->inum, fs_root ? "fs_root" : "ROOTDEV fallback");
+          ip->dev, ip->inum, fs_root ? "fs_root" : "ROOT_DEV fallback");
   return ip;
 }
 
@@ -947,6 +950,10 @@ follow_mount(struct inode *ip)
       return ip;
     FSTRACE("follow_mount: covered dev=%d ino=%d -> mounted dev=%d root\n",
             ip->dev, ip->inum, dev);
+    struct super_block *sb = getsuper(dev);
+    VFSTRACE("follow_mount: cover=(%d,%d) -> fs=%s dev=%d rootino=%d\n",
+             ip->dev, ip->inum, sb ? sb->type : "unknown", dev,
+             sb ? sb->rootino : ROOTINO);
     iput(ip);
     ip = fs_dev_root(dev);
   }
@@ -1028,6 +1035,9 @@ fs_mount(struct inode *mp, int dev, char *fstype, char *source, char *path)
     FSTRACE("mount: path=%s cover=(dev=%d ino=%d) root=(fs=%s dev=%d ino=%d)\n",
             path, mp->dev, mp->inum, sb ? sb->type : fstype, dev,
             sb ? sb->rootino : ROOTINO);
+    VFSTRACE("mount: source=%s target=%s type=%s cover=(%d,%d) root=(%d,%d)\n",
+             source, path, sb ? sb->type : fstype, mp->dev, mp->inum, dev,
+             sb ? sb->rootino : ROOTINO);
     return 0;
   }
   release(&mtab.lock);
@@ -1126,6 +1136,8 @@ namex(char *path, int nameiparent, char *name)
 
   FSTRACE("namex: begin path='%s' mode=%s\n", original,
           nameiparent ? "lookup-parent" : "lookup-object");
+  VFSTRACE("lookup: begin path=%s mode=%s\n", original,
+           nameiparent ? "parent" : "object");
 
   if(*path == '/')
     ip = rootdir();
@@ -1135,6 +1147,8 @@ namex(char *path, int nameiparent, char *name)
   while((path = skipelem(path, name)) != 0){
     FSTRACE("namex: component='%s' current=(dev=%d ino=%d) remaining='%s'\n",
             name, ip->dev, ip->inum, *path ? path : "<end>");
+    VFSTRACE("lookup: component=%s at=(%d,%d) remaining=%s\n",
+             name, ip->dev, ip->inum, *path ? path : "<end>");
     if(namecmp(name, "..") == 0)
       ip = follow_dotdot(ip);
     ireadlock(ip);
@@ -1155,10 +1169,14 @@ namex(char *path, int nameiparent, char *name)
             getsuper(ip->dev) ? getsuper(ip->dev)->type : "unknown",
             ip->dev, ip->inum, name);
     if((next = ip->iop->lookup(ip, name)) == 0){
+      VFSTRACE("lookup: miss path=%s component=%s at=(%d,%d)\n",
+               original, name, ip->dev, ip->inum);
       FSTRACE("namex: lookup miss path='%s' component='%s'\n", original, name);
       ireadunlockput(ip);
       return 0;
     }
+    VFSTRACE("lookup: hit component=%s -> (%d,%d)\n",
+             name, next->dev, next->inum);
     FSTRACE("namex: lookup hit component='%s' -> dev=%d ino=%d; release parent\n",
             name, next->dev, next->inum);
     ireadunlockput(ip);
@@ -1172,6 +1190,9 @@ namex(char *path, int nameiparent, char *name)
   }
   FSTRACE("namex: success path='%s' -> dev=%d ino=%d\n",
           original, ip->dev, ip->inum);
+  VFSTRACE("lookup: success path=%s -> (%d,%d) fs=%s\n", original,
+           ip->dev, ip->inum,
+           getsuper(ip->dev) ? getsuper(ip->dev)->type : "unknown");
   return ip;
 }
 

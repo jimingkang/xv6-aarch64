@@ -100,7 +100,6 @@ main(void)
     mknod("dev/input/event2", T_DEVICE, mkdev(INPUT, 2));
     mknod("dev/input/event3", T_DEVICE, mkdev(INPUT, 3));
     mknod("dev/video0", T_DEVICE, mkdev(CAMERA, 0));
-    mknod("dev/sdroot", T_DEVICE, mkdev(ROOTUPDATE, 0));
     if(open("/dev/ttyS0", O_RDWR) < 0 &&
        open("/dev/console", O_RDWR) < 0)
       exit(1);

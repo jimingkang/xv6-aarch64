@@ -780,3 +780,171 @@ make kernel/kernel8-xv6_wifi.img user/_tftpclient
    应保持不变；
 5. 若每次 `Ctrl+C` 都稳定触发重键，还需继续记录相机停流、SDIO DAT1 IRQ和 AP rekey 的时间戳，
    判断相机退出路径是否造成 SDIO 服务延迟，而不能仅凭当前一次日志认定二者有直接因果关系。
+
+---
+
+## FAT32 bootfs 挂载后 `panic: mutex_lock: no process`
+
+### 现象
+
+```text
+rootdev: bootfs p1 lba=16384 mounted as FAT32
+panic: mutex_lock: no process
+```
+
+### 原因
+
+`rpi3-lock` 将 FAT32 的全局 spinlock 改成了可睡眠 FIFO mutex。`sdroot` 属于 late initcall，运行
+在 `userinit()` 和 `scheduler()` 之前；挂载 bootfs 后，`cmdline_init()` 立即通过 FAT32 读取配置，
+此时 CPU 尚无当前进程，`myproc() == 0`。第一版 `mutex_lock()` 强制要求进程 owner，因此在锁实际
+没有竞争时也直接 panic。
+
+### 修复
+
+`struct mutex` 增加 `boot_owner`，`struct rw_semaphore` 增加对应的 `boot_writer`。无当前进程且锁
+空闲时，以 `&cpus[cpuid()]` 记录启动期 owner；解锁、trylock、递归检测和 held 检查识别该 owner。
+如果无进程上下文遇到真正竞争，仍报 `contention without process`，绝不调用要求进程上下文的
+`sleep()`。
+
+相关文件：
+
+```text
+include/kernel/mutex.h        kernel/core/mutex.c
+include/kernel/rwsem.h        kernel/core/rwsem.c
+```
+
+详细设计见 `readme_kernel_lock.md`。
+
+---
+
+## 块缓存自检后 `panic: init exiting`
+
+### 现象
+
+```text
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
+panic: init exiting
+```
+
+日志中没有正常情况下应出现的：
+
+```text
+exec: /init -> interpreter /lib/ld-xv6.so
+```
+
+### 原因
+
+执行了：
+
+```sh
+make install-rpi3-ext2 RPI3_EXT2_DEV=/dev/rdisk4s3
+```
+
+当 `fs_ext2.img` 不存在时，该目标只运行 `truncate + mke2fs`，然后把只有 `lost+found` 的空 ext2
+镜像写入 p3。挂载和块缓存测试都不需要 `/init`，所以它们仍然成功；随后 `user/initcode.S` 执行
+`SYS_exec("/init")`，`kernel/fs/sysfile.c:sys_exec()` 进入 `kernel/fs/exec.c:exec()`，路径查找失败。
+initcode 接着执行 `SYS_exit`，而 `kernel/core/proc.c:exit()` 禁止 pid 1 退出，于是 panic。
+
+该命令之所以“有时可以”，是因为两个目标使用同一个 `fs_ext2.img`：若它此前由
+`ext2root-image` 填充，make 会直接复用；镜像被 clean 后就会重新生成空卷。
+
+### 解决
+
+ext2 作为根文件系统时必须使用：
+
+```sh
+make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
+```
+
+它会通过 `debugfs` 安装 `/init`、`/bin/*`、`/lib/libc.so`、`/lib/ld-xv6.so` 和模块，再执行 dd
+并同步 bootfs 中的内核、config 和 ext2 cmdline。烧录前可用 `debugfs -R 'stat /init'` 和
+`debugfs -R 'stat /lib/ld-xv6.so'` 验证镜像。
+## QEMU 登录名已经回显，但按 Enter 后停在同一行
+
+现象：
+
+```text
+xv6-rpi3 login: root
+```
+
+如果光标仍停在 `root` 后而没有出现 `Password:`，此时不是 ext2、动态链接器或认证
+文件卡住。`/bin/login` 仍在 `gets(name)`/`consoleread()` 中等待一条以 `\n` 结束的完整
+输入行。
+
+原 QEMU 参数是：
+
+```text
+-serial null -serial mon:stdio
+```
+
+`mon:stdio` 把 QEMU monitor 与第二路串口（xv6 使用的 Mini UART）复用在同一个 PTY。
+如果终端进入 monitor 模式或处理了复用转义，后续按键和 Enter 就不会到达 Mini UART，
+于是登录读取一直睡眠，外观与内核死机相同。
+
+现在改为：
+
+```text
+-chardev stdio,id=xv6uart,signal=off
+-serial null -serial chardev:xv6uart -monitor none
+```
+
+stdio 只属于 Mini UART，QEMU monitor 被禁用，不再存在输入焦点切换。串口驱动的
+`consoleintr()` 已经把 `CR ('\r')` 和 `LF ('\n')` 都归一化为换行。`signal=off` 让
+`Ctrl-C` 作为字节交给 xv6，而不是让宿主终端用 SIGINT 终止 QEMU。
+
+当前三分区 QEMU 镜像已经验证完整登录链：
+
+```text
+xv6-rpi3 login: root
+Password: xv6
+Welcome root
+exec: /bin/sh -> interpreter /lib/ld-xv6.so
+$
+```
+
+如果仍无法提交输入，可在串口终端按 `Ctrl-J` 直接发送 LF；还应检查 VS Code 调试器
+是否显示 Paused。GDB 为 all-stop 模式，命中任意断点都会暂停全部虚拟 CPU，此时串口
+当然也不会继续处理输入，按 Continue 后才能恢复。
+
+`make qemu` 正常而 `make qemu-gdb` 停在登录输入之后，进一步说明 vCPU 是被调试器
+暂停，不是内核锁死。旧 `.vscode/launch.json` 每次连接都执行 `break main`，并把
+MI engine/trace 全部打开；“正常运行”和“从 main 单步”使用了同一份配置。
+
+现在拆成两个配置：
+
+- `Run xv6-arm64 under GDB`：不自动添加断点，连接后立即 continue，适合运行到登录界面；
+- `Debug xv6-arm64 (stop at kernel main)`：显式在内核 `main` 停下，供启动流程单步。
+
+两者都执行 `set scheduler-locking off`，保证 Continue 恢复所有虚拟 CPU。VS Code 中
+手工设置的红色断点仍然有效；如果登录提交后再次停住，应先看 Debug 工具栏是否变为
+Paused，并在 Debug Console 执行：
+
+```gdb
+info program
+info breakpoints
+thread apply all bt
+```
+
+若 `info program` 显示 stopped at breakpoint/watchpoint，删除对应断点或按 Continue 即可。
+
+### VS Code 后台任务只显示输入却不把输入交给 xv6
+
+另一个与内核停机外观完全相同的问题来自旧版
+`.vscode/start-qemu-gdb.zsh`：为了轮询 25501 端口，它使用
+`make qemu-gdb &` 把 QEMU 放进后台。QEMU 的串口输出仍能显示，但后台进程不能可靠地
+从 VS Code 集成终端读取 stdin。终端行规程可能在本地回显 `root` 和换行，因此看起来像
+xv6 已收到用户名，实际上 `consoleread()` 没有收到这些字节，自然不会打印 `Password:`。
+
+修复后的进程关系是：
+
+```text
+VS Code terminal task (foreground)
+  └─ exec make qemu-gdb (foreground)
+       └─ qemu-system-aarch64 (foreground, owns stdin/UART)
+
+readiness watcher (background)
+  └─ only polls TCP 25501 and prints QEMU_GDB_READY
+```
+
+也就是仅把端口探测器放到后台，`make/QEMU` 始终留在终端前台进程组。该修复与 GDB
+断点检查是两个层次：前者保证按键能进入虚拟 UART；后者保证收到按键后 vCPU 仍在运行。

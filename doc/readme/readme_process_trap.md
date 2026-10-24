@@ -149,6 +149,18 @@ make_runnable(p, 0);
 
 ### 3.2 initcode 做了什么
 
+源码位于 `user/initcode.S`；构建规则位于 Makefile 的 `user/initcode` 目标；生成的机器码数组
+嵌入 `kernel/core/proc.c`，由 `userinit()` 复制到第一个用户地址空间的 VA 0。系统调用入口和实际
+实现分别位于：
+
+```text
+fork: user/libc_syscall.c -> kernel/core/syscall.c
+      -> kernel/core/sysproc.c:sys_fork() -> kernel/core/proc.c:fork()
+
+exec: user/libc_syscall.c -> kernel/core/syscall.c
+      -> kernel/fs/sysfile.c:sys_exec() -> kernel/fs/exec.c:exec()
+```
+
 ```
 0x00 ldr x0, =init     // 字面量池 0x38 → 0x1c "/init"
 0x04 ldr x1, =argv     // 0x40 → 0x28，argv = {0x1c, 0}
@@ -166,7 +178,12 @@ make_runnable(p, 0);
 3. syscall 读 tf->x7 → sys_exec → `exec("/init", argv)`。
 4. exec 改写 trapframe：elr = /init 的入口，sp = 新用户栈，x1 = argv，返回 argc 写进 x0。
 5. `eret` 进入 `/init` 的 `main(1, {"/init"})`。initcode 那一页随旧页表一起被释放。pid 还是 1，`initproc` 指针不变。
-6. 如果 exec 失败（例如 ext2 镜像里没有 /init），执行落到 exit 循环，`exit()` 发现 `p == initproc`，`panic("init exiting")`。
+6. 如果 exec 失败（例如 ext2 镜像里没有 /init），执行落到 exit 循环，`exit()` 发现 `p == initproc`，`panic("init exiting")`。若最后一条正常日志是 `blkdev: cache self-test ok`，并且没有出现 `exec: /init -> interpreter /lib/ld-xv6.so`，应优先检查根文件系统中的 `/init`、`/lib/ld-xv6.so` 和 `/lib/libc.so`。
+
+ext2 根必须用 `make install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3` 构造和烧录。
+`install-rpi3-ext2` 只保证得到格式化的 ext2 数据卷；当 `fs_ext2.img` 不存在时，它创建的镜像只有
+`lost+found`。如果它偶尔能够启动，是因为 make 复用了之前由 `ext2root-image` 填充过的同名镜像，
+不是该目标本身安装了 `/init`。
 
 ### 3.3 为什么需要 initcode
 

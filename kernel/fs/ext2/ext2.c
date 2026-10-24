@@ -23,6 +23,7 @@
 #include <kernel/file.h>
 #include <kernel/vfs.h>
 #include <kernel/module.h>
+#include <kernel/blkdev.h>
 
 #define SECTOR 512
 #define EXT2_MAGIC 0xef53
@@ -930,9 +931,10 @@ ext2init(void)
   e2.ready = 0;
   // External journal: the unused tail of the raw xv6 root partition.  It must
   // be recovered before any ext2 metadata is interpreted.
-  uint32 rlba, rsec, jstart = FSSIZE * (BSIZE / SECTOR);
-  if(rootdev_raw_info(&rlba, &rsec) == 0 && rsec > jstart &&
-     xj_init(rlba + jstart, rsec - jstart) == 0)
+  struct blkdev *jbd = rootdev_xv6_part();
+  uint32 jstart = FSSIZE * (BSIZE / SECTOR);
+  if(jbd && jbd->disk && jbd->nsect > jstart &&
+     xj_init(jbd, jstart, jbd->nsect - jstart) == 0)
     e2.journal = 1;
   else
     printf("ext2: no raw xv6 root partition; external journal disabled\n");
@@ -962,7 +964,7 @@ ext2init(void)
   else printf("ext2: no compatible ext2 partition; disabled\n");
 }
 
-// Order 5: scans the raw root partition, so it comes after sdroot.
+// Order 5: needs the xv6 partition rootdev ("sdroot") found, for its journal.
 late_initcall_ord("ext2", ext2init, 5);
 
 int

@@ -1,5 +1,11 @@
 # xv6 inode sleeplock、inode cache 槽复用与 login 死锁
 
+> 本文第 1--8 节保留的是旧版 inode sleeplock 故障的定位过程。`rpi3-lock` 分支已经把
+> `struct inode.lock` 替换为 writer 公平的 `i_rwsem`，`ilock/iunlock` 对应写锁，并新增
+> `ireadlock/ireadunlock` 供只读路径并发访问。当前锁架构、FAT32 mutex、`file.pos_lock` 和
+> 启动期 `boot_owner` 见 [readme_kernel_lock.md](readme_kernel_lock.md)。旧故障中“引用与锁必须
+> 分别配对”“inode cache 槽会复用”的结论仍然成立。
+
 ## 1. 这次故障的现象
 
 启动停止在：

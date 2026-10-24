@@ -12,6 +12,7 @@
 #include <kernel/spinlock.h>
 #include <kernel/device.h>
 #include <kernel/module.h>
+#include <kernel/blkdev.h>
 
 #define SDHOST_BASE     (PERIPHERAL_BASE + 0x00202000UL)
 #define GPIO_BASE       (PERIPHERAL_BASE + 0x00200000UL)
@@ -81,6 +82,7 @@ static struct spinlock sdlock;
 static uint32 sd_rca;
 static int sd_sdhc;
 static int sd_ready;
+static uint32 sd_nsect;          // card size in sectors from the CSD, 0 = unknown
 
 static inline volatile uint32 *
 mmio(uint64 base, uint32 offset)
@@ -227,6 +229,48 @@ send_command(uint32 opcode, uint32 arg, enum response_type response,
   return 0;
 }
 
+// Like Linux bcm2835_finish_command(): a 136-bit R2 response sits in
+// SDRSP0..3 with SDRSP3 holding the top bits.  resp[0] gets bits 127:96,
+// the order mmc core's UNSTUFF_BITS() expects.
+static void
+read_long_response(uint32 resp[4])
+{
+  for(int i = 0; i < 4; i++)
+    resp[3 - i] = rd(SDRSP0 + i * 4);
+}
+
+// Linux UNSTUFF_BITS(): size bits starting at bit start of a 128-bit register.
+static uint32
+unstuff_bits(const uint32 resp[4], int start, int size)
+{
+  uint32 mask = (size < 32 ? 1U << size : 0) - 1;
+  int off = 3 - start / 32, shift = start & 31;
+  uint32 res = resp[off] >> shift;
+  if(size + shift > 32)
+    res |= resp[off - 1] << ((32 - shift) % 32);
+  return res & mask;
+}
+
+// Card capacity in 512-byte sectors from the CSD (Linux mmc_decode_csd() for
+// SD).  CSD 2.0 (SDHC/SDXC): (C_SIZE + 1) * 512 KiB.  CSD 1.0 (SDSC):
+// (C_SIZE + 1) << (C_SIZE_MULT + 2) blocks of 2^READ_BL_LEN bytes.
+static uint32
+csd_sectors(const uint32 csd[4])
+{
+  uint32 structure = unstuff_bits(csd, 126, 2);
+  if(structure == 1)
+    return (unstuff_bits(csd, 48, 22) + 1) * 1024;
+  if(structure == 0){
+    uint32 c_size = unstuff_bits(csd, 62, 12);
+    uint32 mult = unstuff_bits(csd, 47, 3);
+    uint32 bl_len = unstuff_bits(csd, 80, 4);
+    if(bl_len < 9 || bl_len > 11)
+      return 0;
+    return ((c_size + 1) << (mult + 2)) << (bl_len - 9);
+  }
+  return 0;                         // unknown CSD version
+}
+
 static int
 send_app(uint32 opcode, uint32 arg, enum response_type response,
          uint32 *result)
@@ -332,6 +376,15 @@ sdinit(void)
   sd_rca = response >> 16;
   if(sd_rca == 0)
     panic("sdhost: RCA");
+  // CMD9 (SEND_CSD) is only accepted in stand-by state, before CMD7.
+  uint32 csd[4];
+  if(send_command(9, sd_rca << 16, RESP_LONG, 0, 0) == 0){
+    read_long_response(csd);
+    sd_nsect = csd_sectors(csd);
+  } else {
+    wr(SDHSTS, HSTS_CLEAR);
+    printf("sdhost: CMD9 failed, card size unknown\n");
+  }
   if(send_command(7, sd_rca << 16, RESP_BUSY, 0, 0) < 0)
     panic("sdhost: CMD7");
   if(!sd_sdhc && send_command(16, SD_SECTOR_SIZE, RESP_SHORT, 0, 0) < 0)
@@ -347,9 +400,10 @@ sdinit(void)
   wr(SDHCFG, hcfg);
   set_clock(SD_DATA_CLOCK);
   sd_ready = 1;
-  printf("sdhost: card initialized (%s, %s bus)\n",
+  printf("sdhost: card initialized (%s, %s bus, %d sectors = %d MiB)\n",
          sd_sdhc ? "SDHC" : "SDSC",
-         (rd(SDHCFG) & HCFG_WIDE_EXT) ? "4-bit" : "1-bit");
+         (rd(SDHCFG) & HCFG_WIDE_EXT) ? "4-bit" : "1-bit",
+         sd_nsect, sd_nsect / 2048);
 }
 
 int
@@ -412,11 +466,28 @@ sdflush(void)
   return result;
 }
 
+// The block driver's rw for the whole card.  Partitions reach it through
+// blkdev.c's part_rw(), which has already added the partition start.
+static int
+mmc_rw(struct blkdev *bd, uint32 sector, uchar *data, uint32 count, int write)
+{
+  (void)bd;
+  for(uint32 i = 0; i < count; i++)
+    if(sdsector(sector + i, data + i * SD_SECTOR_SIZE, write) < 0)
+      return -1;
+  return 0;
+}
+
+// Linux mmc_blk_probe(): bring the card up, then hand the whole card to the
+// block layer.  add_disk() scans the MBR and adds mmcblk0p1..p4 itself.
 static int
 sdhost_probe(struct device *dev)
 {
   (void)dev;
   sdinit();
+  if(add_disk(BLKDEV_MMC, "mmcblk0", BLKDEV_MMC_MINORS, sd_nsect,
+              SD_SECTOR_SIZE, mmc_rw, 0) < 0)
+    panic("sdhost: add_disk mmcblk0");
   return 0;
 }
 
@@ -442,5 +513,6 @@ sd_driver_init(void)
   platform_driver_register(&drv);
 }
 
-// The external SD card has to be a block device before sdroot mounts it.
+// The external SD card has to be a block device before sdroot mounts it;
+// the block layer itself is a subsys_initcall, so it is ready by now.
 module_init("sdhost", sd_driver_init);

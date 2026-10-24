@@ -3,10 +3,8 @@
 // This file only understands FAT32: the BPB, the FAT chains, directory
 // entries with long names, and file data.  It is used for /boot and for
 // firmware loading.  It does NOT know where the xv6 root filesystem lives;
-// that is rootdev.c.  rootdev.c calls fat32mount() for the boot partition it
-// found in the MBR, and, only for old cards that keep the root image as the
-// file FS.IMG, fat32mapfile()/fat32mapsector() to translate file sectors to
-// card sectors.
+// that is rootdev.c.  rootdev.c calls fat32mount() for the boot partition
+// the block layer found in the MBR.
 
 #include <kernel/types.h>
 #include "aarch64.h"
@@ -1361,58 +1359,3 @@ fat32init(void)
 // mounted later by sdroot.
 fs_initcall("fat32", fat32init);
 
-// Record the cluster chain of one root-directory file so that it can be
-// addressed as a flat run of 512-byte sectors.  Only one file is mapped at a
-// time; rootdev.c uses this for the FS.IMG compatibility layout.  Called
-// once during boot, before other CPUs or processes touch FAT32.
-int
-fat32mapfile(char *name11, uint32 *bytes)
-{
-  uint32 first_cluster, file_size;
-  if(!diskmap.fat || name11 == 0 || bytes == 0)
-    return -1;
-  diskmap.mapped = 0;
-  diskmap.cluster_count = 0;
-  diskmap.file_size = 0;
-  if(find_root_file(diskmap.root_cluster, name11,
-                    &first_cluster, &file_size) < 0)
-    return -1;
-
-  uint32 cluster_bytes = diskmap.sectors_per_cluster * SECTOR_SIZE;
-  uint32 needed = (file_size + cluster_bytes - 1) / cluster_bytes;
-  if(needed > MAX_FILE_CLUSTERS){
-    printf("fat32: mapped file has too many clusters\n");
-    return -1;
-  }
-  uint32 cluster = first_cluster;
-  for(uint32 i = 0; i < needed; i++){
-    if(cluster < 2 || cluster >= FAT32_EOC){
-      printf("fat32: mapped file has a short cluster chain\n");
-      diskmap.cluster_count = 0;
-      return -1;
-    }
-    diskmap.clusters[i] = cluster;
-    diskmap.cluster_count++;
-    if(i + 1 < needed)
-      cluster = fat_next(cluster);
-  }
-  diskmap.file_size = file_size;
-  diskmap.mapped = 1;
-  *bytes = file_size;
-  return 0;
-}
-
-// Card sector holding sector file_sector of the file mapped above.  The map
-// is read-only after boot, so no lock is needed.
-int
-fat32mapsector(uint32 file_sector, uint32 *lba)
-{
-  if(!diskmap.mapped || lba == 0)
-    return -1;
-  uint32 index = file_sector / diskmap.sectors_per_cluster;
-  uint32 within = file_sector % diskmap.sectors_per_cluster;
-  if(index >= diskmap.cluster_count)
-    return -1;
-  *lba = cluster_lba(diskmap.clusters[index]) + within;
-  return 0;
-}

@@ -23,6 +23,7 @@
 #include <kernel/device.h>
 #include <kernel/kobject.h>
 #include <kernel/module.h>
+#include <kernel/fs_trace.h>
 
 extern char etext[];
 extern char end[];
@@ -1056,6 +1057,9 @@ vfsmount(char *source, char *target, char *fstype, int flags)
   int dev;
   struct inode *mp;
 
+  VFSTRACE("vfsmount: resolve source=%s target=%s type=%s flags=%x\n",
+           source, target, fstype, flags);
+
   if(flags & ~VFS_MOUNT_RDONLY)
     return -1;
   if(streq(fstype, "procfs")){
@@ -1090,6 +1094,7 @@ vfsmount(char *source, char *target, char *fstype, int flags)
 
   begin_op();
   if((mp = namei(target)) == 0){
+    VFSTRACE("vfsmount: target lookup failed target=%s\n", target);
     end_op();
     return -1;
   }
@@ -1103,6 +1108,8 @@ vfsmount(char *source, char *target, char *fstype, int flags)
   else
     printf("vfs: cannot mount %s at %s (busy or already mounted)\n",
            fstype, target);
+  VFSTRACE("vfsmount: type=%s target=%s dev=%d result=%d\n",
+           fstype, target, dev, r);
   return r;
 }
 

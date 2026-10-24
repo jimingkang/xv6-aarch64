@@ -1,0 +1,62 @@
+% Linux VFS 用到的核心数据结构及其引用关系（对照书稿里 xv6 简化后的模型）。
+% 独立文件，只放裸 tikzpicture；章节里用 resizebox + input 引入。
+% 每个结构画成"标题栏 + 字段栏"两块；箭头是结构体里的指针字段指向的对象。
+\newcommand{\vfsnode}[6]{% 名字, x, 顶部深度, 宽度, 标题, 字段
+  \node[vsh,text width=#4mm] (#1h) at (#2,#3) {#5};
+  \node[vbd,text width=#4mm,anchor=north] (#1) at (#1h.south) {#6};
+}
+\begin{tikzpicture}[
+    x=1mm, y=-1mm,
+    vsh/.style={draw=structurecolor!70!black, fill=structurecolor!16,
+      align=center, font=\small\bfseries, inner sep=2pt},
+    vbd/.style={draw=structurecolor!70!black, fill=white,
+      align=left, font=\small\ttfamily, inner sep=2pt},
+    va/.style={-{Stealth[length=1.8mm]}, thick, draw=structurecolor!75!black},
+    vda/.style={va, dashed},
+    vl/.style={font=\small, text=structurecolor!55!black, fill=white, inner sep=1.5pt}
+  ]
+
+  % ---- 左：文件系统核心对象 ----
+  \vfsnode{fst}{6}{6}{40}{file\_system\_type}{fs\_supers\\ mount\\ kill\_sb}
+  \vfsnode{sb}{6}{48}{40}{super\_block}{s\_instances\\ s\_list\\ s\_type\\ s\_inodes\\ s\_root\\ s\_op\\ s\_bdev}
+  \vfsnode{bdev}{6}{150}{40}{block\_device}{bd\_dev\\ bd\_inode\\ bd\_super}
+
+  \vfsnode{inode}{62}{48}{46}{inode}{i\_mode\\ i\_sb\\ i\_op\\ i\_fop\\ i\_mapping\\ i\_pipe / i\_bdev\\ i\_list\\ i\_sb\_list\\ i\_dentry}
+  \vfsnode{amap}{62}{150}{40}{address\_space}{host\\ a\_ops\\ page\_tree\\ i\_mmap}
+
+  \vfsnode{dent}{120}{44}{42}{dentry}{d\_inode\\ d\_parent\\ d\_child\\ d\_subdirs\\ d\_name\\ d\_op\\ d\_sb\\ d\_alias}
+  \vfsnode{path}{120}{150}{38}{path}{mnt\\ dentry}
+
+  % ---- 右：进程与打开的文件 ----
+  \vfsnode{task}{172}{6}{40}{task\_struct}{fs\\ files\\ \dots}
+  \vfsnode{files}{172}{48}{40}{files\_struct}{fdt\\ fdtab\\ max\_fds\\ next\_fd}
+  \vfsnode{fsst}{172}{150}{40}{fs\_struct}{root\\ pwd\\ umask}
+  \vfsnode{fdtab}{220}{48}{40}{fdtable}{max\_fds\\ fd\\ open\_fds\\ rcu}
+  \vfsnode{file}{220}{112}{42}{file}{f\_pos\\ f\_flags\\ f\_op\\ f\_count\\ f\_path\\ f\_mapping\\ private\_data}
+
+  % ---- 文件系统内部的引用 ----
+  \draw[va] (sbh) -- node[vl,right]{s\_type} (fst.south);
+  \draw[va] (sb.north east) -- node[vl,above]{s\_inodes} (inode.north west);
+  \draw[vda] (sb.south east) -- node[vl,below]{i\_sb} (inode.south west);
+  \draw[va] (sb.south) -- node[vl,left]{s\_bdev} (bdev.north);
+  \draw[va] (inode.south) -- node[vl,right]{i\_mapping} (amap.north);
+  \draw[va] (bdev.east) -- node[vl,above]{i\_bdev} (amap.west);
+
+  % ---- 目录项 / 路径 ----
+  \draw[va] (dent.north west) -- node[vl,above]{d\_inode} (inode.north east);
+  \draw[vda] (dent.south west) -- node[vl,below]{d\_alias} (inode.south east);
+  \draw[va] (path.north) -- node[vl,left]{dentry} (dent.south);
+  % dentry 自引用：父目录 / 子目录
+  \draw[va] (denth.north west) .. controls +(-4,-12) and +(4,-12) .. node[vl,above]{d\_parent} (denth.north east);
+  \draw[va] (dent.east) .. controls +(16,-4) and +(16,4) .. node[vl,right]{d\_subdirs} (dent.south east);
+
+  % ---- 进程侧的引用 ----
+  \draw[va] (task.south) -- node[vl,left]{files} (files.north);
+  \draw[va] (files.east) -- node[vl,above]{fdt} (fdtab.west);
+  \draw[va] (fdtab.south) -- node[vl,left]{fd[i]} (file.north);
+  \draw[va] (task.east) .. controls +(18,-6) and +(18,-6) .. node[vl,right]{fs} (fsst.east);
+  \draw[va] (fsst.north west) .. controls +(-16,4) and +(-16,4) .. node[vl,left]{root/pwd} (task.north west);
+  \draw[va] (fsst.west) -- node[vl,above]{path} (path.east);
+  \draw[va] (file.south) .. controls +(0,46) and +(0,46) .. node[vl,below]{f\_path} (path.south);
+  \draw[va] (file.south west) .. controls +(-14,54) and +(14,54) .. node[vl,below]{f\_mapping} (amap.south);
+\end{tikzpicture}

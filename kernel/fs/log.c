@@ -43,7 +43,6 @@ struct log {
   int size;
   int outstanding; // how many FS sys calls are executing.
   int committing;  // in commit(), please wait.
-  int update_freeze; // block new root operations during raw image replacement
   int dev;
   struct logheader lh;
 };
@@ -140,7 +139,7 @@ begin_op(void)
 {
   acquire(&log.lock);
   while(1){
-    if(log.update_freeze || log.committing){
+    if(log.committing){
       sleep(&log, &log.lock);
     } else if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
       // this op might exhaust log space; wait for commit.
@@ -151,21 +150,6 @@ begin_op(void)
       break;
     }
   }
-}
-
-// Stop new native-root transactions and wait until every operation already
-// inside the log has committed.  This is deliberately one-way: after the
-// mounted root image is replaced, continuing to use old in-memory inodes would
-// be unsafe, so only a reboot may leave this state.
-int
-rootfs_freeze_for_update(void)
-{
-  acquire(&log.lock);
-  log.update_freeze = 1;
-  while(log.outstanding != 0 || log.committing)
-    sleep(&log, &log.lock);
-  release(&log.lock);
-  return 0;
 }
 
 // called at the end of each FS system call.

@@ -575,7 +575,7 @@ sudo /opt/homebrew/opt/e2fsprogs/sbin/dumpe2fs -h /dev/rdisk4s3   # 查看特性
   \end{tabularx}
 \end{table}
 
-\paragraph{不要把 32\,MiB 镜像写进大分区.} \code{Makefile} 里还有一个 \code{install-rpi3-ext2} 目标，它把开发机上预先格式化好的 \file{fs\_ext2.img} 用 \code{dd} 写进分区。这个镜像由 \code{truncate -s 32M} 加 \code{mke2fs} 生成，里面只有 \code{.}、\code{..} 和 \code{lost+found}，不含任何用户程序，也不是 xv6 文件系统。但它只有 32\,MiB：写进 118\,GiB 的 p3 之后，superblock 记的仍是 8192 个块，分区的其余空间全部浪费，启动日志里会出现 \code{groups=1}。要使用整个分区，应当像上面那样直接对分区运行 \code{mke2fs}；已经写了镜像的话，可以用 \code{resize2fs} 扩展：
+\paragraph{不要把 32\,MiB 空镜像当作根文件系统.} \code{Makefile} 里的 \code{install-rpi3-ext2} 目标把开发机上的 \file{fs\_ext2.img} 用 \code{dd} 写进分区。当该镜像不存在时，规则只执行 \code{truncate -s 32M} 和 \code{mke2fs}，里面只有 \code{.}、\code{..} 和 \code{lost+found}，适合作为 \code{/mnt/ext2} 数据卷，却不能作为根文件系统。它只有 32\,MiB：写进 118\,GiB 的 p3 之后，superblock 记的仍是 8192 个块，分区的其余空间全部浪费，启动日志里会出现 \code{groups=1}。要使用整个分区，应当像上面那样直接对分区运行 \code{mke2fs}；已经写了镜像的话，可以用 \code{resize2fs} 扩展：
 
 \begin{shcode}
 sudo /opt/homebrew/opt/e2fsprogs/sbin/e2fsck -f /dev/rdisk4s3
@@ -583,6 +583,8 @@ sudo /opt/homebrew/opt/e2fsprogs/sbin/resize2fs /dev/rdisk4s3
 \end{shcode}
 
 扩展后应有 $248463360 / 8 = 31\,057\,920$ 个块，按每组 32\,768 块计共 948 个块组。另外，\code{fs\_ext2.img} 这个目标只依赖文件名，镜像已经存在时改了 \code{EXT2\_SIZE} 也不会重新生成，要先删掉旧文件。
+
+可启动的 ext2 根必须使用 \code{install-rpi3-ext2root}。它依赖 phony 的 \code{ext2root-image}，每次都会重建镜像并用 \code{debugfs} 安装 \code{/init}、\code{/bin/*}、动态加载器和 libc。两个安装目标共用同一个文件名，所以 \code{install-rpi3-ext2} 有时看似也能启动：那只是碰巧复用了前一次已经填充的镜像；\code{make clean} 后再次执行它就会烧入空卷。空卷仍能通过挂载和块缓存自检，但 initcode 的 \code{exec("/init")} 随后失败，最终显示 \code{panic: init exiting}。
 
 \subsection{安装与真机调试}
 \label{sec:ext2-install}

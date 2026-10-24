@@ -21,6 +21,7 @@ EXT2_IMAGE ?= fs_ext2.img
 EXT2_SIZE ?= 32M
 EXT2_LABEL ?= xv6-linux
 RPI3_EXT2_CMDLINE ?= cmdline_ext2.txt
+QEMU_SD_IMAGE ?= build/qemu-rpi3-sd.img
 # e2fsprogs is a Homebrew keg whose sbin is not on the default PATH.
 MKE2FS ?= $(shell if command -v mke2fs >/dev/null 2>&1; then \
 	command -v mke2fs; \
@@ -108,8 +109,7 @@ DRIVER_TTY_OBJS = \
 
 DRIVER_BLOCK_OBJS = \
   $K/drivers/block/blkdev.o \
-  $K/drivers/block/rootdev.o \
-  $K/drivers/block/rootupdate.o
+  $K/drivers/block/rootdev.o
 
 DRIVER_MEDIA_OBJS = \
   $K/drivers/firmware/mbox.o \
@@ -187,6 +187,11 @@ USER_CFLAGS = $(CFLAGS) -I$U/include
 FS_TRACE ?= 0
 CFLAGS += -DFS_TRACE=$(FS_TRACE)
 
+# Filesystem-independent VFS dispatch trace.  This is deliberately separate
+# from FS_TRACE, which follows xv6fs inode/block internals.
+VFS_TRACE ?= 0
+CFLAGS += -DVFS_TRACE=$(VFS_TRACE)
+
 # Page-table/process-context teaching trace.  VM_TRACE=1 prints every valid
 # L1/L2/L3 descriptor in TTBR1 once at boot and a complete TTBR0/context/
 # trapframe snapshot whenever a user image is created or replaced.
@@ -253,7 +258,7 @@ install-tftp: $(KERNEL_IMAGE) fs.img
 	@echo "installed fs.img -> $(TFTPBOOT_FS)"
 
 .PHONY: install-rpi3
-install-rpi3: $(KERNEL_IMAGE) fs.img config.txt cmdline_xv6.txt
+install-rpi3: $(KERNEL_IMAGE) fs.img config.txt cmdline.txt
 	@test -d "$(RPI3_BOOTFS)" || { \
 		echo "error: $(RPI3_BOOTFS) is not mounted" 1>&2; \
 		exit 1; \
@@ -270,7 +275,7 @@ install-rpi3: $(KERNEL_IMAGE) fs.img config.txt cmdline_xv6.txt
 		echo "warning: fs.img not installed; set RPI3_XV6_DEV to the raw xv6 partition" 1>&2; \
 	fi
 	$(SUDO) cp -f config.txt "$(RPI3_BOOTFS)/config.txt"
-	$(SUDO) cp -f cmdline_xv6.txt "$(RPI3_BOOTFS)/cmdline.txt"   # xv6 root=; kernel reads /cmdline.txt (config.txt sets disable_commandline_tags=1)
+	$(SUDO) cp -f cmdline.txt "$(RPI3_BOOTFS)/cmdline.txt"   # xv6 root=; kernel reads /cmdline.txt (config.txt sets disable_commandline_tags=1)
 	@cmp -s $(KERNEL_IMAGE) "$(RPI3_BOOTFS)/$(RPI3_KERNEL_NAME)" || { \
 		echo "error: installed kernel differs from $(KERNEL_IMAGE)" 1>&2; \
 		exit 1; \
@@ -565,7 +570,6 @@ UPROGS=\
 	$U/_ping\
 	$U/_wifi\
 	$U/_dhcp\
-	$U/_dd\
 	$U/_waltest\
 	$U/_minisqlite\
 	$U/_tcpd\
@@ -658,6 +662,7 @@ clean: clean-t113
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
+	$(QEMU_SD_IMAGE) \
 	$(MODULES) $(MODULES:.ko=.mod.o) $(MODULES:%=%.raw) \
 	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/ld-xv6.so $U/.dynamic-user $U/.static-user \
         $U/usys.S \
@@ -694,13 +699,17 @@ ifndef CPUS
 CPUS := 4
 endif
 
-# Use the generated image by default. Override with SDIMAGE=/dev/diskN only
-# after all volumes on that physical SD card have been unmounted.
-SDIMAGE ?= fs.img
+# Use a partitioned SD-card image by default. Override with SDIMAGE=/dev/diskN
+# only after all volumes on that physical SD card have been unmounted.
+SDIMAGE ?= $(QEMU_SD_IMAGE)
 
 QEMUOPTS = -machine raspi3b -kernel $(KERNEL_IMAGE) -display none
+QEMUOPTS += -chardev stdio,id=xv6uart,signal=off
 # raspi3b serial[0] is PL011; serial[1] is the AUX Mini UART used by xv6.
-QEMUOPTS += -serial null -serial mon:stdio
+# Give the guest exclusive ownership of stdio.  mon:stdio multiplexes the
+# QEMU monitor and UART, so a monitor-mode switch can make login appear hung:
+# typed characters/Enter no longer reach consoleread().
+QEMUOPTS += -serial null -serial chardev:xv6uart -monitor none
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
 
 # QEMU user-mode NAT uses the host's active route (Wi-Fi on a MacBook) without
@@ -710,16 +719,54 @@ QEMUNETOPTS = -netdev user,id=net0,ipv4=on,ipv6=off,net=10.0.2.0/24
 QEMUNETOPTS += -device usb-net,netdev=net0,mac=52:54:00:12:34:56
 QEMUNETOPTS += -object filter-dump,id=netdump,netdev=net0,file=packets.pcap
 
-qemu: $(KERNEL_IMAGE) fs.img
+QEMU_BOOT_FILES = \
+	--boot-file config.txt=CONFIG.TXT \
+	--boot-file $(RPI3_EXT2_CMDLINE)=CMDLINE.TXT \
+	--boot-file $(KERNEL_IMAGE)=$(RPI3_KERNEL_NAME)
+
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43430.BIN),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43430.BIN=BCM43430.BIN
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43430.TXT),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43430.TXT=BCM43430.TXT
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43430.CLM),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43430.CLM=BCM43430.CLM
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43455.BIN),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43455.BIN=BCM43455.BIN
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43455.TXT),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43455.TXT=BCM43455.TXT
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/BCM43455.CLM),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/BCM43455.CLM=BCM43455.CLM
+endif
+ifneq ($(wildcard $(WIFI_FIRMWARE_DIR)/mt7601u.bin),)
+QEMU_BOOT_FILES += --boot-file $(WIFI_FIRMWARE_DIR)/mt7601u.bin=MT7601U.BIN
+endif
+
+.PHONY: qemu-sd-image
+qemu-sd-image: $(KERNEL_IMAGE) fs.img ext2root-image config.txt $(RPI3_EXT2_CMDLINE) tools/mkqemu_sd.py
+	python3 tools/mkqemu_sd.py \
+	  --output "$(QEMU_SD_IMAGE)" --xv6 fs.img --ext2 "$(EXT2_IMAGE)" \
+	  $(QEMU_BOOT_FILES)
+ifeq ($(SDIMAGE),$(QEMU_SD_IMAGE))
+QEMU_SD_DEP = qemu-sd-image
+else
+QEMU_SD_DEP = $(KERNEL_IMAGE)
+endif
+
+.PHONY: qemu qemu-net qemu-gdb
+qemu: $(QEMU_SD_DEP)
 	$(QEMU) $(QEMUOPTS)
 
-.PHONY: qemu-net
-qemu-net: $(KERNEL_IMAGE) fs.img
+qemu-net: $(QEMU_SD_DEP)
 	$(QEMU) $(QEMUOPTS) $(QEMUNETOPTS)
 
 .gdbinit: .gdbinit.tmpl-aarch64
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
-qemu-gdb: $(KERNEL_IMAGE) .gdbinit fs.img
+qemu-gdb: $(KERNEL_IMAGE) .gdbinit $(QEMU_SD_DEP)
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)

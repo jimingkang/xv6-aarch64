@@ -1,28 +1,26 @@
-// Root block device: where xv6 block numbers live on the SD card.
+// Choosing the root block device (compare Linux init/do_mounts.c:
+// prepare_namespace() and name_to_dev_t()).
 //
-// rootdev_init() scans the MBR and registers block devices (blkdev.c): the
-// whole card, every primary partition, and ROOTDEV.  The buffer cache asks
-// for "block B of ROOTDEV"; blk_rw() calls root_blk_rw(), which turns that
-// into two 512-byte SD sectors.  This file interprets no filesystem.  It reads
-// the MBR, recognises the xv6 root partition by the superblock in block 1,
-// and mounts the FAT32 boot partition for /boot and firmware.  The xv6 root
-// image is reached in one of three ways:
+// rootdev_init() is not a driver and does no I/O of its own beyond probing.
+// By the time it runs the SD driver (sdhost.c) has added mmcblk0 with
+// add_disk() and the block layer has added its partitions (blkdev.c).  This
+// file only decides which of those block devices is the root, ROOT_DEV in
+// Linux terms, and do_mounts.c creates /dev/root with that number and mounts
+// it.  There is no wrapper device: /dev/root is the partition itself.
 //
-//   raw    an MBR primary partition (type 0x7f preferred) holds the image:
-//          sector = partition start + 2*B + i
-//   fsimg  old cards keep the image as the file FS.IMG inside FAT32.  FAT32
-//          maps the file sector to a card sector (fat32mapsector()); the
-//          xv6 blocks are still xv6 blocks, FAT32 only says where they sit.
-//   bare   QEMU attaches fs.img itself as the whole card: sector = 2*B + i
+//   xv6fs root  a partition (type 0x7f preferred) whose block 1 holds the
+//               xv6 superblock, e.g. mmcblk0p2 = dev 4
+//   ext2 root   the partition named by root=, e.g. mmcblk0p3 = dev 5
+//   bare        QEMU attaches fs.img itself as the whole disk: mmcblk0
 //
 // Which partition is the root follows the embedded-Linux rule: the kernel
 // command line's root= (cmdline.c) names it -- /dev/mmcblk0p2 or
-// PARTUUID=<MBR disk signature>-02 -- and the kernel resolves the name
-// itself (Linux: name_to_dev_t()).  Without root=, or if the named partition
-// holds no xv6 filesystem, the old auto-detection runs: type 0x7f first,
-// then any partition whose block 1 carries the xv6 superblock magic.
-// Mounting the root is not done here: do_mounts.c mounts /dev/root (ROOTDEV)
-// once the first process runs.
+// PARTUUID=<MBR disk signature>-02 -- and the name is resolved against the
+// block devices that exist.  Without root=, or if the named partition holds
+// no xv6 filesystem, auto-detection runs: type 0x7f first, then any
+// partition whose block 1 carries the xv6 superblock magic.  The xv6
+// partition is looked for even with an ext2 root, because the ext2 journal
+// lives in its unused tail (ext2.c).
 
 #include <kernel/types.h>
 #include "aarch64.h"
@@ -41,29 +39,17 @@
 #define SECTORS_PER_BLOCK  (BSIZE / SECTOR_SIZE)
 #define XV6_PARTITION_TYPE 0x7f
 
-enum { ROOT_BARE, ROOT_RAW, ROOT_FSIMG };
-
-static struct {
-  int mode;
-  uint32 lba;       // raw: first sector of the partition
-  uint32 sectors;   // raw: partition size; fsimg: FS.IMG size in sectors
-} root;
-
-// /dev/sdroot overwrites the raw partition in place.  The gate lets block
-// I/O already in flight drain and then blocks all further root I/O.
-static struct {
-  struct spinlock lock;
-  int readers;
-  int updating;
-} gate;
-
 static uchar sector[SECTOR_SIZE];
 
-// rootfstype= : the default xv6fs root is dev 1 (ROOTDEV); an ext2 root is
-// partition ext2_root_part, mounted by ext2.c/vfs.c (see do_mounts.c).
+// ROOT_DEV: the block device /dev/root names; -1 until rootdev_init().
+static int root_dev = -1;
+// The partition (or bare disk) holding an xv6 image, whatever the root is.
+static struct blkdev *xv6_part;
+
+// rootfstype= : xv6fs (default) mounts xv6_part; ext2 mounts partition
+// ext2_root_part (see do_mounts.c).
 static int root_fstype = ROOTFS_XV6;
 static int ext2_root_part;
-static void register_root(void);
 
 static uint32
 le32(const uchar *p)
@@ -90,94 +76,49 @@ partition_type_name(uchar type)
   }
 }
 
-// Does this partition start with an xv6 image?  Block 1 is the superblock;
-// with 1024-byte blocks it begins two sectors into the partition.
+// Read one sector of a block device through its own rw.  The buffer cache
+// is not used: no process exists yet to sleep on a buffer lock.
 static int
-setup_raw_root(uint32 start, uint32 sectors)
+bdev_read(struct blkdev *bd, uint32 s, uchar *buf)
 {
-  if(start == 0 || sectors < FSSIZE * SECTORS_PER_BLOCK ||
-     sdsector(start + SECTORS_PER_BLOCK, sector, 0) < 0 ||
+  if(bd->nsect != 0 && s >= bd->nsect)
+    return -1;
+  return bd->rw(bd, s, buf, 1, 0);
+}
+
+// Partition n of disk, or 0.
+static struct blkdev*
+disk_part(struct blkdev *disk, int n)
+{
+  struct blkdev *p = blkdev_get(disk->dev + n);
+  return p && p->disk == disk ? p : 0;
+}
+
+// Does this block device start with an xv6 image?  Block 1 is the
+// superblock; with 1024-byte blocks it begins two sectors in.
+static int
+is_xv6fs(struct blkdev *bd)
+{
+  if((bd->nsect != 0 && bd->nsect < FSSIZE * SECTORS_PER_BLOCK) ||
+     bdev_read(bd, SECTORS_PER_BLOCK, sector) < 0 ||
      le32(sector) != FSMAGIC || le32(sector + 4) != FSSIZE)
-    return -1;
-  FSTRACE("root probe: xv6fs lba=%d super-sector=%d magic=%x blocks=%d\n",
-          start, start + SECTORS_PER_BLOCK, le32(sector), le32(sector + 4));
-  root.mode = ROOT_RAW;
-  root.lba = start;
-  root.sectors = sectors;
-  return 0;
+    return 0;
+  FSTRACE("root probe: xv6fs on %s magic=%x blocks=%d\n",
+          bd->name, le32(sector), le32(sector + 4));
+  return 1;
 }
 
-// Compatibility: the root image is the file FS.IMG in the mounted FAT32.
-static int
-setup_fsimg_root(void)
+// name_to_dev_t() for the names xv6 knows: /dev/<name>, <name> or
+// PARTUUID=ssssssss-pp.  Returns the block device or 0.
+static struct blkdev*
+name_to_bdev(char *spec)
 {
-  uint32 bytes;
-  if(fat32mapfile("FS      IMG", &bytes) < 0)
-    return -1;
-  if(bytes < FSSIZE * BSIZE){
-    printf("rootdev: FS.IMG too small: %d bytes\n", bytes);
-    return -1;
-  }
-  root.mode = ROOT_FSIMG;
-  root.sectors = bytes / SECTOR_SIZE;
-  return 0;
-}
-
-static int
-hexval(char c)
-{
-  if(c >= '0' && c <= '9') return c - '0';
-  if(c >= 'a' && c <= 'f') return c - 'a' + 10;
-  if(c >= 'A' && c <= 'F') return c - 'A' + 10;
-  return -1;
-}
-
-// Parse a hex or decimal field; returns -1 on a bad character.
-static long
-parsenum(char *s, int len, int base)
-{
-  long v = 0;
-  if(len <= 0)
-    return -1;
-  for(int i = 0; i < len; i++){
-    int d = hexval(s[i]);
-    if(d < 0 || d >= base)
-      return -1;
-    v = v * base + d;
-  }
-  return v;
-}
-
-// name_to_dev_t() for the names xv6 knows.  Returns the MBR partition
-// number 1..4, 0 for the whole card, -1 if the name is not understood.
-static int
-root_param_partition(char *spec, uint32 disksig)
-{
+  if(strncmp(spec, "PARTUUID=", 9) == 0)
+    return blkdev_find_partuuid(spec + 9);
   if(strncmp(spec, "/dev/", 5) == 0)
     spec += 5;
-  if(strncmp(spec, "mmcblk0", 7) == 0){
-    if(spec[7] == 0)
-      return 0;
-    if(spec[7] == 'p' && spec[8] >= '1' && spec[8] <= '4' && spec[9] == 0)
-      return spec[8] - '0';
-    return -1;
-  }
-  // PARTUUID=SSSSSSSS-PP: MBR disk signature (hex) and partition (hex).
-  if(strncmp(spec, "PARTUUID=", 9) == 0){
-    char *u = spec + 9;
-    int len = strlen(u);
-    if(len != 11 || u[8] != '-')
-      return -1;
-    long sig = parsenum(u, 8, 16), part = parsenum(u + 9, 2, 16);
-    if(sig < 0 || part < 1 || part > 4)
-      return -1;
-    if((uint32)sig != disksig){
-      printf("rootdev: %s: disk signature is %x\n", spec, disksig);
-      return -1;
-    }
-    return part;
-  }
-  return -1;
+  int dev = blkdev_find(spec);
+  return dev < 0 ? 0 : blkdev_get(dev);
 }
 
 // rootfstype=xv6fs (default) or ext2.  Anything else is reported and the
@@ -209,77 +150,61 @@ rootdev_ext2_part(void)
   return root_fstype == ROOTFS_EXT2 ? ext2_root_part : 0;
 }
 
+// ROOT_DEV, the device number behind /dev/root; -1 before rootdev_init().
+int
+rootdev_dev(void)
+{
+  return root_dev;
+}
+
+// The block device holding the xv6 image, or 0 (ext2 keeps its journal in
+// the tail of it).
+struct blkdev*
+rootdev_xv6_part(void)
+{
+  return xv6_part;
+}
+
 void
 rootdev_init(void)
 {
-  initlock(&gate.lock, "rootdev");
-  gate.readers = 0;
-  gate.updating = 0;
-  root.mode = ROOT_BARE;
+  // The boot disk.  Linux waits for whatever root= names; xv6 boots from
+  // the SD card, so its driver must have added mmcblk0 by now.
+  struct blkdev *disk = blkdev_get(BLKDEV_MMC);
+  if(disk == 0)
+    panic("rootdev: no mmcblk0 (SD driver probe failed?)");
 
-  blkdev_init();
-  if(sdsector(0, sector, 0) < 0)
-    panic("rootdev: sector 0");
-  blkdev_register(BLKDEV_MMC, "mmcblk0", 0, 0, BLK_SECTOR, 0);
-
-  // A superfloppy FAT32 volume has its BPB directly in sector zero.
-  if(fat32_is_boot_sector(sector)){
-    if(fat32mount(0, 0) == 0 && (cmdline_init(), setup_fsimg_root()) == 0){
-      printf("rootdev: FS.IMG in superfloppy, %d sectors\n", root.sectors);
-      register_root();
-      return;
-    }
-    panic("rootdev: FAT32 superfloppy has no FS.IMG");
+  // Partitions come from the block layer's MBR scan, not from here.
+  int nparts = 0;
+  for(int n = 1; n < disk->minors; n++){
+    struct blkdev *p = disk_part(disk, n);
+    if(p == 0)
+      continue;
+    if(nparts++ == 0)
+      printf("rootdev: partitions of %s\n", disk->name);
+    printf("rootdev:   %s type=0x%x (%s) start=%d sectors=%d size=%d MiB "
+           "partuuid=%s\n", p->name, p->ptype, partition_type_name(p->ptype),
+           p->start, p->nsect, p->nsect / 2048, p->uuid);
   }
 
-  if(sector[510] != 0x55 || sector[511] != 0xaa){
+  if(nparts == 0){
     // QEMU development mode attaches fs.img itself as the SD card.
     cmdline_init();
-    printf("rootdev: no MBR; using bare xv6 image\n");
-    register_root();
+    if(!is_xv6fs(disk))
+      panic("rootdev: no partitions and no xv6 image on mmcblk0");
+    xv6_part = disk;
+    root_dev = disk->dev;
+    printf("rootdev: no partitions; root is the bare xv6 image on %s\n",
+           disk->name);
     return;
   }
 
-  // The probes below reuse sector[], so keep the four entries first.
-  uchar entries[4][16];
-  uint32 disksig = le32(sector + 440);   // PARTUUID=<disksig>-<NN>
-  for(int i = 0; i < 4; i++)
-    for(int j = 0; j < 16; j++)
-      entries[i][j] = sector[446 + i * 16 + j];
-
-  printf("rootdev: MBR partition table\n");
-  FSTRACE("MBR loaded: sector=0 signature=%x disk-signature=%x\n",
-          (uint)sector[510] | ((uint)sector[511] << 8), disksig);
-  for(int i = 0; i < 4; i++){
-    const uchar *part = entries[i];
-    uint32 start = le32(part + 8);
-    uint32 sectors = le32(part + 12);
-    uint32 end = sectors == 0 ? start : start + sectors - 1;
-    printf("rootdev: p%d boot=%s type=0x%x (%s)\n",
-           i + 1, part[0] == 0x80 ? "yes" : "no",
-           part[4], partition_type_name(part[4]));
-    printf("rootdev:    start=%d end=%d sectors=%d size=%d MiB\n",
-           start, end, sectors, sectors / 2048);
-    // Every used primary partition becomes a block device, mmcblk0pN.
-    if(part[4] != 0 && part[4] != 0x05 && part[4] != 0x0f &&
-       start != 0 && sectors != 0){
-      char name[16] = "mmcblk0p0";
-      name[8] = '1' + i;
-      blkdev_register(BLKDEV_MMC_PART(i + 1), name, start, sectors,
-                      BLK_SECTOR, 0);
-    }
-  }
-
   // bootfs is needed for /boot, BCM/MT7601 firmware and cmdline_xv6.txt.
-  for(int i = 0; i < 4; i++){
-    const uchar *part = entries[i];
-    uchar type = part[4];
-    uint32 start = le32(part + 8);
-    uint32 sectors = le32(part + 12);
-    if((type == 0x0b || type == 0x0c) && start != 0 &&
-       sectors != 0 && start <= 0xffffffffU - sectors &&
-       fat32mount(start, sectors) == 0){
-      printf("rootdev: bootfs p%d lba=%d mounted as FAT32\n", i + 1, start);
+  for(int n = 1; n < disk->minors; n++){
+    struct blkdev *p = disk_part(disk, n);
+    if(p && (p->ptype == 0x0b || p->ptype == 0x0c) &&
+       fat32mount(p->start, p->nsect) == 0){
+      printf("rootdev: bootfs %s lba=%d mounted as FAT32\n", p->name, p->start);
       break;
     }
   }
@@ -287,28 +212,26 @@ rootdev_init(void)
   cmdline_init();
   check_rootfstype();
 
-  // root= from the command line.
+  // root= from the command line, resolved against the block devices.
   char spec[64];
-  if(cmdline_get("root", spec, sizeof(spec)) && spec[0] &&
-     root_fstype == ROOTFS_EXT2){
-    // The ext2 driver mounts it; the xv6 partition below is still looked
-    // for, because /dev/sdroot and the ext2 journal live there.
-    int n = root_param_partition(spec, disksig);
-    if(n >= 1 && n <= 4 && entries[n - 1][4] != 0){
-      ext2_root_part = n;
-      printf("rootdev: root=%s rootfstype=ext2 -> mmcblk0p%d\n", spec, n);
+  struct blkdev *named = 0;
+  int have_root = cmdline_get("root", spec, sizeof(spec)) && spec[0];
+  if(have_root)
+    named = name_to_bdev(spec);
+  if(have_root && root_fstype == ROOTFS_EXT2){
+    if(named && named->disk == disk){
+      ext2_root_part = named->partno;
+      root_dev = named->dev;
+      printf("rootdev: root=%s rootfstype=ext2 -> %s\n", spec, named->name);
     } else {
       printf("rootdev: root=%s: no such partition, using xv6fs\n", spec);
       root_fstype = ROOTFS_XV6;
     }
-  } else if(cmdline_get("root", spec, sizeof(spec)) && spec[0]){
-    int n = root_param_partition(spec, disksig);
-    if(n >= 1 && n <= 4 && entries[n - 1][4] != 0 &&
-       setup_raw_root(le32(entries[n - 1] + 8),
-                      le32(entries[n - 1] + 12)) == 0){
-      printf("rootdev: root=%s -> mmcblk0p%d lba=%d sectors=%d size=%d MiB\n",
-             spec, n, root.lba, root.sectors, root.sectors / 2048);
-    } else if(n < 0){
+  } else if(have_root){
+    if(named && named->disk && is_xv6fs(named)){
+      xv6_part = named;
+      printf("rootdev: root=%s -> %s\n", spec, named->name);
+    } else if(named == 0){
       printf("rootdev: root=%s: unknown device name, auto-detecting\n",
              spec);
     } else {
@@ -317,155 +240,36 @@ rootdev_init(void)
     }
   }
 
-  // Auto-detection.  Prefer type 0x7f, but accept any other primary
-  // partition whose block-1 superblock has the xv6 magic: macOS diskutil
-  // can create Linux partitions but not an arbitrary type.
-  for(int pass = 0; pass < 2 && root.mode != ROOT_RAW; pass++){
-    for(int i = 0; i < 4; i++){
-      const uchar *part = entries[i];
-      uchar type = part[4];
-      if((pass == 0) != (type == XV6_PARTITION_TYPE))
+  // Auto-detection.  Prefer type 0x7f, but accept any other partition whose
+  // block-1 superblock has the xv6 magic: macOS diskutil can create Linux
+  // partitions but not an arbitrary type.  FAT partitions are skipped.
+  for(int pass = 0; pass < 2 && xv6_part == 0; pass++){
+    for(int n = 1; n < disk->minors; n++){
+      struct blkdev *p = disk_part(disk, n);
+      if(p == 0 || (pass == 0) != (p->ptype == XV6_PARTITION_TYPE))
         continue;
-      if(type != 0 && type != 0x05 && type != 0x0f &&
-         type != 0x0b && type != 0x0c &&
-         setup_raw_root(le32(part + 8), le32(part + 12)) == 0){
-        printf("rootdev: raw xv6 root p%d lba=%d sectors=%d size=%d MiB\n",
-               i + 1, root.lba, root.sectors, root.sectors / 2048);
+      if(p->ptype != 0x0b && p->ptype != 0x0c && is_xv6fs(p)){
+        xv6_part = p;
         break;
       }
     }
   }
+  if(xv6_part)
+    printf("rootdev: xv6 filesystem on %s start=%d sectors=%d size=%d MiB\n",
+           xv6_part->name, xv6_part->start, xv6_part->nsect,
+           xv6_part->nsect / 2048);
 
-  if(root.mode == ROOT_RAW){
-    register_root();
-    return;
-  }
-  if(fat32ready() && setup_fsimg_root() == 0){
-    printf("rootdev: using FAT32 FS.IMG compatibility mapping, %d sectors\n",
-           root.sectors);
-    register_root();
-    return;
-  }
   if(root_fstype == ROOTFS_EXT2){
-    printf("rootdev: no xv6 partition; ext2 root without /dev/sdroot\n");
-    blkdev_print();
-    return;
+    if(xv6_part == 0)
+      printf("rootdev: no xv6 partition; ext2 root without its journal\n");
+  } else {
+    if(xv6_part == 0)
+      panic("rootdev: no xv6 partition for an xv6fs root");
+    root_dev = xv6_part->dev;
   }
-  panic("rootdev: no raw xv6 partition or FS.IMG");
+  printf("rootdev: ROOT_DEV = %d (%s)\n", root_dev, blkdev_get(root_dev)->name);
 }
 
 // Level late: mounting the root is what Linux does after do_initcalls(),
 // by which time every block driver above has had its probe run.
 late_initcall("sdroot", rootdev_init);
-
-int
-rootdev_raw_info(uint32 *lba, uint32 *sectors)
-{
-  if(root.mode != ROOT_RAW || lba == 0 || sectors == 0)
-    return -1;
-  *lba = root.lba;
-  *sectors = root.sectors;
-  return 0;
-}
-
-// Quiesce the mounted native root before it is replaced in place.  Log
-// transactions are stopped first; then block I/O already in rootdev_rw
-// drains.  The gate is never reopened because cached inodes and buffers
-// describe the old image; the updater must reboot after the copy.
-int
-rootdev_update_begin(void)
-{
-  if(root.mode != ROOT_RAW)
-    return -1;
-  if(rootfs_freeze_for_update() < 0)
-    return -1;
-  acquire(&gate.lock);
-  gate.updating = 1;
-  while(gate.readers != 0)
-    sleep(&gate, &gate.lock);
-  release(&gate.lock);
-  return 0;
-}
-
-static void
-gate_enter(void)
-{
-  acquire(&gate.lock);
-  while(gate.updating)
-    sleep(&gate, &gate.lock);
-  gate.readers++;
-  release(&gate.lock);
-}
-
-static void
-gate_exit(void)
-{
-  acquire(&gate.lock);
-  if(--gate.readers == 0)
-    wakeup(&gate);
-  release(&gate.lock);
-}
-
-// Sector number s of the xv6 image -> sector number on the card.
-static uint32
-root_sector_lba(uint32 s)
-{
-  uint32 lba;
-  switch(root.mode){
-  case ROOT_RAW:
-    if(s >= root.sectors)
-      panic("rootdev: sector outside raw partition");
-    return root.lba + s;
-  case ROOT_FSIMG:
-    if(fat32mapsector(s, &lba) < 0)
-      panic("rootdev: sector outside FS.IMG");
-    return lba;
-  default:
-    return s;
-  }
-}
-
-// blkdev rw for ROOTDEV.  blk_rw() has already checked that the block lies
-// inside FSSIZE; the buf sleeplock keeps two writers of the same block apart
-// and sdsector() serialises the card.
-static int
-root_blk_rw(struct blkdev *bd, uint32 first, uchar *data, uint32 count,
-            int write)
-{
-  int r = 0;
-  (void)bd;
-  gate_enter();
-  for(uint32 i = 0; i < count; i++){
-    if(sdsector(root_sector_lba(first + i), data + i * SECTOR_SIZE,
-                write) < 0){
-      r = -1;
-      break;
-    }
-  }
-  gate_exit();
-  return r;
-}
-
-static void
-register_root(void)
-{
-  blkdev_register(ROOTDEV, "root", 0,
-                  FSSIZE * SECTORS_PER_BLOCK, BSIZE, root_blk_rw);
-  blkdev_print();
-}
-
-// What /dev/root really is, for the "VFS: Mounted root" message.
-char*
-rootdev_name(void)
-{
-  if(root.mode == ROOT_FSIMG)
-    return "FS.IMG on bootfs";
-  if(root.mode == ROOT_BARE)
-    return "mmcblk0 (bare image)";
-  for(int n = 1; n <= 4; n++){
-    struct blkdev *bd = blkdev_get(BLKDEV_MMC_PART(n));
-    if(bd && bd->start == root.lba)
-      return bd->name;
-  }
-  return "raw partition";
-}

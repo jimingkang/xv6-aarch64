@@ -13,7 +13,7 @@
 #define TTYS0      3
 #define INPUT      4
 #define CAMERA     5
-#define ROOTUPDATE 6
+/* 6 was ROOTUPDATE (/dev/sdroot), removed */
 #define BLOCKDEV   7
 
 #endif

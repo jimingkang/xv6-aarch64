@@ -636,7 +636,7 @@ devtmpfs: mounted
 VFS: root moved over rootfs, chroot done; running /init
 \end{txtcode}
 
-ext2 分区里要有 \code{/init} 和 \code{/bin} 下的程序。\code{make install-rpi3-ext2root RPI3\_EXT2\_DEV=/dev/rdisk4s3} 用 e2fsprogs 的 \code{debugfs} 把它们写进去，不重新格式化，分区上原有的文件（如 \code{video/}）不受影响；\code{/etc} 下的配置由 \code{init} 第一次启动时创建。
+ext2 分区里要有 \code{/init} 和 \code{/bin} 下的程序。\code{make install-rpi3-ext2root RPI3\_EXT2\_DEV=/dev/rdisk4s3} 先用 \code{mke2fs} 重建 \file{fs\_ext2.img}，再用 e2fsprogs 的 \code{debugfs} 写入 \code{/init}、\code{/bin/*}、\code{/lib/libc.so}、\code{/lib/ld-xv6.so} 和模块，最后用 \code{dd} 覆盖指定分区。因此该命令\textbf{会清除}分区原有文件；\code{/etc} 下的配置由 \code{init} 第一次启动时创建。
 
 限制：ext2 驱动没有实现设备节点和硬链接（\code{ext2\_iops} 里没有 \code{link}，\code{create} 拒绝 \code{T\_DEVICE}），所以 \code{mknod} 只在 devtmpfs 的 \code{/dev} 里有效；\file{/etc/fstab} 里“ext2 挂到 \code{/mnt/ext2}”那一行会失败，因为同一个文件系统已经挂在 \code{/}，挂载表不允许挂两次，启动时会看到一行 \code{vfs: cannot mount ext2 at /mnt/ext2}，不影响使用。回到 xv6fs 根文件系统只需把 \file{cmdline\_xv6.txt} 改回 \code{rootfstype=xv6fs}（或删掉它）。
 
@@ -908,6 +908,13 @@ Linux 的做法是反过来：\emph{所有}文件系统，包括“原生”的�
 
 xv6 没有 dentry 缓存：目录项不单独缓存，\code{lookup} 每次都到文件系统里查；也没有把 \code{file\_operations} 单独分出来，读写操作和目录操作放在同一张表里。
 
+\begin{sidewaysfigure}
+  \centering
+  \resizebox{\linewidth}{!}{\input{chapters/fig-vfs-structs}}
+  \caption{Linux 文件系统各核心数据结构之间的引用关系。左半是文件系统侧：\code{file\_system\_type} 描述一种文件系统，把它的每个实例（\code{super\_block}）用 \code{s\_instances} 串成链，\code{s\_type} 指回类型；一个 \code{super\_block} 通过 \code{s\_inodes} 挂起该文件系统内所有内存 \code{inode}，块设备上的文件系统还有 \code{s\_bdev} 指向 \code{block\_device}。每个 \code{inode} 用 \code{i\_sb} 指回所属超级块、\code{i\_mapping} 指向 \code{address\_space}（页缓存）。右半是目录与进程侧：\code{dentry} 是路径中的一个目录项，\code{d\_inode} 指向 \code{inode}，\code{d\_parent}/\code{d\_subdirs}/\code{d\_child} 把目录项连成树，\code{d\_alias} 让同一 \code{inode} 的多个硬链接挂在一条链上；\code{path} 把挂载点 \code{vfsmount} 与 \code{dentry} 配对。\code{task\_struct} 经 \code{fs} 指向 \code{fs\_struct}（保存 \code{root}、\code{pwd} 两个 \code{path}），经 \code{files} 指向 \code{files\_struct}，后者用 \code{fdt} 指向 \code{fdtable}，\code{fd[i]} 数组的每一项指向一个打开的 \code{file}；\code{file} 再用 \code{f\_path}、\code{f\_mapping} 分别指回 \code{path}、\code{address\_space}（\code{f\_op} 指向的 \code{file\_operations} 操作表未单独画框）。本项目把这张图简化成表~\ref{tab:vfs-linux} 里的那几样：没有 \code{dentry} 缓存，\code{file\_operations} 与 \code{inode\_operations} 合并为一张 \code{inode\_ops}。}
+  \label{fig:vfs-structs}
+\end{sidewaysfigure}
+
 \subsection{\code{super\_block} 与 \code{inode\_ops}}
 
 \file{kernel/vfs.h} 定义了两个结构。\code{super\_block} 按设备号索引，一个设备号就是一个文件系统实例：
@@ -952,7 +959,8 @@ struct inode {                   // kernel/file.h
   uint dev, inum;  int ref;
   struct inode_ops *iop;         // 所属文件系统的函数表
   char path[MAXPATH];            // 只用于按路径的文件系统
-  struct sleeplock lock;  int valid;
+  struct rw_semaphore i_rwsem;   // reader 并发，writer 独占
+  int valid;
   short type, major, minor, nlink;  uint64 size;
   uint addrs[NDIRECT+1];         // xv6fs 的块地址
   uint32 fsdata[4];              // 其他文件系统的私有数据
@@ -960,6 +968,10 @@ struct inode {                   // kernel/file.h
 \end{ccode}
 
 \code{size} 扩成 64 位，因为 ext2 和 FAT32 上的文件可以超过 4\,GiB；文件名分量的上限 \code{NAMEMAX} 是 128，xv6fs 自己仍只存 14 个字符。
+
+\code{itable.lock} 仍是短临界区 spinlock，只保护 inode cache 槽查找、引用计数和复用；每个 inode 的内容改由 writer 公平的 \code{i\_rwsem} 保护。\code{ilock/iunlock} 对应写锁，创建、写入、删除、截断和首次从磁盘填充 inode 时使用；\code{ireadlock/ireadunlock} 对应读锁，路径查找、普通读取、\code{stat}、\code{pread} 和 \code{chdir} 检查可以并发。\code{struct file} 另有 \code{pos\_lock} mutex，串行化经 \code{dup/fork} 共享的 \code{f->off}。
+
+FAT32 的全局锁也从 spinlock 改为 FIFO、可睡眠 mutex，因为持锁区会进行 SD I/O。initcall 读取 bootfs 时还没有当前进程，mutex 用 \code{boot\_owner = \&cpus[cpuid()]} 表示启动 CPU；此阶段只允许无竞争获取，若发生竞争则报错而不调用 \code{sleep()}。这修复了 \code{rootdev: bootfs ...} 之后的 \code{panic: mutex\_lock: no process}。
 
 xv6 的 inode 缓存原样保留，只在三个地方挂上钩子：
 

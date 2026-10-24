@@ -1,29 +1,29 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第九章}热插拔与驱动自动装载}{168}{chapter.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第九章}热插拔与驱动自动装载}{185}{chapter.9}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:hotplug}{{9}{168}{热插拔与驱动自动装载}{chapter.9}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {9.1}Hub 中断驱动的 USB 热插拔}{168}{section.9.1}\protected@file@percent }
-\newlabel{sec:usb-hotplug}{{9.1}{168}{Hub 中断驱动的 USB 热插拔}{section.9.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {9.1}{\ignorespaces DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。 ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT 经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子 系统发布为事件\relax }}{169}{figure.caption.117}\protected@file@percent }
-\newlabel{fig:usb-hid-enum-sequence}{{9.1}{169}{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。 ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT 经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子 系统发布为事件\relax }{figure.caption.117}{}}
-\@writefile{toc}{\contentsline {paragraph}{channel 7 怎么保证自己活着.}{170}{lstnumber.-200.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{拔出后的短暂 \texttt  {\hyphenchar \font =-1 ch6 error} 是正常窗口.}{170}{lstnumber.-202.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DMA 缓冲的所有权.}{170}{lstnumber.-203.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{与 Linux 还差什么.}{171}{lstnumber.-204.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9.2}复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}{171}{section.9.2}\protected@file@percent }
-\newlabel{sec:usb-mouse-autoload}{{9.2}{171}{复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}{section.9.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{拓扑与速度.}{171}{section.9.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{分接口发布.}{171}{table.caption.118}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9.1}{\ignorespaces 鼠标接收器（046d:c534）日志中的报文解码\relax }}{172}{table.caption.118}\protected@file@percent }
-\newlabel{tab:usbmouse-regs}{{9.1}{172}{鼠标接收器（046d:c534）日志中的报文解码\relax }{table.caption.118}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {9.2}{\ignorespaces Boot Mouse 的 MODALIAS 与 HID control、报告报文\relax }}{172}{table.caption.119}\protected@file@percent }
-\newlabel{tab:usbmouse-packets}{{9.2}{172}{Boot Mouse 的 MODALIAS 与 HID control、报告报文\relax }{table.caption.119}{}}
-\@writefile{toc}{\contentsline {paragraph}{自动装载链.}{172}{table.caption.119}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{本日志尚未证明的部分.}{173}{lstnumber.-207.2}\protected@file@percent }
+\newlabel{chap:hotplug}{{9}{185}{热插拔与驱动自动装载}{chapter.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9.1}Hub 中断驱动的 USB 热插拔}{185}{section.9.1}\protected@file@percent }
+\newlabel{sec:usb-hotplug}{{9.1}{185}{Hub 中断驱动的 USB 热插拔}{section.9.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9.1}{\ignorespaces DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。 ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT 经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子 系统发布为事件\relax }}{186}{figure.caption.132}\protected@file@percent }
+\newlabel{fig:usb-hid-enum-sequence}{{9.1}{186}{DWC2 经外部 Hub 热插拔枚举低速 HID 键盘、直到收到第一个按键的总线时序。 ch7 只报告 Hub 的端口变化，worker 收到中断才 reprobe；EP0 枚举用 SSPLIT/CSPLIT 经 Hub 的 TT 转发；驱动绑定后 ch6 以 10\,ms 周期轮询按键，HID 报告最终由输入子 系统发布为事件\relax }{figure.caption.132}{}}
+\@writefile{toc}{\contentsline {paragraph}{channel 7 怎么保证自己活着.}{187}{lstnumber.-213.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{拔出后的短暂 \texttt  {\hyphenchar \font =-1 ch6 error} 是正常窗口.}{187}{lstnumber.-215.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DMA 缓冲的所有权.}{187}{lstnumber.-216.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{与 Linux 还差什么.}{188}{lstnumber.-217.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9.2}复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}{188}{section.9.2}\protected@file@percent }
+\newlabel{sec:usb-mouse-autoload}{{9.2}{188}{复合 HID 接口与鼠标驱动自动装载（真机日志 046d:c534）}{section.9.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{拓扑与速度.}{188}{section.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{分接口发布.}{188}{table.caption.133}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9.1}{\ignorespaces 鼠标接收器（046d:c534）日志中的报文解码\relax }}{189}{table.caption.133}\protected@file@percent }
+\newlabel{tab:usbmouse-regs}{{9.1}{189}{鼠标接收器（046d:c534）日志中的报文解码\relax }{table.caption.133}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9.2}{\ignorespaces Boot Mouse 的 MODALIAS 与 HID control、报告报文\relax }}{189}{table.caption.134}\protected@file@percent }
+\newlabel{tab:usbmouse-packets}{{9.2}{189}{Boot Mouse 的 MODALIAS 与 HID control、报告报文\relax }{table.caption.134}{}}
+\@writefile{toc}{\contentsline {paragraph}{自动装载链.}{189}{table.caption.134}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{本日志尚未证明的部分.}{190}{lstnumber.-220.2}\protected@file@percent }
 \@setckpt{chapters/09-hotplug}{
-\setcounter{page}{174}
+\setcounter{page}{191}
 \setcounter{equation}{0}
 \setcounter{enumi}{3}
 \setcounter{enumii}{0}
@@ -40,10 +40,10 @@
 \setcounter{subparagraph}{0}
 \setcounter{figure}{1}
 \setcounter{table}{2}
-\setcounter{Item}{101}
+\setcounter{Item}{119}
 \setcounter{Hfootnote}{1}
 \setcounter{Hy@AnnotLevel}{0}
-\setcounter{bookmark@seq@number}{228}
+\setcounter{bookmark@seq@number}{242}
 \setcounter{parentequation}{0}
 \setcounter{blindtext}{1}
 \setcounter{Blindtext}{5}
@@ -209,6 +209,7 @@
 \setcounter{CPT@WriteCount}{0}
 \setcounter{CPT@numB}{0}
 \setcounter{float@type}{16}
+\setcounter{r@tfl@t}{1}
 \setcounter{section@level}{0}
 \setcounter{lstlisting}{0}
 }

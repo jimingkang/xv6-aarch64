@@ -1,8 +1,8 @@
 // xjournal: a small external sector-level transaction log.
 //
 // The log lives outside the filesystem it protects (for ext2 it is placed in
-// the unused tail of the raw xv6 root partition p2, right after the FSSIZE
-// image).  A client brackets each operation with xj_begin()/xj_commit();
+// the unused tail of the xv6 partition, e.g. mmcblk0p2, right after the
+// FSSIZE image, and reached through that partition's block device).  A client brackets each operation with xj_begin()/xj_commit();
 // xj_write() captures metadata sectors instead of writing them home, and
 // xj_read() lets the client see its own uncommitted writes.  Data sectors may
 // still be written directly by the client before commit (ordered mode).
@@ -25,6 +25,7 @@
 #include <kernel/param.h>
 #include "aarch64.h"
 #include <kernel/defs.h>
+#include <kernel/blkdev.h>
 
 #define XJ_SECTOR 512
 #define XJ_CAP    1024                       // sectors per transaction
@@ -37,7 +38,8 @@
 static struct {
   int ready;
   int active;
-  uint32 start;
+  struct blkdev *bd;   // partition holding the log (the xv6 partition)
+  uint32 start;        // first log sector, relative to bd
   uint32 seq;
   uint32 count;
   uint32 lba[XJ_CAP];
@@ -46,6 +48,15 @@ static struct {
   uchar commit[XJ_SECTOR];
   uchar tmp[XJ_SECTOR];
 } xj;
+
+// Log sector s (relative to the log start) through the partition's rw.  Home
+// sectors are still absolute card LBAs written with sdsector(): those belong
+// to the ext2 partition, which ext2.c addresses directly.
+static int
+log_rw(uint32 s, void *buf, int write)
+{
+  return xj.bd->rw(xj.bd, xj.start + s, buf, 1, write);
+}
 
 static uchar *
 slot(uint32 i)
@@ -112,7 +123,7 @@ static int
 clear_commit(void)
 {
   memset(xj.commit, 0, sizeof(xj.commit));
-  if(sdsector(xj.start + XJ_DESC + XJ_CAP, xj.commit, 1) < 0)
+  if(log_rw(XJ_DESC + XJ_CAP, xj.commit, 1) < 0)
     return -1;
   return sdflush();
 }
@@ -131,11 +142,11 @@ static void
 recover(void)
 {
   uint32 seq, count, sum;
-  if(sdsector(xj.start + XJ_DESC + XJ_CAP, xj.commit, 0) < 0 ||
+  if(log_rw(XJ_DESC + XJ_CAP, xj.commit, 0) < 0 ||
      !commit_valid(&seq, &count, &sum))
     return;
   for(uint32 i = 0; i < XJ_DESC; i++)
-    if(sdsector(xj.start + i, (uchar*)xj.desc + i * XJ_SECTOR, 0) < 0)
+    if(log_rw(i, (uchar*)xj.desc + i * XJ_SECTOR, 0) < 0)
       return;
   if(xj.desc[0] != XJ_DMAGIC || xj.desc[1] != seq || xj.desc[2] != count){
     printf("xjournal: commit record without matching descriptor; discarded\n");
@@ -143,7 +154,7 @@ recover(void)
     return;
   }
   for(uint32 i = 0; i < count; i++)
-    if(sdsector(xj.start + XJ_DESC + i, slot(i), 0) < 0)
+    if(log_rw(XJ_DESC + i, slot(i), 0) < 0)
       return;
   if(txsum(count) != sum){
     printf("xjournal: torn transaction seq=%d; discarded\n", seq);
@@ -161,7 +172,7 @@ recover(void)
 }
 
 int
-xj_init(uint32 start, uint32 nsectors)
+xj_init(struct blkdev *bd, uint32 start, uint32 nsectors)
 {
   if(xj.ready)
     return 0;
@@ -171,10 +182,12 @@ xj_init(uint32 start, uint32 nsectors)
     if((xj.page[i] = kalloc()) == 0)
       panic("xjournal: no memory");
   }
+  xj.bd = bd;
   xj.start = start;
   xj.ready = 1;
   recover();
-  printf("xjournal: ready lba=%d capacity=%d sectors\n", start, XJ_CAP);
+  printf("xjournal: ready on %s+%d (lba=%d) capacity=%d sectors\n",
+         bd->name, start, bd->start + start, XJ_CAP);
   return 0;
 }
 
@@ -284,16 +297,16 @@ xj_commit(void)
 
   // 1. descriptor and payload; this flush also orders earlier data writes.
   for(uint32 i = 0; i < XJ_DESC; i++)
-    if(sdsector(xj.start + i, (uchar*)xj.desc + i * XJ_SECTOR, 1) < 0)
+    if(log_rw(i, (uchar*)xj.desc + i * XJ_SECTOR, 1) < 0)
       goto fail;
   for(uint32 i = 0; i < count; i++)
-    if(sdsector(xj.start + XJ_DESC + i, slot(i), 1) < 0)
+    if(log_rw(XJ_DESC + i, slot(i), 1) < 0)
       goto fail;
   if(sdflush() < 0)
     goto fail;
   // 2. commit record: the transaction is durable once this sector is.
   make_commit(seq, count, sum);
-  if(sdsector(xj.start + XJ_DESC + XJ_CAP, xj.commit, 1) < 0 || sdflush() < 0)
+  if(log_rw(XJ_DESC + XJ_CAP, xj.commit, 1) < 0 || sdflush() < 0)
     goto fail;
   // 3./4. checkpoint and retire.  A failure here is repaired at next boot.
   if(write_home(count) < 0 || clear_commit() < 0)

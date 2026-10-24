@@ -102,6 +102,30 @@ diskutil partitionDisk /dev/disk4 4 MBR \
 partition 容纳第四个数据卷，`s4` 是扩展容器，内部第一个 logical partition 编号为
 `s5`。以后格式化 SPFS 必须使用 `/dev/rdisk4s5`。
 
+### QEMU 的三分区测试镜像
+
+QEMU 调试不再直接把裸 `fs.img` 当作整张 SD 卡。执行：
+
+```sh
+make qemu-sd-image
+```
+
+会生成 `build/qemu-rpi3-sd.img`，其 p1 为 FAT32 bootfs、p2 为 raw xv6fs、p3
+为 ext2 根。镜像采用与真机相同的 MBR primary partition 语义，但为了让文件小且满足
+QEMU 的 2 次幂容量要求，固定为 512 MiB，没有建立真机上预留的 SPFS 第四分区。
+`make qemu`、`make qemu-net` 和 `make qemu-gdb` 默认都使用这张镜像。
+
+启动时应看到以下关键日志，证明没有回退到裸镜像：
+
+```text
+rootdev: MBR partition table
+rootdev: bootfs p1 lba=2048 mounted as FAT32
+Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
+rootdev: raw xv6 root p2 lba=133120 ...
+ext2: p3 ready rw start=264192 ...
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+```
+
 ## 6. 清除 SPFS 预留区
 
 分区时 SPFS 使用 ext 类型占位。随后执行：
@@ -399,6 +423,29 @@ sudo dd if=/dev/rdisk4s2 bs=512 skip=2 count=1 2>/dev/null | xxd | head -1   # x
 （`EXT2_SIZE ?= 32M`）。它在 118 GiB 的分区里只建了一个 8192 块的文件系统，其余空间都用不到。
 要用整个分区，应当像上面那样直接对 `/dev/rdisk4s3` 执行 `mke2fs`。已经写了镜像的话，也可以用
 `resize2fs /dev/rdisk4s3` 扩展到整个分区。
+
+这里还要区分“ext2 数据卷”和“ext2 根文件系统”：
+
+| make 目标 | 镜像内容 | 用途 |
+|---|---|---|
+| `install-rpi3-ext2` | 新建时只有 ext2 元数据与 `lost+found` | 挂载到 `/mnt/ext2` 的空数据卷 |
+| `install-rpi3-ext2root` | `/init`、`/bin/*`、`/lib/libc.so`、`/lib/ld-xv6.so`、模块 | 可作为 `rootfstype=ext2` 的启动根 |
+
+两个目标共用 `fs_ext2.img`，所以 `install-rpi3-ext2` 有时看似也能启动：如果该文件此前刚由
+`ext2root-image` 填充，make 会认为它已存在并直接复用；如果执行过 `make clean` 或手工删除镜像，
+该目标会运行 `truncate` 和 `mke2fs`，得到空文件系统。构建日志中只要出现 `mke2fs`、却没有随后
+大量 `debugfs: write ...`，烧进去的就不是可启动 rootfs。
+
+烧录前可以检查关键文件：
+
+```sh
+/opt/homebrew/opt/e2fsprogs/sbin/debugfs -R 'ls -l /' fs_ext2.img
+/opt/homebrew/opt/e2fsprogs/sbin/debugfs -R 'stat /init' fs_ext2.img
+/opt/homebrew/opt/e2fsprogs/sbin/debugfs -R 'stat /lib/ld-xv6.so' fs_ext2.img
+```
+
+若空镜像被当作根挂载，内核仍能完成 MBR、superblock、root move 和块缓存自检；随后 initcode 的
+`exec("/init")` 查找失败并调用 `exit()`，最终只看到 `panic: init exiting`。
 
 需要生成可启动的 ext2 根镜像并同时烧录 p3、更新 bootfs 时使用：
 

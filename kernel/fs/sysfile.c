@@ -25,7 +25,7 @@
 
 // Keep open tracing useful on a serial console without turning a long-running
 // camera/server workload into an unbounded log stream.
-#if FS_TRACE
+#if VFS_TRACE
 static int vfs_open_trace_budget = 0x7fffffff;
 
 static int
@@ -154,7 +154,11 @@ sys_mount(void)
      argstr(2, fstype, sizeof(fstype)) < 0 || argint(3, &flags) < 0 ||
      abspath(target) < 0)
     return -1;
-  return vfsmount(source, target, fstype, flags);
+  VFSTRACE("sys_mount: source=%s target=%s type=%s flags=%x\n",
+           source, target, fstype, flags);
+  int r = vfsmount(source, target, fstype, flags);
+  VFSTRACE("sys_mount: target=%s result=%d\n", target, r);
+  return r;
 }
 
 uint64
@@ -190,6 +194,7 @@ sys_rename(void)
   iput(ndp);
   iput(odp);
   end_op();
+  VFSTRACE("sys_rename: old=%s new=%s result=%d\n", oldpath, newpath, r);
   return r;
 }
 
@@ -869,6 +874,7 @@ sys_unlink(void)
   }
   iput(dp);
   end_op();
+  VFSTRACE("sys_unlink: path=%s result=%d\n", path, r);
   return r;
 }
 
@@ -957,10 +963,10 @@ sys_open(void)
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
   f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
 
-#if FS_TRACE
+#if VFS_TRACE
   if(vfs_open_trace_take()){
     struct super_block *sb = getsuper(ip->dev);
-    printf("fs-trace: sys_open: path=%s -> fd=%d fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
+    printf("vfs-trace: sys_open: path=%s -> fd=%d fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
            path, fd, sb ? sb->type : "unknown", ip->dev, ip->inum,
            ip->type, omode, ip->type == T_DEVICE ? "file_operations" :
            "inode_ops(read/write)");
@@ -1000,6 +1006,7 @@ sys_mkdir(void)
   }
   iunlockput(ip);
   end_op();
+  VFSTRACE("sys_mkdir: path=%s result=0\n", path);
   return 0;
 }
 

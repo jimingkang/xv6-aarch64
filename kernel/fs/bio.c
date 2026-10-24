@@ -106,7 +106,7 @@ bread(uint dev, uint blockno)
     if(blk_rw(b, 0) == 0){
       b->valid = 1;
       b->error = 0;
-    } else if(dev == ROOTDEV){
+    } else if((int)dev == rootdev_dev()){
       panic("bread: root device read failed");
     } else {
       b->error = 1;                 // caller checks b->error; not cached
@@ -122,7 +122,7 @@ bwrite(struct buf *b)
   if(!holdingsleep(&b->lock))
     panic("bwrite");
   if(blk_rw(b, 1) < 0){
-    if(b->dev == ROOTDEV)
+    if((int)b->dev == rootdev_dev())
       panic("bwrite: root device write failed");
     b->error = 1;
   }
