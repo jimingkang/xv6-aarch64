@@ -1,164 +1,177 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第六章}文件系统}{63}{chapter.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第六章}文件系统}{64}{chapter.6}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:fs}{{6}{63}{文件系统}{chapter.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6.1}分层结构}{63}{section.6.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.1}{\ignorespaces 文件系统分层（深色为本项目新增或替换的层）\relax }}{63}{figure.caption.33}\protected@file@percent }
-\newlabel{fig:fslayers}{{6.1}{63}{文件系统分层（深色为本项目新增或替换的层）\relax }{figure.caption.33}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6.2}磁盘布局}{64}{section.6.2}\protected@file@percent }
-\newlabel{sec:layout}{{6.2}{64}{磁盘布局}{section.6.2}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6.3}块缓存、日志与 inode}{64}{section.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{日志.}{64}{section.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{inode 睡眠锁.}{64}{section.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.4}块设备：从 ramdisk 到 SD 卡}{64}{section.6.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.1}三个阶段}{64}{subsection.6.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.2}SD 卡初始化}{65}{subsection.6.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.3}命令超时与恢复}{65}{subsection.6.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.5}根文件系统放在哪里}{65}{section.6.5}\protected@file@percent }
-\newlabel{sec:rootfs}{{6.5}{65}{根文件系统放在哪里}{section.6.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{内核命令行与 \texttt  {\hyphenchar \font =-1 root=}.}{65}{section.6.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{根块设备不是 FAT32 的一部分.}{66}{section.6.5}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.1}{\ignorespaces 根文件系统的存放方式\relax }}{66}{table.caption.34}\protected@file@percent }
-\newlabel{tab:rootfs}{{6.1}{66}{根文件系统的存放方式\relax }{table.caption.34}{}}
-\@writefile{toc}{\contentsline {paragraph}{原始分区模式}{66}{table.caption.34}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.6}Linux 式命名空间引导}{66}{section.6.6}\protected@file@percent }
-\newlabel{sec:do-mounts}{{6.6}{66}{Linux 式命名空间引导}{section.6.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.1}三个“根”：rootfs、根目录 / 与根文件系统}{66}{subsection.6.6.1}\protected@file@percent }
-\newlabel{sec:three-roots}{{6.6.1}{66}{三个“根”：rootfs、根目录 / 与根文件系统}{subsection.6.6.1}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6.2}{\ignorespaces 本书对三个“根”的写法\relax }}{67}{table.caption.35}\protected@file@percent }
-\newlabel{tab:three-roots}{{6.2}{67}{本书对三个“根”的写法\relax }{table.caption.35}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6.2}{\ignorespaces 根目录 \texttt  {\hyphenchar \font =-1 /} 在启动中指向哪里（嵌入式 Linux 的流程，xv6 照此实现）\relax }}{67}{figure.caption.36}\protected@file@percent }
-\newlabel{fig:three-roots}{{6.2}{67}{根目录 \code {/} 在启动中指向哪里（嵌入式 Linux 的流程，xv6 照此实现）\relax }{figure.caption.36}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.2}PC 上的 Linux：initramfs 与用户态找根}{67}{subsection.6.6.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.3}嵌入式 Linux：内核按 \texttt  {\hyphenchar \font =-1 root=} 直接挂载}{67}{subsection.6.6.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.3}{\ignorespaces PC 发行版与嵌入式 Linux 挂载根文件系统的对比\relax }}{68}{table.caption.37}\protected@file@percent }
-\newlabel{tab:pc-vs-embedded}{{6.3}{68}{PC 发行版与嵌入式 Linux 挂载根文件系统的对比\relax }{table.caption.37}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.4}xv6 的选择：模仿嵌入式 Linux}{68}{subsection.6.6.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.4}{\ignorespaces 嵌入式 Linux 的启动步骤与 xv6 的实现\relax }}{68}{table.caption.38}\protected@file@percent }
-\newlabel{tab:linux-xv6-map}{{6.4}{68}{嵌入式 Linux 的启动步骤与 xv6 的实现\relax }{table.caption.38}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6.5}{\ignorespaces xv6 与 Linux 根命名空间引导的差别\relax }}{69}{table.caption.39}\protected@file@percent }
-\newlabel{tab:do-mounts-diff}{{6.5}{69}{xv6 与 Linux 根命名空间引导的差别\relax }{table.caption.39}{}}
+\newlabel{chap:fs}{{6}{64}{文件系统}{chapter.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.1}分层结构}{64}{section.6.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.1}{\ignorespaces 文件系统分层（深色为本项目新增或替换的层）\relax }}{64}{figure.caption.33}\protected@file@percent }
+\newlabel{fig:fslayers}{{6.1}{64}{文件系统分层（深色为本项目新增或替换的层）\relax }{figure.caption.33}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.2}磁盘布局}{65}{section.6.2}\protected@file@percent }
+\newlabel{sec:layout}{{6.2}{65}{磁盘布局}{section.6.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.3}块缓存、日志与 inode}{65}{section.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{日志.}{65}{section.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{inode 睡眠锁.}{65}{section.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.4}块设备：从 ramdisk 到 SD 卡}{65}{section.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.1}三个阶段}{65}{subsection.6.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.2}SD 卡初始化}{66}{subsection.6.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4.3}命令超时与恢复}{66}{subsection.6.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.5}根文件系统放在哪里}{66}{section.6.5}\protected@file@percent }
+\newlabel{sec:rootfs}{{6.5}{66}{根文件系统放在哪里}{section.6.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{内核命令行与 \texttt  {\hyphenchar \font =-1 root=}.}{67}{section.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{根块设备不是 FAT32 的一部分.}{67}{section.6.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.1}{\ignorespaces 根文件系统的存放方式\relax }}{67}{table.caption.34}\protected@file@percent }
+\newlabel{tab:rootfs}{{6.1}{67}{根文件系统的存放方式\relax }{table.caption.34}{}}
+\@writefile{toc}{\contentsline {paragraph}{原始分区模式}{67}{table.caption.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.6}Linux 式命名空间引导}{67}{section.6.6}\protected@file@percent }
+\newlabel{sec:do-mounts}{{6.6}{67}{Linux 式命名空间引导}{section.6.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.1}三个“根”：rootfs、根目录 / 与根文件系统}{67}{subsection.6.6.1}\protected@file@percent }
+\newlabel{sec:three-roots}{{6.6.1}{67}{三个“根”：rootfs、根目录 / 与根文件系统}{subsection.6.6.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.2}{\ignorespaces 本书对三个“根”的写法\relax }}{68}{table.caption.35}\protected@file@percent }
+\newlabel{tab:three-roots}{{6.2}{68}{本书对三个“根”的写法\relax }{table.caption.35}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.2}{\ignorespaces 根目录 \texttt  {\hyphenchar \font =-1 /} 在启动中指向哪里（嵌入式 Linux 的流程，xv6 照此实现）\relax }}{68}{figure.caption.36}\protected@file@percent }
+\newlabel{fig:three-roots}{{6.2}{68}{根目录 \code {/} 在启动中指向哪里（嵌入式 Linux 的流程，xv6 照此实现）\relax }{figure.caption.36}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.2}PC 上的 Linux：initramfs 与用户态找根}{68}{subsection.6.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.3}嵌入式 Linux：内核按 \texttt  {\hyphenchar \font =-1 root=} 直接挂载}{69}{subsection.6.6.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.3}{\ignorespaces PC 发行版与嵌入式 Linux 挂载根文件系统的对比\relax }}{69}{table.caption.37}\protected@file@percent }
+\newlabel{tab:pc-vs-embedded}{{6.3}{69}{PC 发行版与嵌入式 Linux 挂载根文件系统的对比\relax }{table.caption.37}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.4}xv6 的选择：模仿嵌入式 Linux}{69}{subsection.6.6.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {6.6.5}启动调用链总览}{69}{subsection.6.6.5}\protected@file@percent }
 \newlabel{sec:ns-callchain}{{6.6.5}{69}{启动调用链总览}{subsection.6.6.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{xv6fs 根文件系统.}{69}{subsection.6.6.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 /dev/root} 是什么.}{70}{lstnumber.-86.67}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{xv6fs 根的 (a)--(d).}{71}{lstnumber.-86.67}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{ext2 根文件系统.}{71}{lstnumber.-86.67}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{ext2 根的 (a$'$)--(d$'$).}{72}{lstnumber.-87.41}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.6}阶段一：\texttt  {\hyphenchar \font =-1 main()} 中登记块设备、选出 ROOTDEV}{72}{subsection.6.6.6}\protected@file@percent }
-\newlabel{sec:ns-stage1}{{6.6.6}{72}{阶段一：\code {main()} 中登记块设备、选出 ROOTDEV}{subsection.6.6.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.7}阶段二：\texttt  {\hyphenchar \font =-1 forkret()} 中的 \texttt  {\hyphenchar \font =-1 prepare\_namespace()}}{73}{subsection.6.6.7}\protected@file@percent }
-\newlabel{sec:ns-stage2}{{6.6.7}{73}{阶段二：\code {forkret()} 中的 \code {prepare\_namespace()}}{subsection.6.6.7}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6.3}{\ignorespaces \texttt  {\hyphenchar \font =-1 prepare\_namespace()} 的四步（颜色与图\nobreakspace  {}\ref  {fig:three-roots} 对应）\relax }}{73}{figure.caption.40}\protected@file@percent }
-\newlabel{fig:prepare-namespace}{{6.3}{73}{\code {prepare\_namespace()} 的四步（颜色与图~\ref {fig:three-roots} 对应）\relax }{figure.caption.40}{}}
-\@writefile{toc}{\contentsline {paragraph}{第 1 步：rootfs 成为 \texttt  {\hyphenchar \font =-1 /}.}{73}{figure.caption.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第 2 步：devtmpfs.}{73}{figure.caption.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第 3 步：挂上根文件系统.}{73}{figure.caption.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第 4 步：MS\_MOVE 与 chroot.}{73}{lstnumber.-89.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.8}支撑这四步的机制：超级块、日志、挂载表与 \texttt  {\hyphenchar \font =-1 namex()}}{74}{subsection.6.6.8}\protected@file@percent }
-\newlabel{sec:ns-mech}{{6.6.8}{74}{支撑这四步的机制：超级块、日志、挂载表与 \code {namex()}}{subsection.6.6.8}{}}
-\@writefile{toc}{\contentsline {paragraph}{每个设备一份超级块（第 1、2、3 步）.}{74}{subsection.6.6.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{只有根文件系统有日志（第 1、2 步先于第 3 步）.}{74}{subsection.6.6.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{挂载表与路径穿越（第 3、4 步）.}{74}{subsection.6.6.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 /} 从哪里开始（第 1、4 步）.}{75}{lstnumber.-91.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.9}阶段二的另一条分支：ext2 作为根文件系统}{75}{subsection.6.6.9}\protected@file@percent }
-\newlabel{sec:ext2-root}{{6.6.9}{75}{阶段二的另一条分支：ext2 作为根文件系统}{subsection.6.6.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.10}阶段三：\texttt  {\hyphenchar \font =-1 /init} 与用户态看到的结果}{76}{subsection.6.6.10}\protected@file@percent }
-\newlabel{sec:ns-stage3}{{6.6.10}{76}{阶段三：\code {/init} 与用户态看到的结果}{subsection.6.6.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.11}用 fs-trace 看三个文件系统}{76}{subsection.6.6.11}\protected@file@percent }
-\newlabel{sec:fs-trace}{{6.6.11}{76}{用 fs-trace 看三个文件系统}{subsection.6.6.11}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6.6}{\ignorespaces 日志中三个文件系统的 superblock（\texttt  {\hyphenchar \font =-1 fill\_super} 与 \texttt  {\hyphenchar \font =-1 register\_super}）\relax }}{77}{table.caption.41}\protected@file@percent }
-\newlabel{tab:fstrace-sb}{{6.6}{77}{日志中三个文件系统的 superblock（\code {fill\_super} 与 \code {register\_super}）\relax }{table.caption.41}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6.7}{\ignorespaces 按 superblock 算出的块区间\relax }}{77}{table.caption.42}\protected@file@percent }
-\newlabel{tab:fstrace-layout}{{6.7}{77}{按 superblock 算出的块区间\relax }{table.caption.42}{}}
-\@writefile{toc}{\contentsline {paragraph}{rootfs（dev 7）.}{77}{table.caption.42}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.4}{\ignorespaces rootfs（dev 7）的磁盘映射：/、/dev、/root 三个目录块与 inode 块 2\relax }}{77}{figure.caption.43}\protected@file@percent }
-\newlabel{fig:fstrace-dev7}{{6.4}{77}{rootfs（dev 7）的磁盘映射：/、/dev、/root 三个目录块与 inode 块 2\relax }{figure.caption.43}{}}
-\@writefile{toc}{\contentsline {paragraph}{读图\nobreakspace  {}\ref  {fig:fstrace-dev7}：inode 号、槽号与目录项偏移.}{78}{figure.caption.43}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{dinode 的 64 字节.}{78}{figure.caption.43}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.8}{\ignorespaces rootfs 中 ino 1 的 dinode（块 2，偏移 64--127）\relax }}{79}{table.caption.44}\protected@file@percent }
-\newlabel{tab:fstrace-dinode}{{6.8}{79}{rootfs 中 ino 1 的 dinode（块 2，偏移 64--127）\relax }{table.caption.44}{}}
-\@writefile{toc}{\contentsline {paragraph}{块 2 的全部 16 个槽.}{79}{lstnumber.-97.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.9}{\ignorespaces rootfs 块 2 的 16 个 dinode（\texttt  {\hyphenchar \font =-1 prepare\_namespace()} 结束时）\relax }}{79}{table.caption.45}\protected@file@percent }
-\newlabel{tab:fstrace-blk2}{{6.9}{79}{rootfs 块 2 的 16 个 dinode（\code {prepare\_namespace()} 结束时）\relax }{table.caption.45}{}}
-\@writefile{toc}{\contentsline {paragraph}{devtmpfs（dev 8）.}{79}{table.caption.45}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{根文件系统（dev 1）.}{79}{figure.caption.46}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.5}{\ignorespaces devtmpfs（dev 8）的磁盘映射：14 个节点都在 inode 块 2，根目录块 7 与 input 目录块 8\relax }}{80}{figure.caption.46}\protected@file@percent }
-\newlabel{fig:fstrace-dev8}{{6.5}{80}{devtmpfs（dev 8）的磁盘映射：14 个节点都在 inode 块 2，根目录块 7 与 input 目录块 8\relax }{figure.caption.46}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.12}回到用户态：\texttt  {\hyphenchar \font =-1 trapret} 中的中断竞争}{80}{subsection.6.6.12}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.6}{\ignorespaces 根文件系统（dev 1）中日志读到过的 inode 块与数据块（\texttt  {\hyphenchar \font =-1 /bin} 的 25 项只列出用到的 3 项）\relax }}{81}{figure.caption.47}\protected@file@percent }
-\newlabel{fig:fstrace-dev1}{{6.6}{81}{根文件系统（dev 1）中日志读到过的 inode 块与数据块（\code {/bin} 的 25 项只列出用到的 3 项）\relax }{figure.caption.47}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6.7}VFS 中间层}{82}{section.6.7}\protected@file@percent }
-\newlabel{sec:vfs}{{6.7}{82}{VFS 中间层}{section.6.7}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.1}从路径前缀表到统一 VFS}{82}{subsection.6.7.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.10}{\ignorespaces xv6 统一 VFS 与 Linux VFS 的对应\relax }}{82}{table.caption.48}\protected@file@percent }
-\newlabel{tab:vfs-linux}{{6.10}{82}{xv6 统一 VFS 与 Linux VFS 的对应\relax }{table.caption.48}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.2}\texttt  {\hyphenchar \font =-1 super\_block} 与 \texttt  {\hyphenchar \font =-1 inode\_ops}}{82}{subsection.6.7.2}\protected@file@percent }
-\newlabel{RF1}{83}
-\@writefile{lof}{\contentsline {figure}{\numberline {6.7}{\ignorespaces Linux 文件系统各核心数据结构之间的引用关系。左半是文件系统侧：\texttt  {\hyphenchar \font =-1 file\_system\_type} 描述一种文件系统，把它的每个实例（\texttt  {\hyphenchar \font =-1 super\_block}）用 \texttt  {\hyphenchar \font =-1 s\_instances} 串成链，\texttt  {\hyphenchar \font =-1 s\_type} 指回类型；一个 \texttt  {\hyphenchar \font =-1 super\_block} 通过 \texttt  {\hyphenchar \font =-1 s\_inodes} 挂起该文件系统内所有内存 \texttt  {\hyphenchar \font =-1 inode}，块设备上的文件系统还有 \texttt  {\hyphenchar \font =-1 s\_bdev} 指向 \texttt  {\hyphenchar \font =-1 block\_device}。每个 \texttt  {\hyphenchar \font =-1 inode} 用 \texttt  {\hyphenchar \font =-1 i\_sb} 指回所属超级块、\texttt  {\hyphenchar \font =-1 i\_mapping} 指向 \texttt  {\hyphenchar \font =-1 address\_space}（页缓存）。右半是目录与进程侧：\texttt  {\hyphenchar \font =-1 dentry} 是路径中的一个目录项，\texttt  {\hyphenchar \font =-1 d\_inode} 指向 \texttt  {\hyphenchar \font =-1 inode}，\texttt  {\hyphenchar \font =-1 d\_parent}/\texttt  {\hyphenchar \font =-1 d\_subdirs}/\texttt  {\hyphenchar \font =-1 d\_child} 把目录项连成树，\texttt  {\hyphenchar \font =-1 d\_alias} 让同一 \texttt  {\hyphenchar \font =-1 inode} 的多个硬链接挂在一条链上；\texttt  {\hyphenchar \font =-1 path} 把挂载点 \texttt  {\hyphenchar \font =-1 vfsmount} 与 \texttt  {\hyphenchar \font =-1 dentry} 配对。\texttt  {\hyphenchar \font =-1 task\_struct} 经 \texttt  {\hyphenchar \font =-1 fs} 指向 \texttt  {\hyphenchar \font =-1 fs\_struct}（保存 \texttt  {\hyphenchar \font =-1 root}、\texttt  {\hyphenchar \font =-1 pwd} 两个 \texttt  {\hyphenchar \font =-1 path}），经 \texttt  {\hyphenchar \font =-1 files} 指向 \texttt  {\hyphenchar \font =-1 files\_struct}，后者用 \texttt  {\hyphenchar \font =-1 fdt} 指向 \texttt  {\hyphenchar \font =-1 fdtable}，\texttt  {\hyphenchar \font =-1 fd[i]} 数组的每一项指向一个打开的 \texttt  {\hyphenchar \font =-1 file}；\texttt  {\hyphenchar \font =-1 file} 再用 \texttt  {\hyphenchar \font =-1 f\_path}、\texttt  {\hyphenchar \font =-1 f\_mapping} 分别指回 \texttt  {\hyphenchar \font =-1 path}、\texttt  {\hyphenchar \font =-1 address\_space}（\texttt  {\hyphenchar \font =-1 f\_op} 指向的 \texttt  {\hyphenchar \font =-1 file\_operations} 操作表未单独画框）。本项目把这张图简化成表\nobreakspace  {}\ref  {tab:vfs-linux} 里的那几样：没有 \texttt  {\hyphenchar \font =-1 dentry} 缓存，\texttt  {\hyphenchar \font =-1 file\_operations} 与 \texttt  {\hyphenchar \font =-1 inode\_operations} 合并为一张 \texttt  {\hyphenchar \font =-1 inode\_ops}。\relax }}{83}{figure.caption.49}\protected@file@percent }
-\newlabel{fig:vfs-structs}{{6.7}{83}{Linux 文件系统各核心数据结构之间的引用关系。左半是文件系统侧：\code {file\_system\_type} 描述一种文件系统，把它的每个实例（\code {super\_block}）用 \code {s\_instances} 串成链，\code {s\_type} 指回类型；一个 \code {super\_block} 通过 \code {s\_inodes} 挂起该文件系统内所有内存 \code {inode}，块设备上的文件系统还有 \code {s\_bdev} 指向 \code {block\_device}。每个 \code {inode} 用 \code {i\_sb} 指回所属超级块、\code {i\_mapping} 指向 \code {address\_space}（页缓存）。右半是目录与进程侧：\code {dentry} 是路径中的一个目录项，\code {d\_inode} 指向 \code {inode}，\code {d\_parent}/\code {d\_subdirs}/\code {d\_child} 把目录项连成树，\code {d\_alias} 让同一 \code {inode} 的多个硬链接挂在一条链上；\code {path} 把挂载点 \code {vfsmount} 与 \code {dentry} 配对。\code {task\_struct} 经 \code {fs} 指向 \code {fs\_struct}（保存 \code {root}、\code {pwd} 两个 \code {path}），经 \code {files} 指向 \code {files\_struct}，后者用 \code {fdt} 指向 \code {fdtable}，\code {fd[i]} 数组的每一项指向一个打开的 \code {file}；\code {file} 再用 \code {f\_path}、\code {f\_mapping} 分别指回 \code {path}、\code {address\_space}（\code {f\_op} 指向的 \code {file\_operations} 操作表未单独画框）。本项目把这张图简化成表~\ref {tab:vfs-linux} 里的那几样：没有 \code {dentry} 缓存，\code {file\_operations} 与 \code {inode\_operations} 合并为一张 \code {inode\_ops}。\relax }{figure.caption.49}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.3}一次跨文件系统的路径解析}{84}{subsection.6.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.4}文件描述符与系统调用}{85}{subsection.6.7.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.5}当前目录与 \texttt  {\hyphenchar \font =-1 exec}}{85}{subsection.6.7.5}\protected@file@percent }
-\newlabel{sec:vfs-cwd}{{6.7.5}{85}{当前目录与 \code {exec}}{subsection.6.7.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.6}三类实现}{86}{subsection.6.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{xv6fs（\texttt  {\hyphenchar \font =-1 xv6\_iops}）.}{86}{subsection.6.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{ext2（\texttt  {\hyphenchar \font =-1 ext2\_iops}）.}{86}{subsection.6.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{按路径的文件系统（\texttt  {\hyphenchar \font =-1 pathfs\_iops}）.}{86}{subsection.6.7.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.7}由用户态决定挂载}{87}{subsection.6.7.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.8}FAT32 与启动分区}{87}{section.6.8}\protected@file@percent }
-\newlabel{sec:fat32}{{6.8}{87}{FAT32 与启动分区}{section.6.8}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.1}bootfs 里有什么，谁来读}{87}{subsection.6.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第一组由 GPU 读，在 ARM 执行第一条指令之前.}{87}{figure.caption.50}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.8}{\ignorespaces 启动分区里的文件和它们的三类读者。同一个 FAT32 分区，先被 GPU 固件读（ARM 还没开始执行），再被 xv6 内核驱动读，最后作为 \texttt  {\hyphenchar \font =-1 /boot} 被用户程序读写\relax }}{88}{figure.caption.50}\protected@file@percent }
-\newlabel{fig:bootfs}{{6.8}{88}{启动分区里的文件和它们的三类读者。同一个 FAT32 分区，先被 GPU 固件读（ARM 还没开始执行），再被 xv6 内核驱动读，最后作为 \code {/boot} 被用户程序读写\relax }{figure.caption.50}{}}
-\@writefile{toc}{\contentsline {paragraph}{第二组由 xv6 内核驱动读.}{88}{lstnumber.-107.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{第三组由用户程序经 \texttt  {\hyphenchar \font =-1 /boot} 读写.}{88}{lstnumber.-107.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.2}磁盘上的 FAT32}{88}{subsection.6.8.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{MBR 和分区表.}{88}{figure.caption.51}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.9}{\ignorespaces SD 卡与 FAT32 分区的磁盘布局。\texttt  {\hyphenchar \font =-1 fat32mount()} 从 BPB 读出各区的大小，算出 \texttt  {\hyphenchar \font =-1 fat\_lba} 和 \texttt  {\hyphenchar \font =-1 data\_lba}；簇号从 2 开始编号\relax }}{89}{figure.caption.51}\protected@file@percent }
-\newlabel{fig:fat-layout}{{6.9}{89}{SD 卡与 FAT32 分区的磁盘布局。\code {fat32mount()} 从 BPB 读出各区的大小，算出 \code {fat\_lba} 和 \code {data\_lba}；簇号从 2 开始编号\relax }{figure.caption.51}{}}
-\@writefile{toc}{\contentsline {paragraph}{BPB：分区的第一个扇区.}{89}{figure.caption.51}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.11}{\ignorespaces \texttt  {\hyphenchar \font =-1 fat32mount()} 读取的 BPB 字段\relax }}{89}{table.caption.52}\protected@file@percent }
-\newlabel{tab:bpb}{{6.11}{89}{\code {fat32mount()} 读取的 BPB 字段\relax }{table.caption.52}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.3}FAT 表与簇链}{89}{subsection.6.8.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.4}目录项与长文件名}{90}{subsection.6.8.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.10}{\ignorespaces 长文件名、目录项与簇链。文件 \texttt  {\hyphenchar \font =-1 kernel8-xv6\_wifi.img} 占两片 LFN 加一个短名目录项；短名项里的首簇号是 5，沿 FAT 表 5→6→9 直到 EOC 就是它的全部数据簇\relax }}{90}{figure.caption.53}\protected@file@percent }
-\newlabel{fig:fat-chain}{{6.10}{90}{长文件名、目录项与簇链。文件 \code {kernel8-xv6\_wifi.img} 占两片 LFN 加一个短名目录项；短名项里的首簇号是 5，沿 FAT 表 5→6→9 直到 EOC 就是它的全部数据簇\relax }{figure.caption.53}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.5}函数一览与调用关系}{90}{subsection.6.8.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.11}{\ignorespaces FAT32 驱动的调用关系。三类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \texttt  {\hyphenchar \font =-1 scratch} 扇区缓冲和 \texttt  {\hyphenchar \font =-1 sdsector()} 上\relax }}{91}{figure.caption.54}\protected@file@percent }
-\newlabel{fig:fat-calls}{{6.11}{91}{FAT32 驱动的调用关系。三类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \code {scratch} 扇区缓冲和 \code {sdsector()} 上\relax }{figure.caption.54}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.6}写入：分配、追加与截断}{91}{subsection.6.8.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{并发与局限.}{92}{Item.66}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.9}xv6 根文件系统：superblock、inode 与目录}{92}{section.6.9}\protected@file@percent }
-\newlabel{sec:xv6fs}{{6.9}{92}{xv6 根文件系统：superblock、inode 与目录}{section.6.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.1}根文件系统怎样被认出来}{92}{subsection.6.9.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.2}superblock 与磁盘布局}{93}{subsection.6.9.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.12}{\ignorespaces \texttt  {\hyphenchar \font =-1 mkfs} 生成的 32\,MiB 根文件系统布局。所有数字都由 \texttt  {\hyphenchar \font =-1 FSSIZE}、\texttt  {\hyphenchar \font =-1 NINODES}、\texttt  {\hyphenchar \font =-1 LOGSIZE} 算出，并写进第 1 块的 superblock\relax }}{93}{figure.caption.55}\protected@file@percent }
-\newlabel{fig:xv6-layout}{{6.12}{93}{\code {mkfs} 生成的 32\,MiB 根文件系统布局。所有数字都由 \code {FSSIZE}、\code {NINODES}、\code {LOGSIZE} 算出，并写进第 1 块的 superblock\relax }{figure.caption.55}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6.12}{\ignorespaces \texttt  {\hyphenchar \font =-1 fs.img} 的 superblock（\texttt  {\hyphenchar \font =-1 struct superblock}，\texttt  {\color  {structurecolor!80!black}kernel/fs.h}）\relax }}{93}{table.caption.56}\protected@file@percent }
-\newlabel{tab:xv6-sb}{{6.12}{93}{\code {fs.img} 的 superblock（\code {struct superblock}，\file {kernel/fs.h}）\relax }{table.caption.56}{}}
-\@writefile{toc}{\contentsline {paragraph}{日志区.}{93}{lstnumber.-113.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{位图.}{93}{lstnumber.-113.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.3}inode：文件的元数据与块映射}{94}{subsection.6.9.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.13}{\ignorespaces 磁盘上的 inode 和它的块映射。\texttt  {\hyphenchar \font =-1 bmap(ip, bn)} 把文件内第 \texttt  {\hyphenchar \font =-1 bn} 块翻译成磁盘块号：小于 12 直接查 \texttt  {\hyphenchar \font =-1 addrs[bn]}，否则读间接块再查第 \texttt  {\hyphenchar \font =-1 bn-12} 项；遇到 0 就当场 \texttt  {\hyphenchar \font =-1 balloc()} 一块\relax }}{94}{figure.caption.57}\protected@file@percent }
-\newlabel{fig:xv6-inode}{{6.13}{94}{磁盘上的 inode 和它的块映射。\code {bmap(ip, bn)} 把文件内第 \code {bn} 块翻译成磁盘块号：小于 12 直接查 \code {addrs[bn]}，否则读间接块再查第 \code {bn-12} 项；遇到 0 就当场 \code {balloc()} 一块\relax }{figure.caption.57}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.4}目录与路径查找}{95}{subsection.6.9.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6.14}{\ignorespaces \texttt  {\hyphenchar \font =-1 namei("/bin/ls")} 的查找过程。目录本身也是文件，内容是一串目录项；\texttt  {\hyphenchar \font =-1 namex()} 每次用 \texttt  {\hyphenchar \font =-1 skipelem()} 取出一个路径分量，在当前目录的内容里 \texttt  {\hyphenchar \font =-1 dirlookup()}，得到下一个 inode。块号 50、51 是 \texttt  {\hyphenchar \font =-1 mkfs} 的分配顺序决定的，k、m 取决于 \texttt  {\hyphenchar \font =-1 Makefile} 里程序的排列顺序\relax }}{95}{figure.caption.58}\protected@file@percent }
-\newlabel{fig:xv6-namei}{{6.14}{95}{\code {namei("/bin/ls")} 的查找过程。目录本身也是文件，内容是一串目录项；\code {namex()} 每次用 \code {skipelem()} 取出一个路径分量，在当前目录的内容里 \code {dirlookup()}，得到下一个 inode。块号 50、51 是 \code {mkfs} 的分配顺序决定的，k、m 取决于 \code {Makefile} 里程序的排列顺序\relax }{figure.caption.58}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.5}从路径到 SD 扇区}{96}{subsection.6.9.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.6}\texttt  {\hyphenchar \font =-1 mkfs} 怎样生成 \texttt  {\hyphenchar \font =-1 fs.img}}{96}{subsection.6.9.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.7}在系统里更新根文件系统}{96}{subsection.6.9.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6.10}烧录 SD 卡}{97}{section.6.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.1}分区布局}{97}{subsection.6.10.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6.13}{\ignorespaces SD 卡分区（63.8\,GB 卡的实例）\relax }}{97}{table.caption.59}\protected@file@percent }
-\newlabel{tab:sdparts}{{6.13}{97}{SD 卡分区（63.8\,GB 卡的实例）\relax }{table.caption.59}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.2}步骤}{97}{subsection.6.10.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.3}日常更新}{97}{subsection.6.10.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.4}{\ignorespaces 嵌入式 Linux 的启动步骤与 xv6 的实现\relax }}{70}{table.caption.38}\protected@file@percent }
+\newlabel{tab:linux-xv6-map}{{6.4}{70}{嵌入式 Linux 的启动步骤与 xv6 的实现\relax }{table.caption.38}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.5}{\ignorespaces xv6 与 Linux 根命名空间引导的差别\relax }}{70}{table.caption.39}\protected@file@percent }
+\newlabel{tab:do-mounts-diff}{{6.5}{70}{xv6 与 Linux 根命名空间引导的差别\relax }{table.caption.39}{}}
+\@writefile{toc}{\contentsline {paragraph}{xv6fs 根文件系统.}{70}{subsection.6.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 /dev/root} 是什么.}{72}{lstnumber.-87.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{xv6fs 根的 (a)--(d).}{72}{lstnumber.-87.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{ext2 根文件系统.}{72}{lstnumber.-87.72}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{ext2 根的 (a$'$)--(d$'$).}{73}{lstnumber.-88.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.6}阶段一：登记块设备、选出 ROOT\_DEV}{73}{subsection.6.6.6}\protected@file@percent }
+\newlabel{sec:ns-stage1}{{6.6.6}{73}{阶段一：登记块设备、选出 ROOT\_DEV}{subsection.6.6.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.7}阶段二：\texttt  {\hyphenchar \font =-1 forkret()} 中的 \texttt  {\hyphenchar \font =-1 prepare\_namespace()}}{74}{subsection.6.6.7}\protected@file@percent }
+\newlabel{sec:ns-stage2}{{6.6.7}{74}{阶段二：\code {forkret()} 中的 \code {prepare\_namespace()}}{subsection.6.6.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.3}{\ignorespaces \texttt  {\hyphenchar \font =-1 prepare\_namespace()} 的四步（颜色与图\nobreakspace  {}\ref  {fig:three-roots} 对应）\relax }}{74}{figure.caption.40}\protected@file@percent }
+\newlabel{fig:prepare-namespace}{{6.3}{74}{\code {prepare\_namespace()} 的四步（颜色与图~\ref {fig:three-roots} 对应）\relax }{figure.caption.40}{}}
+\@writefile{toc}{\contentsline {paragraph}{第 1 步：rootfs 成为 \texttt  {\hyphenchar \font =-1 /}.}{75}{figure.caption.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第 2 步：devtmpfs.}{75}{figure.caption.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第 3 步：挂上根文件系统.}{75}{figure.caption.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第 4 步：MS\_MOVE 与 chroot.}{75}{lstnumber.-90.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.8}支撑这四步的机制：超级块、日志、挂载表与 \texttt  {\hyphenchar \font =-1 namex()}}{75}{subsection.6.6.8}\protected@file@percent }
+\newlabel{sec:ns-mech}{{6.6.8}{75}{支撑这四步的机制：超级块、日志、挂载表与 \code {namex()}}{subsection.6.6.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{每个设备一份超级块（第 1、2、3 步）.}{75}{subsection.6.6.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{只有根文件系统有日志（第 1、2 步先于第 3 步）.}{75}{subsection.6.6.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{挂载表与路径穿越（第 3、4 步）.}{76}{subsection.6.6.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 /} 从哪里开始（第 1、4 步）.}{76}{lstnumber.-92.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.9}阶段二的另一条分支：ext2 作为根文件系统}{76}{subsection.6.6.9}\protected@file@percent }
+\newlabel{sec:ext2-root}{{6.6.9}{76}{阶段二的另一条分支：ext2 作为根文件系统}{subsection.6.6.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{ext2 挂载用到的四张表.}{77}{Item.60}\protected@file@percent }
+\newlabel{sec:ext2-mount}{{6.6.9}{77}{ext2 挂载用到的四张表}{Item.60}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.6}{\ignorespaces ext2 挂载涉及的四张表（ext2 作根文件系统时）\relax }}{77}{table.caption.41}\protected@file@percent }
+\newlabel{tab:ext2-mount-tables}{{6.6}{77}{ext2 挂载涉及的四张表（ext2 作根文件系统时）\relax }{table.caption.41}{}}
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 mount\_root()} 怎样找到 ext2.}{77}{figure.caption.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{每一步改了哪张表.}{77}{figure.caption.43}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.7}{\ignorespaces ext2 作根时挂载表与 inode 表的变化\relax }}{77}{table.caption.44}\protected@file@percent }
+\newlabel{tab:ext2-mount-steps}{{6.7}{77}{ext2 作根时挂载表与 inode 表的变化\relax }{table.caption.44}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.4}{\ignorespaces 挂载项怎样连到超级块：\texttt  {\hyphenchar \font =-1 mp} 是指针，\texttt  {\hyphenchar \font =-1 dev} 只是下标（\texttt  {\hyphenchar \font =-1 mount\_root} 与 \texttt  {\hyphenchar \font =-1 kchdir} 之后、MS\_MOVE 之前）\relax }}{78}{figure.caption.42}\protected@file@percent }
+\newlabel{fig:ext2-mount-sb}{{6.4}{78}{挂载项怎样连到超级块：\code {mp} 是指针，\code {dev} 只是下标（\code {mount\_root} 与 \code {kchdir} 之后、MS\_MOVE 之前）\relax }{figure.caption.42}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.5}{\ignorespaces \texttt  {\hyphenchar \font =-1 mount\_root("/dev/root", "/root")} 依次查到类型、设备节点、块设备和 \texttt  {\hyphenchar \font =-1 fill\_super}\relax }}{78}{figure.caption.43}\protected@file@percent }
+\newlabel{fig:ext2-mount-lookup}{{6.5}{78}{\code {mount\_root("/dev/root", "/root")} 依次查到类型、设备节点、块设备和 \code {fill\_super}\relax }{figure.caption.43}{}}
+\@writefile{toc}{\contentsline {paragraph}{fstab 里的 ext2 那一行.}{79}{table.caption.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.10}阶段三：\texttt  {\hyphenchar \font =-1 /init} 与用户态看到的结果}{79}{subsection.6.6.10}\protected@file@percent }
+\newlabel{sec:ns-stage3}{{6.6.10}{79}{阶段三：\code {/init} 与用户态看到的结果}{subsection.6.6.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.11}用 fs-trace 看三个文件系统}{79}{subsection.6.6.11}\protected@file@percent }
+\newlabel{sec:fs-trace}{{6.6.11}{79}{用 fs-trace 看三个文件系统}{subsection.6.6.11}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.8}{\ignorespaces 日志中三个文件系统的 superblock（\texttt  {\hyphenchar \font =-1 fill\_super} 与 \texttt  {\hyphenchar \font =-1 register\_super}）\relax }}{80}{table.caption.45}\protected@file@percent }
+\newlabel{tab:fstrace-sb}{{6.8}{80}{日志中三个文件系统的 superblock（\code {fill\_super} 与 \code {register\_super}）\relax }{table.caption.45}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.9}{\ignorespaces 按 superblock 算出的块区间\relax }}{80}{table.caption.46}\protected@file@percent }
+\newlabel{tab:fstrace-layout}{{6.9}{80}{按 superblock 算出的块区间\relax }{table.caption.46}{}}
+\@writefile{toc}{\contentsline {paragraph}{rootfs（dev 7）.}{80}{table.caption.46}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.6}{\ignorespaces rootfs（dev 7）的磁盘映射：/、/dev、/root 三个目录块与 inode 块 2\relax }}{81}{figure.caption.47}\protected@file@percent }
+\newlabel{fig:fstrace-dev7}{{6.6}{81}{rootfs（dev 7）的磁盘映射：/、/dev、/root 三个目录块与 inode 块 2\relax }{figure.caption.47}{}}
+\@writefile{toc}{\contentsline {paragraph}{读图\nobreakspace  {}\ref  {fig:fstrace-dev7}：inode 号、槽号与目录项偏移.}{81}{figure.caption.47}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{dinode 的 64 字节.}{81}{figure.caption.47}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.10}{\ignorespaces rootfs 中 ino 1 的 dinode（块 2，偏移 64--127）\relax }}{82}{table.caption.48}\protected@file@percent }
+\newlabel{tab:fstrace-dinode}{{6.10}{82}{rootfs 中 ino 1 的 dinode（块 2，偏移 64--127）\relax }{table.caption.48}{}}
+\@writefile{toc}{\contentsline {paragraph}{块 2 的全部 16 个槽.}{82}{lstnumber.-98.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.11}{\ignorespaces rootfs 块 2 的 16 个 dinode（\texttt  {\hyphenchar \font =-1 prepare\_namespace()} 结束时）\relax }}{83}{table.caption.49}\protected@file@percent }
+\newlabel{tab:fstrace-blk2}{{6.11}{83}{rootfs 块 2 的 16 个 dinode（\code {prepare\_namespace()} 结束时）\relax }{table.caption.49}{}}
+\@writefile{toc}{\contentsline {paragraph}{devtmpfs（dev 8）.}{83}{table.caption.49}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.7}{\ignorespaces devtmpfs（dev 8）的磁盘映射：13 个 inode 都在 inode 块 2，根目录块 7 与 input 目录块 8\relax }}{83}{figure.caption.50}\protected@file@percent }
+\newlabel{fig:fstrace-dev8}{{6.7}{83}{devtmpfs（dev 8）的磁盘映射：13 个 inode 都在 inode 块 2，根目录块 7 与 input 目录块 8\relax }{figure.caption.50}{}}
+\@writefile{toc}{\contentsline {paragraph}{根文件系统（dev 4）.}{83}{figure.caption.50}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.8}{\ignorespaces 根文件系统（dev 4）中日志读到过的 inode 块与数据块（\texttt  {\hyphenchar \font =-1 /bin} 的 25 项只列出用到的 3 项）\relax }}{84}{figure.caption.51}\protected@file@percent }
+\newlabel{fig:fstrace-dev1}{{6.8}{84}{根文件系统（dev 4）中日志读到过的 inode 块与数据块（\code {/bin} 的 25 项只列出用到的 3 项）\relax }{figure.caption.51}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.12}回到用户态：\texttt  {\hyphenchar \font =-1 trapret} 中的中断竞争}{85}{subsection.6.6.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.7}VFS 中间层}{85}{section.6.7}\protected@file@percent }
+\newlabel{sec:vfs}{{6.7}{85}{VFS 中间层}{section.6.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.1}从路径前缀表到统一 VFS}{85}{subsection.6.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.12}{\ignorespaces xv6 统一 VFS 与 Linux VFS 的对应\relax }}{85}{table.caption.52}\protected@file@percent }
+\newlabel{tab:vfs-linux}{{6.12}{85}{xv6 统一 VFS 与 Linux VFS 的对应\relax }{table.caption.52}{}}
+\newlabel{RF1}{86}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.9}{\ignorespaces Linux 文件系统各核心数据结构之间的引用关系。左半是文件系统侧：\texttt  {\hyphenchar \font =-1 file\_system\_type} 描述一种文件系统，把它的每个实例（\texttt  {\hyphenchar \font =-1 super\_block}）用 \texttt  {\hyphenchar \font =-1 s\_instances} 串成链，\texttt  {\hyphenchar \font =-1 s\_type} 指回类型；一个 \texttt  {\hyphenchar \font =-1 super\_block} 通过 \texttt  {\hyphenchar \font =-1 s\_inodes} 挂起该文件系统内所有内存 \texttt  {\hyphenchar \font =-1 inode}，块设备上的文件系统还有 \texttt  {\hyphenchar \font =-1 s\_bdev} 指向 \texttt  {\hyphenchar \font =-1 block\_device}。每个 \texttt  {\hyphenchar \font =-1 inode} 用 \texttt  {\hyphenchar \font =-1 i\_sb} 指回所属超级块、\texttt  {\hyphenchar \font =-1 i\_mapping} 指向 \texttt  {\hyphenchar \font =-1 address\_space}（页缓存）。右半是目录与进程侧：\texttt  {\hyphenchar \font =-1 dentry} 是路径中的一个目录项，\texttt  {\hyphenchar \font =-1 d\_inode} 指向 \texttt  {\hyphenchar \font =-1 inode}，\texttt  {\hyphenchar \font =-1 d\_parent}/\texttt  {\hyphenchar \font =-1 d\_subdirs}/\texttt  {\hyphenchar \font =-1 d\_child} 把目录项连成树，\texttt  {\hyphenchar \font =-1 d\_alias} 让同一 \texttt  {\hyphenchar \font =-1 inode} 的多个硬链接挂在一条链上；\texttt  {\hyphenchar \font =-1 path} 把挂载点 \texttt  {\hyphenchar \font =-1 vfsmount} 与 \texttt  {\hyphenchar \font =-1 dentry} 配对。\texttt  {\hyphenchar \font =-1 task\_struct} 经 \texttt  {\hyphenchar \font =-1 fs} 指向 \texttt  {\hyphenchar \font =-1 fs\_struct}（保存 \texttt  {\hyphenchar \font =-1 root}、\texttt  {\hyphenchar \font =-1 pwd} 两个 \texttt  {\hyphenchar \font =-1 path}），经 \texttt  {\hyphenchar \font =-1 files} 指向 \texttt  {\hyphenchar \font =-1 files\_struct}，后者用 \texttt  {\hyphenchar \font =-1 fdt} 指向 \texttt  {\hyphenchar \font =-1 fdtable}，\texttt  {\hyphenchar \font =-1 fd[i]} 数组的每一项指向一个打开的 \texttt  {\hyphenchar \font =-1 file}；\texttt  {\hyphenchar \font =-1 file} 再用 \texttt  {\hyphenchar \font =-1 f\_path}、\texttt  {\hyphenchar \font =-1 f\_mapping} 分别指回 \texttt  {\hyphenchar \font =-1 path}、\texttt  {\hyphenchar \font =-1 address\_space}（\texttt  {\hyphenchar \font =-1 f\_op} 指向的 \texttt  {\hyphenchar \font =-1 file\_operations} 操作表未单独画框）。本项目把这张图简化成表\nobreakspace  {}\ref  {tab:vfs-linux} 里的那几样：没有 \texttt  {\hyphenchar \font =-1 dentry} 缓存，\texttt  {\hyphenchar \font =-1 file\_operations} 与 \texttt  {\hyphenchar \font =-1 inode\_operations} 合并为一张 \texttt  {\hyphenchar \font =-1 inode\_ops}。\relax }}{86}{figure.caption.53}\protected@file@percent }
+\newlabel{fig:vfs-structs}{{6.9}{86}{Linux 文件系统各核心数据结构之间的引用关系。左半是文件系统侧：\code {file\_system\_type} 描述一种文件系统，把它的每个实例（\code {super\_block}）用 \code {s\_instances} 串成链，\code {s\_type} 指回类型；一个 \code {super\_block} 通过 \code {s\_inodes} 挂起该文件系统内所有内存 \code {inode}，块设备上的文件系统还有 \code {s\_bdev} 指向 \code {block\_device}。每个 \code {inode} 用 \code {i\_sb} 指回所属超级块、\code {i\_mapping} 指向 \code {address\_space}（页缓存）。右半是目录与进程侧：\code {dentry} 是路径中的一个目录项，\code {d\_inode} 指向 \code {inode}，\code {d\_parent}/\code {d\_subdirs}/\code {d\_child} 把目录项连成树，\code {d\_alias} 让同一 \code {inode} 的多个硬链接挂在一条链上；\code {path} 把挂载点 \code {vfsmount} 与 \code {dentry} 配对。\code {task\_struct} 经 \code {fs} 指向 \code {fs\_struct}（保存 \code {root}、\code {pwd} 两个 \code {path}），经 \code {files} 指向 \code {files\_struct}，后者用 \code {fdt} 指向 \code {fdtable}，\code {fd[i]} 数组的每一项指向一个打开的 \code {file}；\code {file} 再用 \code {f\_path}、\code {f\_mapping} 分别指回 \code {path}、\code {address\_space}（\code {f\_op} 指向的 \code {file\_operations} 操作表未单独画框）。本项目把这张图简化成表~\ref {tab:vfs-linux} 里的那几样：没有 \code {dentry} 缓存，\code {file\_operations} 与 \code {inode\_operations} 合并为一张 \code {inode\_ops}。\relax }{figure.caption.53}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.2}\texttt  {\hyphenchar \font =-1 super\_block} 与 \texttt  {\hyphenchar \font =-1 inode\_ops}}{87}{subsection.6.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.3}一次跨文件系统的路径解析}{88}{subsection.6.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.4}文件描述符与系统调用}{88}{subsection.6.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.5}当前目录与 \texttt  {\hyphenchar \font =-1 exec}}{89}{subsection.6.7.5}\protected@file@percent }
+\newlabel{sec:vfs-cwd}{{6.7.5}{89}{当前目录与 \code {exec}}{subsection.6.7.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.6}三类实现}{90}{subsection.6.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{xv6fs（\texttt  {\hyphenchar \font =-1 xv6\_iops}）.}{90}{subsection.6.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{ext2（\texttt  {\hyphenchar \font =-1 ext2\_iops}）.}{90}{subsection.6.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{按路径的文件系统（\texttt  {\hyphenchar \font =-1 pathfs\_iops}）.}{90}{subsection.6.7.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7.7}由用户态决定挂载}{90}{subsection.6.7.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.8}FAT32 与启动分区}{91}{section.6.8}\protected@file@percent }
+\newlabel{sec:fat32}{{6.8}{91}{FAT32 与启动分区}{section.6.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.1}bootfs 里有什么，谁来读}{91}{subsection.6.8.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.10}{\ignorespaces 启动分区里的文件和它们的三类读者。同一个 FAT32 分区，先被 GPU 固件读（ARM 还没开始执行），再被 xv6 内核驱动读，最后作为 \texttt  {\hyphenchar \font =-1 /boot} 被用户程序读写\relax }}{91}{figure.caption.54}\protected@file@percent }
+\newlabel{fig:bootfs}{{6.10}{91}{启动分区里的文件和它们的三类读者。同一个 FAT32 分区，先被 GPU 固件读（ARM 还没开始执行），再被 xv6 内核驱动读，最后作为 \code {/boot} 被用户程序读写\relax }{figure.caption.54}{}}
+\@writefile{toc}{\contentsline {paragraph}{第一组由 GPU 读，在 ARM 执行第一条指令之前.}{91}{figure.caption.54}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第二组由 xv6 内核驱动读.}{92}{lstnumber.-108.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{第三组由用户程序经 \texttt  {\hyphenchar \font =-1 /boot} 读写.}{92}{lstnumber.-108.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.2}磁盘上的 FAT32}{92}{subsection.6.8.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.11}{\ignorespaces SD 卡与 FAT32 分区的磁盘布局。\texttt  {\hyphenchar \font =-1 fat32mount()} 从 BPB 读出各区的大小，算出 \texttt  {\hyphenchar \font =-1 fat\_lba} 和 \texttt  {\hyphenchar \font =-1 data\_lba}；簇号从 2 开始编号\relax }}{92}{figure.caption.55}\protected@file@percent }
+\newlabel{fig:fat-layout}{{6.11}{92}{SD 卡与 FAT32 分区的磁盘布局。\code {fat32mount()} 从 BPB 读出各区的大小，算出 \code {fat\_lba} 和 \code {data\_lba}；簇号从 2 开始编号\relax }{figure.caption.55}{}}
+\@writefile{toc}{\contentsline {paragraph}{MBR 和分区表.}{92}{figure.caption.55}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{BPB：分区的第一个扇区.}{92}{figure.caption.55}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.13}{\ignorespaces \texttt  {\hyphenchar \font =-1 fat32mount()} 读取的 BPB 字段\relax }}{93}{table.caption.56}\protected@file@percent }
+\newlabel{tab:bpb}{{6.13}{93}{\code {fat32mount()} 读取的 BPB 字段\relax }{table.caption.56}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.3}FAT 表与簇链}{93}{subsection.6.8.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.4}目录项与长文件名}{93}{subsection.6.8.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.12}{\ignorespaces 长文件名、目录项与簇链。文件 \texttt  {\hyphenchar \font =-1 kernel8-xv6\_wifi.img} 占两片 LFN 加一个短名目录项；短名项里的首簇号是 5，沿 FAT 表 5→6→9 直到 EOC 就是它的全部数据簇\relax }}{94}{figure.caption.57}\protected@file@percent }
+\newlabel{fig:fat-chain}{{6.12}{94}{长文件名、目录项与簇链。文件 \code {kernel8-xv6\_wifi.img} 占两片 LFN 加一个短名目录项；短名项里的首簇号是 5，沿 FAT 表 5→6→9 直到 EOC 就是它的全部数据簇\relax }{figure.caption.57}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.5}函数一览与调用关系}{94}{subsection.6.8.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.13}{\ignorespaces FAT32 驱动的调用关系。两类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \texttt  {\hyphenchar \font =-1 scratch} 扇区缓冲和 \texttt  {\hyphenchar \font =-1 sdsector()} 上\relax }}{94}{figure.caption.58}\protected@file@percent }
+\newlabel{fig:fat-calls}{{6.13}{94}{FAT32 驱动的调用关系。两类调用者共用同一组目录与 FAT 操作，最终都落到一个 512 字节的 \code {scratch} 扇区缓冲和 \code {sdsector()} 上\relax }{figure.caption.58}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8.6}写入：分配、追加与截断}{95}{subsection.6.8.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{并发与局限.}{95}{Item.64}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.9}xv6 根文件系统：superblock、inode 与目录}{95}{section.6.9}\protected@file@percent }
+\newlabel{sec:xv6fs}{{6.9}{95}{xv6 根文件系统：superblock、inode 与目录}{section.6.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.1}根文件系统怎样被认出来}{95}{subsection.6.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.2}superblock 与磁盘布局}{96}{subsection.6.9.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.14}{\ignorespaces \texttt  {\hyphenchar \font =-1 mkfs} 生成的 32\,MiB 根文件系统布局。所有数字都由 \texttt  {\hyphenchar \font =-1 FSSIZE}、\texttt  {\hyphenchar \font =-1 NINODES}、\texttt  {\hyphenchar \font =-1 LOGSIZE} 算出，并写进第 1 块的 superblock\relax }}{96}{figure.caption.59}\protected@file@percent }
+\newlabel{fig:xv6-layout}{{6.14}{96}{\code {mkfs} 生成的 32\,MiB 根文件系统布局。所有数字都由 \code {FSSIZE}、\code {NINODES}、\code {LOGSIZE} 算出，并写进第 1 块的 superblock\relax }{figure.caption.59}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6.14}{\ignorespaces \texttt  {\hyphenchar \font =-1 fs.img} 的 superblock（\texttt  {\hyphenchar \font =-1 struct superblock}，\texttt  {\color  {structurecolor!80!black}kernel/fs.h}）\relax }}{96}{table.caption.60}\protected@file@percent }
+\newlabel{tab:xv6-sb}{{6.14}{96}{\code {fs.img} 的 superblock（\code {struct superblock}，\file {kernel/fs.h}）\relax }{table.caption.60}{}}
+\@writefile{toc}{\contentsline {paragraph}{日志区.}{97}{lstnumber.-114.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{位图.}{97}{lstnumber.-114.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.3}inode：文件的元数据与块映射}{97}{subsection.6.9.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.15}{\ignorespaces 磁盘上的 inode 和它的块映射。\texttt  {\hyphenchar \font =-1 bmap(ip, bn)} 把文件内第 \texttt  {\hyphenchar \font =-1 bn} 块翻译成磁盘块号：小于 12 直接查 \texttt  {\hyphenchar \font =-1 addrs[bn]}，否则读间接块再查第 \texttt  {\hyphenchar \font =-1 bn-12} 项；遇到 0 就当场 \texttt  {\hyphenchar \font =-1 balloc()} 一块\relax }}{97}{figure.caption.61}\protected@file@percent }
+\newlabel{fig:xv6-inode}{{6.15}{97}{磁盘上的 inode 和它的块映射。\code {bmap(ip, bn)} 把文件内第 \code {bn} 块翻译成磁盘块号：小于 12 直接查 \code {addrs[bn]}，否则读间接块再查第 \code {bn-12} 项；遇到 0 就当场 \code {balloc()} 一块\relax }{figure.caption.61}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.4}目录与路径查找}{98}{subsection.6.9.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.16}{\ignorespaces \texttt  {\hyphenchar \font =-1 namei("/bin/ls")} 的查找过程。目录本身也是文件，内容是一串目录项；\texttt  {\hyphenchar \font =-1 namex()} 每次用 \texttt  {\hyphenchar \font =-1 skipelem()} 取出一个路径分量，在当前目录的内容里 \texttt  {\hyphenchar \font =-1 dirlookup()}，得到下一个 inode。块号 50、51 是 \texttt  {\hyphenchar \font =-1 mkfs} 的分配顺序决定的，k、m 取决于 \texttt  {\hyphenchar \font =-1 Makefile} 里程序的排列顺序\relax }}{98}{figure.caption.62}\protected@file@percent }
+\newlabel{fig:xv6-namei}{{6.16}{98}{\code {namei("/bin/ls")} 的查找过程。目录本身也是文件，内容是一串目录项；\code {namex()} 每次用 \code {skipelem()} 取出一个路径分量，在当前目录的内容里 \code {dirlookup()}，得到下一个 inode。块号 50、51 是 \code {mkfs} 的分配顺序决定的，k、m 取决于 \code {Makefile} 里程序的排列顺序\relax }{figure.caption.62}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.5}从路径到 SD 扇区}{99}{subsection.6.9.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.6}\texttt  {\hyphenchar \font =-1 mkfs} 怎样生成 \texttt  {\hyphenchar \font =-1 fs.img}}{99}{subsection.6.9.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9.7}更新根文件系统}{99}{subsection.6.9.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.10}烧录 SD 卡}{100}{section.6.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.1}分区布局}{100}{subsection.6.10.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.15}{\ignorespaces SD 卡分区（63.8\,GB 卡的实例）\relax }}{100}{table.caption.63}\protected@file@percent }
+\newlabel{tab:sdparts}{{6.15}{100}{SD 卡分区（63.8\,GB 卡的实例）\relax }{table.caption.63}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.2}步骤}{100}{subsection.6.10.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.10.3}日常更新}{100}{subsection.6.10.3}\protected@file@percent }
 \@setckpt{chapters/06-filesystem}{
-\setcounter{page}{98}
+\setcounter{page}{102}
 \setcounter{equation}{0}
 \setcounter{enumi}{4}
 \setcounter{enumii}{0}
@@ -173,9 +186,9 @@
 \setcounter{subsubsection}{0}
 \setcounter{paragraph}{0}
 \setcounter{subparagraph}{0}
-\setcounter{figure}{14}
-\setcounter{table}{13}
-\setcounter{Item}{70}
+\setcounter{figure}{16}
+\setcounter{table}{15}
+\setcounter{Item}{68}
 \setcounter{Hfootnote}{0}
 \setcounter{Hy@AnnotLevel}{0}
 \setcounter{bookmark@seq@number}{151}

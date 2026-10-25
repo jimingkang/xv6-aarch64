@@ -37,6 +37,11 @@ struct vfs_dirent {
 
 static int streq(char *a, char *b);
 static uint pathhash(char *path);
+static struct inode_ops pathfs_iops;
+static struct inode_ops pathfs_file_iops;
+static struct inode_ops pathfs_dir_iops;
+static const struct file_operations pathfs_file_fops;
+static const struct file_operations pathfs_dir_fops;
 
 static int
 fat_vstat(char *path, struct stat *st)
@@ -834,6 +839,15 @@ pfs_read_inode(struct inode *ip)
   ip->nlink = st.nlink ? st.nlink : 1;
   ip->major = ip->minor = 0;
   memset(ip->fsdata, 0, sizeof(ip->fsdata));
+  if(ip->type == T_DIR){
+    ip->iop = &pathfs_dir_iops;
+    ip->i_fop = &pathfs_dir_fops;
+  } else if(ip->type == T_FILE){
+    ip->iop = &pathfs_file_iops;
+    ip->i_fop = &pathfs_file_fops;
+  } else {
+    return -1;
+  }
   return 0;
 }
 
@@ -967,8 +981,10 @@ pfs_truncate(struct inode *ip, uint64 size)
 // opened for writing together with O_TRUNC (sys_open truncates first).
 // Writers need a FAT write handle, kept in the inode.
 static int
-pfs_open(struct inode *ip, int omode)
+pfs_file_open(struct file *f)
 {
+  struct inode *ip = f->ip;
+  int omode = f->flags;
   struct pathfs_ops *o = pops(ip);
   if((omode & (O_WRONLY | O_RDWR)) == 0 || ip->type != T_FILE)
     return 0;
@@ -984,9 +1000,24 @@ pfs_open(struct inode *ip, int omode)
 }
 
 static int
-pfs_fsync(struct inode *ip)
+pfs_file_fsync(struct file *f, int dataonly)
 {
+  (void)dataonly;
+  struct inode *ip = f->ip;
   return pops(ip)->fsync ? pops(ip)->fsync() : 0;
+}
+
+static int
+pfs_file_read_at(struct file *f, int user_dst, uint64 dst, uint64 off, uint n)
+{
+  return pfs_read(f->ip, user_dst, dst, off, n);
+}
+
+static int
+pfs_file_write_at(struct file *f, int user_src, uint64 src, uint64 off,
+                  uint n)
+{
+  return pfs_write(f->ip, user_src, src, off, n);
 }
 
 static int
@@ -996,17 +1027,40 @@ pfs_readlink(struct inode *ip, char *buf, int bufsz)
   return o->readlink ? o->readlink(ip->path, buf, bufsz) : -1;
 }
 
+static const struct file_operations pathfs_file_fops = {
+  .open = pfs_file_open,
+  .fread = generic_file_fread,
+  .fwrite = generic_file_fwrite,
+  .read_at = pfs_file_read_at,
+  .write_at = pfs_file_write_at,
+  .fsync = pfs_file_fsync,
+  .poll = generic_file_poll,
+};
+
+static const struct file_operations pathfs_dir_fops = {
+  .fread = generic_file_fread,
+  .read_at = pfs_file_read_at,
+  .poll = generic_file_poll,
+};
+
+// Bootstrap table installed by the superblock before pfs_read_inode knows
+// whether this path names a directory or a regular file.
 static struct inode_ops pathfs_iops = {
+  .read_inode = pfs_read_inode,
+};
+
+static struct inode_ops pathfs_file_iops = {
+  .read_inode = pfs_read_inode,
+  .truncate = pfs_truncate,
+  .readlink = pfs_readlink,
+};
+
+static struct inode_ops pathfs_dir_iops = {
   .read_inode = pfs_read_inode,
   .lookup = pfs_lookup,
   .create = pfs_create,
   .unlink = pfs_unlink,
   .rename = pfs_rename,
-  .read = pfs_read,
-  .write = pfs_write,
-  .truncate = pfs_truncate,
-  .open = pfs_open,
-  .fsync = pfs_fsync,
   .readlink = pfs_readlink,
 };
 
@@ -1036,24 +1090,126 @@ static struct pathfs_ops sys_pops = {
 // ---------------------------------------------------------------------------
 // mount(2): every filesystem goes into the one mount table in fs.c.
 
-// The block device that holds the ext2 partition (mmcblk0pN).
-static int
-ext2_blkdev(void)
+// ---------------------------------------------------------------------------
+// Filesystem types (Linux register_filesystem() / get_fs_type()).  Types are
+// registered during boot, before the first mount; the list is read-only
+// afterwards, so lookups need no lock.
+
+static struct fs_type *file_systems;
+
+int
+register_filesystem(struct fs_type *t)
 {
-  uint32 lba = ext2_part_lba();
-  for(int i = 0; i < NBLKDEV; i++){
-    struct blkdev *bd = blkdev_at(i);
-    if(bd && bd->dev >= BLKDEV_MMC_PART(1) && bd->dev <= BLKDEV_MMC_PART(4) &&
-       bd->start == lba)
-      return bd->dev;
-  }
-  return -1;
+  struct fs_type **p;
+  for(p = &file_systems; *p; p = &(*p)->next)
+    if(streq((*p)->name, t->name))
+      return -1;
+  t->next = 0;
+  *p = t;
+  VFSTRACE("register_filesystem: %s\n", t->name);
+  return 0;
 }
+
+struct fs_type*
+get_fs_type(char *name)
+{
+  for(struct fs_type *t = file_systems; t; t = t->next)
+    if(streq(t->name, name))
+      return t;
+  return 0;
+}
+
+// The block device a device node names (Linux lookup_bdev()):
+// "/dev/root" -> its minor number; -1 if path is not a block-device node.
+int
+lookup_bdev(char *path)
+{
+  struct inode *ip;
+  int dev = -1;
+  if(path == 0 || path[0] != '/')
+    return -1;
+  begin_op();
+  if((ip = namei(path)) != 0){
+    ilock(ip);
+    if(ip->type == T_DEVICE && ip->major == BLOCKDEV)
+      dev = ip->minor;
+    iunlockput(ip);
+  }
+  end_op();
+  return dev;
+}
+
+// get_sb for filesystems on a block device: source is a device node.  The
+// superblock is read when the dev is first mounted; fs_mount() still
+// refuses to mount one dev twice.
+int
+get_sb_bdev(struct fs_type *t, char *source, int flags)
+{
+  int dev = lookup_bdev(source);
+  if(dev <= 0 || dev >= NSUPER || blkdev_get(dev) == 0)
+    return -1;
+  if(getsuper(dev) == 0 && t->fill_super(dev, flags) < 0)
+    return -1;
+  return dev;
+}
+
+int
+vfs_get_sb(char *fstype, char *source, int flags)
+{
+  struct fs_type *t = get_fs_type(fstype);
+  int dev = t ? t->get_sb(t, source, flags) : -1;
+  VFSTRACE("get_sb: type=%s source=%s -> dev=%d\n", fstype, source, dev);
+  return dev;
+}
+
+// Pseudo filesystems live on fixed device numbers and have no superblock
+// to read: get_sb only (re)registers supers[dev].
+
+static int
+procfs_get_sb(struct fs_type *t, char *source, int flags)
+{
+  fs_super_register(PROCFS_DEV, "procfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
+                    &proc_pops);
+  return PROCFS_DEV;
+}
+
+static int
+sysfs_get_sb(struct fs_type *t, char *source, int flags)
+{
+  fs_super_register(SYSFS_DEV, "sysfs", &pathfs_iops, pathhash("/"),
+                    (flags & VFS_MOUNT_RDONLY) != 0, 0, 1, &sys_pops);
+  return SYSFS_DEV;
+}
+
+// The boot partition: rootdev_init() already read the BPB (fat32mount()).
+static int
+fat32_get_sb(struct fs_type *t, char *source, int flags)
+{
+  if(!fat32ready())
+    return -1;
+  fs_super_register(FATFS_DEV, "fat32", &pathfs_iops, pathhash("/"),
+                    (flags & VFS_MOUNT_RDONLY) != 0, 0, 1, &fat32_pops);
+  return FATFS_DEV;
+}
+
+static int
+netfs_get_sb(struct fs_type *t, char *source, int flags)
+{
+  if(!(flags & VFS_MOUNT_RDONLY) || netfs_configure(source) < 0)
+    return -1;
+  fs_super_register(NETFS_DEV, "netfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
+                    &netfs_pops);
+  return NETFS_DEV;
+}
+
+static struct fs_type procfs_type = { .name = "procfs", .get_sb = procfs_get_sb };
+static struct fs_type sysfs_type  = { .name = "sysfs",  .get_sb = sysfs_get_sb };
+static struct fs_type fat32_type  = { .name = "fat32",  .get_sb = fat32_get_sb };
+static struct fs_type netfs_type  = { .name = "netfs",  .get_sb = netfs_get_sb };
 
 int
 vfsmount(char *source, char *target, char *fstype, int flags)
 {
-  int readonly = (flags & VFS_MOUNT_RDONLY) != 0;
   int dev;
   struct inode *mp;
 
@@ -1062,35 +1218,10 @@ vfsmount(char *source, char *target, char *fstype, int flags)
 
   if(flags & ~VFS_MOUNT_RDONLY)
     return -1;
-  if(streq(fstype, "procfs")){
-    dev = PROCFS_DEV;
-    readonly = 1;
-    fs_super_register(dev, "procfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
-                      &proc_pops);
-  } else if(streq(fstype, "sysfs")){
-    dev = SYSFS_DEV;
-    fs_super_register(dev, "sysfs", &pathfs_iops, pathhash("/"), readonly,
-                      0, 1, &sys_pops);
-  } else if(streq(fstype, "fat32")){
-    if(!fat32ready())
-      return -1;
-    dev = FATFS_DEV;
-    fs_super_register(dev, "fat32", &pathfs_iops, pathhash("/"), readonly,
-                      0, 1, &fat32_pops);
-  } else if(streq(fstype, "ext2")){
-    if(!ext2ready() || (dev = ext2_blkdev()) < 0)
-      return -1;
-    if(getsuper(dev) == 0 && ext2_register_super(dev, readonly) < 0)
-      return -1;
-  } else if(streq(fstype, "netfs")){
-    if(!readonly || netfs_configure(source) < 0)
-      return -1;
-    dev = NETFS_DEV;
-    fs_super_register(dev, "netfs", &pathfs_iops, pathhash("/"), 1, 0, 1,
-                      &netfs_pops);
-  } else {
+  if((dev = vfs_get_sb(fstype, source, flags)) < 0)
     return -1;
-  }
+  struct super_block *sb = getsuper(dev);
+  int readonly = sb && sb->readonly;
 
   begin_op();
   if((mp = namei(target)) == 0){
@@ -1113,11 +1244,31 @@ vfsmount(char *source, char *target, char *fstype, int flags)
   return r;
 }
 
+int
+vfsumount(char *target)
+{
+  begin_op();
+  int r = fs_umount(target);
+  end_op();
+  if(r == 0)
+    printf("vfs: unmounted %s\n", target);
+  else
+    printf("vfs: cannot unmount %s (busy, root, or flush failed)\n", target);
+  return r;
+}
+
 void
 vfsinit(void)
 {
+  register_filesystem(&procfs_type);
+  register_filesystem(&sysfs_type);
+  register_filesystem(&fat32_type);
+  register_filesystem(&netfs_type);
   netfsinit();
-  printf("vfs: one mount table for all filesystems\n");
+  printf("vfs: one mount table for all filesystems;");
+  for(struct fs_type *t = file_systems; t; t = t->next)
+    printf(" %s", t->name);
+  printf("\n");
 }
 
 // Order 6: builds the mount table once every filesystem driver is ready.

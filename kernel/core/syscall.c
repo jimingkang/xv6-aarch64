@@ -129,6 +129,7 @@ extern uint64 sys_udp_recv_timeout(void);
 extern uint64 sys_icmp_send(void);
 extern uint64 sys_icmp_recv(void);
 extern uint64 sys_mount(void);
+extern uint64 sys_umount(void);
 extern uint64 sys_tty_attach(void);
 extern uint64 sys_tty_set_foreground(void);
 extern uint64 sys_vmdump(void);
@@ -217,6 +218,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_icmp_send]    sys_icmp_send,
 [SYS_icmp_recv]    sys_icmp_recv,
 [SYS_mount]        sys_mount,
+[SYS_umount]       sys_umount,
 [SYS_tty_attach]   sys_tty_attach,
 [SYS_vmdump]       sys_vmdump,
 [SYS_wifi_connect] sys_wifi_connect,

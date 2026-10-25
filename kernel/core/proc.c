@@ -609,127 +609,87 @@ growproc(int n)
   return 0;
 }
 
-// Create a new process, copying the parent.
-// Sets up child kernel stack to return as if from fork() system call.
-int
-fork(void)
+// Internal do_clone() modes.  These are deliberately not the user ABI clone
+// flags yet: the current clone system call has the fixed three-argument
+// thread-creation interface.
+#define DO_CLONE_VM 0x1
+
+// Common implementation for process fork and user-thread clone.  Every child
+// gets its own proc slot, kernel stack, context and trapframe.  DO_CLONE_VM
+// selects whether the user address space is shared or copied.
+static int
+do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
 {
-  int i, pid;
-  struct proc *np;
-  struct proc *p = myproc();
-
-  // Allocate process.
-  if((np = allocproc()) == 0){
-    return -1;
-  }
-
-  // Copy user memory from parent to child.
-  acquire(&p->vm->lock);
-  if(uvmcopy(p->vm->pagetable, np->vm->pagetable, p->vm->sz) < 0){
-    release(&p->vm->lock);
-    freeproc(np);
-    release(&np->lock);
-    return -1;
-  }
-  if(p->vm->camera_mapped){
-    if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
-                PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
-      release(&p->vm->lock);
-      freeproc(np);
-      release(&np->lock);
-      return -1;
-    }
-    np->vm->camera_mapped = 1;
-  }
-  np->vm->sz = p->vm->sz;
-  release(&p->vm->lock);
-
-  // copy saved user registers.
-  *(np->trapframe) = *(p->trapframe);
-
-  // Cause fork to return 0 in the child.
-  np->trapframe->x0 = 0;
-
-  // increment reference counts on open file descriptors.
-  for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
-      np->ofile[i] = filedup(p->ofile[i]);
-  np->cwd = idup(p->cwd);
-  safestrcpy(np->cwdpath, p->cwdpath, sizeof(np->cwdpath));
-  np->sid = p->sid;
-  np->pgid = p->pgid;
-  np->ctty = p->ctty;
-  np->tgid = np->pid;
-
-  safestrcpy(np->name, p->name, sizeof(p->name));
-
-  // Like Linux, a child inherits policy, priority, nice and affinity.
-  acquire(&p->lock);
-  np->policy = p->policy;
-  np->rt_priority = p->rt_priority;
-  np->nice = p->nice;
-  np->cpumask = p->cpumask;
-  release(&p->lock);
-  np->slice = timeslice(np);
-
-  pid = np->pid;
-
-  release(&np->lock);
-
-  acquire(&wait_lock);
-  np->parent = p;
-  release(&wait_lock);
-
-  acquire(&np->lock);
-  make_runnable(np, 0);
-  release(&np->lock);
-
-  return pid;
-}
-
-// Create a new schedulable user thread in the caller's address space.
-// entry receives arg in x0 and must terminate with texit(); the user library
-// supplies a wrapper that guarantees this when the thread function returns.
-int
-threadclone(uint64 entry, uint64 arg, uint64 stack_top)
-{
-  int i, tid;
+  int i, id;
   struct proc *np;
   struct proc *p = myproc();
   struct vmspace *vm = p->vm;
 
-  if(entry == 0 || stack_top < 16 || (stack_top & 15) != 0)
+  if(flags & ~DO_CLONE_VM)
+    return -1;
+  if((flags & DO_CLONE_VM) &&
+     (entry == 0 || stack_top < 16 || (stack_top & 15) != 0))
     return -1;
   if((np = allocproc()) == 0)
     return -1;
 
-  acquire(&vm->lock);
-  if(vm->execing || entry >= vm->sz || stack_top > vm->sz ||
-     walkaddr(vm->pagetable, entry) == 0 ||
-     walkaddr(vm->pagetable, stack_top - 1) == 0){
+  if(flags & DO_CLONE_VM){
+    acquire(&vm->lock);
+    if(vm->execing || entry >= vm->sz || stack_top > vm->sz ||
+       walkaddr(vm->pagetable, entry) == 0 ||
+       walkaddr(vm->pagetable, stack_top - 1) == 0){
+      release(&vm->lock);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
+    vm->refcount++;
     release(&vm->lock);
-    freeproc(np);
-    release(&np->lock);
-    return -1;
+
+    // Replace allocproc's private empty vmspace with the caller's vmspace.
+    vmspace_put(np->vm);
+    np->vm = vm;
+    np->is_thread = 1;
+    np->tgid = p->tgid;
+  } else {
+    // fork: retain allocproc's private vmspace and populate it from parent.
+    acquire(&vm->lock);
+    if(uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz) < 0){
+      release(&vm->lock);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
+    if(vm->camera_mapped){
+      if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
+                  PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
+        release(&vm->lock);
+        freeproc(np);
+        release(&np->lock);
+        return -1;
+      }
+      np->vm->camera_mapped = 1;
+    }
+    np->vm->sz = vm->sz;
+    release(&vm->lock);
+    np->tgid = np->pid;
   }
-  vm->refcount++;
-  release(&vm->lock);
 
-  // Drop allocproc's private empty vmspace and install the shared one.
-  vmspace_put(np->vm);
-  np->vm = vm;
-  np->is_thread = 1;
-  np->tgid = p->tgid;
+  // Begin with the caller's saved user register image, then select the user
+  // return point required by fork or thread creation.
+  *np->trapframe = *p->trapframe;
+  if(flags & DO_CLONE_VM){
+    np->trapframe->elr = entry;
+    np->trapframe->sp = stack_top;
+    np->trapframe->x0 = arg;
+    np->trapframe->x30 = 0;
+  } else {
+    // fork returns zero in the child; the parent receives the child PID.
+    np->trapframe->x0 = 0;
+  }
 
-  *(np->trapframe) = *(p->trapframe);
-  np->trapframe->elr = entry;
-  np->trapframe->sp = stack_top;
-  np->trapframe->x0 = arg;
-  np->trapframe->x30 = 0;
-
-  // This first stage duplicates descriptor references, like fork().  The
-  // underlying open file descriptions remain shared, but descriptor-table
-  // edits themselves are per thread until struct files is introduced.
+  // Descriptor-table entries remain per task for now, while each duplicated
+  // entry references the same underlying open-file description.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
@@ -740,6 +700,7 @@ threadclone(uint64 entry, uint64 arg, uint64 stack_top)
   np->ctty = p->ctty;
   safestrcpy(np->name, p->name, sizeof(np->name));
 
+  // A child task inherits policy, priority, nice and affinity.
   acquire(&p->lock);
   np->policy = p->policy;
   np->rt_priority = p->rt_priority;
@@ -748,13 +709,33 @@ threadclone(uint64 entry, uint64 arg, uint64 stack_top)
   release(&p->lock);
   np->slice = timeslice(np);
 
-  tid = np->pid;
+  id = np->pid;
+  release(&np->lock);
+
   acquire(&wait_lock);
   np->parent = p;
   release(&wait_lock);
+
+  acquire(&np->lock);
   make_runnable(np, 0);
   release(&np->lock);
-  return tid;
+  return id;
+}
+
+// Create a new process with a private copy of the caller's address space.
+int
+fork(void)
+{
+  return do_clone(0, 0, 0, 0);
+}
+
+// Create a new schedulable user thread in the caller's address space.
+// entry receives arg in x0 and must terminate with texit(); the user library
+// supplies a wrapper that guarantees this when the thread function returns.
+int
+threadclone(uint64 entry, uint64 arg, uint64 stack_top)
+{
+  return do_clone(DO_CLONE_VM, entry, arg, stack_top);
 }
 
 static void

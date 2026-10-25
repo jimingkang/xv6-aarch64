@@ -39,6 +39,7 @@ struct inode {
   uint inum;          // Inode number within that filesystem
   int ref;            // Reference count
   struct inode_ops *iop; // operations of the filesystem (set by iget)
+  const struct file_operations *i_fop; // default ops copied to file on open
   char path[MAXPATH]; // path-based filesystems: path inside the filesystem
   struct rw_semaphore i_rwsem; // shared readers or one metadata writer
   int valid;          // inode has been read from disk?

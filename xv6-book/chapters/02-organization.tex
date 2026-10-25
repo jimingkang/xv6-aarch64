@@ -215,19 +215,15 @@ void main() {
     kinit1(end, P2V(EARLYTOP));  // 只用启动页表覆盖的前 2 MiB    -> 第 4 章
     kvminit();  kvminithart();   // 建立并切换到最终内核页表      -> 第 4 章
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
-    device_init(); sdio_bus_init(); usb_bus_init();             // -> 第 7 章
+    kobject_subsys_init(); device_init();                       // -> 第 7 章
+    sdio_bus_init(); usb_bus_init();
     consoleinit(); ttyinit(); printfinit();                     // 从这里起 printf 可用
     procinit(); workqueue_init();                               // -> 第 5 章
     rnginit(); syncinit(); netinit();
-    input_init(); usbkbd_driver_init(); dwc2_driver_init();     // USB 与键盘
     trapinit(); trapinithart(); gicv3init(); gicv3inithart();   // -> 第 3 章
     timerinit();
     binit(); iinit(); fileinit();                               // -> 第 6 章
-    sd_driver_init(); arasan_sdio_driver_init();
-    fat32init(); rootdev_init();                                // 找到根文件系统，挂起 bootfs
-    brcmfmac_driver_init(); mt7601u_driver_init();              // 需要读 bootfs 里的固件
-    ov5647_init(); camera_init();                               // 摄像头
-    ext2init(); vfsinit();
+    do_initcalls();                                             // 各驱动与文件系统，见下
     userinit();                                                 // 第一个用户进程
     start_secondary_cpus();                                     // 唤醒 CPU1~3
     started = 1;
@@ -239,12 +235,34 @@ void main() {
 }
 \end{ccode}
 
+驱动和文件系统不再手写在 \code{main()} 里。每个模块用 \code{subsys\_initcall()}、\code{fs\_initcall()}、\code{module\_init()}、\code{late\_initcall()} 这类宏把自己放进链接器生成的 \code{.initcall.list} 表，\code{do\_initcalls()} 按级别从低到高、同级按序号依次调用（序号相同的按链接顺序）：
+
+\begin{txtcode}
+subsys   input_init()                 输入子系统核心
+         i2c_core_init()              I2C 核心
+         blkdev_init()                块设备表，主设备号 BLOCKDEV
+fs       fat32init()                  FAT32 驱动的全局状态
+device   sd_driver_init()             SD 卡：add_disk(mmcblk0)，块层扫描 MBR，
+                                      登记 mmcblk0p1～p4
+         arasan_sdio_driver_init()  1 SDIO 控制器（Wi-Fi 芯片挂在上面）
+         usbkbd_driver_init()       2 USB 键盘
+         dwc2_driver_init()         4 USB 主控制器
+         ov5647_init()              5 摄像头传感器
+late     rootdev_init()               挂起 FAT32 启动分区、读 cmdline_xv6.txt，
+                                      选出 ROOT_DEV                -> 第 6 章
+         brcmfmac_driver_init()     2 Wi-Fi，固件在启动分区里
+         mt7601u_driver_init()      3 USB Wi-Fi，固件在启动分区里
+         camera_init()              4 unicam 摄像头接口
+         ext2init()                 5 只登记 ext2 文件系统类型
+         vfsinit()                  6 登记 procfs、sysfs、fat32、netfs
+\end{txtcode}
+
 几条顺序约束值得先记住，后面各章会解释原因：
 
 \begin{itemize}
   \item 页表必须在内存分配器之前就绪，但建页表本身又要分配页——所以分配器分两次初始化（\code{kinit1}/\code{kinit2}）。
   \item 设备核心（\code{device\_init}）要在任何驱动注册之前初始化；控制台要尽早，因为之后的错误都要靠 \code{printf} 报告。
   \item 异常向量、中断控制器、定时器依次初始化，但真正打开 CPU 中断要等到 \code{scheduler()}。
-  \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以必须排在 \code{rootdev\_init()} 之后——它扫描 MBR 时顺带挂起 FAT32 启动分区。
+  \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以放在 \code{late} 级、排在 \code{rootdev\_init()} 之后——由它挂起 FAT32 启动分区；分区表则早在 \code{device} 级 SD 驱动 \code{add\_disk()} 时由块层扫描好。
   \item 其余三个 CPU 最后才被唤醒，它们只做每核相关的初始化，然后直接进入调度器。
 \end{itemize}

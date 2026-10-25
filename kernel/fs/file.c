@@ -188,19 +188,20 @@ fileread(struct file *f, uint64 addr, int n)
   return r;
 }
 
-// Write n bytes from user address addr at offset off through the inode's
-// filesystem; returns the bytes written.  xv6fs writes go through the log a
+// Write n bytes from user address addr at offset off through the open file's
+// filesystem operations; returns the bytes written.  xv6fs writes go through the log a
 // few blocks per transaction (inode, indirect block, allocation blocks and
 // 2 blocks of slop for non-aligned writes must fit in one transaction);
 // other filesystems take the whole request.
 static int
-inode_write(struct inode *ip, uint64 addr, uint64 off, int n)
+file_write_at(struct file *f, int user_src, uint64 addr, uint64 off, int n)
 {
+  struct inode *ip = f->ip;
   struct super_block *sb = getsuper(ip->dev);
   int max = (sb && sb->logged) ? ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE : n;
   int i = 0;
 
-  if(ip->iop->write == 0)
+  if(f->f_op == 0 || f->f_op->write_at == 0)
     return -1;
   while(i < n){
     int n1 = n - i;
@@ -208,7 +209,7 @@ inode_write(struct inode *ip, uint64 addr, uint64 off, int n)
       n1 = max;
     begin_op();
     ilock(ip);
-    int r = ip->iop->write(ip, 1, addr + i, off + i, n1);
+    int r = f->f_op->write_at(f, user_src, addr + i, off + i, n1);
     iunlock(ip);
     end_op();
     if(r <= 0)
@@ -248,13 +249,15 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
-static int
-inode_fread(struct file *f, int user_dst, uint64 addr, int n)
+int
+generic_file_fread(struct file *f, int user_dst, uint64 addr, int n)
 {
   int r;
+  if(f == 0 || f->ip == 0 || f->f_op == 0 || f->f_op->read_at == 0)
+    return -1;
   mutex_lock(&f->pos_lock);
   ireadlock(f->ip);
-  r = f->ip->iop->read(f->ip, user_dst, addr, f->off, n);
+  r = f->f_op->read_at(f, user_dst, addr, f->off, n);
   if(r > 0)
     f->off += r;
   ireadunlock(f->ip);
@@ -262,21 +265,21 @@ inode_fread(struct file *f, int user_dst, uint64 addr, int n)
   return r;
 }
 
-static int
-inode_fwrite(struct file *f, int user_src, uint64 addr, int n)
+int
+generic_file_fwrite(struct file *f, int user_src, uint64 addr, int n)
 {
   if(!user_src)
     return -1;
   mutex_lock(&f->pos_lock);
-  int done = inode_write(f->ip, addr, f->off, n);
+  int done = file_write_at(f, user_src, addr, f->off, n);
   if(done > 0)
     f->off += done;
   mutex_unlock(&f->pos_lock);
   return done == n ? n : -1;
 }
 
-static int
-inode_poll(struct file *f, int events)
+int
+generic_file_poll(struct file *f, int events)
 {
   int ready = 0;
   if(f->readable && (events & EPOLLIN))
@@ -286,16 +289,13 @@ inode_poll(struct file *f, int events)
   return ready;
 }
 
-static const struct file_operations inode_file_ops = {
-  .fread = inode_fread,
-  .fwrite = inode_fwrite,
-  .poll = inode_poll,
-};
-
-void
+int
 file_inode_setup(struct file *f)
 {
-  f->f_op = &inode_file_ops;
+  if(f == 0 || f->ip == 0 || f->ip->i_fop == 0)
+    return -1;
+  f->f_op = f->ip->i_fop;
+  return 0;
 }
 
 int
@@ -329,10 +329,11 @@ int
 filepread(struct file *f, uint64 addr, int n, uint64 off)
 {
   int r;
-  if(n < 0 || !f->readable || f->type != FD_INODE)
+  if(n < 0 || !f->readable || f->type != FD_INODE || f->f_op == 0 ||
+     f->f_op->read_at == 0)
     return -1;
   ireadlock(f->ip);
-  r = f->ip->iop->read(f->ip, 1, addr, off, n);
+  r = f->f_op->read_at(f, 1, addr, off, n);
   ireadunlock(f->ip);
   VFSTRACE("file_pread: dev=%d ino=%d off=%p requested=%d result=%d\n",
            f->ip->dev, f->ip->inum, off, n, r);
@@ -342,9 +343,10 @@ filepread(struct file *f, uint64 addr, int n, uint64 off)
 int
 filepwrite(struct file *f, uint64 addr, int n, uint64 off)
 {
-  if(n < 0 || !f->writable || f->type != FD_INODE)
+  if(n < 0 || !f->writable || f->type != FD_INODE || f->f_op == 0 ||
+     f->f_op->write_at == 0)
     return -1;
-  int done = inode_write(f->ip, addr, off, n);
+  int done = file_write_at(f, 1, addr, off, n);
   VFSTRACE("file_pwrite: dev=%d ino=%d off=%p requested=%d result=%d\n",
            f->ip->dev, f->ip->inum, off, n, done == n ? n : -1);
   return done == n ? n : -1;
@@ -371,15 +373,33 @@ int
 filefsync(struct file *f, int dataonly)
 {
   int r = 0;
-  if(f->type != FD_INODE)
+  if(f->type != FD_INODE || f->f_op == 0)
     return -1;
   VFSTRACE("file_%s: dispatch dev=%d ino=%d\n",
            dataonly ? "fdatasync" : "fsync", f->ip->dev, f->ip->inum);
   ilock(f->ip);
-  if(f->ip->iop->fsync)
-    r = f->ip->iop->fsync(f->ip);
+  if(f->f_op->fsync)
+    r = f->f_op->fsync(f, dataonly);
   iunlock(f->ip);
   VFSTRACE("file_%s: complete dev=%d ino=%d result=%d\n",
            dataonly ? "fdatasync" : "fsync", f->ip->dev, f->ip->inum, r);
   return r;
+}
+
+// Read through an inode's default file operations while its caller holds the
+// inode lock.  exec and the module loader have kernel buffers and do not own a
+// userspace file descriptor, but they must use the same filesystem data path
+// as read/pread instead of reaching through inode_operations.
+int
+file_inode_read_locked(struct inode *ip, int user_dst, uint64 dst,
+                       uint64 off, uint n)
+{
+  if(ip == 0 || ip->i_fop == 0 || ip->i_fop->read_at == 0)
+    return -1;
+  struct file file;
+  memset(&file, 0, sizeof(file));
+  file.ip = ip;
+  file.f_op = ip->i_fop;
+  file.readable = 1;
+  return file.f_op->read_at(&file, user_dst, dst, off, n);
 }

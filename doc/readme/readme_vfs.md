@@ -1,7 +1,8 @@
 # xv6 AArch64 VFS 中间层
 
 > **现状说明（统一 VFS）**：VFS 已改成 Linux 式的统一结构——每个文件系统一张
-> `inode_ops` 函数表、一个 `super_block`、一张挂载表、一条路径解析。下面
+> 按 inode 类型区分的 `inode_ops` / `file_operations` 函数表、一个
+> `super_block`、一张挂载表、一条路径解析。下面
 > “统一 VFS” 一节描述当前设计；其后标注为 *[历史]* 的小节（路径前缀挂载表、
 > `vnode_ops`、`FD_VNODE`、`findmount()`、`fs_native_covers()`、`mount_ext2_root()`）
 > 记录的是第一版实现，代码里已经删除，保留下来说明演进过程。书中对应章节：
@@ -23,13 +24,15 @@
 | xv6 | 作用 | Linux |
 |---|---|---|
 | `struct super_block`（`supers[NSUPER]`，按 dev 索引） | 文件系统实例：类型、函数表、根 inode 号、只读、是否走日志、是否按路径 | `struct super_block` |
-| `struct inode_ops` | 每种文件系统一张函数表 | `inode_operations` + `file_operations` |
-| `struct inode`（`itable`，增加 `iop`、`path`、`fsdata`，`size` 为 64 位） | 内存中的文件对象 | `struct inode` |
+| `struct inode_ops` | 路径、目录结构和 inode 元数据操作 | `inode_operations` |
+| `struct file_operations` | 打开后的读写、fsync、poll、mmap 等操作 | `file_operations` |
+| `struct inode`（`itable`，增加 `iop`、`i_fop`、`path`、`fsdata`，`size` 为 64 位） | 内存中的文件对象及其默认文件操作 | `struct inode` |
 | `struct fsmount`（`fs.c` 的 `mtab`） | 唯一的挂载表 | `struct mount` |
 | `namex()` → `ip->iop->lookup()` | 逐级解析路径 | `link_path_walk()` → `->lookup` |
 | `pathfs_iops`（`vfs.c`） | 按路径工作的小文件系统的通用实现 | `simple_*` / libfs |
 
-没有 dentry 缓存；读写操作和目录操作放在同一张表里。
+没有 dentry 缓存，也暂未引入 Linux `address_space_operations` 和 page cache；
+文件数据的底层块访问仍由各文件系统 fops 后端完成，并统一经过现有 bcache。
 
 ### 核心结构（kernel/vfs.h）
 
@@ -43,11 +46,25 @@ struct inode_ops {
   int  (*unlink)(struct inode*, char*);       // 目录不加锁传入
   int  (*link)(struct inode*, char*, struct inode*);
   int  (*rename)(struct inode*, char*, struct inode*, char*);
-  int  (*read)(struct inode*, int user_dst, uint64 dst, uint64 off, uint n);
-  int  (*write)(struct inode*, int user_src, uint64 src, uint64 off, uint n);
   int  (*truncate)(struct inode*, uint64);
-  int  (*open)(struct inode*, int omode);     // 可选
-  int  (*fsync)(struct inode*);
+  int  (*readlink)(struct inode*, char*, int);
+};
+
+struct inode {
+  ...
+  struct inode_ops *iop;                    // 路径/元数据操作
+  const struct file_operations *i_fop;      // open 时复制给 file->f_op
+};
+
+struct file_operations {
+  int (*open)(struct file*);
+  void (*release)(struct file*);
+  int (*fread)(struct file*, int, uint64, int);
+  int (*fwrite)(struct file*, int, uint64, int);
+  int (*read_at)(struct file*, int, uint64, uint64 off, uint);
+  int (*write_at)(struct file*, int, uint64, uint64 off, uint);
+  int (*fsync)(struct file*, int dataonly);
+  ...
 };
 
 struct super_block { int used; int dev; char type[12]; struct inode_ops *iop;
@@ -58,7 +75,7 @@ struct super_block { int used; int dev; char type[12]; struct inode_ops *iop;
 
 | dev | 实例 | 类型 / 函数表 | rootino |
 |---|---|---|---|
-| 1 | xv6 根分区（ROOTDEV） | xv6fs / `xv6_iops`，logged | 1 |
+| 4 | mmcblk0p2 上的 xv6fs 根（ROOT_DEV） | xv6fs / `xv6_iops`，logged | 1 |
 | 7 | rootfs（ram0） | xv6fs / `xv6_iops` | 1 |
 | 8 | devtmpfs（ram1） | xv6fs / `xv6_iops` | 1 |
 | 3–6 | mmcblk0p1–p4 上的 ext2（通常 p3 = 5） | ext2 / `ext2_iops` | 2 |
@@ -70,9 +87,56 @@ struct super_block { int used; int dev; char type[12]; struct inode_ops *iop;
 
 ### inode 缓存的三个钩子（fs.c）
 
-- `iget_path(dev, inum, path)` / `iget(dev, inum)`：设 `ip->iop = getsuper(dev)->iop`；按路径的文件系统还比较 `ip->path`，哈希冲突不会认错对象。
-- `ilock()`：`valid==0` 时调用 `iop->read_inode()`；失败（对象已消失）时呈现为空的、已删除的普通文件。
+- `iget_path(dev, inum, path)` / `iget(dev, inum)`：先设
+  `ip->iop = getsuper(dev)->iop` 作为 bootstrap 表、`ip->i_fop = NULL`；按路径的
+  文件系统还比较 `ip->path`，哈希冲突不会认错对象。
+- `ilock()`：`valid==0` 时调用 bootstrap `iop->read_inode()`；读取磁盘类型后，
+  后端把 `iop/i_fop` 切换成目录、普通文件或设备对应的表。失败（对象已消失）时
+  呈现为空的、已删除的普通文件。
 - `iput()`：最后一个引用时调用 `iop->evict()`（xv6fs 释放 nlink==0 的 inode；ext2 释放 `e2.open[]` 引用并回收孤儿）。
+
+### 根 inode 的两次读取：`fill_super` 验证与 `ilock` 正式装入
+
+ext2 挂载期间会两次读到 inode 2，但两次的对象和目的不同。第一次发生在
+`ext2_fill_super(dev)`：它用 `blkdev_get(dev)` 得到分区范围，执行 `setup_ext2()` 和
+日志恢复，然后直接调用 `readinode(fs, EXT2_ROOT_INO, &root)` 把磁盘 inode 读进一个
+栈上的 `struct einode root`，只验证 inode 2 是受支持的目录。这里没有 `iget()`，没有
+VFS `struct inode`，也没有调用 `ilock()`。
+
+验证成功后，`ext2_register_super()` 才把 bootstrap 表登记到实例中：
+
+```text
+supers[dev].iop = &ext2_iops
+ext2_iops = { .read_inode = e2_read_inode, .evict = e2_evict }
+```
+
+真正根 inode 的 VFS 装入发生在 `prepare_namespace()` 的 `kchdir("/root")`：
+
+```text
+kchdir("/root")
+  -> klookup -> namei -> namex
+       临时 rootfs 查到挂载点 /root
+       -> follow_mount
+       -> fs_dev_root(ext2_dev)
+       -> iget(dev, rootino=2)
+            ip->valid = 0
+            ip->iop   = sb->iop = &ext2_iops   （bootstrap）
+            ip->i_fop = NULL
+  -> ilock(ip)
+       valid == 0
+       -> ip->iop->read_inode(ip)
+       -> e2_read_inode -> readinode -> e2fill
+            目录：ip->iop=&ext2_dir_iops，ip->i_fop=&ext2_dir_fops
+            文件：ip->iop=&ext2_file_iops，ip->i_fop=&ext2_file_fops
+       ip->valid = 1
+  -> 确认 T_DIR，p->cwd = ip
+```
+
+因此，`ext2_fill_super()` 是第一次读取“磁盘根 inode”以验证文件系统；`kchdir()` 中的
+`ilock()` 通常是第一次正式填充 `itable[]` 里的“VFS 根 inode”。`ilock()` 自身不认识
+ext2，它只是借助 inode 从 `sb->iop` 继承的 bootstrap `read_inode`，由具体后端完成类型
+识别以及最终 `iop/i_fop` 的挂接。若该 VFS inode 已被更早的代码装入、`valid==1`，后续
+`ilock()` 只加锁，不会再次读取磁盘元数据。
 
 ### 路径解析与挂载
 
@@ -85,31 +149,45 @@ struct super_block { int used; int dev; char type[12]; struct inode_ops *iop;
 
 ```text
 namei("/mnt/ext2/d/a.txt")
-  (dev 1, ino 1) -xv6_lookup-> mnt -> ext2 (dev 1, ino 26)
+  (dev 4, ino 1) -xv6_lookup-> mnt -> ext2 (dev 4, ino 26)
   follow_mount -> (dev 5, ino 2) -e2_lookup-> d -> a.txt
 namei("/proc/1/status")
-  (dev 1) proc -> follow_mount -> (dev 20, hash "/") -pfs_lookup-> "/1" -> "/1/status"
+  (dev 4) proc -> follow_mount -> (dev 20, hash "/") -pfs_lookup-> "/1" -> "/1/status"
 ```
 
 ### 三类实现
 
-- **xv6fs `xv6_iops`**（fs.c）：`xv6_lookup`=dirlookup，`xv6_create`（原 `create()` 主体），`xv6_unlink`、`xv6_link`，
-  `xv6_rename`（新增：只支持普通文件、同一事务内加新名再清旧项、目标已存在则拒绝），`xv6_read/write`（readi/writei + 4 GiB 检查），
-  `xv6_truncate`（只支持截到 0），`xv6_fsync`（`sdflush()`）。
-- **ext2 `ext2_iops`**（ext2.c）：`e2_read_inode` 在 `e2.open[]` 占一个引用，`e2_evict` 调 `ext2release()`（孤儿此时回收）；
-  `e2_lookup/create/unlink/rename/read/write/truncate/fsync`。原按路径代码拆成 `create_core/mkdir_core/unlink_core/rename_core/readdir_core`，
-  路径外壳只留给 `ext2read`/`ext2readdir` 旧系统调用。锁顺序：inode 锁 → `e2.lock`（`e2_create` 放掉 `e2.lock` 后再刷新父目录）。
+- **xv6fs**（fs.c）：`xv6_iops` 是读取类型前的 bootstrap；目录切换到
+  `xv6_dir_iops + xv6_dir_fops`，普通文件切换到
+  `xv6_file_iops + xv6_file_fops`，设备 inode 的 fops 在 open 时按 major 从
+  字符设备表取得。`xv6_file_fops.read_at/write_at` 最终调用 `readi/writei`，仍走
+  `bmap -> bread/log_write`；`fsync` 执行 `sdflush()`。
+- **ext2**（ext2.c）：`ext2_iops` 是 bootstrap；`e2_read_inode` 在 `e2.open[]`
+  占一个引用并按类型挂接 `ext2_dir_*` 或 `ext2_file_*`。目录 iops 包含
+  `lookup/create/unlink/rename`，普通文件 fops 包含 `read_at/write_at/fsync`；
+  `truncate` 暂作为 inode 元数据修改保留在 file iops 对应的 inode_ops 中。原按路径代码拆成 `create_core/mkdir_core/unlink_core/rename_core/readdir_core`，
+  路径外壳只留给 `ext2read`/`ext2readdir` 旧系统调用。锁顺序：inode 锁 → `ext2_fs.lock`（`e2_create` 放掉实例锁后再刷新父目录）。
   不支持设备节点和硬链接。
-- **按路径 `pathfs_iops`**（vfs.c）：`ip->path` 记对象路径，inum = 31 位 FNV 哈希（非 0）；`pathjoin()` 处理 `.`/`..`；
+- **按路径文件系统**（vfs.c）：`pathfs_iops` 是 bootstrap，加载后切换为
+  `pathfs_dir_iops/pathfs_dir_fops` 或 `pathfs_file_iops/pathfs_file_fops`。
+  `ip->path` 记对象路径，inum = 31 位 FNV 哈希（非 0）；`pathjoin()` 处理 `.`/`..`；
   后端表 `fat32_pops`、`proc_pops`、`netfs_pops`。FAT32 只能追加：`pfs_open()` 要求写打开时文件长度为 0（新建或已 `O_TRUNC`），
   用 `fat32openwrite()` 取得写句柄存进 `ip->fsdata`。
 
 ### 系统调用层
 
 - 只有 `FD_INODE`；`FD_VNODE`、`vnode`、`vfsopen/vfsread/vfsstat/...` 全部删除。
-- `fileread`/`filepread`/`exec` 的 `srcread` → `iop->read`；`struct execsrc` 只剩 `ip`。
-- 写：`inode_write()`——`sb->logged`（xv6fs）每批几块一个日志事务，其他文件系统整段交给 `iop->write`。
-- `sys_open()`：普通文件先查只读，`O_TRUNC` → `iop->truncate(ip,0)`，再调用可选的 `iop->open`。
+- `sys_open()` 在目标 inode 元数据加载完成后执行
+  `file->f_op = inode->i_fop`，再调用可选的 `file->f_op->open(file)`；设备文件由
+  `chrdev_open()` 按 major 覆盖 `file->f_op`。
+- `fileread/filewrite` → `file->f_op->fread/fwrite`；通用 helper 管理共享
+  `file->off` 和锁，再调用同一张 fops 的显式偏移 `read_at/write_at`。
+- `pread/pwrite` 直接调用 `read_at/write_at`，不改变 `file->off`；`exec` 与 `.ko`
+  加载器没有用户 fd，使用 `file_inode_read_locked()` 进入 inode 的 `i_fop->read_at`。
+- 写入 helper 根据 `sb->logged` 把 xv6fs 请求分批放入日志事务；ext2 和 pathfs
+  整段交给各自 `write_at`。所有磁盘后端仍由 `bread/bwrite` 使用 bcache。
+- `O_TRUNC` 和 `ftruncate` 当前仍走 `iop->truncate`，因为改变长度属于 inode
+  元数据操作；以后可进一步合并为 Linux 风格 `setattr(ATTR_SIZE)`。
 - 目录：非 xv6 目录经 `vfs_dir_read()` 合成 xv6 `struct dirent` 流（名字截断到 14 字符显示）。
 - `fs_create/fs_unlink/fs_link/fs_rename`：检查可写与操作是否存在；`link`/`rename` 跨设备拒绝；`unlink`/`rename` 遇挂载点拒绝（EBUSY）。
 - `sys_chdir()`：只剩 `namei()` → 检查目录 → 换 `p->cwd`、更新 `cwdpath`。`abspath()` 保留。
@@ -129,19 +207,39 @@ open     -> struct file->f_op                  read/write/mmap/fsync/release
 `dup()` 可以引用同一 `struct file`，而多个独立 `open()` 可以引用同一 inode、拥有不同
 file 状态。
 
-当前 xv6 普通文件还处在过渡状态：`struct inode_ops` 同时包含
-`lookup/create/unlink/rename` 和 `read/write/truncate/fsync`，`struct file` 保存 inode 与
-偏移，`fileread/filewrite` 直接调用 `f->ip->iop->read/write`。字符设备和块设备已经有
-独立的 `kernel/device.h:struct file_operations`，`sys_open()` 建立 `FD_DEVICE` 后由
-`chrdev_open/read/write/release` 分派，驱动可使用 `f->private_data`。因此启动跟踪会明确打印：
+当前实现已经完成这一拆分。`struct inode` 同时保存 `iop` 和默认 `i_fop`；首次
+`read_inode` 确定对象类型后分别选择目录或普通文件操作表。`sys_open()` 把
+`inode->i_fop` 复制到 `file->f_op`，打开后的数据操作不再调用
+`inode_operations.read/write`。字符设备和块设备仍由 `chrdev_open()` 按 major 选择
+驱动 fops，并可使用 `f->private_data`。跟踪日志中的分派现在统一为：
 
 ```text
-dispatch=inode_ops(read/write)   普通文件、目录
-dispatch=file_operations        /dev 下的设备文件
+dispatch=file_operations        普通文件、目录和 /dev 设备
 ```
 
-下一步完全按 Linux 拆分时，应给普通 inode 增加默认 `i_fop`，在 `sys_open()` 时复制到
-`file->f_op`；届时目录操作仍走 `i_op`，已打开文件的数据操作只走 `f_op`。
+目录有两种互不冲突的入口：路径逐分量查找使用父目录 `iop->lookup`；打开目录后，
+`ls` 的目录流读取使用目录 `i_fop->fread -> read_at -> vfs_dir_read`。普通文件的
+`i_fop` 则提供数据 `read_at/write_at/fsync`。尚未实现的是 Linux page cache 对应的
+`address_space_operations`；当前 `read_at/write_at` 后端直接做文件块映射并访问 bcache。
+
+### `fileinit()`、fd 表与全局打开文件对象
+
+`fileinit()` 不读取文件系统，也不初始化 inode 的 `iop/i_fop`。它在启动时初始化全局
+`ftable.lock`，并调用 `epollinit()`；`ftable.file[NFILE]` 位于 BSS，启动时 `ref` 已经全为
+0。以后 `filealloc()` 在该数组中寻找 `ref==0` 的槽，清空并初始化一个 `struct file`，
+`fdalloc()` 再把指针放进当前进程的 `p->ofile[fd]`：
+
+```text
+每进程 p->ofile[fd] -> 全局 ftable.file[slot] -> inode cache 中的 struct inode
+       私有编号              一次打开实例                 文件本体
+```
+
+`fd` 不是 `ftable` 下标。两个进程分别 `open()` 同一路径，可以都得到 fd 3，但会占用两个
+不同的全局 `struct file`，各有独立 `off/flags/private_data`，并共同引用同一个 inode。
+`fork()` 继承或 `dup()` 复制 fd 时才通过 `filedup()` 共享同一个 `struct file`，因而共享
+文件偏移。Linux 的分层语义相同：`task->files->fdtable.fd[fd]` 指向动态从全局 slab cache
+分配的 `struct file`；两次独立 `open()` 分配两个 file 对象，`fork/dup` 增加同一个 file
+对象的引用。区别只是 Linux 没有固定的全局 `file[NFILE]` 数组。
 
 ### 从 MBR、superblock、根 inode 到文件读写的完整链路
 
@@ -151,26 +249,29 @@ dispatch=file_operations        /dev 下的设备文件
 `dentry-like`，避免误认为已经存在 Linux dentry 对象。
 
 ```text
-main
-  -> sd_driver_init
-  -> rootdev_init
-       -> sdsector(0)                         读取 MBR
-       -> 解析四个 16-byte primary entries
-       -> blkdev_register(mmcblk0pN)          分区成为块设备
-       -> setup_raw_root
-            读取 partition_start + 2 扇区    xv6fs block 1
-            检查 FSMAGIC/FSSIZE
-       -> blkdev_register(ROOTDEV, "root")
+main -> do_initcalls
+  [device] sd_driver_init -> sdhost_probe
+       -> add_disk(2, "mmcblk0", ...)        整卡成为块设备 2
+       -> blk_add_partitions                 块层读 MBR
+            -> add_partition(mmcblk0pN)      分区成为块设备 2+N，回调 part_rw
+  [late]   rootdev_init                      不登记设备，只挑选
+       -> fat32mount(p1)                     读 cmdline_xv6.txt
+       -> name_to_bdev("/dev/mmcblk0p2")
+       -> is_xv6fs                           读分区内 block 1，检查 FSMAGIC/FSSIZE
+       -> ROOT_DEV = 4
 
 first process: prepare_namespace
   -> 建立临时 ram0 rootfs
+  -> kmknod("/dev/root", BLOCKDEV, ROOT_DEV) 次设备号 4
   -> mount_root("/dev/root", "/root")
-       -> fsinit(ROOTDEV)
-            -> fs_readsuper
-                 bread(dev, 1)                buffer cache 读取 superblock
-                 sbs[dev] = on-disk superblock
-                 fs_super_register(... xv6_iops, ROOTINO=1)
-            -> initlog                         日志恢复
+       -> vfs_get_sb("xv6fs", "/dev/root", VFS_MOUNT_ROOTLOG)
+            -> get_sb_bdev -> lookup_bdev    从节点读回 dev 4
+            -> xv6fs_fill_super -> fsinit(4)
+                 -> fs_readsuper
+                      bread(dev, 1)          buffer cache 读取 superblock
+                      sbs[dev] = on-disk superblock
+                      fs_super_register(... xv6_iops, ROOTINO=1)
+                 -> initlog                  日志恢复
        -> fs_mount
             mtab: covered /root inode -> (dev, rootino)
   -> kchdir("/root")
@@ -189,21 +290,23 @@ open("/etc/fstab")
   -> filealloc + fdalloc
        file->ip = inode
        file->off = 0
+       file->f_op = inode->i_fop
 
 read(fd)
   -> sys_read
   -> fileread
-  -> inode sleeplock
-  -> inode_ops.read(ip, off)
-       xv6fs: xv6_read -> readi -> bmap -> bread -> blk_rw -> sdsector
-       ext2:  e2_read  -> ext2readino -> ext2 block mapping -> sdsector
+  -> file->f_op->fread
+  -> generic_file_fread（pos_lock + inode 读锁）
+  -> file->f_op->read_at(file, off)
+       xv6fs: xv6_file_read_at -> readi -> bmap -> bread -> blk_rw
+       ext2:  e2_file_read_at -> ext2readino -> ext2 block mapping -> bread
   -> file->off += bytes
 
 write(fd)
   -> sys_write
-  -> filewrite -> inode_write
+  -> filewrite -> file->f_op->fwrite -> generic_file_fwrite
   -> begin_op/end_op（仅 super_block.logged，例如 xv6fs）
-  -> inode_ops.write
+  -> file->f_op->write_at
        xv6fs: writei -> bmap/balloc -> log_write -> commit -> sdflush
        ext2:  ext2writeino -> ordered data write + xjournal metadata commit
 ```
@@ -250,8 +353,8 @@ make VFS_TRACE=1 install-rpi3-ext2root RPI3_EXT2_DEV=/dev/rdisk4s3
 - `register_super`、`mount`、`follow_mount`：超级块注册以及路径跨越挂载点；
 - `lookup`：从命名空间根或当前目录开始，逐路径分量调用具体文件系统的
   `inode_ops->lookup`；
-- `sys_open`：路径最终解析为哪个 `fs/dev/inode`、生成哪个 fd，以及选用 inode
-  file operations 还是字符设备 file operations；
+- `sys_open`：路径最终解析为哪个 `fs/dev/inode`、生成哪个 fd，以及选用
+  `inode.i_fop` 还是按 major 注册的设备 file operations；
 - `file_read/file_write/file_close/file_stat`：`struct file->f_op` 的统一分派，日志同时
   标明 pipe、inode、device、socket 或 epoll；
 - `pread/pwrite/truncate/fsync/fdatasync` 和 `mkdir/unlink/rename/mount` 的入口与结果。
@@ -265,8 +368,10 @@ vfs-trace: sys_open: path=/etc/wifi.conf -> fd=3 fs=ext2 dev=4 ino=37 ...
 vfs-trace: file_read: type=inode method=f_op->fread ... fs=ext2 dev=4 ino=37 ...
 ```
 
-这些日志说明请求已经经 VFS 分派到 ext2，但不等于 ext2 数据经过 xv6 `bcache`；
-底层是否缓存、是否进入 `xjournal`，仍由 ext2 的 `inode_ops` 实现决定。该开关会在
+这些日志说明请求已经经 VFS 的 `file_operations` 分派到 ext2。ext2 的
+`read_at/write_at` 继续通过 `bread/bwrite` 访问块设备，因此经过现有 bcache；它没有
+额外的 Linux page cache。元数据是否进入 `xjournal` 仍由 ext2 fops 后端的事务逻辑
+决定。该开关会在
 每次路径分量和读写操作上打印，串口输出很多并会改变时序，不应在性能测试中开启。
 
 加载 xv6fs 磁盘超级块时逐项打印：
@@ -311,7 +416,8 @@ user ls("/")
   -> fstat(fd)                        读取根 inode 的 type/ino/size
   -> read(fd, struct dirent) 循环
      -> fileread
-        -> inode_ops->read             xv6fs 根目录被当作 dirent 文件读取
+        -> file->f_op->fread
+           -> directory read_at         根目录被转换为 dirent 流
   -> 对每个 dirent 调用 stat("/<name>")
      -> namei -> namex -> skipelem
      -> inode_ops->lookup
@@ -361,7 +467,7 @@ flowchart TB
   P3[p3 ext2]
   R7[dev 7 temporary rootfs in RAM]
   R8[dev 8 devtmpfs in RAM]
-  SB1[dev 1 VFS super_block\nxv6fs rootino 1]
+  SB1[dev 4 VFS super_block\nxv6fs rootino 1]
   SB5[dev 5 VFS super_block\next2 rootino 2]
   SB20[dev 20 procfs\npath-based]
   SB21[dev 21 FAT32\npath-based]
@@ -402,7 +508,7 @@ sequenceDiagram
   I-->>V: slot 1, valid=0
   V->>O: read devtmpfs block 2, slot 1
   O-->>I: DIR, addrs[0]=7
-  V->>I: iget_path(dev=1, ino=1)
+  V->>I: iget_path(dev=4, ino=1)
   I-->>V: slot 2, valid=0
   V->>O: read real-root block 32, slot 1
   O-->>I: DIR size=1024 addrs[0]=50
@@ -469,7 +575,7 @@ flowchart LR
 #### 按日志中的三个 xv6fs 根实例分开表示
 
 日志中有三个使用 xv6fs 磁盘格式的根 inode。它们不是三个同时可见的 `/`：dev7 是
-启动早期的临时 rootfs，dev8 是稍后挂到 `/dev` 的 devtmpfs，dev1 才是最后移动到 `/`
+启动早期的临时 rootfs，dev8 是稍后挂到 `/dev` 的 devtmpfs，dev4 才是最后移动到 `/`
 的 SD 卡 xv6fs。下面分别画出它们，避免把不同设备上相同的 `ino=1` 混在一起。
 
 注意，log、inode table、bitmap 和 data 并不是“装在 superblock 里面”；superblock
@@ -548,7 +654,7 @@ dev8 的根 inode 是 `block2/slot1`，`addrs[0]=7`。下面只用一张图画�
 flowchart LR
   PATH["open(/dev/console)"]
 
-  subgraph DEV1["dev1：最终 xv6fs 根"]
+  subgraph DEV1["dev4：最终 xv6fs 根"]
     direction TB
     SB1["super_block<br/>rootino=1"]
     I1["inode table<br/>block32 / slot1<br/>root ino1, addrs[0]=50"]
@@ -562,7 +668,7 @@ flowchart LR
   end
 
   subgraph MOUNT["VFS mount table"]
-    FM["follow_mount()<br/>covered=(dev1,ino54)<br/>mounted=(dev8,rootino1)"]
+    FM["follow_mount()<br/>covered=(dev4,ino54)<br/>mounted=(dev8,rootino1)"]
   end
 
   subgraph DEV8["dev8：挂载到 /dev 的 devtmpfs"]
@@ -606,22 +712,21 @@ block7 中其余非空根目录项仍然按 32 字节连续排列；它们都是
 | `[3] / 96` | `tty : ino3` | block2 / slot3 |
 | `[4] / 128` | `ttyS0 : ino4` | block2 / slot4 |
 | `[6] / 192` | `video0 : ino7` | block2 / slot7 |
-| `[7] / 224` | `sdroot : ino8` | block2 / slot8 |
-| `[8] / 256` | `mmcblk0 : ino9` | block2 / slot9 |
-| `[9] / 288` | `mmcblk0p1 : ino10` | block2 / slot10 |
-| `[10] / 320` | `mmcblk0p2 : ino11` | block2 / slot11 |
-| `[11] / 352` | `mmcblk0p3 : ino12` | block2 / slot12 |
-| `[12] / 384` | `ram0 : ino13` | block2 / slot13 |
-| `[13] / 416` | `ram1 : ino14` | block2 / slot14 |
+| `[7] / 224` | `mmcblk0 : ino8` | block2 / slot8 |
+| `[8] / 256` | `mmcblk0p1 : ino9` | block2 / slot9 |
+| `[9] / 288` | `mmcblk0p2 : ino10` | block2 / slot10 |
+| `[10] / 320` | `mmcblk0p3 : ino11` | block2 / slot11 |
+| `[11] / 352` | `ram0 : ino12` | block2 / slot12 |
+| `[12] / 384` | `ram1 : ino13` | block2 / slot13 |
 
-`ram1` 是最后创建的节点，所以现有日志先显示查找 `ram1` 失败、分配 ino14；创建完成后
-它位于下一个 32 字节槽 `off416`。日志打印的 `devtmpfs: initialized on ram1, 12 nodes`
+`ram1` 是最后创建的节点，所以现有日志先显示查找 `ram1` 失败、分配 ino13；创建完成后
+它位于下一个 32 字节槽 `off384`。日志打印的 `devtmpfs: initialized on ram1, 11 nodes`
 按注册设备名计数，其中 `input/event0` 虽然创建一个目录和一个设备 inode，仍算一个设备名。
 
-##### 3. dev1：`itable[2] = (dev=1, ino=1)` 对应的最终 xv6fs 根
+##### 3. dev4：`itable[2] = (dev=4, ino=1)` 对应的最终 xv6fs 根
 
 日志里的 `itable[2]` 只是这一次启动中选中的**内存 inode cache 槽位**。真正稳定的身份是
-`(dev=1, ino=1)`：`dev=1` 是 raw xv6 根块设备，`ino=1` 是该文件系统的 root inode。
+`(dev=4, ino=1)`：`dev=4` 是根分区 mmcblk0p2 这个块设备，`ino=1` 是该文件系统的 root inode。
 它们经过下面三层对象才最终落到目录内容：
 
 ```mermaid
@@ -799,7 +904,7 @@ xv6fs 内部 block32、block50、block1663 等编号不变。也就是说，supe
 
 ##### 4. 其它挂载文件系统的根不能套用 xv6fs 块数组
 
-日志还登记了 procfs、FAT32、ext2 和 netfs 的文件系统根，但只有 dev7/dev8/dev1 使用
+日志还登记了 procfs、FAT32、ext2 和 netfs 的文件系统根，但只有 dev7/dev8/dev4 使用
 上面那种 xv6fs superblock。它们必须分开理解：
 
 | dev | 根 | 自己的存储布局 | 是否有 xv6 log/bitmap/data |
@@ -823,15 +928,15 @@ flowchart LR
 `blocks_per_group`、`inodes_per_group` 和各 group descriptor 计算，不能使用 xv6fs 的
 `inodestart=32` 或 `bmapstart=45`。
 
-日志里的 `/mnt/ext2/video` 查找跨越两个不同块格式：前半段仍从 dev1 的 xv6fs 块读取
+日志里的 `/mnt/ext2/video` 查找跨越两个不同块格式：前半段仍从 dev4 的 xv6fs 块读取
 mount point，`follow_mount()` 后才切换到 dev5 的 ext2 inode/block 算法：
 
 ```mermaid
 flowchart TB
   N[namex /mnt/ext2/video]
-  A[root dev1 ino1\nblock50]
-  B[mnt dev1 ino57\nblock1660]
-  C[covered mountpoint\ndev1 ino58]
+  A[root dev4 ino1\nblock50]
+  B[mnt dev4 ino57\nblock1660]
+  C[covered mountpoint\ndev4 ino58]
   FM[follow_mount]
   ER[ext2 root\ndev5 ino2]
   EL[e2_lookup / e2dirlookup]
@@ -983,8 +1088,9 @@ $ ext2cat /path/to/file
 - xv6 原生目录格式的文件名只有 14 字节；ext2 长文件名在通用 `ls` 中会被截断。专用
   `ext2ls` 仍可显示完整文件名。
 - ext2 驱动支持三级间接块和稀疏大文件，但仍拒绝 ext4 extents 等不兼容 feature。
-- 已实现最小 `mount(2)`；ext2/FAT32 可读写，procfs/netfs 只读；尚未实现 `umount`、
-  dentry cache、权限检查和符号链接。
+- 已实现统一 `mount(2)` 与非根挂载的 `umount(2)`；卸载会阻止新路径进入并检查子挂载、
+  打开 inode 和 cwd，文件系统可通过 `super_block.put_super` 完成 clean shutdown。ext2/FAT32
+  可读写，procfs/netfs 只读；尚未实现 dentry cache、完整权限检查和符号链接。
 
 下一步可以把原生 xv6 inode 也包装成 vnode，使 `exec/chdir/link/unlink/mkdir` 全部经过
 VFS，并为 ext2 补齐目录创建、删除、rename 与一致的权限检查。
@@ -1080,7 +1186,9 @@ ext2 /mnt/ext2 ext2 rw 0 0
 `mount(source, target, fstype, flags)` 系统调用。`procfs` 总能挂载；`ext2` 只有在启动阶段发现
 兼容分区后才会挂载成功；FAT32 bootfs 支持只读或有限的读写挂载；`netfs` 把
 `source` 解析成远端 `IPv4[:port]`，当前只允许只读挂载。`ro`/`rw` 会被转换为挂载标志，
-procfs 和 netfs 拒绝 `rw`，ext2 和 FAT32 接受 `rw`。目前尚未实现设备名解析与 `umount(2)`。
+procfs 和 netfs 拒绝 `rw`，ext2 和 FAT32 接受 `rw`。块文件系统通过 `lookup_bdev()` 把
+`/dev/root`、`/dev/mmcblk0pN` 解析为设备号；`umount(2)` 当前支持非根挂载，根文件系统和
+busy/含子挂载的目标会被拒绝。
 
 NetFS 通过 VFS vnode 后端将远程 `stat/readdir/read` 映射成带 xid、超时和重试的 UDP RPC，
 完整结构、协议、启动方法和分布式演进路线见
@@ -1196,23 +1304,24 @@ tftpclient 192.168.0.201 kernel8-xv6_wifi.img
 
 #### 1. 内核启动阶段探测 FAT32
 
-主核在 `kernel/init/main.c` 中先调用 `fat32init()` 初始化 FAT32 锁，再调用 `rootdev_init()`。
-后者在 `kernel/drivers/block/rootdev.c` 中读取 MBR，先找带 xv6 超级块的原始根分区，再对 0x0b/0x0c 分区调用
-`fat32mount()`。`fat32mount()` 解析 BPB，保存分区起始 LBA、FAT 起始 LBA、数据区起始 LBA、每簇扇区数和根目录簇。
+`do_initcalls()` 先在 fs 级调用 `fat32init()` 初始化 FAT32 锁，再在 late 级调用 `rootdev_init()`。
+MBR 早在 device 级 SD 驱动 `add_disk()` 时由块层扫描好；`rootdev_init()`（`kernel/drivers/block/rootdev.c`）
+只遍历已登记的 `mmcblk0pN`，对第一个 0x0b/0x0c 分区调用 `fat32mount()`。`fat32mount()` 解析 BPB，保存分区起始 LBA、FAT 起始 LBA、数据区起始 LBA、每簇扇区数和根目录簇。
 探测成功后 `diskmap.fat` 被置位；新增的 `fat32ready()` 将这个状态提供给 VFS。这里仅仅是
 识别并准备文件系统，还没有把它放入用户可见的目录树。
 
 ```text
 main()
-  -> fat32init()                     初始化 fat32_lock
-  -> rootdev_init()                   kernel/drivers/block/rootdev.c
-       -> sdsector(0)                 读取 MBR
-       -> setup_raw_root()            找 xv6 根分区（块 1 超级块魔数）
-       -> fat32mount(lba, sectors)    kernel/fs/fat/fat32.c
-            -> sdsector(partition_lba)  读取 BPB
-            -> 保存 FAT/data/root 布局
-            -> diskmap.fat = 1
-  -> vfsinit()                        初始化空 mount table
+  -> do_initcalls()
+       [fs]     fat32init()             初始化 fat32_lock
+       [device] sd_driver_init()        add_disk(mmcblk0)，块层扫描 MBR
+       [late]   rootdev_init()          kernel/drivers/block/rootdev.c
+            -> fat32mount(p->start, p->nsect)   kernel/fs/fat/fat32.c
+                 -> 读取 BPB
+                 -> 保存 FAT/data/root 布局
+                 -> diskmap.fat = 1
+            -> cmdline_init()           读 cmdline_xv6.txt，选 ROOT_DEV
+       [late 6] vfsinit()               登记 procfs、sysfs、fat32、netfs
 ```
 
 #### 2. init 创建挂载点并读取 fstab
@@ -1357,8 +1466,8 @@ vfs: mounted fat32 at /boot read-write
 手动改为 `rw` 后重启。
 
 例如，可以删除或注释 `proc /proc procfs ...` 这一行来阻止下一次启动挂载 `/proc`；也可以
-修改 target，把 procfs 挂载到另一个已经创建的绝对路径。当前 mount table 没有卸载和重复
-挂载支持，配置中的目标路径应保持唯一。
+修改 target，把 procfs 挂载到另一个已经创建的绝对路径。mount table 拒绝同一设备或同一
+覆盖点重复挂载；非根挂载可用 `umount <target>` 卸载，配置中的目标路径仍应保持唯一。
 
 shell 启动时还读取 `/etc/rc`：
 
@@ -1439,9 +1548,9 @@ xv6 根文件系统（superblock/inode/目录）与 FAT32 是两种不同的格�
 
 | 文件 | 职责 |
 |---|---|
-| `kernel/drivers/block/rootdev.c` | `rootdev_init()` 扫描 MBR，为每个有效主分区调用 `blkdev_register()` 注册为 `mmcblk0pN`；`setup_raw_root()` 用块 1 超级块识别 xv6 根分区；`root_blk_rw()` 是根设备的 blkdev 回调，把 xv6 块号换算成 SD 扇区；`rootdev_update_begin()` 供 `/dev/sdroot` 在线更新使用 |
-| `kernel/drivers/block/blkdev.c` | 通用块设备表（NBLKDEV=10），`blk_rw()` 取代原来的 `rootdev_rw()`，bio.c 的所有读写都走这里 |
-| `kernel/fs/fat/fat32.c` | 只有 FAT32 本身：`fat32mount()` 解析 BPB，目录、长文件名、簇分配、读写；`fat32mapsector()` 把 FS.IMG 文件的扇区号换成卡上扇区号（旧卡兼容） |
+| `kernel/drivers/block/rootdev.c` | `rootdev_init()` 在块层已登记的 `mmcblk0pN` 里挂起 FAT32 启动分区，按 `root=`/`rootfstype=` 选出 ROOT_DEV；`is_xv6fs()` 用块 1 超级块识别 xv6 分区；`rootdev_xv6_part()` 把 p2 交给 ext2 的外置日志。它自己不登记块设备，也没有读写回调 |
+| `kernel/drivers/block/blkdev.c` | 通用块设备表（NBLKDEV=10）；`add_disk()` 登记整盘，`blk_add_partitions()`/`msdos_partition()` 读 MBR，`add_partition()` 登记分区；`blk_rw()` 派发 bio.c 的所有读写 |
+| `kernel/fs/fat/fat32.c` | 只有 FAT32 本身：`fat32mount()` 解析 BPB，目录、长文件名、簇分配、读写 |
 
 块缓存的调用链（新）：
 
@@ -1449,33 +1558,32 @@ xv6 根文件系统（superblock/inode/目录）与 FAT32 是两种不同的格�
 bread(dev, B) / bwrite(b)
   -> blk_rw(b, write)                         kernel/drivers/block/blkdev.c
        -> blkdev_get(b->dev)                  按设备号查表
-       -> bd->rw(bd, block*spb, data, spb)    设备回调
-            ROOTDEV  -> root_blk_rw()         kernel/drivers/block/rootdev.c
-                          -> root_sector_lba(2B+i)
-                               raw   : root.lba + 2B+i    p2 原始分区
-                               fsimg : fat32mapsector()   旧卡兼容
-                               bare  : 2B+i               QEMU
-                          -> sdsector(lba, data, write)
-            mmcblk0/pN -> mmc_rw()            直接 sdsector
-            ram0/ram1  -> ram_rw()            内存 RAM 盘
+       -> bd->rw(bd, block*spb, data, spb)    设备回调，扇区号相对设备
+            mmcblk0pN -> part_rw()            加上分区起点 bd->start
+                           -> mmc_rw()        交给整卡，sdsector
+            mmcblk0   -> mmc_rw()
+            ram0/ram1 -> ram_rw()             内存 RAM 盘
 ```
 
 启动日志对应：
 
 ```text
-rootdev: raw xv6 root p2 lba=133120 sectors=81920 size=40 MiB
-rootdev: bootfs p1 lba=2048 mounted as FAT32
-rootdev: using FAT32 FS.IMG compatibility mapping, 65536 sectors   (旧卡)
-rootdev: no MBR; using bare xv6 image                              (QEMU 裸镜像)
-blkdev: dev 1 root start=0 sectors=65536 block=1024
-blkdev: dev 2 mmcblk0 start=0 sectors=0 block=512
-blkdev: dev 3 mmcblk0p1 start=2048 sectors=131072 block=512
-blkdev: dev 4 mmcblk0p2 start=133120 sectors=81920 block=512
+rootdev: partitions of mmcblk0
+rootdev:   mmcblk0p1 type=0xc (FAT32-LBA) start=2048 sectors=131072 size=64 MiB partuuid=...
+rootdev:   mmcblk0p2 type=0x7f (xv6 raw filesystem) start=133120 sectors=81920 size=40 MiB partuuid=...
+rootdev: bootfs mmcblk0p1 lba=2048 mounted as FAT32
+rootdev: root=/dev/mmcblk0p2 -> mmcblk0p2
+rootdev: xv6 filesystem on mmcblk0p2 start=133120 sectors=81920 size=40 MiB
+rootdev: ROOT_DEV = 4 (mmcblk0p2)
+rootdev: no partitions; root is the bare xv6 image on mmcblk0      (QEMU 裸镜像)
+blkdev: dev 2 mmcblk0 (disk, 5 minors) sectors=... block=512
+blkdev: dev 3 mmcblk0p1 (partition 1 of mmcblk0) start=2048 sectors=131072 block=512
+blkdev: dev 4 mmcblk0p2 (partition 2 of mmcblk0) start=133120 sectors=81920 block=1024
 blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
 ```
 
 
-## 当前目录（cwdpath）与 exec 走 VFS [部分历史：exec 现经 iop->read，chdir 只走 namei]
+## 当前目录（cwdpath）与 exec 走 VFS
 
 VFS 挂载表按绝对路径做最长前缀匹配，而原生的当前目录是 inode 指针 `p->cwd`。以前因此有两个限制：
 `cd /mnt/ext2` 只进入被挂载点遮住的原生空目录，相对路径看不到 ext2；`exec()` 只走 `namei()`/`readi()`，
@@ -1484,12 +1592,13 @@ VFS 挂载表按绝对路径做最长前缀匹配，而原生的当前目录是 
 - `struct proc` 增加 `cwdpath[MAXPATH]`（`userinit` 置 `/`，`fork`/`clone` 复制）。
 - `kernel/fs/sysfile.c` 的 `abspath()` 把相对路径接到 `cwdpath` 后面并按文字处理 `.`、`..`（xv6 没有符号链接，
   结果与沿目录树走一致）。`open/mkdir/unlink/rename/link/mknod/mount/chdir/exec` 进入时都先调用它。
-- `chdir()`：`vfsstatpath()` 命中挂载点且后端报告 `T_DIR` 时只更新 `cwdpath`；否则沿用原生 `namei()`，
-  同时更新 `p->cwd` 和 `cwdpath`。
-- `link()`、`mknod()` 遇到挂载点下的路径返回错误（硬链接和设备节点只存在于原生 fs）。
-- `kernel/fs/exec.c` 用 `struct execsrc { inode *ip; vnode *vn; }` 统一读取源：先 `vfsopen(path, O_RDONLY)`，
-  命中挂载点且是普通文件就用 `vfsread()`，否则走原来的 `begin_op/namei/ilock/readi`；`loadseg()` 改调
-  `srcread()`，结束时 `srcclose()` 释放 inode 或 vnode。
+- `chdir()` 统一使用 `namei()` 跨越挂载点，确认目标为目录后同时更新 `p->cwd` 和
+  `cwdpath`。
+- `link()` 只允许同一文件系统实例；`mknod()` 由目标文件系统是否实现 create-device
+  语义决定，当前 ext2/pathfs 不支持。
+- `kernel/fs/exec.c` 的 `struct execsrc` 保存一个已加锁 inode；`srcread()` 通过
+  `file_inode_read_locked()` 调用 `inode->i_fop->read_at`，因此 xv6fs、ext2 和 pathfs
+  上的 ELF 都使用与普通 `pread` 相同的数据后端。`srcclose()` 解锁并释放 inode。
 
 QEMU 验证：
 
@@ -1528,16 +1637,23 @@ $ cd t/../t/./                            -> 原生目录的 . / .. 正常
 ```c
 #define NBLKDEV 10
 struct blkdev {
-  int      dev;        // 设备号（ROOTDEV=1, BLKDEV_MMC=2, BLKDEV_MMC_PART(n)=2+n）
-  char     name[16];   // "root", "mmcblk0", "mmcblk0p2", "ram0", "ram1" ...
-  uint32   start;      // 分区起始扇区（整卡/裸镜像 = 0）
-  uint32   nsect;      // 分区扇区数（0 = 未知，不做越界检查）
-  uint32   bsize;      // 块大小（512/1024/4096 B）
-  blk_rw_fn rw;        // 设备 I/O 回调，NULL 时用通用 mmc_rw
+  int used;
+  int dev;            // 设备号（BLKDEV_MMC=2, BLKDEV_MMC_PART(n)=2+n, ram0=7, ram1=8）
+  char name[16];      // "mmcblk0", "mmcblk0p2", "ram0", "ram1" ...
+  uint32 start;       // 分区在硬件上的起始扇区（整盘 = 0）
+  uint32 nsect;       // 扇区数（0 = 未知，不做越界检查）
+  uint32 bsize;       // 块缓存的块大小（512/1024/4096 B）
+  blk_rw_fn rw;       // 设备 I/O 回调，扇区号相对本设备
+  void *priv;         // 驱动私有数据（RAM 盘的页）
+  struct blkdev *disk;  // 分区：所属整盘；整盘为 0
+  int partno;         // 整盘 0，分区 N
+  int minors;         // 整盘预留的设备号个数 dev .. dev+minors-1
+  uchar ptype;        // 分区：MBR 类型（0x0c FAT32，0x83 Linux，0x7f xv6）
+  ...
 };
 ```
 
-`rootdev_init()` 扫描 MBR 后对每个有效主分区调用 `blkdev_register(BLKDEV_MMC_PART(n), "mmcblk0pN", ...)`；`do_mounts.c` 对两个 RAM 盘调用它。`bio.c` 的读写入口从 `rootdev_rw()` 改为 `blk_rw(b, write)`，它通过 `b->dev` 查表并调对应的回调。
+SD 驱动用 `add_disk(BLKDEV_MMC, "mmcblk0", 5, ...)` 登记整卡，块层的 `blk_add_partitions()` 读 MBR，对每个有效主分区调用 `add_partition()` 登记为 `BLKDEV_MMC_PART(n)`（`mmcblk0pN`，回调 `part_rw()`）；`do_mounts.c` 用 `blkdev_register()` 登记两个 RAM 盘。`bio.c` 的读写入口从 `rootdev_rw()` 改为 `blk_rw(b, write)`，它通过 `b->dev` 查表并调对应的回调。
 
 `buf.data` 也从静态数组改为 `kalloc()` 分配的页（支持 4 KiB ext2 块），`NBUF` 从 `MAXOPBLOCKS×3=30` 扩到 64。新增 `buf.error` 字段：非根设备的 I/O 错误不 panic，而是置位由调用者检查（根设备错误仍 panic）。
 
@@ -1545,11 +1661,12 @@ struct blkdev {
 
 | 设备号 | 名称 | 说明 |
 |--------|------|------|
-| 1 | root | xv6 根（原始分区 / 裸镜像 / FS.IMG） |
 | 2 | mmcblk0 | 整张 SD 卡 |
 | 3–6 | mmcblk0p1–p4 | 各主分区 |
 | 7 | ram0 | rootfs（临时根 RAM 盘） |
 | 8 | ram1 | devtmpfs RAM 盘 |
+
+设备号 1 原先是包住 p2 的“root”设备，已删除；ROOT_DEV 直接是分区本身（xv6fs 根 4，ext2 根 5）。
 
 `blkdev_selftest()` 在第一个进程里运行：读 mmcblk0 扇区 0 两次，验证第二次命中缓存，确认
 MBR 签名。结果打印到启动日志。
@@ -1580,8 +1697,8 @@ int   cmdline_get(char *key, char *val, int n); // 取 key=value 的值
 
 **ext2 作根**：`cmdline_xv6.txt` 写 `root=/dev/mmcblk0p3 rootfstype=ext2`。统一 VFS 之后 ext2 根与 xv6fs 根
 走同一条路（见文首“根文件系统：xv6fs 与 ext2 走同一条路”）：`/dev/root` 次设备号指向 mmcblk0p3，
-`mount_root()` 核对分区后 `ext2_register_super()`，挂到 `/root`，在 ext2 的 `/dev` 上挂 devtmpfs，
-再 MS_MOVE + chroot。xv6 分区（p2）仍被注册为 ROOTDEV（设备 1），供 `/dev/sdroot` 和 ext2 的外置日志使用；没有也不 panic。
+`mount_root()` 经 `vfs_get_sb("ext2")` 调用 `ext2_fill_super()`，最后 `ext2_register_super()`，挂到 `/root`，在 ext2 的 `/dev` 上挂 devtmpfs，
+再 MS_MOVE + chroot。`rootdev_init()` 仍然找出 xv6 分区 p2（`rootdev_xv6_part()`），ext2 的外置日志在它尾部；没有也不 panic，只是关闭日志。
 
 *[历史]* 第一版里 ext2 在 vfs.c 的路径前缀表里，只能 `vfsmount("/dev/root", "/", "ext2")` 直接挂 `/`，
 devtmpfs 挂在 rootfs 的 `/dev`，靠 `fs_native_covers()` 让 `/dev` 绕过 ext2，没有 MS_MOVE/chroot。
@@ -1605,12 +1722,14 @@ make USB_ENUM_TRACE=1 USB_XFER_TRACE=0 install-rpi3-ext2root \
 
 ```text
 Kernel command line: root=/dev/mmcblk0p2 rootfstype=xv6fs
-rootdev: root=/dev/mmcblk0p2 -> mmcblk0p2 lba=133120 sectors=81920 size=40 MiB
+rootdev: root=/dev/mmcblk0p2 -> mmcblk0p2
+rootdev: xv6 filesystem on mmcblk0p2 start=133120 sectors=81920 size=40 MiB
+rootdev: ROOT_DEV = 4 (mmcblk0p2)
 ```
 
 ### 命名空间引导（do_mounts.c：prepare_namespace）
 
-`forkret()` 里的 `fsinit(ROOTDEV)` 改为 `prepare_namespace()`，完成以下步骤（对应
+`forkret()` 里原来的 `fsinit(ROOTDEV)` 改为 `prepare_namespace()`，完成以下步骤（对应
 Linux 的 `init_mount_tree` → `devtmpfs_init` → `prepare_namespace`）：
 
 ```text
@@ -1629,10 +1748,11 @@ prepare_namespace()
        /dev/console, /dev/ttyS0, /dev/video0,
        /dev/mmcblk0, /dev/mmcblk0p1, /dev/mmcblk0p2, ...
 
-  ③ kmknod("/dev/root", BLOCKDEV, ROOTDEV)
+  ③ kmknod("/dev/root", BLOCKDEV, ROOT_DEV)  xv6fs 根时次设备号 4，ext2 根时 5
      mount_root("/dev/root", "/root")
-       fsinit(ROOTDEV)                   读磁盘超级块，日志恢复
-       fs_mount(/root, ROOTDEV, "xv6fs") 把磁盘根挂在 /root
+       vfs_get_sb(rootfstype, "/dev/root", VFS_MOUNT_ROOTLOG)
+         xv6fs_fill_super -> fsinit(dev)  读磁盘超级块，日志恢复
+       fs_mount(/root, dev)               把磁盘根挂在 /root
      kchdir("/root")
      devtmpfs_mount("dev", "/root/dev")  devtmpfs 挂在 /root/dev
 

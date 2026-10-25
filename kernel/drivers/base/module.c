@@ -676,11 +676,11 @@ kmod_load(char *kofile)
   ilock(ip);
   uint sz = ip->size;
   ok = sz > 0 && sz <= MODULE_IMG_MAX;
-  // Read through the inode's filesystem ops, not the classic xv6fs readi():
+  // Read through the inode's default file ops, not the classic xv6fs readi():
   // the Pi's root is ext2, and readi()'s bmap()->getsb() would panic because
   // the ext2 device has no xv6 superblock.  This is the same dispatch fileread
   // uses, so a .ko under /lib/modules loads on either root filesystem.
-  got = ok ? ip->iop->read(ip, 0, (uint64)ko_image, 0, sz) : -1;
+  got = ok ? file_inode_read_locked(ip, 0, (uint64)ko_image, 0, sz) : -1;
   iunlockput(ip);
   end_op();
 

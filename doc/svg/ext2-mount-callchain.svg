@@ -1,0 +1,689 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1752" height="3148" viewBox="0 0 1752 3148" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpmOGE3MjI2MC00MzRlLTQ1NzUtYjVkYi0zZjMxNjFiODQwNGQAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaKgIgMfrYO+2/uUxKSmjUqoAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDowZDQ0ZGFjMS1kZTUxLTQ0ODMtYTVhNS1hODY1Y2Y0ZmJlOGRscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNovV4YkLlmFyyWRtGYoVM30AAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg7sz54EmxPAO8FZuBdYz6XCbzaTvkJjQMwivBnVVDVhKkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaHG7Q6a0o1paDwSZc0rIHmEAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIFy1S8pBiyGPqRrhYS3nukwAOB2dqd28g6bNyBf5rveZZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GQEKZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmY4YTcyMjYwLTQzNGUtNDU3NS1iNWRiLTNmMzE2MWI4NDA0ZC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjlkMTYyZTZkLTQzMmItNGQ4ZC05Nzg2LTUyNjY5ZDE1OTZhOHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDuzPngSbE8A7wVm4F1jPpcJvNpO+QmNAzCK8GdVUNWEqJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggAvRAUJHP1pgAyBBuVwEEAuOWc2xGxtq7JRqDlSrmFd+iY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggTefIZNt4lkuakIfjh4o7CYowLBayJ/7xu3DsnxHymAx0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQIC7VfpB7GvS7UQ7Nv7K4teLuvb+kstrgUZDreyOo6NdtDlWJkoFrn2/9ac6B00eY0tlAeziHqLhq3SYuvO6sOQ=</c2pa:manifest></metadata><rect width="100%" height="100%" fill="#fff"/><defs><marker id="a3k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1f2328"/></marker><marker id="a3b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#2f6fd6"/></marker><marker id="a3p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#7c3aed"/></marker></defs><text xml:space="preserve" x="30" y="34" font-size="18" fill="#1f2328" text-anchor="start" font-weight="600">xv6-aarch64：ext2 为根时的函数调用链（register_filesystem / get_sb / fill_super 版）</text>
+<text xml:space="preserve" x="30" y="58" font-size="12" fill="#6b7280" text-anchor="start">左：调用树（缩进 = 调用层次）　中：文件:行号　右：日志 + itable 变化 + mtab / itable 快照 + inode / 目录项图　橙色序号与挂载图 fig-k 的 ⓪–⑥ 对应</text>
+<rect x="30" y="70" width="12" height="12" rx="2" fill="#2f6fd6"/>
+<text xml:space="preserve" x="48" y="81" font-size="12" fill="#1f2328" text-anchor="start">VFS / 挂载</text>
+<rect x="180" y="70" width="12" height="12" rx="2" fill="#3f7d20"/>
+<text xml:space="preserve" x="198" y="81" font-size="12" fill="#1f2328" text-anchor="start">xv6fs</text>
+<rect x="330" y="70" width="12" height="12" rx="2" fill="#7b3fa6"/>
+<text xml:space="preserve" x="348" y="81" font-size="12" fill="#1f2328" text-anchor="start">ext2</text>
+<rect x="480" y="70" width="12" height="12" rx="2" fill="#0f766e"/>
+<text xml:space="preserve" x="498" y="81" font-size="12" fill="#1f2328" text-anchor="start">块层 / 驱动</text>
+<rect x="630" y="70" width="12" height="12" rx="2" fill="#c2410c"/>
+<text xml:space="preserve" x="648" y="81" font-size="12" fill="#1f2328" text-anchor="start">xjournal</text>
+<rect x="20" y="89" width="1712" height="26" rx="4" fill="#eef2f7"/>
+<text xml:space="preserve" x="30" y="107" font-size="14" fill="#1f2328" text-anchor="start" font-weight="600">A. 启动早期：登记文件系统类型（main，hart 0，还没有进程）</text>
+<circle cx="40" cy="131" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="48" y="135" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">main()</text>
+<text xml:space="preserve" x="722" y="135" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">main.c:36</text>
+<path d="M46 140V156H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="156" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="70" y="160" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">binit()  建 bcache</text>
+<text xml:space="preserve" x="722" y="160" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">main.c:85</text>
+<path d="M46 140V181H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="181" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="70" y="185" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">iinit()</text>
+<text xml:space="preserve" x="722" y="185" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:279</text>
+<path d="M68 190V206H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="206" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="210" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_mountinit()</text>
+<text xml:space="preserve" x="722" y="210" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:915</text>
+<path d="M90 215V231H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="231" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="235" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_filesystem(&amp;xv6fs_type)</text>
+<text xml:space="preserve" x="722" y="235" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:918</text>
+<rect x="846" y="220" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="235" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_filesystem: xv6fs</text>
+<path d="M46 140V256H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="256" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="70" y="260" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_initcalls()</text>
+<text xml:space="preserve" x="722" y="260" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">main.c:93</text>
+<path d="M68 265V281H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="281" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="92" y="285" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">[device] sdhost_probe → add_disk → msdos_partition</text>
+<text xml:space="preserve" x="722" y="285" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">sdhost.c:484</text>
+<rect x="846" y="270" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="285" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">mmcblk0: p1 p2 p3</text>
+<path d="M68 265V306H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="306" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="92" y="310" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">[late] rootdev_init()：root= 解析出 ROOT_DEV</text>
+<text xml:space="preserve" x="722" y="310" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootdev.c:169</text>
+<rect x="846" y="295" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="310" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootdev: ROOT_DEV = 5 (mmcblk0p3)</text>
+<path d="M68 265V331H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="331" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="92" y="335" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">[late 5] ext2init()：清空 ext2_instances[]</text>
+<circle cx="700" cy="331" r="9.5" fill="#c2410c"/><text x="700" y="335.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">⓪</text>
+<text xml:space="preserve" x="722" y="335" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1114</text>
+<path d="M90 340V356H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="356" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="360" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_filesystem(&amp;ext2_type)  只登记，不读盘</text>
+<text xml:space="preserve" x="722" y="360" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1047</text>
+<rect x="846" y="345" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="360" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_filesystem: ext2</text>
+<path d="M68 265V381H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="381" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="385" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">[late 6] vfsinit()</text>
+<text xml:space="preserve" x="722" y="385" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1194</text>
+<path d="M90 390V406H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="406" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="410" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_filesystem(procfs / sysfs / fat32 / netfs)</text>
+<text xml:space="preserve" x="722" y="410" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1047</text>
+<rect x="846" y="395" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="410" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs: one mount table …; xv6fs ext2 procfs …</text>
+<path d="M46 140V431H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="431" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="70" y="435" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">userinit() → scheduler() → forkret()</text>
+<text xml:space="preserve" x="722" y="435" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">proc.c:1188</text>
+<rect x="20" y="453" width="1712" height="26" rx="4" fill="#eef2f7"/>
+<text xml:space="preserve" x="30" y="471" font-size="14" fill="#1f2328" text-anchor="start" font-weight="600">B. forkret → prepare_namespace()：rootfs、devtmpfs、挂 ext2 根、chroot</text>
+<circle cx="40" cy="495" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="48" y="499" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">prepare_namespace()</text>
+<text xml:space="preserve" x="722" y="499" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:405</text>
+<text xml:space="preserve" x="1282" y="499" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: (7,1) ref 2 ← fs_root + cwd</text>
+<path d="M46 504V520H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="520" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="70" y="524" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ramfs_create(0, 7, &quot;ram0&quot;)</text>
+<text xml:space="preserve" x="722" y="524" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:84</text>
+<path d="M68 529V545H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="545" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="92" y="549" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">get_fs_type(&quot;xv6fs&quot;) → xv6fs_fill_super(7, 0)</text>
+<text xml:space="preserve" x="722" y="549" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:132</text>
+<path d="M90 554V570H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="570" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="114" y="574" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">blkdev_set_bsize(7,1024) → fs_readsuper(7) → fs_super_register</text>
+<text xml:space="preserve" x="722" y="574" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:88</text>
+<rect x="846" y="559" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="574" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fill_super: … dev=7</text>
+<path d="M46 504V595H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="595" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="70" y="599" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">devtmpfs_init() → ramfs_create(1, 8, &quot;ram1&quot;)  同上，dev 8</text>
+<text xml:space="preserve" x="722" y="599" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:354</text>
+<rect x="846" y="584" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="599" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">devtmpfs: initialized on ram1</text>
+<path d="M46 504V620H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="620" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="70" y="624" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">kmknod(&quot;/dev/root&quot;, T_DEVICE, BLOCKDEV, 5)</text>
+<text xml:space="preserve" x="722" y="624" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:426</text>
+<text xml:space="preserve" x="1282" y="624" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">itable: (7,5) 新建，iput 后 ref 0</text>
+<rect x="846" y="635" width="886" height="328" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="661" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">rootfs · dev 7 · inode 块 2</text>
+<rect x="1204" y="667" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="680" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">#1  /</text>
+<text xml:space="preserve" x="1428" y="680" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="688" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="701" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">#2  /dev</text>
+<text xml:space="preserve" x="1428" y="701" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="709" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="722" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">#3  console</text>
+<text xml:space="preserve" x="1428" y="722" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">DEV 1/0</text>
+<rect x="1204" y="730" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="743" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">#4  /root</text>
+<text xml:space="preserve" x="1428" y="743" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="751" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="764" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">#5  /dev/root</text>
+<text xml:space="preserve" x="1428" y="764" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">DEV 7/5</text>
+<rect x="1478" y="649" width="250" height="106" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="665" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">块 5 · /</text>
+<rect x="1484" y="673" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="685.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">.</text>
+<text xml:space="preserve" x="1716" y="685.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 1</text>
+<rect x="1484" y="692" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="704.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">..</text>
+<text xml:space="preserve" x="1716" y="704.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 1</text>
+<rect x="1484" y="711" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="723.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="723.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 2</text>
+<rect x="1484" y="730" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="742.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="742.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 4</text>
+<rect x="1478" y="765" width="250" height="106" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="781" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">块 6 · /dev</text>
+<rect x="1484" y="789" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="801.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">.</text>
+<text xml:space="preserve" x="1716" y="801.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 2</text>
+<rect x="1484" y="808" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="820.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">..</text>
+<text xml:space="preserve" x="1716" y="820.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 1</text>
+<rect x="1484" y="827" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="839.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">console</text>
+<text xml:space="preserve" x="1716" y="839.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 3</text>
+<rect x="1484" y="846" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="858.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="858.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 5</text>
+<rect x="1478" y="881" width="250" height="68" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="897" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">块 7 · /root</text>
+<rect x="1484" y="905" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="917.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">.</text>
+<text xml:space="preserve" x="1716" y="917.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 4</text>
+<rect x="1484" y="924" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="936.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">..</text>
+<text xml:space="preserve" x="1716" y="936.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 1</text>
+<path d="M1434 676.0C1456.0 676.0 1456.0 661 1476 661" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1434 697.0C1456.0 697.0 1456.0 777 1476 777" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1434 739.0C1456.0 739.0 1456.0 893 1476 893" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1484 719.5C1459.0 719.5 1459.0 697.0 1436 697.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 738.5C1459.0 738.5 1459.0 739.0 1436 739.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 835.5C1459.0 835.5 1459.0 718.0 1436 718.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 854.5C1459.0 854.5 1459.0 760.0 1436 760.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<text xml:space="preserve" x="858" y="655" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="674" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">（空）还没有任何挂载</text>
+<text xml:space="preserve" x="858" y="691" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_root = (7,1)  不是挂载</text>
+<text xml:space="preserve" x="858" y="714" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="733" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 736V746H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="750" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,1) ref 2  fs_root + cwd</text>
+<path d="M864 753V763H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="767" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,2)…(7,5) ref 0  建完即 iput</text>
+<line x1="1170" y1="645" x2="1170" y2="953" stroke="#e5e7eb"/>
+<path d="M46 504V977H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="977" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="70" y="981" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">mount_root(&quot;/dev/root&quot;, &quot;/root&quot;)</text>
+<text xml:space="preserve" x="722" y="981" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:390</text>
+<path d="M68 986V1002H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1002" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="1006" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs_get_sb(&quot;ext2&quot;, &quot;/dev/root&quot;, VFS_MOUNT_ROOTLOG)</text>
+<circle cx="700" cy="1002" r="9.5" fill="#c2410c"/><text x="700" y="1006.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">①</text>
+<text xml:space="preserve" x="722" y="1006" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1103</text>
+<path d="M90 1011V1027H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="1027" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="1031" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">get_fs_type(&quot;ext2&quot;)  查 file_systems 链表</text>
+<text xml:space="preserve" x="722" y="1031" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1060</text>
+<path d="M90 1011V1052H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="1052" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="114" y="1056" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_type.get_sb = ext2_get_sb()</text>
+<text xml:space="preserve" x="722" y="1056" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1087</text>
+<path d="M112 1061V1077H124" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="128" cy="1077" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="136" y="1081" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lookup_bdev(&quot;/dev/root&quot;) → namei → (7,5)，minor = 5</text>
+<circle cx="700" cy="1077" r="9.5" fill="#c2410c"/><text x="700" y="1081.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">②</text>
+<text xml:space="preserve" x="722" y="1081" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1071</text>
+<text xml:space="preserve" x="1282" y="1081" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: (7,5) ref 0→1→0</text>
+<rect x="846" y="1066" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1081" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lookup: success path=/dev/root -&gt; (7,5)</text>
+<path d="M112 1061V1102H124" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="128" cy="1102" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="136" y="1106" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_fill_super(5, flags)</text>
+<circle cx="700" cy="1102" r="9.5" fill="#c2410c"/><text x="700" y="1106.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">③</text>
+<text xml:space="preserve" x="722" y="1106" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1050</text>
+<path d="M134 1111V1127H146" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="150" cy="1127" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="158" y="1131" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">blkdev_get(5)：start、nsect、partno → ext2_instances[5]</text>
+<text xml:space="preserve" x="722" y="1131" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">blkdev.c:341</text>
+<path d="M134 1111V1152H146" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="150" cy="1152" r="2.6" fill="#c2410c"/>
+<text xml:space="preserve" x="158" y="1156" font-size="12.5" fill="#c2410c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_journal_init(fs) → xj_init() → recover()；binvalidate(5)</text>
+<text xml:space="preserve" x="722" y="1156" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1026</text>
+<rect x="846" y="1141" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1156" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">xjournal: ready on mmcblk0p2+65536</text>
+<path d="M134 1111V1177H146" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="150" cy="1177" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="158" y="1181" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">setup_ext2(fs, 1884160, …) → diskbytes(fs, 1024, sb)</text>
+<text xml:space="preserve" x="722" y="1181" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:958</text>
+<rect x="846" y="1166" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1181" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2: p3 ready rw … block=4096</text>
+<path d="M156 1186V1202H168" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="172" cy="1202" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="180" y="1206" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">e2_rsector()：先 xj_read(lba)，没有再 bread(5, 块号)</text>
+<text xml:space="preserve" x="722" y="1206" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:122</text>
+<path d="M178 1211V1227H190" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="194" cy="1227" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="202" y="1231" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">bread → bget → blk_rw → blkdev_get(5) → part_rw(+start)</text>
+<text xml:space="preserve" x="722" y="1231" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">bio.c:100</text>
+<path d="M200 1236V1252H212" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="216" cy="1252" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="224" y="1256" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">mmc_rw → sdsector(lba)  读 SD 卡扇区</text>
+<text xml:space="preserve" x="722" y="1256" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">sdhost.c:472</text>
+<path d="M156 1186V1277H168" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="172" cy="1277" r="2.6" fill="#0f766e"/>
+<text xml:space="preserve" x="180" y="1281" font-size="12.5" fill="#0f766e" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">blkdev_set_bsize(5, 4096)  bcache 改用 4 KiB 块</text>
+<text xml:space="preserve" x="722" y="1281" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">blkdev.c:362</text>
+<path d="M134 1111V1302H146" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="150" cy="1302" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="158" y="1306" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_register_super(5, 0)</text>
+<circle cx="700" cy="1302" r="9.5" fill="#c2410c"/><text x="700" y="1306.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">④</text>
+<text xml:space="preserve" x="722" y="1306" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:2039</text>
+<path d="M156 1311V1327H168" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="172" cy="1327" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="180" y="1331" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_super_register(5,&quot;ext2&quot;,&amp;ext2_iops,2,…,priv=&amp;ext2_instances[5])</text>
+<text xml:space="preserve" x="722" y="1331" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:51</text>
+<rect x="846" y="1316" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1331" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">register_super: fs=ext2 dev=5 … priv=0xffffff80…</text>
+<path d="M68 986V1352H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1352" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="1356" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(vfs_get_sb 返回 dev = 5)</text>
+<text xml:space="preserve" x="722" y="1356" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1103</text>
+<rect x="846" y="1341" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1356" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">get_sb: type=ext2 source=/dev/root -&gt; dev=5</text>
+<path d="M68 986V1377H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1377" r="2.6" fill="#3f7d20"/>
+<text xml:space="preserve" x="92" y="1381" font-size="12.5" fill="#3f7d20" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">klookup(&quot;/root&quot;) → (7,4)</text>
+<circle cx="700" cy="1377" r="9.5" fill="#c2410c"/><text x="700" y="1381.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">⑤</text>
+<text xml:space="preserve" x="722" y="1381" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:115</text>
+<text xml:space="preserve" x="1282" y="1381" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: (7,4) ref 0→1</text>
+<rect x="846" y="1366" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1381" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lookup: success path=/root -&gt; (7,4)</text>
+<path d="M68 986V1402H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1402" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="1406" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_mount((7,4), 5, &quot;ext2&quot;, &quot;/dev/root&quot;, &quot;/root&quot;)  填 mtab.m[0]</text>
+<text xml:space="preserve" x="722" y="1406" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:1030</text>
+<rect x="846" y="1391" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1406" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">VFS: Mounted root (ext2 …) on device 5</text>
+<rect x="846" y="1417" width="886" height="231" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="1443" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">rootfs · dev 7</text>
+<rect x="1204" y="1449" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="1462" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,4)  /root</text>
+<text xml:space="preserve" x="1428" y="1462" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="1470" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="1483" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,5)  /dev/root</text>
+<text xml:space="preserve" x="1428" y="1483" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">DEV 7/5</text>
+<text xml:space="preserve" x="1204" y="1509" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">ext2 · dev 5</text>
+<rect x="1204" y="1515" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="1528" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">inode 2  根目录</text>
+<text xml:space="preserve" x="1428" y="1528" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1478" y="1431" width="250" height="68" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="1447" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">rootfs 块 7 · /root（被盖住）</text>
+<rect x="1484" y="1455" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1467.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">.</text>
+<text xml:space="preserve" x="1716" y="1467.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 4</text>
+<rect x="1484" y="1474" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1486.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">..</text>
+<text xml:space="preserve" x="1716" y="1486.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 1</text>
+<rect x="1478" y="1509" width="250" height="125" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="1525" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">ext2 根目录块</text>
+<rect x="1484" y="1533" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1545.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">bin</text>
+<text xml:space="preserve" x="1716" y="1545.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 12</text>
+<rect x="1484" y="1552" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1564.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="1564.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 76</text>
+<rect x="1484" y="1571" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1583.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lib</text>
+<text xml:space="preserve" x="1716" y="1583.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 70</text>
+<rect x="1484" y="1590" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1602.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="1602.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 84</text>
+<rect x="1484" y="1609" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1621.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">…</text>
+<path d="M1434 1458.0C1456.0 1458.0 1456.0 1443 1476 1443" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1434 1524.0C1456.0 1524.0 1456.0 1521 1476 1521" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1204 1458.0H1194V1524.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="1495.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[0]</text>
+<text xml:space="preserve" x="858" y="1437" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="1456" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootfs  /  (7,1)   ← fs_root</text>
+<path d="M864 1459V1469H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1473" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/root ⇐ ext2 · dev 5   m[0]</text>
+<text xml:space="preserve" x="858" y="1496" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="1515" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 1518V1528H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1532" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,1) ref 2  fs_root+cwd</text>
+<path d="M864 1535V1545H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1549" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,4) ref 1  ← m[0]</text>
+<path d="M864 1552V1562H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1566" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,5) ref 0  /dev/root</text>
+<line x1="1170" y1="1427" x2="1170" y2="1638" stroke="#e5e7eb"/>
+<path d="M46 504V1662H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="1662" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="70" y="1666" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">kchdir(&quot;/root&quot;)</text>
+<circle cx="700" cy="1662" r="9.5" fill="#c2410c"/><text x="700" y="1666.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">⑥</text>
+<text xml:space="preserve" x="722" y="1666" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:132</text>
+<text xml:space="preserve" x="1282" y="1666" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: cwd → (5,2)；(7,1) ref 2→1</text>
+<path d="M68 1671V1687H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1687" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="1691" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">namei → namex → follow_mount((7,4))</text>
+<text xml:space="preserve" x="722" y="1691" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:962</text>
+<rect x="846" y="1676" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1691" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">follow_mount: cover=(7,4) -&gt; fs=ext2 dev=5</text>
+<path d="M90 1696V1712H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="1712" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="1716" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_dev_root(5) → iget_path(5, rootino=2)</text>
+<text xml:space="preserve" x="722" y="1716" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:1011</text>
+<text xml:space="preserve" x="1282" y="1716" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: (5,2) 新占槽 ref 1</text>
+<rect x="846" y="1701" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1716" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">iget_path: cache miss … dev=5 ino=2</text>
+<path d="M68 1671V1737H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="1737" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="92" y="1741" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ilock → iop-&gt;read_inode = e2_read_inode</text>
+<text xml:space="preserve" x="722" y="1741" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1823</text>
+<text xml:space="preserve" x="1282" y="1741" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">itable: (5,2) valid=1，ext2 open[] + ino 2</text>
+<rect x="846" y="1726" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1741" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ilock: … read_inode fs=ext2 dev=5 ino=2</text>
+<path d="M90 1746V1762H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="1762" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="114" y="1766" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_from_inode(ip)：supers[5].priv → readinode(fs, 2)</text>
+<text xml:space="preserve" x="722" y="1766" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:91</text>
+<path d="M46 504V1787H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="1787" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="70" y="1791" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">devtmpfs_mount(&quot;dev&quot;, &quot;/root/dev&quot;) → fs_mount((5,76), 8)</text>
+<text xml:space="preserve" x="722" y="1791" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">do_mounts.c:368</text>
+<rect x="846" y="1776" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="1791" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">mount: path=/root/dev cover=(5,76)</text>
+<rect x="846" y="1802" width="886" height="231" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="1828" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">ext2 · dev 5</text>
+<rect x="1204" y="1834" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="1847" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,2)  /</text>
+<text xml:space="preserve" x="1428" y="1847" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="1855" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="1868" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,76)  /dev</text>
+<text xml:space="preserve" x="1428" y="1868" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="1894" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">devtmpfs · dev 8</text>
+<rect x="1204" y="1900" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="1913" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(8,1)  /</text>
+<text xml:space="preserve" x="1428" y="1913" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1478" y="1816" width="250" height="106" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="1832" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">ext2 根目录块</text>
+<rect x="1484" y="1840" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1852.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">bin</text>
+<text xml:space="preserve" x="1716" y="1852.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 12</text>
+<rect x="1484" y="1859" width="238" height="17" rx="2" fill="#fff1e6" stroke="#ea580c" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1871.5" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">dev</text>
+<text xml:space="preserve" x="1716" y="1871.5" font-size="11" fill="#ea580c" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 76</text>
+<rect x="1484" y="1878" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1890.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lib</text>
+<text xml:space="preserve" x="1716" y="1890.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 70</text>
+<rect x="1484" y="1897" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1909.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="1909.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 84</text>
+<rect x="1478" y="1932" width="250" height="87" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="1948" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">devtmpfs 根目录块</text>
+<rect x="1484" y="1956" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1968.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">console</text>
+<rect x="1484" y="1975" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="1987.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">mmcblk0</text>
+<rect x="1484" y="1994" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2006.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">mmcblk0p1…p3</text>
+<path d="M1434 1843.0C1456.0 1843.0 1456.0 1828 1476 1828" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1434 1909.0C1456.0 1909.0 1456.0 1944 1476 1944" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1484 1867.5C1459.0 1867.5 1459.0 1864.0 1436 1864.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1204 1864.0H1194V1909.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="1890.5" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[1]</text>
+<text xml:space="preserve" x="858" y="1822" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="1841" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootfs  /  (7,1)   ← fs_root</text>
+<path d="M864 1844V1854H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1858" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/root ⇐ ext2 · dev 5   m[0]</text>
+<path d="M882 1861V1871H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="1875" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/root/dev ⇐ devtmpfs   m[1]</text>
+<text xml:space="preserve" x="858" y="1898" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="1917" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 1920V1930H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1934" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,1) ref 1  fs_root</text>
+<path d="M864 1937V1947H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1951" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,4) ref 1  ← m[0]</text>
+<text xml:space="preserve" x="858" y="1968" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 5</text>
+<path d="M864 1971V1981H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="1985" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,2) ref 1  cwd</text>
+<path d="M864 1988V1998H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2002" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,76) ref 1  ← m[1]</text>
+<line x1="1170" y1="1812" x2="1170" y2="2023" stroke="#e5e7eb"/>
+<path d="M46 504V2047H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="2047" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="70" y="2051" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_move_mount(from, (7,1), &quot;/&quot;)  mtab[0].mp: (7,4) → (7,1)</text>
+<text xml:space="preserve" x="722" y="2051" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:1072</text>
+<rect x="846" y="2062" width="886" height="219" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="2088" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">rootfs · dev 7</text>
+<rect x="1204" y="2094" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="2107" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,1)  /</text>
+<text xml:space="preserve" x="1428" y="2107" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2115" width="230" height="18" rx="3" fill="#fdecec" stroke="#dc2626"/>
+<text xml:space="preserve" x="1210" y="2128" font-size="11" fill="#dc2626" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,4)  /root</text>
+<text xml:space="preserve" x="1428" y="2128" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="2154" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">ext2 · dev 5</text>
+<rect x="1204" y="2160" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2173" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,2)  /</text>
+<text xml:space="preserve" x="1428" y="2173" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2181" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2194" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,76)  /dev</text>
+<text xml:space="preserve" x="1428" y="2194" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="2220" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">devtmpfs · dev 8</text>
+<rect x="1204" y="2226" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2239" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(8,1)  /</text>
+<text xml:space="preserve" x="1428" y="2239" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1478" y="2076" width="250" height="68" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="2092" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">rootfs 块 5 · /</text>
+<rect x="1484" y="2100" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2112.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="2112.5" font-size="11" fill="#9ca3af" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 2</text>
+<rect x="1484" y="2119" width="238" height="17" rx="2" fill="#fdecec" stroke="#dc2626" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2131.5" font-size="11" fill="#dc2626" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">root</text>
+<text xml:space="preserve" x="1716" y="2131.5" font-size="11" fill="#dc2626" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 4</text>
+<rect x="1478" y="2154" width="250" height="87" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="2170" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">ext2 根目录块</text>
+<rect x="1484" y="2178" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2190.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="2190.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 76</text>
+<rect x="1484" y="2197" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2209.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="2209.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 84</text>
+<rect x="1484" y="2216" width="238" height="17" rx="2" fill="#fff" stroke="#d6dae0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2228.5" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">…</text>
+<path d="M1434 2103.0C1456.0 2103.0 1456.0 2088 1476 2088" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1434 2169.0C1456.0 2169.0 1456.0 2166 1476 2166" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1484 2127.5C1459.0 2127.5 1459.0 2124.0 1436 2124.0" fill="none" stroke="#dc2626" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 2186.5C1459.0 2186.5 1459.0 2190.0 1436 2190.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1204 2103.0H1194V2169.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="2140.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[0]</text>
+<path d="M1204 2190.0H1180V2235.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1177" y="2216.5" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[1]</text>
+<text xml:space="preserve" x="858" y="2082" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="2101" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootfs  (7,1)   ← fs_root</text>
+<path d="M864 2104V2114H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2118" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/ ⇐ ext2 · dev 5   m[0]</text>
+<path d="M882 2121V2131H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2135" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/dev ⇐ devtmpfs   m[1]</text>
+<text xml:space="preserve" x="858" y="2158" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="2177" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 2180V2190H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2194" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,1) ref 2  ← m[0] + fs_root</text>
+<path d="M864 2197V2207H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2211" font-size="11" fill="#dc2626" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,4) ref 0  不再被指向</text>
+<text xml:space="preserve" x="858" y="2228" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 5</text>
+<path d="M864 2231V2241H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2245" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,2) ref 1  cwd</text>
+<path d="M864 2248V2258H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2262" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,76) ref 1  ← m[1]</text>
+<line x1="1170" y1="2072" x2="1170" y2="2271" stroke="#e5e7eb"/>
+<path d="M46 504V2295H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="2295" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="70" y="2299" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_set_root(p-&gt;cwd)  &quot;/&quot; = (5,2)</text>
+<text xml:space="preserve" x="722" y="2299" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:1108</text>
+<rect x="846" y="2284" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="2299" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">VFS: root moved over rootfs, chroot done</text>
+<rect x="846" y="2310" width="886" height="202" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="2336" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">rootfs · dev 7（不可达）</text>
+<rect x="1204" y="2342" width="230" height="18" rx="3" fill="#f6f7f9" stroke="#d6dae0"/>
+<text xml:space="preserve" x="1210" y="2355" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,1)  /</text>
+<text xml:space="preserve" x="1428" y="2355" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="2381" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">ext2 · dev 5</text>
+<rect x="1204" y="2387" width="230" height="18" rx="3" fill="#fff1e6" stroke="#ea580c"/>
+<text xml:space="preserve" x="1210" y="2400" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,2)  / = fs_root</text>
+<text xml:space="preserve" x="1428" y="2400" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2408" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2421" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,76)  /dev</text>
+<text xml:space="preserve" x="1428" y="2421" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="2447" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">devtmpfs · dev 8</text>
+<rect x="1204" y="2453" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2466" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(8,1)  /</text>
+<text xml:space="preserve" x="1428" y="2466" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1478" y="2324" width="250" height="106" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="2340" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">ext2 根目录块（/ 从这里开始查）</text>
+<rect x="1484" y="2348" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2360.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">bin</text>
+<text xml:space="preserve" x="1716" y="2360.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 12</text>
+<rect x="1484" y="2367" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2379.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="2379.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 76</text>
+<rect x="1484" y="2386" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2398.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">lib</text>
+<text xml:space="preserve" x="1716" y="2398.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 70</text>
+<rect x="1484" y="2405" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2417.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">root</text>
+<text xml:space="preserve" x="1716" y="2417.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 84</text>
+<path d="M1434 2396.0C1456.0 2396.0 1456.0 2336 1476 2336" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1484 2375.5C1459.0 2375.5 1459.0 2417.0 1436 2417.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1204 2351.0H1194V2396.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="2377.5" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[0]</text>
+<path d="M1204 2417.0H1180V2462.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1177" y="2443.5" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[1]</text>
+<text xml:space="preserve" x="858" y="2330" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="2349" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootfs  (7,1)   被压在下面</text>
+<path d="M864 2352V2362H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2366" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/ ⇐ ext2 · dev 5   m[0]  ← fs_root</text>
+<path d="M882 2369V2379H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2383" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/dev ⇐ devtmpfs   m[1]</text>
+<text xml:space="preserve" x="858" y="2406" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="2425" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 2428V2438H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2442" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(7,1) ref 1  ← m[0]</text>
+<text xml:space="preserve" x="858" y="2459" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 5</text>
+<path d="M864 2462V2472H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2476" font-size="11" fill="#ea580c" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">(5,2) ref 2  fs_root + cwd</text>
+<path d="M864 2479V2489H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2493" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,76) ref 1  ← m[1]</text>
+<line x1="1170" y1="2320" x2="1170" y2="2502" stroke="#e5e7eb"/>
+<rect x="20" y="2523" width="1712" height="26" rx="4" fill="#eef2f7"/>
+<text xml:space="preserve" x="30" y="2541" font-size="14" fill="#1f2328" text-anchor="start" font-weight="600">C. /init 的 mount_fstab()：用户态 mount(2)</text>
+<circle cx="40" cy="2565" r="2.6" fill="#1f2328"/>
+<text xml:space="preserve" x="48" y="2569" font-size="12.5" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">sys_mount()</text>
+<text xml:space="preserve" x="722" y="2569" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">sysfile.c:148</text>
+<path d="M46 2574V2590H58" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="62" cy="2590" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="70" y="2594" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfsmount(source, target, fstype, flags)</text>
+<text xml:space="preserve" x="722" y="2594" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1157</text>
+<path d="M68 2599V2615H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="2615" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="2619" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs_get_sb(fstype, source, flags) → get_fs_type → t-&gt;get_sb</text>
+<text xml:space="preserve" x="722" y="2619" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1103</text>
+<path d="M90 2624V2640H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="2640" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="2644" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">procfs_get_sb / sysfs_get_sb / fat32_get_sb / netfs_get_sb</text>
+<text xml:space="preserve" x="722" y="2644" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs.c:1115</text>
+<rect x="846" y="2629" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="2644" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">get_sb: type=procfs source=proc -&gt; dev=20</text>
+<path d="M112 2649V2665H124" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="128" cy="2665" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="136" y="2669" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs_super_register(20 / 23 / 21 / 22, …)  伪文件系统，固定 dev</text>
+<text xml:space="preserve" x="722" y="2669" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:51</text>
+<path d="M90 2624V2690H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="2690" r="2.6" fill="#7b3fa6"/>
+<text xml:space="preserve" x="114" y="2694" font-size="12.5" fill="#7b3fa6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2_get_sb(&quot;ext2&quot;)：source 不是设备节点 → 已有实例 dev 5</text>
+<text xml:space="preserve" x="722" y="2694" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2.c:1087</text>
+<rect x="846" y="2679" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="2694" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">get_sb: type=ext2 source=ext2 -&gt; dev=5</text>
+<path d="M68 2599V2715H80" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="84" cy="2715" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="92" y="2719" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">namei(target) → fs_mount(mp, dev, …)</text>
+<text xml:space="preserve" x="722" y="2719" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:1030</text>
+<rect x="846" y="2704" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="2719" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">vfs: mounted procfs at /proc read-only</text>
+<path d="M90 2724V2740H102" fill="none" stroke="#9ca3af" stroke-width="1.2"/>
+<circle cx="106" cy="2740" r="2.6" fill="#2f6fd6"/>
+<text xml:space="preserve" x="114" y="2744" font-size="12.5" fill="#2f6fd6" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ext2：mount_of_dev(5) 已挂在 / → 返回 -1</text>
+<text xml:space="preserve" x="722" y="2744" font-size="11.5" fill="#6b7280" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">fs.c:951</text>
+<rect x="846" y="2729" width="420" height="20" rx="3" fill="#fff7ed"/>
+<text xml:space="preserve" x="852" y="2744" font-size="11" fill="#9a3412" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">cannot mount ext2 at /mnt/ext2 (busy …)</text>
+<rect x="846" y="2755" width="886" height="355" rx="6" fill="#fcfcfd" stroke="#c7d6f0"/>
+<text xml:space="preserve" x="1204" y="2781" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">ext2 · dev 5</text>
+<rect x="1204" y="2787" width="230" height="18" rx="3" fill="#ffffff" stroke="#c0c7d0"/>
+<text xml:space="preserve" x="1210" y="2800" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,2)  / = fs_root</text>
+<text xml:space="preserve" x="1428" y="2800" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2808" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2821" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/proc 目录</text>
+<text xml:space="preserve" x="1428" y="2821" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2829" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2842" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/sys 目录</text>
+<text xml:space="preserve" x="1428" y="2842" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2850" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2863" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/boot 目录</text>
+<text xml:space="preserve" x="1428" y="2863" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<rect x="1204" y="2871" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2884" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/mnt/net 目录</text>
+<text xml:space="preserve" x="1428" y="2884" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">T_DIR</text>
+<text xml:space="preserve" x="1204" y="2910" font-size="11" fill="#a16207" text-anchor="start" font-weight="600">挂上来的根</text>
+<rect x="1204" y="2916" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2929" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">procfs · dev 20</text>
+<text xml:space="preserve" x="1428" y="2929" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/</text>
+<rect x="1204" y="2937" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2950" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">sysfs · dev 23</text>
+<text xml:space="preserve" x="1428" y="2950" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/</text>
+<rect x="1204" y="2958" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2971" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">fat32 · dev 21</text>
+<text xml:space="preserve" x="1428" y="2971" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/</text>
+<rect x="1204" y="2979" width="230" height="18" rx="3" fill="#e9f9ee" stroke="#16a34a"/>
+<text xml:space="preserve" x="1210" y="2992" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">netfs · dev 22</text>
+<text xml:space="preserve" x="1428" y="2992" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/</text>
+<rect x="1478" y="2769" width="250" height="125" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="2785" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">ext2 根目录块</text>
+<rect x="1484" y="2793" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2805.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">proc</text>
+<text xml:space="preserve" x="1716" y="2805.5" font-size="11" fill="#16a34a" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<rect x="1484" y="2812" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2824.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">sys</text>
+<text xml:space="preserve" x="1716" y="2824.5" font-size="11" fill="#16a34a" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<rect x="1484" y="2831" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2843.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">boot</text>
+<text xml:space="preserve" x="1716" y="2843.5" font-size="11" fill="#16a34a" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<rect x="1484" y="2850" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2862.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">mnt</text>
+<text xml:space="preserve" x="1716" y="2862.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<rect x="1484" y="2869" width="238" height="17" rx="2" fill="#ffffff" stroke="#c0c7d0" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2881.5" font-size="11" fill="#1f2328" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev</text>
+<text xml:space="preserve" x="1716" y="2881.5" font-size="11" fill="#1f2328" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino 76</text>
+<rect x="1478" y="2904" width="250" height="68" rx="5" fill="#fff" stroke="#1f2328" stroke-width="1.2"/>
+<text xml:space="preserve" x="1486" y="2920" font-size="11" fill="#1f2328" text-anchor="start" font-weight="600">/mnt 目录块</text>
+<rect x="1484" y="2928" width="238" height="17" rx="2" fill="#e9f9ee" stroke="#16a34a" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2940.5" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">net</text>
+<text xml:space="preserve" x="1716" y="2940.5" font-size="11" fill="#16a34a" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<rect x="1484" y="2947" width="238" height="17" rx="2" fill="#fdecec" stroke="#dc2626" stroke-width="0.8"/>
+<text xml:space="preserve" x="1490" y="2959.5" font-size="11" fill="#dc2626" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">ext2</text>
+<text xml:space="preserve" x="1716" y="2959.5" font-size="11" fill="#dc2626" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">ino ?</text>
+<path d="M1434 2796.0C1456.0 2796.0 1456.0 2781 1476 2781" fill="none" stroke="#1f2328" stroke-width="1.3" marker-end="url(#a3k)"/>
+<path d="M1484 2801.5C1459.0 2801.5 1459.0 2817.0 1436 2817.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 2820.5C1459.0 2820.5 1459.0 2838.0 1436 2838.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 2839.5C1459.0 2839.5 1459.0 2859.0 1436 2859.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1484 2936.5C1459.0 2936.5 1459.0 2880.0 1436 2880.0" fill="none" stroke="#2f6fd6" stroke-width="1.1" marker-end="url(#a3b)"/>
+<path d="M1204 2817.0H1194V2925.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="2875.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[2]</text>
+<path d="M1204 2838.0H1180V2946.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1177" y="2896.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[3]</text>
+<path d="M1204 2859.0H1194V2967.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1191" y="2917.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[4]</text>
+<path d="M1204 2880.0H1180V2988.0H1202" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a3p)"/>
+<text xml:space="preserve" x="1177" y="2938.0" font-size="10" fill="#7c3aed" text-anchor="end" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">m[5]</text>
+<text xml:space="preserve" x="858" y="2775" font-size="11.5" fill="#7c3aed" text-anchor="start" font-weight="600">mtab（挂载树）</text>
+<text xml:space="preserve" x="858" y="2794" font-size="11" fill="#9ca3af" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">rootfs  (7,1)</text>
+<path d="M864 2797V2807H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2811" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/ ⇐ ext2 · dev 5   m[0]  ← fs_root</text>
+<path d="M882 2814V2824H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2828" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">/dev ⇐ devtmpfs   m[1]</text>
+<path d="M882 2831V2841H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2845" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/proc ⇐ procfs   m[2]</text>
+<path d="M882 2848V2858H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2862" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/sys ⇐ sysfs   m[3]</text>
+<path d="M882 2865V2875H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2879" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/boot ⇐ fat32   m[4]</text>
+<path d="M882 2882V2892H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2896" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/mnt/net ⇐ netfs   m[5]</text>
+<path d="M882 2899V2909H891" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="894" y="2913" font-size="11" fill="#dc2626" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/mnt/ext2 ✗ busy</text>
+<text xml:space="preserve" x="858" y="2936" font-size="11.5" fill="#a16207" text-anchor="start" font-weight="600">itable（按 dev）</text>
+<text xml:space="preserve" x="858" y="2955" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 7</text>
+<path d="M864 2958V2968H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="2972" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(7,1) ref 1  ← m[0]</text>
+<text xml:space="preserve" x="858" y="2989" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">dev 5</text>
+<path d="M864 2992V3002H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3006" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,2) ref ≥2  fs_root + cwd</text>
+<path d="M864 3009V3019H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3023" font-size="11" fill="#4b5563" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace">(5,76) ref 1  ← m[1]</text>
+<path d="M864 3026V3036H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3040" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/proc 的 inode  ← m[2]</text>
+<path d="M864 3043V3053H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3057" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/sys 的 inode  ← m[3]</text>
+<path d="M864 3060V3070H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3074" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/boot 的 inode  ← m[4]</text>
+<path d="M864 3077V3087H873" fill="none" stroke="#c0c4cc"/>
+<text xml:space="preserve" x="876" y="3091" font-size="11" fill="#16a34a" text-anchor="start" font-family="Menlo, DejaVu Sans Mono, Consolas, monospace" font-weight="600">/mnt/net 的 inode  ← m[5]</text>
+<line x1="1170" y1="2765" x2="1170" y2="3100" stroke="#e5e7eb"/>
+<text xml:space="preserve" x="852" y="81" font-size="13" fill="#7c3aed" text-anchor="start" font-weight="600">日志 · mtab / itable · inode / 目录项（dentry）</text>
+<text xml:space="preserve" x="1282" y="81" font-size="11.5" fill="#6b7280" text-anchor="start" font-weight="600">itable 单行变化</text>
+<text xml:space="preserve" x="1732" y="58" font-size="11.5" fill="#6b7280" text-anchor="end">绿 新增　橙 改动　红 释放/拒绝　灰 不变　│　黑箭头 inode→目录块　蓝 目录项→inode　紫虚线 挂载</text>
+<path d="M682 90V3134M838 90V3134" stroke="#e5e7eb" stroke-width="1"/></svg>

@@ -1751,7 +1751,8 @@ mt7601u_driver_init(void)
   usb_register_driver(&mt7601u_driver);
 }
 
-// Order 3: needs sdroot's firmware files and dwc2's enumeration.
+// Order 3: needs the bootfs firmware files (rootdev_init() mounts
+// bootfs) and dwc2's enumeration.
 late_initcall_ord("mt7601u", mt7601u_driver_init, 3);
 
 void

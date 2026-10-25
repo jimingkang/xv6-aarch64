@@ -556,6 +556,7 @@ UPROGS=\
 	$U/_insmod\
 	$U/_rmmod\
 	$U/_mkdir\
+	$U/_umount\
 	$U/_mv\
 	$U/_touch\
 	$U/_file\

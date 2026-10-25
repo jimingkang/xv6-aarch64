@@ -513,6 +513,7 @@ sd_driver_init(void)
   platform_driver_register(&drv);
 }
 
-// The external SD card has to be a block device before sdroot mounts it;
+// The external SD card has to be a block device before rootdev_init()
+// picks the root from its partitions;
 // the block layer itself is a subsys_initcall, so it is ready by now.
 module_init("sdhost", sd_driver_init);

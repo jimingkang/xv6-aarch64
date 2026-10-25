@@ -48,8 +48,8 @@ enum init_level {
 // The plain macros take order 0, which is the first slot of their level.  The
 // _ord variants pin a module later inside that level, which is needed whenever
 // peers share it: a class driver must be registered before its host controller
-// enumerates, and the root block device must exist before the image updater
-// guards the partition.
+// enumerates, and Wi-Fi drivers must wait until rootdev_init() has mounted
+// bootfs, where their firmware lives.
 #define module_init_ord(str, fn, ord)      \
   __module_desc(str, fn, INIT_LEVEL_DEVICE, ord)
 #define late_initcall_ord(str, fn, ord)    \

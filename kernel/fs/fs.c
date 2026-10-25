@@ -20,6 +20,7 @@
 #include <kernel/fs.h>
 #include <kernel/buf.h>
 #include <kernel/file.h>
+#include <kernel/device.h>
 #include <kernel/blkdev.h>
 #include <kernel/vfs.h>
 #include <kernel/fs_trace.h>
@@ -31,6 +32,11 @@
 static struct superblock sbs[NBLKDEV];
 void fs_mountinit(void);
 static struct inode_ops xv6_iops;
+static struct inode_ops xv6_file_iops;
+static struct inode_ops xv6_dir_iops;
+static struct inode_ops xv6_device_iops;
+static const struct file_operations xv6_file_fops;
+static const struct file_operations xv6_dir_fops;
 
 // ---------------------------------------------------------------------------
 // VFS super blocks: one per mounted filesystem instance of any type,
@@ -62,6 +68,7 @@ fs_super_register(int dev, char *type, struct inode_ops *iop, uint rootino,
   sb->logged = logged;
   sb->pathbased = pathbased;
   sb->priv = priv;
+  sb->put_super = 0;
   __sync_synchronize();
   sb->used = 1;
   VFSTRACE("register_super: fs=%s dev=%d rootino=%d ro=%d logged=%d pathbased=%d\n",
@@ -73,6 +80,35 @@ fs_super_register(int dev, char *type, struct inode_ops *iop, uint rootino,
   FSTRACE("  readonly=%d logged=%d pathbased=%d priv=%p\n",
           sb->readonly, sb->logged, sb->pathbased, (uint64)sb->priv);
   return 0;
+}
+
+int
+fs_super_set_put_super(int dev, int (*put_super)(struct super_block*))
+{
+  struct super_block *sb = getsuper(dev);
+  if(sb == 0)
+    return -1;
+  sb->put_super = put_super;
+  return 0;
+}
+
+static void
+fs_super_unregister(int dev)
+{
+  if(dev <= 0 || dev >= NSUPER)
+    return;
+  struct super_block *sb = &supers[dev];
+  sb->used = 0;
+  __sync_synchronize();
+  sb->dev = 0;
+  sb->type[0] = 0;
+  sb->iop = 0;
+  sb->rootino = 0;
+  sb->readonly = 0;
+  sb->logged = 0;
+  sb->pathbased = 0;
+  sb->priv = 0;
+  sb->put_super = 0;
 }
 
 static struct superblock*
@@ -124,6 +160,25 @@ fsinit(int dev) {
   initlog(dev, &sbs[dev]);
   return 0;
 }
+
+// xv6fs as a registered filesystem type.  fill_super: set the block size
+// (Linux sb_set_blocksize), read and check block 1, register supers[dev];
+// only the root also attaches the log, RAM disks write through.
+static int
+xv6fs_fill_super(int dev, int flags)
+{
+  if(blkdev_set_bsize(dev, BSIZE) < 0)
+    return -1;
+  if(flags & VFS_MOUNT_ROOTLOG)
+    return fsinit(dev);
+  return fs_readsuper(dev);
+}
+
+static struct fs_type xv6fs_type = {
+  .name = "xv6fs",
+  .get_sb = get_sb_bdev,
+  .fill_super = xv6fs_fill_super,
+};
 
 // Zero a block.
 static void
@@ -362,6 +417,7 @@ iget_path(uint dev, uint inum, char *path)
   ip->ref = 1;
   ip->valid = 0;
   ip->iop = sb ? sb->iop : &xv6_iops;
+  ip->i_fop = 0; // selected by read_inode after the on-disk type is known
   // The slot may previously have represented an inode from another
   // filesystem.  valid=0 prevents normal users from consuming old metadata,
   // but clearing it here also keeps diagnostics honest and prevents a backend
@@ -430,6 +486,21 @@ xv6_read_inode(struct inode *ip)
   brelse(bp);
   if(ip->type == 0)
     panic("ilock: no type");
+  // read_inode is the bootstrap operation installed from the superblock.
+  // Once the on-disk type is known, select the Linux-style inode and default
+  // file operation tables for this particular object.
+  if(ip->type == T_DIR){
+    ip->iop = &xv6_dir_iops;
+    ip->i_fop = &xv6_dir_fops;
+  } else if(ip->type == T_FILE){
+    ip->iop = &xv6_file_iops;
+    ip->i_fop = &xv6_file_fops;
+  } else if(ip->type == T_DEVICE){
+    ip->iop = &xv6_device_iops;
+    ip->i_fop = 0; // chrdev_open() selects operations from the major number.
+  } else {
+    return -1;
+  }
   return 0;
 }
 
@@ -461,6 +532,8 @@ ilock(struct inode *ip)
       FSTRACE("  dev=%d ino=%d ref=%d valid=%d iop=%p path=%s\n",
               ip->dev, ip->inum, ip->ref, ip->valid, (uint64)ip->iop,
               ip->path[0] ? ip->path : "<not stored: inode-keyed fs>");
+      FSTRACE("  i_fop=%p (default file operations selected by inode type)\n",
+              (uint64)ip->i_fop);
       FSTRACE("  type=%d major=%d minor=%d nlink=%d size=%p\n",
               ip->type, ip->major, ip->minor, ip->nlink, ip->size);
       for(int i = 0; i < NDIRECT; i++)
@@ -882,6 +955,7 @@ static struct {
   struct spinlock lock;
   struct fsmount {
     int used;
+    int unmounting;           // hidden from new path walks while draining
     struct inode *mp;       // covered directory (holds a reference)
     uint dev;               // mounted filesystem; its root is (dev, ROOTINO)
     char fstype[12];
@@ -896,6 +970,7 @@ void
 fs_mountinit(void)
 {
   initlock(&mtab.lock, "mtab");
+  register_filesystem(&xv6fs_type);
 }
 
 // The inode namex() starts absolute paths from.  Before do_mounts.c has
@@ -921,7 +996,8 @@ static struct fsmount*
 mount_covering(uint dev, uint inum)
 {
   for(int i = 0; i < NFSMOUNT; i++)
-    if(mtab.m[i].used && mtab.m[i].mp->dev == dev &&
+    if(mtab.m[i].used && !mtab.m[i].unmounting &&
+       mtab.m[i].mp->dev == dev &&
        mtab.m[i].mp->inum == inum)
       return &mtab.m[i];
   return 0;
@@ -1024,6 +1100,7 @@ fs_mount(struct inode *mp, int dev, char *fstype, char *source, char *path)
     if(m->used)
       continue;
     m->used = 1;
+    m->unmounting = 0;
     m->mp = mp;
     m->dev = dev;
     safestrcpy(m->fstype, fstype, sizeof(m->fstype));
@@ -1044,6 +1121,91 @@ fs_mount(struct inode *mp, int dev, char *fstype, char *source, char *path)
   return -1;
 }
 
+// A mount can be destroyed only after all VFS inode references on its device
+// have drained.  This includes open files and process cwd references; cached
+// itable slots with ref==0 do not keep a filesystem busy.
+static int
+fs_dev_busy(uint dev)
+{
+  int busy = 0;
+  acquire(&itable.lock);
+  for(struct inode *ip = itable.inode; ip < itable.inode + NINODE; ip++)
+    if(ip->ref > 0 && ip->dev == dev){
+      busy = 1;
+      break;
+    }
+  release(&itable.lock);
+  return busy;
+}
+
+static int
+mount_path_below(char *child, char *parent)
+{
+  int n = strlen(parent);
+  return strncmp(child, parent, n) == 0 && child[n] == '/';
+}
+
+// Detach a non-root mount by its namespace path.  Marking it unmounting first
+// prevents new namei() walks from entering it while existing inode references
+// drain.  A failed busy check or filesystem shutdown restores the mount.
+int
+fs_umount(char *target)
+{
+  struct fsmount *m = 0;
+  struct inode *mp = 0;
+  struct super_block *sb;
+  uint dev = 0;
+
+  acquire(&mtab.lock);
+  for(int i = 0; i < NFSMOUNT; i++){
+    if(mtab.m[i].used && !mtab.m[i].unmounting &&
+       strncmp(mtab.m[i].path, target, MAXPATH) == 0){
+      m = &mtab.m[i];
+      break;
+    }
+  }
+  if(m == 0 || strncmp(target, "/", MAXPATH) == 0 ||
+     (fs_root && fs_root->dev == m->dev)){
+    release(&mtab.lock);
+    return -1;
+  }
+  for(int i = 0; i < NFSMOUNT; i++){
+    struct fsmount *c = &mtab.m[i];
+    if(c != m && c->used &&
+       (c->mp->dev == m->dev || mount_path_below(c->path, m->path))){
+      release(&mtab.lock);
+      return -1;                // detach child mounts first
+    }
+  }
+  m->unmounting = 1;
+  dev = m->dev;
+  release(&mtab.lock);
+
+  if(fs_dev_busy(dev))
+    goto restore;
+  sb = getsuper(dev);
+  if(sb == 0 || (sb->put_super && sb->put_super(sb) < 0))
+    goto restore;
+
+  acquire(&mtab.lock);
+  // No other unmount can recycle this entry while unmounting is set.
+  mp = m->mp;
+  memset(m, 0, sizeof(*m));
+  release(&mtab.lock);
+  fs_super_unregister(dev);
+  iput(mp);
+  VFSTRACE("umount: target=%s dev=%d complete\n", target, dev);
+  return 0;
+
+restore:
+  acquire(&mtab.lock);
+  if(m->used && m->dev == dev)
+    m->unmounting = 0;
+  release(&mtab.lock);
+  VFSTRACE("umount: target=%s dev=%d busy-or-shutdown-failed\n", target, dev);
+  return -1;
+}
+
 // MS_MOVE: the filesystem whose root directory is "from" is detached from
 // where it is mounted and re-attached on directory "to", which is reached
 // as topath.  Mounts below it (devtmpfs on /root/dev) move along; only
@@ -1055,7 +1217,7 @@ fs_move_mount(struct inode *from, struct inode *to, char *topath)
   char oldpath[MAXPATH];
   acquire(&mtab.lock);
   struct fsmount *m = isfsroot(from) ? mount_of_dev(from->dev) : 0;
-  if(m == 0 || mount_covering(to->dev, to->inum)){
+  if(m == 0 || m->unmounting || mount_covering(to->dev, to->inum)){
     release(&mtab.lock);
     return -1;
   }
@@ -1109,7 +1271,7 @@ fs_mounts_format(char *buf, int n)
   acquire(&mtab.lock);
   for(int i = 0; i < NFSMOUNT; i++){
     struct fsmount *m = &mtab.m[i];
-    if(!m->used)
+    if(!m->used || m->unmounting)
       continue;
     p = mstr(p, e, m->source);
     p = mstr(p, e, " ");
@@ -1436,7 +1598,57 @@ xv6_fsync(struct inode *ip)
   return sdflush();
 }
 
+static int
+xv6_file_read_at(struct file *f, int user_dst, uint64 dst, uint64 off,
+                  uint n)
+{
+  return xv6_read(f->ip, user_dst, dst, off, n);
+}
+
+static int
+xv6_file_write_at(struct file *f, int user_src, uint64 src, uint64 off,
+                   uint n)
+{
+  return xv6_write(f->ip, user_src, src, off, n);
+}
+
+static int
+xv6_file_fsync(struct file *f, int dataonly)
+{
+  (void)dataonly;
+  return xv6_fsync(f->ip);
+}
+
+static const struct file_operations xv6_file_fops = {
+  .fread = generic_file_fread,
+  .fwrite = generic_file_fwrite,
+  .read_at = xv6_file_read_at,
+  .write_at = xv6_file_write_at,
+  .fsync = xv6_file_fsync,
+  .poll = generic_file_poll,
+};
+
+static const struct file_operations xv6_dir_fops = {
+  .fread = generic_file_fread,
+  .read_at = xv6_file_read_at,
+  .poll = generic_file_poll,
+};
+
+// Superblock bootstrap operations: iget installs this table before the inode
+// type has been read. xv6_read_inode then switches iop/i_fop to one of the
+// type-specific tables below.
 static struct inode_ops xv6_iops = {
+  .read_inode = xv6_read_inode,
+  .evict = xv6_evict,
+};
+
+static struct inode_ops xv6_file_iops = {
+  .read_inode = xv6_read_inode,
+  .evict = xv6_evict,
+  .truncate = xv6_truncate,
+};
+
+static struct inode_ops xv6_dir_iops = {
   .read_inode = xv6_read_inode,
   .evict = xv6_evict,
   .lookup = xv6_lookup,
@@ -1444,10 +1656,11 @@ static struct inode_ops xv6_iops = {
   .unlink = xv6_unlink,
   .link = xv6_link,
   .rename = xv6_rename,
-  .read = xv6_read,
-  .write = xv6_write,
-  .truncate = xv6_truncate,
-  .fsync = xv6_fsync,
+};
+
+static struct inode_ops xv6_device_iops = {
+  .read_inode = xv6_read_inode,
+  .evict = xv6_evict,
 };
 
 // ---------------------------------------------------------------------------

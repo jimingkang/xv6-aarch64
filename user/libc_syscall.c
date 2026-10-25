@@ -108,6 +108,7 @@ int icmp_recv(int id, uint32 *ip, uint16 *seq, void *buf, int size)
 { return SC5(icmp_recv, I(id), P(ip), P(seq), P(buf), I(size)); }
 int mount(const char *src, const char *target, const char *type, int flags)
 { return SC4(mount, P(src), P(target), P(type), I(flags)); }
+int umount(const char *target) { return SC1(umount, P(target)); }
 int tty_attach(int fd) { return SC1(tty_attach, I(fd)); }
 int tty_set_foreground(int pgid) { return SC1(tty_set_foreground, I(pgid)); }
 int vmdump(int pid) { return SC1(vmdump, I(pid)); }

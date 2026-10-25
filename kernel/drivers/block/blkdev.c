@@ -4,7 +4,7 @@
 // partition table itself and adds the partitions (Linux add_disk ->
 // blk_add_partitions -> add_partition):
 //   dev 1  (unused; /dev/root names one of the devices below)
-//   dev 2  mmcblk0     the whole SD card, add_disk(minors 5) from rootdev.c
+//   dev 2  mmcblk0     the whole SD card, add_disk(minors 5) from sdhost.c
 //   dev 3+ mmcblk0pN   primary partition N, added by the MBR scan here
 // and do_mounts.c adds two RAM disks for the temporary filesystems:
 //   dev 7  ram0        rootfs, the first "/" (compare Linux rootfs)

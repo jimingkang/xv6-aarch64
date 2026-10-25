@@ -58,7 +58,7 @@ mutex 不允许递归获取；只有记录的 owner 能解锁。
 
 ### 2.1 为什么需要 `boot_owner`
 
-initcall 在 `userinit()` 和 `scheduler()` 之前运行。`sdroot` 挂载 FAT32 bootfs 后，
+initcall 在 `userinit()` 和 `scheduler()` 之前运行。`rootdev_init()` 挂载 FAT32 bootfs 后，
 `cmdline_init()` 会读取 bootfs 文件并进入 `fat32statpath()`、`fat32readnext()`。FAT32 已改用
 可睡眠 mutex，但此时：
 

@@ -1,0 +1,63 @@
+\paragraph{ext2 挂载用到的四张表.}
+\label{sec:ext2-mount}
+ext2 的挂载按 Linux 的 \code{register\_filesystem} $\to$ \code{get\_sb} $\to$ \code{fill\_super} 进行，途中要查、要填四张表（表~\ref{tab:ext2-mount-tables}）。它们各管一件事：类型表回答“认不认识 ext2”；\code{supers[]} 回答“dev 5 上是什么文件系统、根 inode 号多少、用哪套 \code{inode\_ops}”；挂载表只记录覆盖关系，“目录 \code{mp} 被 dev 号为 \code{dev} 的文件系统的根目录盖住”；inode 表是内存里的 inode 缓存。
+
+\begin{table}[htbp]
+  \centering
+  \caption{ext2 挂载涉及的四张表（ext2 作根文件系统时）}
+  \label{tab:ext2-mount-tables}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    表 & 按什么查 & ext2 在其中的那一项 \\
+    \midrule
+    \code{file\_systems} 链表（\file{vfs.c}） & 类型名 & \code{ext2\_type}：\code{get\_sb = ext2\_get\_sb}，\code{fill\_super = ext2\_fill\_super} \\
+    \code{supers[24]} 数组（\file{fs.c}） & dev 号即下标 & \code{supers[5]}：类型 ext2、\code{ext2\_iops}、\code{rootino} 2、\code{priv} 指向 \code{ext2\_instances[5]} \\
+    \code{mtab.m[8]} 数组（\file{fs.c}） & 被盖住的 inode，或 dev & \code{m[0]}：\code{mp}、\code{dev} 5、\code{source} \code{/dev/root}、\code{path} \\
+    \code{itable.inode[50]} 数组（\file{fs.c}） & (dev, inum) & (5,2) 是 ext2 根目录，(5,76) 是它的 \code{/dev} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+挂载项里没有指向超级块的指针，只有一个整数 \code{dev}。\code{follow\_mount()} 发现当前目录被某一项盖住时，用 \code{getsuper(m->dev)} 取 \code{\&supers[dev]}，再由 \code{fs\_dev\_root(dev)} 以 \code{(dev, sb->rootino)} 调用 \code{iget()}；\code{iget\_path()} 填槽时令 \code{ip->iop = sb->iop}，以后对这个 inode 的 \code{lookup}、\code{read} 都进入 ext2（图~\ref{fig:ext2-mount-sb}）。相比之下，\code{mp} 是真正的指针，指向 inode 表里被盖住的那一格，并持有它的一个引用。Linux 的 \code{struct mount} 直接存 \code{mnt.mnt\_sb} 指针和 \code{mnt\_root} dentry，挂载点用 (\code{mnt\_parent}, \code{mnt\_mountpoint}) 这一对来标识，查找走 \code{mount\_hashtable}；xv6 用 dev 当下标、线性扫描 8 项，作用相同。
+
+inode 表只按 (dev, inum) 认 inode，不记名字。名字到 inode 号的对应在目录块里，每走一级都由 \code{dirlookup()}（ext2 是 \code{e2\_lookup()}）扫描目录块；xv6 没有 Linux 的 dentry cache。挂载表里的 \code{path} 是挂载点在整个命名空间里的绝对路径，只供 \code{/proc/mounts} 显示和 \code{umount} 按名字查找使用，路径解析从不看它。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{ext2-mount-superblock.pdf}
+  \caption{挂载项怎样连到超级块：\code{mp} 是指针，\code{dev} 只是下标（\code{mount\_root} 与 \code{kchdir} 之后、MS\_MOVE 之前）}
+  \label{fig:ext2-mount-sb}
+\end{figure}
+
+\paragraph{\code{mount\_root()} 怎样找到 ext2.} 图~\ref{fig:ext2-mount-lookup} 把第~\ref{sec:ns-callchain} 节调用链里的 (c$'$)、(d$'$) 展开：类型来自 \code{rootfstype=}，设备号来自 rootfs 里节点 \code{/dev/root} 的次设备号，驱动来自块设备表，\code{fill\_super} 来自类型表。每一张表都是更早的阶段填好的。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{ext2-mount-root-lookup.pdf}
+  \caption{\code{mount\_root("/dev/root", "/root")} 依次查到类型、设备节点、块设备和 \code{fill\_super}}
+  \label{fig:ext2-mount-lookup}
+\end{figure}
+
+\paragraph{每一步改了哪张表.} 从 \code{fs\_mount()} 起，挂载表与 inode 表的变化如表~\ref{tab:ext2-mount-steps}。(7,$x$) 是 rootfs 的 inode，(5,$x$) 是 ext2 的 inode，(8,1) 是 devtmpfs 的根目录。
+
+\begin{table}[htbp]
+  \centering
+  \caption{ext2 作根时挂载表与 inode 表的变化}
+  \label{tab:ext2-mount-steps}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    步骤 & 挂载表 & inode 表 \\
+    \midrule
+    \code{fs\_mount((7,4), 5)} & \code{m[0]} = \{\code{mp} (7,4)，\code{dev} 5，\code{path} \code{/root}\} & (7,4) 引用 1，由 \code{m[0].mp} 持有 \\
+    \code{kchdir("/root")} & 不变 & \code{follow\_mount()} 命中 \code{m[0]}，取得 (5,2)；当前目录 = (5,2)，(7,1) 引用 2$\to$1 \\
+    \code{devtmpfs\_mount()} & \code{m[1]} = \{\code{mp} (5,76)，\code{dev} 8，\code{path} \code{/root/dev}\} & (5,76) 引用 1，由 \code{m[1].mp} 持有 \\
+    \code{fs\_move\_mount()} & \code{m[0].mp} 改为 (7,1)；\code{path} 改为 \code{/}，\code{m[1]} 改为 \code{/dev} & (7,1) 引用 1$\to$2，(7,4) 引用 1$\to$0 \\
+    \code{fs\_set\_root()} & 不变 & \code{fs\_root} = (5,2)；(7,1) 只剩 \code{m[0]} 持有，路径上已不可达 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{fstab 里的 ext2 那一行.} 阶段三 \code{/init} 照常执行 \code{ext2 /mnt/ext2 ext2 rw 0 0}。\code{ext2\_get\_sb()} 的 \code{lookup\_bdev("ext2")} 失败（source 不是设备节点），于是取已经打开的 ext2 实例，得到 dev 5；\code{getsuper(5)} 已存在，不再 \code{fill\_super}；最后 \code{fs\_mount()} 发现 \code{mount\_of\_dev(5)} 已是 \code{m[0]}，拒绝挂第二次。xv6fs 作根时没有现成的实例，\code{ext2\_get\_sb()} 才扫描 0x83 分区逐个尝试 \code{fill\_super}，把 p3 挂到 \code{/mnt/ext2}。
+

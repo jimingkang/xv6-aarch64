@@ -306,7 +306,7 @@ EP0 MPS=8），`SET_ADDRESS(4)` 后转为 `addr=4`，继续读配置描述符（
 
 阶段 (8) 是本次改动的验收点：`.ko` 从 **ext2 根文件系统**成功读出并加载，日志不再
 出现 `panic: getsb: device has no xv6 filesystem`。这验证了两件事——`kmod_load()`
-改走 `ip->iop->read()` 的 VFS 分派后能在 ext2 上读文件；以及复合接收器的鼠标接口
+改走 `file_inode_read_locked() -> ip->i_fop->read_at()` 的 VFS 文件分派后能在 ext2 上读文件；以及复合接收器的鼠标接口
 在内置键盘驱动（只匹配 `protocol=1`）不认领时，正确触发了
 `request_module("usb:c03s01p02")`。
 
@@ -434,7 +434,8 @@ dwc2: hub IRQ change=8 ...                          # channel 7 hub IN → dwc2_
                 -> 命中静态 alias 表 -> queue_work(kmod_wq, slot.work)
                    -> kmod_run() -> kmod_load("/lib/modules/usbmouse.ko")
                       -> begin_op(); namei(); ilock()
-                      -> ip->iop->read(ip,0,ko_image,0,sz)   # ext2 分派，非经典 readi()
+                      -> file_inode_read_locked(ip,...)
+                         -> ip->i_fop->read_at(...)          # ext2 文件分派，非经典 readi()
                       -> load_module_image(): 分配模块区、复制 SHF_ALLOC、解析符号、RELA 重定位
                       -> run init: usbmouse_driver_init()
                          -> init_workqueue(usbmouse_wq)       # 日志 "workqueue: usbmouse_wq worker=0 pid=17"

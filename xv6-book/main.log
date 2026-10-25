@@ -1705,33 +1705,41 @@ Package: float 2001/11/08 v1.3d Float enhancements (AL)
 \@float@everytoks=\toks54
 \@floatcapt=\box139
 )
-(pgflibraryarrows.meta.code.tex
+(rotating.sty
+Package: rotating 2016/08/11 v2.16d rotated objects in LaTeX
+\c@r@tfl@t=\count569
+\rotFPtop=\skip144
+\rotFPbot=\skip145
+\rot@float@box=\box140
+\rot@mess@toks=\toks55
+) (pgflibraryarrows.meta.code.tex
 File: pgflibraryarrows.meta.code.tex 2021/05/15 v3.1.9a (3.1.9a)
 \pgfarrowinset=\dimen358
 \pgfarrowlength=\dimen359
 \pgfarrowwidth=\dimen360
 \pgfarrowlinewidth=\dimen361
-) (tikzlibraryshapes.geometric.code.tex
-File: tikzlibraryshapes.geometric.code.tex 2021/05/15 v3.1.9a (3.1.9a)
-
-(pgflibraryshapes.geometric.code.tex
-File: pgflibraryshapes.geometric.code.tex 2021/05/15 v3.1.9a (3.1.9a)
-)) (tikzlibrarymatrix.code.tex
-File: tikzlibrarymatrix.code.tex 2021/05/15 v3.1.9a (3.1.9a)
 )
-(tikzlibrarydecorations.pathreplacing.code.tex (tikzlibrarydecorations.code.tex
-(pgfmoduledecorations.code.tex
+(tikzlibraryshapes.geometric.code.tex
+File: tikzlibraryshapes.geometric.code.tex 2021/05/15 v3.1.9a (3.1.9a)
+ (pgflibraryshapes.geometric.code.tex
+File: pgflibraryshapes.geometric.code.tex 2021/05/15 v3.1.9a (3.1.9a)
+))
+(tikzlibrarymatrix.code.tex
+File: tikzlibrarymatrix.code.tex 2021/05/15 v3.1.9a (3.1.9a)
+) (tikzlibrarydecorations.pathreplacing.code.tex
+(tikzlibrarydecorations.code.tex (pgfmoduledecorations.code.tex
 \pgfdecoratedcompleteddistance=\dimen362
 \pgfdecoratedremainingdistance=\dimen363
 \pgfdecoratedinputsegmentcompleteddistance=\dimen364
 \pgfdecoratedinputsegmentremainingdistance=\dimen365
 \pgf@decorate@distancetomove=\dimen366
-\pgf@decorate@repeatstate=\count569
+\pgf@decorate@repeatstate=\count570
 \pgfdecorationsegmentamplitude=\dimen367
 \pgfdecorationsegmentlength=\dimen368
 )
-\tikz@lib@dec@box=\box140
-) (pgflibrarydecorations.pathreplacing.code.tex))
+\tikz@lib@dec@box=\box141
+)
+(pgflibrarydecorations.pathreplacing.code.tex))
 Package csquotes Info: Checking for multilingual support...
 Package csquotes Info: ... none found.
 
@@ -1746,51 +1754,51 @@ LaTeX Warning: Unused global option(s):
 )
 \openout1 = `main.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/ntxmi/m/it on input line 128.
+LaTeX Font Info:    Checking defaults for OML/ntxmi/m/it on input line 129.
 LaTeX Font Info:    Trying to load font information for OML+ntxmi on input line
- 128.
+ 129.
  (omlntxmi.fd
 File: omlntxmi.fd 2015/08/25 Fontinst v1.933 font definitions for OML/ntxmi.
 )
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for U/ntxexa/m/n on input line 128.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for U/ntxexa/m/n on input line 129.
 LaTeX Font Info:    Trying to load font information for U+ntxexa on input line 
-128.
+129.
  (untxexa.fd
 File: untxexa.fd 2012/04/16 Fontinst v1.933 font definitions for U/ntxexa.
 )
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 128.
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for LMS/ntxsy/m/n on input line 128.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 129.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for LMS/ntxsy/m/n on input line 129.
 LaTeX Font Info:    Trying to load font information for LMS+ntxsy on input line
- 128.
+ 129.
  (lmsntxsy.fd
 File: lmsntxsy.fd 2016/07/02 Fontinst v1.933 font definitions for LMS/ntxsy.
 )
-LaTeX Font Info:    ... okay on input line 128.
-LaTeX Font Info:    Checking defaults for LMX/ntxexx/m/n on input line 128.
+LaTeX Font Info:    ... okay on input line 129.
+LaTeX Font Info:    Checking defaults for LMX/ntxexx/m/n on input line 129.
 LaTeX Font Info:    Trying to load font information for LMX+ntxexx on input lin
-e 128.
+e 129.
  (lmxntxexx.fd
 File: lmxntxexx.fd 2016/07/03 Fontinst v1.933 font definitions for LMX/ntxexx.
 )
-LaTeX Font Info:    ... okay on input line 128.
-Package hyperref Info: Link coloring ON on input line 128.
+LaTeX Font Info:    ... okay on input line 129.
+Package hyperref Info: Link coloring ON on input line 129.
  (nameref.sty
 Package: nameref 2021-04-02 v2.47 Cross-referencing by name of section
 
@@ -1799,11 +1807,11 @@ Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
 ) (gettitlestring.sty
 Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
 )
-\c@section@level=\count570
+\c@section@level=\count571
 )
-LaTeX Info: Redefining \ref on input line 128.
-LaTeX Info: Redefining \pageref on input line 128.
-LaTeX Info: Redefining \nameref on input line 128.
+LaTeX Info: Redefining \ref on input line 129.
+LaTeX Info: Redefining \pageref on input line 129.
+LaTeX Info: Redefining \nameref on input line 129.
  (main.out) (main.out)
 \@outlinefile=\write8
 \openout8 = `main.out'.
@@ -1850,10 +1858,11 @@ Package caption Info: longtable package is loaded.
 (ltcaption.sty
 Package: ltcaption 2021/01/08 v1.4c longtable captions (AR)
 )
+Package caption Info: rotating package is loaded.
 Package caption Info: End \AtBeginDocument code.
  (footmisc.sty
 Package: footmisc 2022/03/08 v6.0d a miscellany of footnote facilities
-\FN@temptoken=\toks55
+\FN@temptoken=\toks56
 \footnotemargin=\dimen369
 \@outputbox@depth=\dimen370
 Package footmisc Info: Declaring symbol style bringhurst on input line 695.
@@ -1883,10 +1892,10 @@ Package biblatex Info: Data encoding 'utf8' specified.
 Package biblatex Info: Trying to load bibliographic data...
 Package biblatex Info: ... file 'main.bbl' found.
  (main.bbl)
-Package biblatex Info: Reference section=0 on input line 128.
-Package biblatex Info: Reference segment=0 on input line 128.
-\c@lstlisting=\count571
-Package hyperref Info: Option `pageanchor' set `false' on input line 130.
+Package biblatex Info: Reference section=0 on input line 129.
+Package biblatex Info: Reference segment=0 on input line 129.
+\c@lstlisting=\count572
+Package hyperref Info: Option `pageanchor' set `false' on input line 131.
 *geometry* verbose mode - [ newgeometry ] result:
 * driver: xetex
 * paper: a4paper
@@ -1922,57 +1931,57 @@ Package hyperref Info: Option `pageanchor' set `false' on input line 130.
 File: ./figure//cover.jpg Graphic file (type bmp)
 <./figure//cover.jpg>
 
-Underfull \hbox (badness 10000) in paragraph at lines 130--130
+Underfull \hbox (badness 10000) in paragraph at lines 131--131
 
  []
 
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
-(Font)              scaled to size 10.0pt on input line 130.
+(Font)              scaled to size 10.0pt on input line 131.
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
-(Font)              scaled to size 24.88pt on input line 130.
+(Font)              scaled to size 24.88pt on input line 131.
 LaTeX Font Info:    Trying to load font information for OT1+ntxtlf on input lin
-e 130.
+e 131.
 (ot1ntxtlf.fd
 File: ot1ntxtlf.fd 2021/05/24 v1.0 font definition file for OT1/ntx/tlf
 )
 LaTeX Font Info:    Trying to load font information for U+ntxmia on input line 
-130.
+131.
  (untxmia.fd
 File: untxmia.fd 2018/04/14 Fontinst v1.933 font definitions for U/ntxmia.
 )
 LaTeX Font Info:    Trying to load font information for U+ntxsym on input line 
-130.
+131.
  (untxsym.fd
 File: untxsym.fd 2015/03/20 Fontinst v1.933 font definitions for U/ntxsym.
 )
 LaTeX Font Info:    Trying to load font information for U+ntxsyc on input line 
-130.
+131.
  (untxsyc.fd
 File: untxsyc.fd 2012/04/12 Fontinst v1.933 font definitions for U/ntxsyc.
 )
 LaTeX Font Info:    Trying to load font information for U+esint on input line 1
-30.
+31.
  (uesint.fd
 File: uesint.fd 
 )
 LaTeX Font Info:    Trying to load font information for U+rsfs on input line 13
-0.
+1.
  (ursfs.fd
 File: ursfs.fd 1998/03/24 rsfs font definition file (jk)
 )
-LaTeX Font Info:    Trying to load font information for U+msa on input line 130
+LaTeX Font Info:    Trying to load font information for U+msa on input line 131
 .
 
 (umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 130
+LaTeX Font Info:    Trying to load font information for U+msb on input line 131
 .
  (umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
-(Font)              scaled to size 14.4pt on input line 130.
+(Font)              scaled to size 14.4pt on input line 131.
 File: ./figure//logo.png Graphic file (type bmp)
 <./figure//logo.png>
  [1
@@ -1981,7 +1990,7 @@ File: ./figure//logo.png Graphic file (type bmp)
 
 ]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
-(Font)              scaled to size 17.28pt on input line 132.
+(Font)              scaled to size 17.28pt on input line 133.
  (main.toc [1
 
 
@@ -2073,14 +2082,14 @@ File: lstmisc.sty 2020/03/24 1.8d (Carsten Heinz)
 ) [6]
 LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <9> not available
 (Font)              Font shape `TU/lmtt/b/n' tried instead on input line 213.
-
-Overfull \hbox (4.30313pt too wide) in paragraph at lines 245--246
+ [7]
+Overfull \hbox (4.30313pt too wide) in paragraph at lines 263--264
 []\TU/FandolSong-Regular(0)/m/n/10 页 表 必 须 在 内 存 分 配 器 之 前 就 绪，|  但 建 页 表 本 身 又
  要 分 配 页  |— —|  所 以 分 配 器 分 两 次 初 始 化  |（\TU/lmtt/m/n/10 kinit1\TU/TeXGyreTerm
 esX(0)/m/n/10 /\TU/lmtt/m/n/10 kinit2\TU/FandolSong-Regular(0)/m/n/10 ） 。| 
  []
 
-) [7]
+) [8]
 \openout2 = `chapters/03-boot.aux'.
 
  (chapters/03-boot.tex
@@ -2096,18 +2105,18 @@ Song-Regular(0)/m/n/10 树 莓 派 的 固 件 是 闭 源 的，| \TU/TeXGyreTe
 TU/FandolSong-Regular(0)/m/n/10 一 侧 能 控 制 它 的 只 有 启 动 分 区 里 的
  []
 
-[8
+[9
 
 
 
 
-] [9] [10] [11] [12]
+] [10] [11] [12] [13]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/n' will be
 (Font)              scaled to size 7.3pt on input line 192.
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/n' will be
 (Font)              scaled to size 5.5pt on input line 192.
-) (chapters/03-2-irq [13] [14] [15] [16] [17] [18]
-[19] [20]
+) (chapters/03-2-irq [14] [15] [16] [17] [18] [19]
+[20] [21]
 Underfull \hbox (badness 2828) in paragraph at lines 403--404
 []\TU/FandolSong-Regular(0)/m/n/10 为 了 少 改 []\TU/lmtt/m/n/10 trap.c[]\TU/Fandol
 Song-Regular(0)/m/n/10 ，|  项 目 保 留 了 原 \TU/TeXGyreTermesX(0)/m/n/10 GIC \TU/Fan
@@ -2116,12 +2125,12 @@ dolSong-Regular(0)/m/n/10 版 本 的 函 数 名 \TU/lmtt/m/n/10 gicv3init()\TU
 m/n/10 、| \TU/lmtt/m/n/10 gic_iar()\TU/FandolSong-Regular(0)/m/n/10 、|
  []
 
-[21] [22] [23] [24] [25] [26])) [27]
+[22] [23] [24] [25] [26] [27])) [28]
 \openout2 = `chapters/04-mmu.aux'.
 
  (chapters/04-mmu.tex
 Chapter 4.
-[28
+[29
 
 
 
@@ -2129,7 +2138,7 @@ Chapter 4.
 ]
 File: ./figure//mmu-walk.pdf Graphic file (type pdf)
 <use ./figure//mmu-walk.pdf>
- [29] [30] [31] [32] [33] [34]
+ [30] [31] [32] [33] [34] [35]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 341.
@@ -2154,7 +2163,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 366.
 
-[35]
+[36]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 442.
@@ -2163,7 +2172,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 442.
 
-[36]
+[37]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 481.
@@ -2172,14 +2181,14 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 481.
 
-[37]
+[38]
 Underfull \hbox (badness 1728) in paragraph at lines 524--525
 []\TU/FandolSong-Regular(0)/m/n/10 如 果 用 户 进 程 访 问 了 一 个 没 有 映 射 的 地 址，|  页 表 遍
  历 在 某 一 级 遇 到 无 效 项，| \TU/TeXGyreTermesX(0)/m/n/10 CPU \TU/FandolSong-Regular(
 0)/m/n/10 产 生 同 步 异 常 进 入
  []
 
-[38]
+[39]
 LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <14.4> not available
 (Font)              Font shape `TU/lmtt/b/n' tried instead on input line 541.
 
@@ -2191,7 +2200,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 541.
 
-[39] [40]
+[40] [41]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 624.
@@ -2200,7 +2209,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 624.
 
-[41]
+[42]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 715.
@@ -2217,7 +2226,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 733.
 
-[42]
+[43]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 761.
@@ -2226,7 +2235,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 761.
 
-) [43]
+) [44]
 \openout2 = `chapters/05-process.aux'.
 
  (chapters/05-process.tex
@@ -2239,12 +2248,12 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 36.
 
-[44
+[45
 
 
 
 
-] [45] [46]
+] [46] [47]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 223.
@@ -2253,7 +2262,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 223.
 
-[47] [48] [49]
+[48] [49] [50]
 Overfull \hbox (0.38315pt too wide) in paragraph at lines 328--330
 []\TU/FandolSong-Regular(0)/m/n/10 为 了 看 清 这 些 结 构 在 内 存 里 的 真 实 位 置，|  在 \TU/l
 mtt/m/n/10 fork() \TU/FandolSong-Regular(0)/m/n/10 末 尾 调 用 \TU/lmtt/m/n/10 proc
@@ -2272,7 +2281,7 @@ bc \TU/FandolSong-Regular(0)/m/n/10 基 址 \TU/lmtt/m/n/10 0xa000 \TU/FandolSon
 egular(0)/m/n/10 加 \TU/lmtt/m/n/10 0x459c
  []
 
-[50] [51]
+[51] [52]
 Underfull \hbox (badness 4013) in paragraph at lines 375--376
 []\TU/FandolSong-Regular(0)/b/n/10 每 次 \TU/lmtt/b/n/10 svc \TU/FandolSong-Regul
 ar(0)/b/n/10 或 中 断\TU/FandolSong-Regular(0)/m/n/10 ：| \TU/lmtt/m/n/10 el0sync \
@@ -2283,7 +2292,7 @@ andolSong-Regular(0)/m/n/10 总 在 同 一 位 置 被 重 写，|
 
 File: ./figure//phys-pages.pdf Graphic file (type pdf)
 <use ./figure//phys-pages.pdf>
-[52]
+[53]
 File: ./figure//exec-syscall-pid17.pdf Graphic file (type pdf)
 <use ./figure//exec-syscall-pid17.pdf>
 
@@ -2291,7 +2300,7 @@ Overfull \hbox (76.82454pt too wide) in paragraph at lines 401--402
  [][] 
  []
 
-[53] [54]
+[54] [55]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 444.
@@ -2300,7 +2309,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 444.
 
-[55] [56] [57] [58]
+[56] [57] [58] [59]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 638.
@@ -2349,7 +2358,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 660.
 
-[59] [60]
+[60] [61]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 718.
@@ -2376,7 +2385,7 @@ Overfull \hbox (23.45316pt too wide) in paragraph at lines 730--731
 riter\TU/FandolSong-Regular(0)/m/n/10 ，|
  []
 
-[61]) [62]
+[62]) [63]
 \openout2 = `chapters/06-filesystem.aux'.
 
  (chapters/06-filesystem.tex
@@ -2396,155 +2405,177 @@ Underfull \hbox (badness 7925) in paragraph at lines 29--29
  !$\TU/lmtt/m/n/9 iop- >lookup\TU/FandolSong-Regular(0)/m/n/9 、| 
  []
 
-[63
+[64
 
 
 
 
-] [64] [65]
+] [65] [66]
 
 LaTeX Font Warning: Font shape `TU/FandolKai-Regular(0)/m/it' undefined
 (Font)              using `TU/FandolKai-Regular(0)/m/n' instead on input line 2
-17.
-
-LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
-(Font)              scaled to size 7.0pt on input line 234.
-LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <7> not available
-(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 234.
-LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/n' will be
-(Font)              scaled to size 5.0pt on input line 242.
-[66]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 271.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 271.
+11.
 
 [67]
-Underfull \hbox (badness 6047) in paragraph at lines 304--304
+LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
+(Font)              scaled to size 7.0pt on input line 228.
+LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <7> not available
+(Font)              Font shape `TU/lmtt/b/n' tried instead on input line 228.
+LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/n' will be
+(Font)              scaled to size 5.0pt on input line 236.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\hyphenchar' on input line 265.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\font' on input line 265.
+
+[68]
+Underfull \hbox (badness 6047) in paragraph at lines 298--298
 []|\TU/TeXGyreTermesX(0)/m/n/9 rootfs \TU/FandolSong-Regular(0)/m/n/9 里 有 什
  []
 
-[68] [69] [70] [71]
+[69] [70] [71] [72] [73]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 491.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 491.
-
-[72]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 527.
+(hyperref)                removing `\hyphenchar' on input line 538.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 527.
+(hyperref)                removing `\font' on input line 538.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 527.
+(hyperref)                removing `\hyphenchar' on input line 538.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 527.
+(hyperref)                removing `\font' on input line 538.
 
-
-Underfull \hbox (badness 1354) in paragraph at lines 553--554
+[74]
+Underfull \hbox (badness 1354) in paragraph at lines 564--565
 \TU/FandolSong-Regular(0)/m/n/10 给 出 \TU/lmtt/m/n/10 console\TU/FandolSong-Regu
 lar(0)/m/n/10 、| \TU/lmtt/m/n/10 input/ event0 \TU/FandolSong-Regular(0)/m/n/10
  这 样 的 路 径）|  和 块 设 备 表，|  为 每 个 设 备 建 一 个 节 点。|  之 后 才 注 册 的 驱 动 由
  []
 
-[73]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 567.
+(hyperref)                removing `\hyphenchar' on input line 578.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 567.
+(hyperref)                removing `\font' on input line 578.
 
-[74]
-Underfull \hbox (badness 4726) in paragraph at lines 615--616
+[75]
+Underfull \hbox (badness 4726) in paragraph at lines 626--627
 []\TU/lmtt/m/n/10 rootfstype= \TU/FandolSong-Regular(0)/m/n/10 可 以 是 \TU/lmtt/m
 /n/10 xv6fs |\TU/FandolSong-Regular(0)/m/n/10 （默 认）|  或 \TU/lmtt/m/n/10 ext2\TU
 /FandolSong-Regular(0)/m/n/10 ，|  写 成 别 的 值 只 引 出 一 行 警 告，|  仍 按 \TU/TeXGyreTer
 mesX(0)/m/n/10 xv6fs \TU/FandolSong-Regular(0)/m/n/10 启 动。|  把
  []
 
-
-Underfull \hbox (badness 4647) in paragraph at lines 619--620
-[]\TU/FandolSong-Regular(0)/m/n/10 阶 段 二，| \TU/lmtt/m/n/10 prepare_namespace() 
-\TU/FandolSong-Regular(0)/m/n/10 让 \TU/lmtt/m/n/10 / dev/ root \TU/FandolSong-R
-egular(0)/m/n/10 指 向 \TU/lmtt/m/n/10 mmcblk0p3 |\TU/FandolSong-Regular(0)/m/n/1
-0 （设 备 \TU/TeXGyreTermesX(0)/m/n/10 5\TU/FandolSong-Regular(0)/m/n/10 ） ，| \TU/
-lmtt/m/n/10 mount_root() \TU/FandolSong-Regular(0)/m/n/10 按
+[76]
+Underfull \hbox (badness 10000) in paragraph at lines 657--657
+[]|\TU/lmtt/m/n/9 ext2_type\TU/FandolSong-Regular(0)/m/n/9 ：| \TU/lmtt/m/n/9 ge
+t_sb = ext2_get_sb\TU/FandolSong-Regular(0)/m/n/9 ，| \TU/lmtt/m/n/9 fill_super 
+=
  []
 
+File: ./figure//ext2-mount-superblock.pdf Graphic file (type pdf)
+<use ./figure//ext2-mount-superblock.pdf>
+File: ./figure//ext2-mount-root-lookup.pdf Graphic file (type pdf)
+<use ./figure//ext2-mount-root-lookup.pdf>
+
+Underfull \hbox (badness 2990) in paragraph at lines 700--701
+[] []\TU/TeXGyreTermesX(0)/b/n/10 fstab \TU/FandolSong-Regular(0)/b/n/10 里 的 \T
+U/TeXGyreTermesX(0)/b/n/10 ext2 \TU/FandolSong-Regular(0)/b/n/10 那 一 行\TU/TeXGy
+reTermesX(0)/b/n/10 .[] \TU/FandolSong-Regular(0)/m/n/10 阶 段 三 \TU/lmtt/m/n/10 
+/ init \TU/FandolSong-Regular(0)/m/n/10 照 常 执 行 \TU/lmtt/m/n/10 ext2 / mnt/ ext
+2 ext2 rw 0 0\TU/FandolSong-Regular(0)/m/n/10 。| \TU/lmtt/m/n/10 ext2_get_sb() 
+\TU/FandolSong-Regular(0)/m/n/10 的
+ []
+
+[77] [78]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 643.
+(hyperref)                removing `\hyphenchar' on input line 718.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 643.
+(hyperref)                removing `\font' on input line 718.
 
-[75] [76] (chapters/fig-fstrace-dev7
+[79] [80] (chapters/fig-fstrace-dev7
 
 LaTeX Font Warning: Font shape `TU/FandolFang-Regular(0)/b/n' undefined
 (Font)              using `TU/FandolFang-Regular(0)/m/n' instead on input line 
 5.
 
-) [77] [78] (chapters/fig-fstrace-dev8) [79] (chapters/fig-fstrace-dev1)
+) [81] [82] (chapters/fig-fstrace-dev8) (chapters/fig-fstrace-dev1)
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 861.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 861.
-
-[80] [81]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 911.
+(hyperref)                removing `\hyphenchar' on input line 936.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 911.
+(hyperref)                removing `\font' on input line 936.
+
+[83] [84] (chapters/fig-vfs-structs)
+Underfull \hbox (badness 1122) in paragraph at lines 989--989
+[][]\TU/FandolSong-Regular(0)/b/n/10 图 \TU/TeXGyreTermesX(0)/b/n/10 6.9[][]: []
+|\TU/TeXGyreTermesX(0)/m/n/10 Linux \TU/FandolSong-Regular(0)/m/n/10 文 件 系 统 各 
+核 心 数 据 结 构 之 间 的 引 用 关 系。|  左 半 是 文 件 系 统 侧：| \TU/lmtt/m/n/10 file_system_type
+ \TU/FandolSong-Regular(0)/m/n/10 描 述 一 种 文 件 系 统，|  把 它 的 每 个 实 例  |（\TU/lmtt/
+m/n/10 super_block\TU/FandolSong-Regular(0)/m/n/10 ）|  用
+ []
+
+
+Underfull \hbox (badness 1694) in paragraph at lines 989--989
+\TU/lmtt/m/n/10 s_instances \TU/FandolSong-Regular(0)/m/n/10 串 成 链，| \TU/lmtt/m
+/n/10 s_type \TU/FandolSong-Regular(0)/m/n/10 指 回 类 型；|  一 个 \TU/lmtt/m/n/10 su
+per_block \TU/FandolSong-Regular(0)/m/n/10 通 过 \TU/lmtt/m/n/10 s_inodes \TU/Fan
+dolSong-Regular(0)/m/n/10 挂 起 该 文 件 系 统 内 所 有 内 存 \TU/lmtt/m/n/10 inode\TU/Fand
+olSong-Regular(0)/m/n/10 ，|  块 设 备 上 的 文 件 系 统 还 有 \TU/lmtt/m/n/10 s_bdev \TU/F
+andolSong-Regular(0)/m/n/10 指 向
+ []
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 911.
+(hyperref)                removing `\hyphenchar' on input line 993.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 911.
+(hyperref)                removing `\font' on input line 993.
 
-[82]
-Underfull \hbox (badness 2318) in paragraph at lines 974--975
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\hyphenchar' on input line 993.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\font' on input line 993.
+
+[85] [86] [87]
+Underfull \hbox (badness 2318) in paragraph at lines 1056--1057
 []\TU/lmtt/m/n/10 iput() \TU/FandolSong-Regular(0)/m/n/10 放 掉 最 后 一 个 引 用 时 调 用
  \TU/lmtt/m/n/10 iop- >evict()\TU/FandolSong-Regular(0)/m/n/10 ，|  原 来  |“链 接 数
  为 \TU/TeXGyreTermesX(0)/m/n/10 0 \TU/FandolSong-Regular(0)/m/n/10 就 截 断 并 释 放”
 |  的 代 码 成 了
  []
 
-[83]
+[88]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 1012.
+(hyperref)                removing `\hyphenchar' on input line 1094.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 1012.
+(hyperref)                removing `\font' on input line 1094.
 
-[84] [85] [86] [87] [88]
-Underfull \hbox (badness 6396) in paragraph at lines 1336--1337
+[89] [90] [91] [92] [93]
+Underfull \hbox (badness 6396) in paragraph at lines 1415--1416
 []\TU/FandolSong-Regular(0)/b/n/10 对 外 接 口\TU/FandolSong-Regular(0)/m/n/10 ：|  
 只 读 的 \TU/lmtt/m/n/10 fat32openroot()\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lm
 tt/m/n/10 fat32openpath()\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/10 fa
@@ -2552,8 +2583,8 @@ t32statpath()\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/10 fat32readdirr
 ot()\TU/FandolSong-Regular(0)/m/n/10 、|
  []
 
-[89] [90] [91] [92] [93]
-Overfull \hbox (1.96962pt too wide) in paragraph at lines 1606--1607
+[94] [95] [96] [97] [98]
+Overfull \hbox (1.96962pt too wide) in paragraph at lines 1678--1679
 []\TU/FandolSong-Regular(0)/m/n/10 根 目 录 的 内 容 分 两 部 分：| \TU/lmtt/m/n/10 mkfs \
 TU/FandolSong-Regular(0)/m/n/10 写 入 的 \TU/lmtt/m/n/10 .\TU/FandolSong-Regular(0
 )/m/n/10 、| \TU/lmtt/m/n/10 ..\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/
@@ -2562,24 +2593,23 @@ gular(0)/m/n/10 ；|  以 及 启 动 时 创 建 的 \TU/lmtt/m/n/10 dev |\TU/F
 (0)/m/n/10 （内 核 在 \TU/lmtt/m/n/10 prepare_namespace()
  []
 
-[94]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 1623.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 1623.
+(hyperref)                removing `\hyphenchar' on input line 1696.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 1623.
+(hyperref)                removing `\font' on input line 1696.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 1623.
+(hyperref)                removing `\hyphenchar' on input line 1696.
 
-[95]) [96]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\font' on input line 1696.
+
+[99]) [100] [101]
 \openout2 = `chapters/07-drivers.aux'.
 
  (chapters/07-drivers.tex
@@ -2592,12 +2622,12 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 20.
 
-[97
+[102
 
 
 
 
-] [98] (chapters/fig-kobject-sysfs)
+] [103] (chapters/fig-kobject-sysfs)
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 143.
@@ -2640,7 +2670,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 161.
 
-[99]
+[104]
 Underfull \hbox (badness 2617) in paragraph at lines 220--221
 \TU/FandolSong-Regular(0)/m/n/10 在 发 送 \TU/TeXGyreTermesX(0)/m/n/10 FIFO \TU/Fa
 ndolSong-Regular(0)/m/n/10 有 空 位 时 搬 字 符 过 去，|  并 打 开  |“发 送 空”|  中 断；| \TU/lmt
@@ -2648,7 +2678,7 @@ t/m/n/10 uartintr() \TU/FandolSong-Regular(0)/m/n/10 读 空 接 收 \TU/TeXGyre
 (0)/m/n/10 FIFO\TU/FandolSong-Regular(0)/m/n/10 、|  把 字 符 交 给
  []
 
-[100] [101]
+[105] [106]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/it' will be
 (Font)              scaled to size 5.0pt on input line 425.
 
@@ -2675,7 +2705,7 @@ LaTeX Font Warning: Font shape `TU/FandolSong-Regular(0)/b/it' undefined
 (Font)              using `TU/FandolSong-Regular(0)/b/n' instead on input line 
 425.
 
-[102] [103] [104] [105]
+[107] [108] [109] [110]
 Overfull \hbox (35.75299pt too wide) in paragraph at lines 458--459
 [] []\TU/FandolSong-Regular(0)/b/n/10 边 界 \TU/TeXGyreTermesX(0)/b/n/10 3\TU/Fan
 dolSong-Regular(0)/b/n/10 ：| \TU/lmtt/b/n/10 input_dev |\TU/FandolSong-Regular(
@@ -2720,7 +2750,7 @@ Underfull \hbox (badness 1043) in paragraph at lines 461--462
 TU/FandolSong-Regular(0)/m/n/10 生 成
  []
 
-[106] [107] [108] [109] [110]
+[111] [112] [113] [114] [115]
 Underfull \hbox (badness 6125) in paragraph at lines 759--760
 [] []\TU/FandolSong-Regular(0)/b/n/10 对 回 本 项 目：| \TU/lmtt/b/n/10 control() \TU
 /FandolSong-Regular(0)/b/n/10 如 何 走 这 三 相\TU/TeXGyreTermesX(0)/b/n/10 .[] \TU/l
@@ -2729,10 +2759,10 @@ mtt/m/n/10 control() \TU/FandolSong-Regular(0)/m/n/10 在 \TU/TeXGyreTermesX(0)/
 UP→(Data)→STATUS \TU/FandolSong-Regular(0)/m/n/10 依 次 调 用
  []
 
-[111] (chapters/fig-usb-enum-flow) [112] [113] [114]
+[116] (chapters/fig-usb-enum-flow) [117] [118] [119]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/n' will be
 (Font)              scaled to size 6.2pt on input line 1030.
- [115]
+ [120]
 Underfull \hbox (badness 2197) in paragraph at lines 1041--1042
 [] []\TU/FandolSong-Regular(0)/b/n/10 微 帧 窗 口：| \TU/TeXGyreTermesX(0)/b/n/10 CS
 PLIT \TU/FandolSong-Regular(0)/b/n/10 为 什 么 必 须 在 中 断 里 发\TU/TeXGyreTermesX(0)/
@@ -2752,7 +2782,7 @@ n/10 ）|  再 发  |— —|  太 早 \TU/TeXGyreTermesX(0)/m/n/10 TT \TU/Fando
 (0)/m/n/10 还 没 准 备 好，|  太 晚 就 跨 帧 错 过 窗 口。|
  []
 
-[116]
+[121]
 Underfull \hbox (badness 3758) in paragraph at lines 1094--1095
 \TU/lmtt/m/n/10 >dev.driver_data\TU/FandolSong-Regular(0)/m/n/10 ，|  报 告 缓 冲、| 
  上 一 份 报 告、| \TU/lmtt/m/n/10 capslock \TU/FandolSong-Regular(0)/m/n/10 状 态、| \T
@@ -2760,7 +2790,7 @@ U/lmtt/m/n/10 rx_work\TU/FandolSong-Regular(0)/m/n/10 、|  自 己 的 \TU/lmtt
  kbd- >lock\TU/FandolSong-Regular(0)/m/n/10 ，|  以 及 那 只
  []
 
-[117] (chapters/fig-usb-irq-seq)
+[122] (chapters/fig-usb-irq-seq)
 Underfull \hbox (badness 1377) in paragraph at lines 1151--1157
 [] []\TU/TeXGyreTermesX(0)/b/n/10 NAK \TU/FandolSong-Regular(0)/b/n/10 的 无 忙 等 
 周 期 重 试\TU/TeXGyreTermesX(0)/b/n/10 .[] \TU/TeXGyreTermesX(0)/m/n/10 ch6 \TU/Fa
@@ -2769,7 +2799,7 @@ g-Regular(0)/m/n/10 仍 通 过 \TU/lmtt/m/n/10 schedule_work(&interrupt_rx.work
 /FandolSong-Regular(0)/m/n/10 立 即 进 入 公 共
  []
 
-[118] [119] (chapters/fig-usb-input-flow) [120] [121] [122]
+[123] [124] (chapters/fig-usb-input-flow) [125] [126] [127]
 Underfull \hbox (badness 1231) in paragraph at lines 1338--1339
 []\TU/FandolSong-Regular(0)/m/n/10 设 备 只 在 \TU/FandolSong-Regular(0)/m/it/10 有 
 新 报 告 \TU/FandolSong-Regular(0)/m/n/10 时 才 翻 转 \TU/lmtt/m/n/10 DATA0\TU/TeXGyre
@@ -2778,7 +2808,7 @@ TermesX(0)/m/n/10 /\TU/lmtt/m/n/10 DATA1\TU/FandolSong-Regular(0)/m/n/10 ，|  �
  转 不 变；|  主 机 侧 对 应 地 用 \TU/lmtt/m/n/10 udev-
  []
 
-[123]
+[128]
 Underfull \hbox (badness 10000) in paragraph at lines 1405--1406
 []\TU/lmtt/m/n/10 dwc2: ch6 armed addr=4 ep=1 split=...\TU/FandolSong-Regular(0
 )/m/n/10 ：| \TU/lmtt/m/sc/10 HCSPLT\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lmtt
@@ -2787,11 +2817,11 @@ andolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/10 HCINTMSK(6)\TU/FandolSong-Regul
 r(0)/m/n/10 、| \TU/lmtt/m/sc/10 HAINTMSK \TU/FandolSong-Regular(0)/m/n/10 和
  []
 
-[124] [125] [126] [127] (chapters/fig-sccb-wave) (chapters/fig-sccb-trans)
-[128] [129] [130]
+[129] [130] [131] [132] (chapters/fig-sccb-wave) (chapters/fig-sccb-trans)
+[133] [134] [135]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
 (Font)              scaled to size 8.0pt on input line 1769.
- [131] [132]
+ [136] [137]
 Underfull \hbox (badness 1796) in paragraph at lines 1894--1895
 []\TU/TeXGyreTermesX(0)/m/n/10 USB \TU/FandolSong-Regular(0)/m/n/10 设 备 用 一 组 描
  述 符 介 绍 自 己。|  打 开 \TU/lmtt/m/n/10 USB_ENUM_TRACE \TU/FandolSong-Regular(0)/m/
@@ -2799,7 +2829,7 @@ n/10 后，| \TU/lmtt/m/n/10 dwc2_trace_device_descriptor() \TU/FandolSong-Regul
 0)/m/n/10 和
  []
 
-[133] [134]
+[138] [139]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 1934.
@@ -2827,7 +2857,7 @@ gular(0)/m/n/10 挂 好 \TU/TeXGyreTermesX(0)/m/n/10 FAT32 \TU/FandolSong-Regula
 |
  []
 
-[135] [136] [137] [138]
+[140] [141] [142] [143]
 Underfull \hbox (badness 1147) in paragraph at lines 2169--2170
 [] []\TU/TeXGyreTermesX(0)/b/n/10 (2)(3) \TU/FandolSong-Regular(0)/b/n/10 不 走 \
 TU/TeXGyreTermesX(0)/b/n/10 USB.[] \TU/lmtt/m/n/10 driver WPA2- v4 \TU/FandolSo
@@ -2847,7 +2877,7 @@ olSong-Regular(0)/m/n/10 ：|  开 \TU/TeXGyreTermesX(0)/m/n/10 WLAN \TU/FandolS
 )/m/n/10 等 \TU/TeXGyreTermesX(0)/m/n/10 PLL\TU/FandolSong-Regular(0)/m/n/10 ；|
  []
 
-[139] [140] [141] [142] [143] [144]
+[144] [145] [146] [147] [148] [149]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 2514.
@@ -2856,15 +2886,15 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 2514.
 
-[145] [146] [147] [148]
+[150] [151] [152] [153]
 LaTeX Font Info:    Font shape `TU/lmtt/bx/n' in size <8> not available
 (Font)              Font shape `TU/lmtt/b/n' tried instead on input line 2765.
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/sc' will be
 (Font)              scaled to size 10.0pt on input line 2801.
- [149]
+ [154]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/sc' will be
 (Font)              scaled to size 8.0pt on input line 2846.
- [150] [151]
+ [155] [156]
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/m/sc' will be
 (Font)              scaled to size 7.0pt on input line 2978.
 
@@ -2872,7 +2902,7 @@ Overfull \hbox (0.8432pt too wide) in paragraph at lines 2988--2989
  [][] 
  []
 
-[152] [153]
+[157] [158]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 3067.
@@ -2881,7 +2911,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 3067.
 
-[154] [155] [156] [157] [158] [159]
+[159] [160] [161] [162] [163] [164]
 Underfull \hbox (badness 1062) in paragraph at lines 3300--3301
 [] []\TU/FandolSong-Regular(0)/b/n/10 解 决 方 案\TU/TeXGyreTermesX(0)/b/n/10 .[] \
 TU/FandolSong-Regular(0)/m/n/10 把 这 些 大 数 组 移 出 栈，|  放 进 \TU/TeXGyreTermesX(0)/
@@ -2890,18 +2920,18 @@ at_work\TU/FandolSong-Regular(0)/m/n/10 。|  所 有 \TU/TeXGyreTermesX(0)/m/n/
 T32 \TU/FandolSong-Regular(0)/m/n/10 操 作 本 来 就 持
  []
 
-[160] [161] [162] (chapters/fig-cam-pipe) [163] [164]) [165]
+[165] [166] [167] (chapters/fig-cam-pipe) [168] [169]) [170]
 \openout2 = `chapters/08-userland.aux'.
 
 
 (chapters/08-userland.tex
 Chapter 8.
-[166
+[171
 
 
 
 
-] [167]
+] [172]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 129.
@@ -2910,7 +2940,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 129.
 
-[168] [169]
+[173] [174]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 237.
@@ -2919,7 +2949,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 237.
 
-[170]
+[175]
 File: ./figure//threadtest.pdf Graphic file (type pdf)
 <use ./figure//threadtest.pdf>
 
@@ -2943,7 +2973,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 297.
 
-[171] [172]
+[176] [177]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 311.
@@ -2952,7 +2982,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 311.
 
-[173] [174] [175]
+[178] [179] [180]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\@ifnextchar' on input line 439.
@@ -2966,17 +2996,17 @@ andolSong-Regular(0)/m/n/10 头 和 程 序 头，|  按 最 大 段 尾 \TU/lmt
 andolSong-Regular(0)/m/n/10 调 用
  []
 
-[176]
+[181]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\@ifnextchar' on input line 509.
 
 File: ./figure//echo-elf-detail.pdf Graphic file (type pdf)
 <use ./figure//echo-elf-detail.pdf>
-[177] [178]
+[182] [183]
 File: ./figure//echo-dynlink-steps.pdf Graphic file (type pdf)
 <use ./figure//echo-dynlink-steps.pdf>
- [179]
+ [184]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 587.
@@ -2985,7 +3015,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 587.
 
-[180]
+[185]
 Underfull \hbox (badness 2846) in paragraph at lines 667--668
 []\TU/FandolSong-Regular(0)/m/n/10 最 后 一 条 是 合 并 分 支 时 真 实 遇 到 的：| \TU/lmtt/m/n
 /10 rpi3- kobject \TU/FandolSong-Regular(0)/m/n/10 的 \TU/TeXGyreTermesX(0)/m/n/
@@ -3002,7 +3032,7 @@ dolSong-Regular(0)/m/n/10 时 就 跳 到 了 \TU/TeXGyreTermesX(0)/m/n/10 0\TU/
 g-Regular(0)/m/n/10 。|  完 整 的 逐 步 说 明 见 []\TU/lmtt/m/n/10 readme/
  []
 
-[181] [182]
+[186] [187]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\hyphenchar' on input line 725.
@@ -3011,7 +3041,7 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `\font' on input line 725.
 
-) [183]
+) [188]
 \openout2 = `chapters/09-hotplug.aux'.
 
  (chapters/09-hotplug.tex
@@ -3019,12 +3049,12 @@ Chapter 9.
 (chapters/fig-usbkbd-hotplug-seq
 LaTeX Font Info:    Font shape `TU/TeXGyreTermesX(0)/b/n' will be
 (Font)              scaled to size 5.0pt on input line 53.
-) [184
+) [189
 
 
 
 
-] [185] [186]
+] [190] [191]
 Underfull \hbox (badness 10000) in paragraph at lines 151--152
 []\TU/FandolSong-Regular(0)/b/n/10 多 设 备 发 布。| \TU/TeXGyreTermesX(0)/m/n/10 Boo
 t HID \TU/FandolSong-Regular(0)/m/n/10 接 口 现 在 按 接 口 逐 个 发 布 独 立 的 \TU/lmtt/m/n
@@ -3032,25 +3062,42 @@ t HID \TU/FandolSong-Regular(0)/m/n/10 接 口 现 在 按 接 口 逐 个 发 �
 []\TU/FandolSong-Regular(0)/m/n/10 ，|  最 多
  []
 
-[187] [188]) [189]
+[192] [193]) [194]
 \openout2 = `chapters/09-optional.aux'.
 
  (chapters/09-optional.tex
 Chapter 10.
-[190
+[195
 
 
 
 
-] [191] [192]
-Underfull \hbox (badness 6859) in paragraph at lines 198--199
+] [196] [197]
+Underfull \hbox (badness 2790) in paragraph at lines 195--196
+[]\TU/FandolSong-Regular(0)/m/n/10 三 层 用 三 个 独 立 的 \TU/TeXGyreTermesX(0)/m/n/10
+ 4KiB \TU/FandolSong-Regular(0)/m/n/10 缓 冲 \TU/lmtt/m/n/10 ptrbuf[0..2]\TU/Fand
+olSong-Regular(0)/m/n/10 ，|  它 们 属 于 每 个 \TU/TeXGyreTermesX(0)/m/n/10 ext2 \TU/
+FandolSong-Regular(0)/m/n/10 实 例  |（\TU/lmtt/m/n/10 struct ext2_fs\TU/FandolSon
+g-Regular(0)/m/n/10 ） ，|  由
+ []
+
+
+Underfull \hbox (badness 3590) in paragraph at lines 195--196
+\TU/lmtt/m/n/10 ext2_fill_super() \TU/FandolSong-Regular(0)/m/n/10 用 \TU/lmtt/m
+/n/10 kalloc() \TU/FandolSong-Regular(0)/m/n/10 分 配，|  而 不 是 局 部 数 组  |— —|  内 
+核 栈 只 有 \TU/TeXGyreTermesX(0)/m/n/10 4KiB\TU/FandolSong-Regular(0)/m/n/10 ，|  放
+ 不 下 其 中 任 何 一 个
+ []
+
+
+Underfull \hbox (badness 6859) in paragraph at lines 201--202
 []\TU/FandolSong-Regular(0)/m/n/10 分 配 一 个 数 据 块 要 改 三 处：|  块 位 图 里 的 一 位、|  组 
 描 述 符 里 的 空 闲 块 数、| \TU/TeXGyreTermesX(0)/m/n/10 superblock \TU/FandolSong-Regu
 lar(0)/m/n/10 里 的 空 闲 块 数。|
  []
 
-
-Underfull \hbox (badness 2556) in paragraph at lines 237--238
+[198]
+Underfull \hbox (badness 2556) in paragraph at lines 240--241
 []\TU/FandolSong-Regular(0)/m/n/10 原 来 按 路 径 的 实 现 拆 成 了  |“核 心 函 数 \TU/TeXGyre
 TermesX(0)/m/n/10 + \TU/FandolSong-Regular(0)/m/n/10 外 壳” ：| \TU/lmtt/m/n/10 cr
 eate_core()\TU/FandolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/10 mkdir_core()\TU/
@@ -3058,31 +3105,45 @@ FandolSong-Regular(0)/m/n/10 、| \TU/lmtt/m/n/10 unlink_core()\TU/FandolSong-Re
 ular(0)/m/n/10 、|
  []
 
-[193]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\hyphenchar' on input line 245.
+(hyperref)                removing `\hyphenchar' on input line 248.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\font' on input line 245.
+(hyperref)                removing `\font' on input line 248.
 
-[194] [195] [196] [197] [198] [199] [200]) [201] [202
+[199] [200] [201]
+Underfull \hbox (badness 10000) in paragraph at lines 408--408
+[]|\TU/lmtt/m/n/9 ext2_type |\TU/FandolSong-Regular(0)/m/n/9 （\TU/lmtt/m/n/9 ex
+t2_get_sb\TU/FandolSong-Regular(0)/m/n/9 、| \TU/lmtt/m/n/9 ext2_fill_super\TU/F
+andolSong-Regular(0)/m/n/9 ） 、| \TU/lmtt/m/n/9 ext2_iops\TU/FandolSong-Regular(
+0)/m/n/9 、|
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 408--408
+\TU/lmtt/m/n/9 ext2_register_super()\TU/FandolSong-Regular(0)/m/n/9 、| \TU/lmtt
+/m/n/9 ext2_put_super()\TU/FandolSong-Regular(0)/m/n/9 ：|  作 为 统 一 \TU/TeXGyreT
+ermesX(0)/m/n/9 VFS \TU/FandolSong-Regular(0)/m/n/9 的 一 种
+ []
+
+[202] [203] [204] [205]) [206] [207
 
 
 
-] (main.aux
-(chapters/01-preface.aux) (chapters/02-organization.aux) (chapters/03-boot.aux)
-(chapters/04-mmu.aux) (chapters/05-process.aux) (chapters/06-filesystem.aux)
-(chapters/07-drivers.aux) (chapters/08-userland.aux) (chapters/09-hotplug.aux)
+] (main.aux (chapters/01-preface.aux)
+(chapters/02-organization.aux) (chapters/03-boot.aux) (chapters/04-mmu.aux)
+(chapters/05-process.aux) (chapters/06-filesystem.aux) (chapters/07-drivers.aux
+) (chapters/08-userland.aux) (chapters/09-hotplug.aux)
 (chapters/09-optional.aux))
 
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 6D6BCF6C66D5805D501CE201E1796371;44915.
+(rerunfilecheck)             Checksum: 665BC956AD153BFD648B70212BEDFFC3;44816.
 Package logreq Info: Writing requests to 'main.run.xml'.
 \openout1 = `main.run.xml'.
 
  )
-Output written on main.xdv (209 pages, 8544376 bytes).
+Output written on main.xdv (214 pages, 8672708 bytes).

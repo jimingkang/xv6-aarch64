@@ -1,79 +1,79 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第八章}用户进程、线程与 libc}{167}{chapter.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第八章}用户进程、线程与 libc}{171}{chapter.8}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:user}{{8}{167}{用户进程、线程与 libc}{chapter.8}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8.1}用户程序的形态}{167}{section.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.1}为什么需要系统调用}{167}{subsection.8.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.2}链接与装载}{167}{subsection.8.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.3}系统调用网关}{167}{subsection.8.1.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.4}内核如何分发系统调用}{168}{subsection.8.1.4}\protected@file@percent }
-\newlabel{sec:syscall-dispatch}{{8.1.4}{168}{内核如何分发系统调用}{subsection.8.1.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.5}两个栈指针与返回级别}{169}{subsection.8.1.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8.2}从 \texttt  {\hyphenchar \font =-1 init} 到 shell}{169}{section.8.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8.3}用户程序一览}{170}{section.8.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8.1}{\ignorespaces 用户程序（\texttt  {\hyphenchar \font =-1 UPROGS}）\relax }}{170}{table.caption.121}\protected@file@percent }
-\newlabel{tab:uprogs}{{8.1}{170}{用户程序（\code {UPROGS}）\relax }{table.caption.121}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8.4}用户线程}{170}{section.8.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.1}设计}{170}{subsection.8.4.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {8.1}{\ignorespaces 线程组共享 \texttt  {\hyphenchar \font =-1 vmspace}\relax }}{170}{figure.caption.122}\protected@file@percent }
-\newlabel{fig:threads}{{8.1}{170}{线程组共享 \code {vmspace}\relax }{figure.caption.122}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.2}系统调用}{171}{subsection.8.4.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8.2}{\ignorespaces 线程相关系统调用\relax }}{171}{table.caption.123}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.3}\texttt  {\hyphenchar \font =-1 clone} 为什么“返回两次”}{171}{subsection.8.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.4}多核下的细节}{172}{subsection.8.4.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.5}实例：threadtest 的运行过程}{172}{subsection.8.4.5}\protected@file@percent }
-\newlabel{sec:threadtest-fig}{{8.4.5}{172}{实例：threadtest 的运行过程}{subsection.8.4.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {8.2}{\ignorespaces threadtest：exec 之后的两份快照（pid 20），以及 clone 出两个线程之后三个 proc 共享一个 vmspace 的结构\relax }}{173}{figure.caption.124}\protected@file@percent }
-\newlabel{fig:threadtest-run}{{8.2}{173}{threadtest：exec 之后的两份快照（pid 20），以及 clone 出两个线程之后三个 proc 共享一个 vmspace 的结构\relax }{figure.caption.124}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8.5}libc 与 POSIX 源码兼容层}{174}{section.8.5}\protected@file@percent }
-\newlabel{sec:posix}{{8.5}{174}{libc 与 POSIX 源码兼容层}{section.8.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.1}\texttt  {\hyphenchar \font =-1 libc.a}}{174}{subsection.8.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.2}动态链接 \texttt  {\hyphenchar \font =-1 libc.so}}{174}{subsection.8.5.2}\protected@file@percent }
-\newlabel{sec:dynamic-libc}{{8.5.2}{174}{动态链接 \code {libc.so}}{subsection.8.5.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 exec()} 里的装载流程.}{174}{lstnumber.-200.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{支持的重定位类型.}{175}{Item.98}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{收敛与限制.}{175}{lstnumber.-202.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.3}一次库函数调用：PLT 与 GOT}{175}{subsection.8.5.3}\protected@file@percent }
-\newlabel{sec:plt-got}{{8.5.3}{175}{一次库函数调用：PLT 与 GOT}{subsection.8.5.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {8.3}{\ignorespaces 支持的动态重定位（S：符号地址，A：addend，B：模块基址）\relax }}{176}{table.caption.125}\protected@file@percent }
-\newlabel{tab:dynrel}{{8.3}{176}{支持的动态重定位（S：符号地址，A：addend，B：模块基址）\relax }{table.caption.125}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.4}共享 libc 代码页}{176}{subsection.8.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.5}用户态解释器 \texttt  {\color  {structurecolor!80!black}/lib/ld-xv6.so}}{177}{subsection.8.5.5}\protected@file@percent }
-\newlabel{sec:ldxv6}{{8.5.5}{177}{用户态解释器 \file {/lib/ld-xv6.so}}{subsection.8.5.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{构建.}{177}{subsection.8.5.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{内核这一半.}{177}{lstnumber.-206.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{解释器这一半.}{177}{lstnumber.-207.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8.4}{\ignorespaces 三种 libc 装载方式\relax }}{178}{table.caption.126}\protected@file@percent }
-\newlabel{tab:ldso-compare}{{8.4}{178}{三种 libc 装载方式\relax }{table.caption.126}{}}
-\@writefile{toc}{\contentsline {paragraph}{问题与建议.}{178}{table.caption.126}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.6}图解：\texttt  {\color  {structurecolor!80!black}/bin/echo} 的文件布局与运行时绑定}{178}{subsection.8.5.6}\protected@file@percent }
-\newlabel{sec:echo-figs}{{8.5.6}{178}{图解：\file {/bin/echo} 的文件布局与运行时绑定}{subsection.8.5.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{文件布局.}{178}{figure.caption.127}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {8.3}{\ignorespaces \texttt  {\color  {structurecolor!80!black}\_echo} 的文件布局：ELF 头、程序头（段）、节、节头，以及它们之间的指针\relax }}{179}{figure.caption.127}\protected@file@percent }
-\newlabel{fig:echo-layout}{{8.3}{179}{\file {\_echo} 的文件布局：ELF 头、程序头（段）、节、节头，以及它们之间的指针\relax }{figure.caption.127}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {8.4}{\ignorespaces 运行时动态绑定：\texttt  {\color  {structurecolor!80!black}/bin/echo} 如何调用到 \texttt  {\color  {structurecolor!80!black}libc.so} 里的 \texttt  {\hyphenchar \font =-1 exit()}\relax }}{180}{figure.caption.128}\protected@file@percent }
-\newlabel{fig:echo-dynlink}{{8.4}{180}{运行时动态绑定：\file {/bin/echo} 如何调用到 \file {libc.so} 里的 \code {exit()}\relax }{figure.caption.128}{}}
-\@writefile{toc}{\contentsline {paragraph}{运行时绑定.}{180}{figure.caption.128}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8.5}{\ignorespaces \texttt  {\hyphenchar \font =-1 exit()} 的绑定步骤\relax }}{181}{table.caption.129}\protected@file@percent }
-\newlabel{tab:echo-steps}{{8.5}{181}{\code {exit()} 的绑定步骤\relax }{table.caption.129}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.7}进一步：用 \texttt  {\hyphenchar \font =-1 mmap} 装载并共享（实验分支）}{181}{subsection.8.5.7}\protected@file@percent }
-\newlabel{sec:ldso}{{8.5.7}{181}{进一步：用 \code {mmap} 装载并共享（实验分支）}{subsection.8.5.7}{}}
-\@writefile{toc}{\contentsline {paragraph}{链接方式.}{181}{subsection.8.5.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 exec()} 的工作.}{181}{lstnumber.-208.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 ld.so} 的工作.}{181}{lstnumber.-209.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{为什么库不能有文本重定位，程序却可以.}{182}{Item.116}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{结果.}{182}{Item.116}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.8}调试动态链接}{182}{subsection.8.5.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.9}POSIX 层}{182}{subsection.8.5.9}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8.6}{\ignorespaces 动态链接的常见报错\relax }}{183}{table.caption.130}\protected@file@percent }
-\newlabel{tab:dynerr}{{8.6}{183}{动态链接的常见报错\relax }{table.caption.130}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {8.7}{\ignorespaces POSIX 接口到 xv6 的映射\relax }}{183}{table.caption.131}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8.6}在 xv6 里编译 C 程序}{183}{section.8.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8.7}一个大型用户程序：\texttt  {\hyphenchar \font =-1 sshd}}{184}{section.8.7}\protected@file@percent }
+\newlabel{chap:user}{{8}{171}{用户进程、线程与 libc}{chapter.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.1}用户程序的形态}{171}{section.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.1}为什么需要系统调用}{171}{subsection.8.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.2}链接与装载}{171}{subsection.8.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.3}系统调用网关}{171}{subsection.8.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.4}内核如何分发系统调用}{172}{subsection.8.1.4}\protected@file@percent }
+\newlabel{sec:syscall-dispatch}{{8.1.4}{172}{内核如何分发系统调用}{subsection.8.1.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1.5}两个栈指针与返回级别}{173}{subsection.8.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.2}从 \texttt  {\hyphenchar \font =-1 init} 到 shell}{173}{section.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.3}用户程序一览}{174}{section.8.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8.1}{\ignorespaces 用户程序（\texttt  {\hyphenchar \font =-1 UPROGS}）\relax }}{174}{table.caption.125}\protected@file@percent }
+\newlabel{tab:uprogs}{{8.1}{174}{用户程序（\code {UPROGS}）\relax }{table.caption.125}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.4}用户线程}{174}{section.8.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.1}设计}{174}{subsection.8.4.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.1}{\ignorespaces 线程组共享 \texttt  {\hyphenchar \font =-1 vmspace}\relax }}{174}{figure.caption.126}\protected@file@percent }
+\newlabel{fig:threads}{{8.1}{174}{线程组共享 \code {vmspace}\relax }{figure.caption.126}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.2}系统调用}{175}{subsection.8.4.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8.2}{\ignorespaces 线程相关系统调用\relax }}{175}{table.caption.127}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.3}\texttt  {\hyphenchar \font =-1 clone} 为什么“返回两次”}{175}{subsection.8.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.4}多核下的细节}{176}{subsection.8.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4.5}实例：threadtest 的运行过程}{176}{subsection.8.4.5}\protected@file@percent }
+\newlabel{sec:threadtest-fig}{{8.4.5}{176}{实例：threadtest 的运行过程}{subsection.8.4.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8.2}{\ignorespaces threadtest：exec 之后的两份快照（pid 20），以及 clone 出两个线程之后三个 proc 共享一个 vmspace 的结构\relax }}{177}{figure.caption.128}\protected@file@percent }
+\newlabel{fig:threadtest-run}{{8.2}{177}{threadtest：exec 之后的两份快照（pid 20），以及 clone 出两个线程之后三个 proc 共享一个 vmspace 的结构\relax }{figure.caption.128}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8.5}libc 与 POSIX 源码兼容层}{178}{section.8.5}\protected@file@percent }
+\newlabel{sec:posix}{{8.5}{178}{libc 与 POSIX 源码兼容层}{section.8.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.1}\texttt  {\hyphenchar \font =-1 libc.a}}{178}{subsection.8.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.2}动态链接 \texttt  {\hyphenchar \font =-1 libc.so}}{178}{subsection.8.5.2}\protected@file@percent }
+\newlabel{sec:dynamic-libc}{{8.5.2}{178}{动态链接 \code {libc.so}}{subsection.8.5.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 exec()} 里的装载流程.}{178}{lstnumber.-199.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{支持的重定位类型.}{179}{Item.96}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{收敛与限制.}{179}{lstnumber.-201.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.3}一次库函数调用：PLT 与 GOT}{179}{subsection.8.5.3}\protected@file@percent }
+\newlabel{sec:plt-got}{{8.5.3}{179}{一次库函数调用：PLT 与 GOT}{subsection.8.5.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8.3}{\ignorespaces 支持的动态重定位（S：符号地址，A：addend，B：模块基址）\relax }}{180}{table.caption.129}\protected@file@percent }
+\newlabel{tab:dynrel}{{8.3}{180}{支持的动态重定位（S：符号地址，A：addend，B：模块基址）\relax }{table.caption.129}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.4}共享 libc 代码页}{180}{subsection.8.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.5}用户态解释器 \texttt  {\color  {structurecolor!80!black}/lib/ld-xv6.so}}{181}{subsection.8.5.5}\protected@file@percent }
+\newlabel{sec:ldxv6}{{8.5.5}{181}{用户态解释器 \file {/lib/ld-xv6.so}}{subsection.8.5.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{构建.}{181}{subsection.8.5.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{内核这一半.}{181}{lstnumber.-205.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{解释器这一半.}{181}{lstnumber.-206.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8.4}{\ignorespaces 三种 libc 装载方式\relax }}{182}{table.caption.130}\protected@file@percent }
+\newlabel{tab:ldso-compare}{{8.4}{182}{三种 libc 装载方式\relax }{table.caption.130}{}}
+\@writefile{toc}{\contentsline {paragraph}{问题与建议.}{182}{table.caption.130}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.6}图解：\texttt  {\color  {structurecolor!80!black}/bin/echo} 的文件布局与运行时绑定}{182}{subsection.8.5.6}\protected@file@percent }
+\newlabel{sec:echo-figs}{{8.5.6}{182}{图解：\file {/bin/echo} 的文件布局与运行时绑定}{subsection.8.5.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{文件布局.}{182}{figure.caption.131}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8.3}{\ignorespaces \texttt  {\color  {structurecolor!80!black}\_echo} 的文件布局：ELF 头、程序头（段）、节、节头，以及它们之间的指针\relax }}{183}{figure.caption.131}\protected@file@percent }
+\newlabel{fig:echo-layout}{{8.3}{183}{\file {\_echo} 的文件布局：ELF 头、程序头（段）、节、节头，以及它们之间的指针\relax }{figure.caption.131}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8.4}{\ignorespaces 运行时动态绑定：\texttt  {\color  {structurecolor!80!black}/bin/echo} 如何调用到 \texttt  {\color  {structurecolor!80!black}libc.so} 里的 \texttt  {\hyphenchar \font =-1 exit()}\relax }}{184}{figure.caption.132}\protected@file@percent }
+\newlabel{fig:echo-dynlink}{{8.4}{184}{运行时动态绑定：\file {/bin/echo} 如何调用到 \file {libc.so} 里的 \code {exit()}\relax }{figure.caption.132}{}}
+\@writefile{toc}{\contentsline {paragraph}{运行时绑定.}{184}{figure.caption.132}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8.5}{\ignorespaces \texttt  {\hyphenchar \font =-1 exit()} 的绑定步骤\relax }}{185}{table.caption.133}\protected@file@percent }
+\newlabel{tab:echo-steps}{{8.5}{185}{\code {exit()} 的绑定步骤\relax }{table.caption.133}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.7}进一步：用 \texttt  {\hyphenchar \font =-1 mmap} 装载并共享（实验分支）}{185}{subsection.8.5.7}\protected@file@percent }
+\newlabel{sec:ldso}{{8.5.7}{185}{进一步：用 \code {mmap} 装载并共享（实验分支）}{subsection.8.5.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{链接方式.}{185}{subsection.8.5.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 exec()} 的工作.}{185}{lstnumber.-207.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\hyphenchar \font =-1 ld.so} 的工作.}{185}{lstnumber.-208.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{为什么库不能有文本重定位，程序却可以.}{186}{Item.114}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{结果.}{186}{Item.114}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.8}调试动态链接}{186}{subsection.8.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5.9}POSIX 层}{186}{subsection.8.5.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8.6}{\ignorespaces 动态链接的常见报错\relax }}{187}{table.caption.134}\protected@file@percent }
+\newlabel{tab:dynerr}{{8.6}{187}{动态链接的常见报错\relax }{table.caption.134}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8.7}{\ignorespaces POSIX 接口到 xv6 的映射\relax }}{187}{table.caption.135}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.6}在 xv6 里编译 C 程序}{187}{section.8.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8.7}一个大型用户程序：\texttt  {\hyphenchar \font =-1 sshd}}{188}{section.8.7}\protected@file@percent }
 \@setckpt{chapters/08-userland}{
-\setcounter{page}{185}
+\setcounter{page}{189}
 \setcounter{equation}{0}
 \setcounter{enumi}{3}
 \setcounter{enumii}{0}
@@ -90,7 +90,7 @@
 \setcounter{subparagraph}{0}
 \setcounter{figure}{4}
 \setcounter{table}{7}
-\setcounter{Item}{119}
+\setcounter{Item}{117}
 \setcounter{Hfootnote}{1}
 \setcounter{Hy@AnnotLevel}{0}
 \setcounter{bookmark@seq@number}{239}

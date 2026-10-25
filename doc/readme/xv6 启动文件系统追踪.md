@@ -8,7 +8,7 @@ fs-trace · xv6-aarch64 · 启动日志分析
 
 ## 挂载与命名空间
 
-启动结束时，`/` 是 dev 1（mmcblk0p2 上的 xv6fs），rootfs（dev 7）被压在下面。其余五个文件系统各盖住根文件系统里的一个空目录；虚线箭头上的 `1:54` 这类编号是被盖住的目录 inode。
+启动结束时，`/` 是 dev 4（mmcblk0p2 上的 xv6fs），rootfs（dev 7）被压在下面。其余五个文件系统各盖住根文件系统里的一个空目录；虚线箭头上的 `4:54` 这类编号是被盖住的目录 inode。
 
 ## 各文件系统：superblock、目录项与 inode
 
@@ -22,12 +22,12 @@ xv6fs 有磁盘 superblock（`fill_super` 读出的块 1）和内存里的 VFS `
 
 ## 从日志看到的问题
 
-## 三个文件系统：rootfs（dev 7）、devtmpfs（dev 8）、根文件系统（dev 1）
+## 三个文件系统：rootfs（dev 7）、devtmpfs（dev 8）、根文件系统（dev 4）
 
 三者是三个不同的文件系统：rootfs、devtmpfs 是内核启动时用 `ramfs_mkfs()` 在内存盘 ram0、ram1 上现做的，重启即消失；
 根文件系统是 `mkfs` 预先做好、烧在 SD 卡 p2 上的 `fs.img`。它们只是共用同一种磁盘格式（xv6fs）和函数表 `xv6_iops`。
 
-| 字段 | rootfs（dev 7） | devtmpfs（dev 8） | 根文件系统（dev 1） |
+| 字段 | rootfs（dev 7） | devtmpfs（dev 8） | 根文件系统（dev 4） |
 |---|---:|---:|---:|
 | magic | 10203040 | 10203040 | 10203040 |
 | size | 32 | 64 | 32768 |
@@ -46,7 +46,7 @@ xv6fs 有磁盘 superblock（`fill_super` 读出的块 1）和内存里的 VFS `
 |---|---|---|---|---|---|---|
 | rootfs（dev 7） | 0 | 1 | — | 2–3 | 4 | 5–31 |
 | devtmpfs（dev 8） | 0 | 1 | — | 2–5 | 6 | 7–63 |
-| 根文件系统（dev 1） | 0 | 1 | 2–31 | 32–44 | 45–49 | 50–32767 |
+| 根文件系统（dev 4） | 0 | 1 | 2–31 | 32–44 | 45–49 | 50–32767 |
 
 数据区第一块 5、7、50 正好是三个根目录 inode 的 `addrs[0]`。
 
@@ -56,15 +56,15 @@ xv6fs 有磁盘 superblock（`fill_super` 读出的块 1）和内存里的 VFS `
 /          ino 1   块 5    目录项：dev -> 2（off 64）  root -> 4（off 96）
   dev/     ino 2   块 6    目录项：console -> 3（off 64）  root -> 5（off 96）
     console  ino 3   T_DEVICE   第 1 步建出的 /dev/console
-    root     ino 5   T_DEVICE   第 3 步建出的 /dev/root，次设备号 1
+    root     ino 5   T_DEVICE   第 3 步建出的 /dev/root，次设备号 4
   root/    ino 4   块 7    只有 . 和 ..，后来被根文件系统盖住
 ```
 
-**devtmpfs（dev 8）**：14 个 inode 都在块 2；根目录块 7 有 14 项（console、tty、ttyS0、input、video0、sdroot、mmcblk0、
-mmcblk0p1–p3、ram0、ram1，共 448 字节），`input` 是子目录（ino 5，块 8，只有 event0）。建节点时根目录 8:1 被重新从块 2 读了 12 次：
+**devtmpfs（dev 8）**：13 个 inode 都在块 2；根目录块 7 有 13 项（console、tty、ttyS0、input、video0、mmcblk0、
+mmcblk0p1–p3、ram0、ram1，共 416 字节），`input` 是子目录（ino 5，块 8，只有 event0）。建节点时根目录 8:1 被重新从块 2 读了 11 次：
 每建完一个节点引用降到 0，xv6 的 inode 表不保留 ref==0 的项。
 
-**根文件系统（dev 1）**，只列日志读到的：inode 块 32、33、35、36；`/`（块 50，11 项）、`/bin`（块 51，25 项）、`/mnt`（1660）、
+**根文件系统（dev 4）**，只列日志读到的：inode 块 32、33、35、36；`/`（块 50，11 项）、`/bin`（块 51，25 项）、`/mnt`（1660）、
 `/etc`（1663）、`/usr`（1665）；`/init` 与 `/bin/init` 都是 ino 7（硬链接，数据块 130–134）；`/bin/login` 块 199–202，
 `/bin/wifi` 块 533–536，`/etc/fstab`（119 B）块 1670，`/etc/wifi.conf`（33 B）块 1671。ino 54/55/56/58/59 是被 devtmpfs、procfs、
 fat32、ext2、netfs 盖住的空目录。
@@ -85,7 +85,7 @@ fat32、ext2、netfs 盖住的空目录。
 | 2 | `kmknod("/dev")` | ino 2 |
 | 3 | `kmknod("/dev/console")` | ino 3 |
 | 4 | `kmknod("/root")` | ino 4 |
-| 5 | 第 3 步 `kmknod("/dev/root", BLOCKDEV, 1)` | ino 5 |
+| 5 | 第 3 步 `kmknod("/dev/root", BLOCKDEV, 4)` | ino 5 |
 
 ext2 不同：inode 1 留给坏块表，根是 ino 2（`EXT2_ROOT_INO`）；procfs、fat32、netfs 的根是 `"/"` 的 31 位 FNV 哈希 705468254。
 所以 VFS 的 `isfsroot()` 比较的是各自 `super_block` 里的 `rootino`，而不是写死的 1。
@@ -105,7 +105,7 @@ dinode 不存自己的编号，编号由位置推出：
 ```
 
 `#0` 槽对应 ino 0，不用。inode 区从哪一块开始看 `inodestart`：rootfs、devtmpfs 是块 2（前面只有 boot 和 superblock），
-SD 卡上的根文件系统是块 32（块 2–31 是 30 块日志）。日志里 `xv6_read_inode: dev=1 ino=10 disk-block=32 slot-in-block=10` 就是这个公式。
+SD 卡上的根文件系统是块 32（块 2–31 是 30 块日志）。日志里 `xv6_read_inode: dev=4 ino=10 disk-block=32 slot-in-block=10` 就是这个公式。
 
 `iget(7, 1)` 只在 `itable` 里记下 dev=7、inum=1、valid=0，不读盘；`ilock` 发现 valid==0 才调用 `xv6_read_inode()`，
 按公式读块 2、取偏移 64 处的 64 字节，拷进内存 inode。
@@ -184,7 +184,7 @@ off 96  root     → ino 5
 | 目录项所在 | 路径 | inode | 类型 | 谁建的 |
 |---|---|---|---|---|
 | 块 5（`/`）off 96 | `/root` | ino 4 | T_DIR | 第 1 步，挂根文件系统的挂载点 |
-| 块 6（`/dev`）off 96 | `/dev/root` | ino 5 | T_DEVICE | 第 3 步 `kmknod("/dev/root", BLOCKDEV, 1)` |
+| 块 6（`/dev`）off 96 | `/dev/root` | ino 5 | T_DEVICE | 第 3 步 `kmknod("/dev/root", BLOCKDEV, 4)` |
 
 从 ino 1 到 ino 5 要两层：ino 1 → `addrs[0]` → 块 5 → `dev` → ino 2 → `addrs[0]` → 块 6 → `root` → ino 5，
 即日志第 2127 行 `namex: begin path='/dev/root'` 的走法。inode 里只有指向数据块的 `addrs[]`，指向 inode 的是目录项。
@@ -201,10 +201,10 @@ inode 区不按目录分组，是全文件系统一张平铺的表：dinode 放�
 | #2 | 128–191 | ino 2 | `/dev` | 1 T_DIR | 0 | 0 | 1 | 128 | 6 |
 | #3 | 192–255 | ino 3 | `/dev/console` | 3 T_DEVICE | 1 CONSOLE | 0 | 1 | 0 | 0 |
 | #4 | 256–319 | ino 4 | `/root` | 1 T_DIR | 0 | 0 | 1 | 64 | 7 |
-| #5 | 320–383 | ino 5 | `/dev/root` | 3 T_DEVICE | 7 BLOCKDEV | 1 | 1 | 0 | 0 |
+| #5 | 320–383 | ino 5 | `/dev/root` | 3 T_DEVICE | 7 BLOCKDEV | 4 | 1 | 0 | 0 |
 | #6–#15 | 384–1023 | ino 6–15 | 空闲（type 0） | 0 | 0 | 0 | 0 | 0 | 0 |
 
 - type = 0 表示空闲，`ialloc()` 找的就是这样的槽。
 - 设备节点只有 major/minor：`/dev/console` 由 `kmknod("/dev/console", T_DEVICE, CONSOLE, 0)` 建，major 1 是控制台驱动；
-  `/dev/root` 由 `kmknod("/dev/root", T_DEVICE, BLOCKDEV, 1)` 建，major 7 = 块设备，minor 1 = 块设备表里的 dev 1。size 0，没有数据块。
+  `/dev/root` 由 `kmknod("/dev/root", T_DEVICE, BLOCKDEV, 4)` 建，major 7 = 块设备，minor 4 = 块设备表里的 dev 4（mmcblk0p2）。size 0，没有数据块。
 - 目录的 size = 目录项数 × 32；内容块 5、6、7 由各自的 `addrs[0]` 指向。

@@ -20,9 +20,10 @@ struct resource {
 };
 
 struct file;
+struct inode;
 
-// Character-device operations.  read/write are the original stateless hooks
-// (console, tty).  Drivers that need per-open state set the optional
+// Open-file operations shared by filesystems and devices. read/write are the
+// original stateless character-device hooks (console, tty). Drivers that need per-open state set the optional
 // Linux-style hooks: open() may set f->private_data, release() runs when the
 // last reference to that open file description is dropped, and fread() is
 // used in preference to read() so the driver can see its private state and
@@ -34,6 +35,15 @@ struct file_operations {
   void (*release)(struct file *f);
   int (*fread)(struct file *f, int user_dst, uint64 dst, int n);
   int (*fwrite)(struct file *f, int user_src, uint64 src, int n);
+  // Filesystem file operations use these explicit-offset backends.  The
+  // generic fread/fwrite helpers own f->off and call read_at/write_at; pread,
+  // pwrite, exec and the module loader use the same callbacks without
+  // smuggling data I/O through inode_operations.
+  int (*read_at)(struct file *f, int user_dst, uint64 dst, uint64 off,
+                 uint n);
+  int (*write_at)(struct file *f, int user_src, uint64 src, uint64 off,
+                  uint n);
+  int (*fsync)(struct file *f, int dataonly);
   int (*poll)(struct file *f, int events);
   int (*ioctl)(struct file *f, uint64 cmd, uint64 arg);
   uint64 (*mmap)(struct file *f, uint64 addr, uint64 len, int prot,

@@ -51,18 +51,21 @@ ext2 放在 SD 卡的第三个分区，xv6 根文件系统仍在 p2，二者互�
   \label{fig:ext2-card}
 \end{figure}
 
-日志的位置在启动时算出。\code{ext2init()} 先向根块设备（第~\ref{sec:rootfs} 节）要 p2 的位置，再跳过 xv6 镜像：
+日志的位置在挂载时算出。\code{ext2init()} 只登记文件系统类型；\code{ext2\_fill\_super()}（第~\ref{sec:ext2-mount} 节）打开分区、读完超级块以后调用 \code{ext2\_journal\_init()}，向根块设备层（第~\ref{sec:rootfs} 节）要 xv6 分区 p2 的块设备，再跳过 xv6 镜像：
 
 \begin{ccode}
-uint32 rlba, rsec, jstart = FSSIZE * (BSIZE / SECTOR);     // 65536
-if(rootdev_raw_info(&rlba, &rsec) == 0 && rsec > jstart &&
-   xj_init(rlba + jstart, rsec - jstart) == 0)               // 先恢复日志
-  e2.journal = 1;
-else
+struct blkdev *jbd = rootdev_xv6_part();                   // p2
+struct blkdev *home = blkdev_get(fs->dev);                 // p3
+uint32 jstart = FSSIZE * (BSIZE / SECTOR);                 // 65536
+if(jbd && jbd->disk && jbd->nsect > jstart && home){
+  if(xj_init(jbd, jstart, jbd->nsect - jstart, home) < 0)  // 先恢复日志
+    return -1;                                             // 恢复失败：拒绝挂载
+  fs->journal = 1;
+} else
   printf("ext2: no raw xv6 root partition; external journal disabled\n");
 \end{ccode}
 
-\code{xj\_init()} 在解析任何 ext2 元数据之前就检查并重放日志，这样后面读到的 superblock 和位图都已经是一致的。QEMU 裸镜像没有 p2，这时日志关闭，ext2 退回逐扇区同步写。更新根文件系统的 \code{/dev/sdroot}（第~\ref{sec:xv6fs} 节）只写前 \code{FSSIZE} 块，不会碰到日志区。
+\code{xj\_init()} 在 ext2 被登记进 \code{supers[]}、对外可见之前检查并重放日志，所以之后任何人读到的位图和目录都已经是一致的。如果提交记录有效、但描述符、载荷、校验和或写回原位任何一步失败，\code{xj\_init()} 返回 $-1$，整个挂载失败，绝不把没恢复好的 ext2 暴露出去。QEMU 裸镜像没有 p2，这时日志关闭，ext2 退回经块缓存的同步写。在开发机上重写 p2 时（第~\ref{sec:xv6fs} 节）只写 \file{fs.img} 的前 \code{FSSIZE} 块，不会碰到日志区。
 
 \subsection{ext2 的磁盘结构}
 
@@ -189,7 +192,7 @@ static uint32 fileblock(struct einode *ip, uint64 logical) {
 }
 \end{ccode}
 
-三层用三个独立的 4\,KiB 缓冲 \code{ptrbuf[0..2]}，它们是全局变量而不是局部数组——内核栈只有 4\,KiB，放不下其中任何一个（第~\ref{chap:drivers} 章的摄像头调试记录里有过同样的教训）。所有 ext2 操作都持着同一把锁，所以全局缓冲是安全的。
+三层用三个独立的 4\,KiB 缓冲 \code{ptrbuf[0..2]}，它们属于每个 ext2 实例（\code{struct ext2\_fs}），由 \code{ext2\_fill\_super()} 用 \code{kalloc()} 分配，而不是局部数组——内核栈只有 4\,KiB，放不下其中任何一个（第~\ref{chap:drivers} 章的摄像头调试记录里有过同样的教训）。同一实例的操作都持着该实例的锁，所以这些缓冲是安全的。
 
 写的方向由 \code{set\_fileblock()} 和 \code{get\_or\_alloc\_fileblock()} 完成：路径上缺哪一层间接块就分配哪一层。截断时 \code{clear\_fileblock()} 释放数据块，再检查它所在的间接块是否已经全为 0（\code{ptr\_empty()}），是就把间接块也释放掉，逐层向上。\code{waltest large} 在偏移 5\,GiB 处写一个字节：$5\,\text{GiB}/4\,\text{KiB} = 1\,310\,720 > 12 + n + n^2$，正好走到三级间接这一支，文件只占 4 个块。
 
@@ -221,26 +224,35 @@ inode 的分配（\code{alloc\_inode()}）和释放（\code{free\_inode()}）是
 
 第~\ref{sec:vfs} 节的 VFS 最初是“按路径”的：每次 \code{read}、\code{write} 都把路径传给后端重新查找。对 ext2 这会带来两个问题：每次读写都要从根目录走一遍；更糟的是，文件被重命名或删除以后，已经打开的描述符会突然指向别的文件，或者失效。Unix 的语义是：打开的是 inode，而不是名字。
 
-过渡阶段的办法是给 \code{vnode\_ops} 加一组\emph{句柄}操作（\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate}），ext2 的句柄就是 inode 号。改成统一 VFS 以后，这组句柄操作连同 vnode 一起删掉了：ext2 直接以 \code{ext2\_iops} 接入 inode 缓存，内存中的 \code{struct inode} 本身就是“打开的 ext2 inode”：
+过渡阶段的办法是给 \code{vnode\_ops} 加一组\emph{句柄}操作（\code{open}/\code{release}/\code{hread}/\code{hwrite}/\code{hstat}/\code{htruncate}），ext2 的句柄就是 inode 号。改成统一 VFS 以后，这组句柄操作连同 vnode 一起删掉了：ext2 以 bootstrap \code{ext2\_iops} 接入 inode 缓存，第一次 \code{ilock()} 读出磁盘类型后，再挂接目录或普通文件各自的 \code{inode\_ops/file\_operations}：
 
 \begin{ccode}
-static struct inode_ops ext2_iops = {        // kernel/fs/ext2/ext2.c
-  .read_inode = e2_read_inode,   // 读磁盘 inode，并在 e2.open[] 里占一个引用
+static struct inode_ops ext2_iops = {        // bootstrap
+  .read_inode = e2_read_inode,   // 读磁盘 inode，并在 fs->open[] 里占一个引用
   .evict      = e2_evict,        // 最后一个 iput()：ext2release()，孤儿在此回收
+};
+static struct inode_ops ext2_dir_iops = {
+  .read_inode = e2_read_inode, .evict = e2_evict,
   .lookup     = e2_lookup,       // 查目录块，返回 iget(dev, ino)
   .create     = e2_create,  .unlink = e2_unlink,  .rename = e2_rename,
-  .read       = e2_read,         // 目录经 vfs_dir_read()，文件经 ext2readino()
-  .write      = e2_write,   .truncate = e2_truncate,  .fsync = e2_fsync,
+};
+static struct inode_ops ext2_file_iops = {
+  .read_inode = e2_read_inode, .evict = e2_evict, .truncate = e2_truncate,
+};
+static const struct file_operations ext2_file_fops = {
+  .fread = generic_file_fread, .fwrite = generic_file_fwrite,
+  .read_at = e2_file_read_at, .write_at = e2_file_write_at,
+  .fsync = e2_file_fsync, .poll = generic_file_poll,
 };
 \end{ccode}
 
-原来按路径的实现拆成了“核心函数 + 外壳”：\code{create\_core()}、\code{mkdir\_core()}、\code{unlink\_core()}、\code{rename\_core()}、\code{readdir\_core()} 以父目录的 \code{einode} 和名字为参数，\code{e2\_*} 操作直接调用它们；按路径的外壳只留给 \code{ext2read}、\code{ext2readdir} 两个老系统调用。\code{e2.open[]} 表仍然存在，只是不再由 \code{open}/\code{close} 驱动，而由 inode 缓存驱动：\code{ilock()} 第一次填充 inode 时占一个引用，\code{iput()} 放掉最后一个引用时释放它。
+原来按路径的实现拆成了“核心函数 + 外壳”：\code{create\_core()}、\code{mkdir\_core()}、\code{unlink\_core()}、\code{rename\_core()}、\code{readdir\_core()} 以父目录的 \code{einode} 和名字为参数，\code{e2\_*} 操作直接调用它们；按路径的外壳只留给 \code{ext2read}、\code{ext2readdir} 两个老系统调用。每个实例的 \code{open[]} 表仍然存在，只是不再由 \code{open}/\code{close} 驱动，而由 inode 缓存驱动：\code{ilock()} 第一次填充 inode 时占一个引用，\code{iput()} 放掉最后一个引用时释放它。
 
 有了引用计数，就能实现“删除仍被打开的文件”：\code{unlink} 或被 \code{rename} 覆盖时，目录项立即消失；如果 inode 的链接数降到 0 而它还被打开着，\code{drop\_link()} 只把它标成\emph{孤儿}，块不释放。旧描述符照常读写原来的数据，最后一次 \code{close} 让 inode 的引用降到 0，\code{e2\_evict()} 调用 \code{ext2release()}，这时才在一个事务里截断并释放 inode。
 
 \code{rename} 也补全了 POSIX 语义：目标已存在时原子地替换它（类型必须相同，目录必须为空）；把目录移进它自己的子树会被 \code{is\_ancestor()} 拒绝——否则这棵子树会从根上脱落，形成一个环。
 
-\paragraph{锁.} 所有 ext2 操作由睡眠锁 \code{e2.lock} 串行化。它与 inode 的睡眠锁有固定的顺序：先 inode 锁、后 \code{e2.lock}。\code{e2\_create()} 在目录里加了新项以后，要先放掉 \code{e2.lock}，再加锁父目录 inode 刷新它的大小和链接数，否则会和持有目录 inode 锁再进入 ext2 的路径解析形成反序。最初用的是自旋锁，但 SD 卡是轮询 PIO，一次 \code{fsync} 最长可能等 5 秒，持自旋锁期间 CPU 一直关着中断，键盘和网络都会卡住。换成睡眠锁后，等待的进程会让出 CPU。
+\paragraph{锁.} 同一个 ext2 实例的操作由它自己的睡眠锁 \code{fs->lock}（\code{struct ext2\_fs} 里，每个设备一把）串行化，不同分区互不阻塞。它与 inode 的睡眠锁有固定的顺序：先 inode 锁、后 \code{fs->lock}。\code{e2\_create()} 在目录里加了新项以后，要先放掉 \code{fs->lock}，再加锁父目录 inode 刷新它的大小和链接数，否则会和持有目录 inode 锁再进入 ext2 的路径解析形成反序。最初用的是自旋锁，但 SD 卡是轮询 PIO，一次 \code{fsync} 最长可能等 5 秒，持自旋锁期间 CPU 一直关着中断，键盘和网络都会卡住。换成睡眠锁后，等待的进程会让出 CPU。
 
 \subsection{持久化：\code{sdflush()} 写屏障}
 
@@ -364,10 +376,11 @@ fail:
 
 \begin{ccode}
 int ext2rename(char *oldpath, char *newpath) {
-  acquiresleep(&e2.lock);
-  tx_begin();                                               // xj_begin()，清空 freed[]
-  int r = tx_end(rename_locked(oldpath, newpath) == 0);     // 成功则提交，失败则中止
-  releasesleep(&e2.lock);
+  struct ext2_fs *fs = ext2_default();                      // 当前挂着的 ext2 实例
+  acquiresleep(&fs->lock);
+  tx_begin(fs);                                             // xj_begin()，清空 freed[]
+  int r = tx_end(fs, rename_locked(fs, oldpath, newpath) == 0);  // 成功则提交，失败则中止
+  releasesleep(&fs->lock);
   return r;
 }
 \end{ccode}
@@ -376,7 +389,7 @@ int ext2rename(char *oldpath, char *newpath) {
 
 少数操作会超过一个事务的容量：截断一个几 GiB 的文件要改成千上万个位图扇区。\code{tx\_checkpoint()} 在剩余空间不足 96 个扇区时，先把 inode 以\emph{当前已截断到的大小}写入事务并提交，再开一个新事务继续。每个分段的终点都是一个一致的状态：inode 的大小与它还引用的块相符，释放掉的块已经回到位图，只是文件还没截到最终长度。
 
-最后，第一次写 ext2 时，\code{mark\_write\_session\_dirty()} 绕过日志直接清除 superblock 的 \code{VALID\_FS} 位并 flush。驱动还没有 \code{umount}，从来不会把它置回去，所以开发机上的 \code{e2fsck} 总会做一次完整检查。
+最后，第一次写 ext2 时，\code{mark\_write\_session\_dirty()} 绕过日志直接清除 superblock 的 \code{VALID\_FS} 位并 flush。非根挂载可以 \code{umount}：\code{fs\_umount()} 先标记 \code{unmounting} 挡住新的路径遍历，确认没有打开的文件、当前目录、活动 inode 和子挂载，再调用 \code{super\_block.put\_super = ext2\_put\_super}：用最后一个元数据事务把 \code{VALID\_FS} 置回、flush、关闭外置日志、\code{binvalidate()}，最后释放超级块和实例。强制断电、根文件系统无法卸载或卸载失败时，接回开发机仍应执行 \code{e2fsck -f}；挂载时该位原本就是 dirty 的，正常卸载也会保留 dirty。
 
 \subsection{源码组织与编译}
 \label{sec:ext2-build}
@@ -394,10 +407,10 @@ ext2 移植涉及的文件分布在内核、用户程序和构建脚本三处（
     \midrule
     \file{kernel/fs/ext2/ext2.c} & superblock 检查、inode 读写、直接到三级间接块、位图分配、目录项、事务封装、打开表与孤儿回收 \\
     \file{kernel/fs/ext2/xjournal.c} & 外置事务日志：事务缓冲、四步提交、启动恢复 \\
-    \file{kernel/drivers/block/rootdev.c} & \code{rootdev\_raw\_info()} 告诉 ext2 p2 的位置，日志就放在 xv6 镜像之后 \\
+    \file{kernel/drivers/block/rootdev.c} & \code{rootdev\_xv6\_part()} 告诉 ext2 p2 的块设备，日志就放在 xv6 镜像之后 \\
     \file{kernel/drivers/mmc/host/sd.c} & \code{sdflush()}：\code{dsb} 加 CMD13 轮询，作为持久化边界 \\
-    \file{kernel/fs/ext2/ext2.c}（VFS 部分） & \code{ext2\_iops}、\code{ext2\_register\_super()}：作为统一 VFS 的一种文件系统，可挂在 \code{/mnt/ext2} 或作根文件系统 \\
-    \file{kernel/fs/exec.c}、\file{kernel/fs/sysfile.c} & \code{exec} 经 \code{iop->read} 读 ELF；\code{abspath()} 与 \code{cwdpath} \\
+    \file{kernel/fs/ext2/ext2.c}（VFS 部分） & \code{ext2\_type}（\code{ext2\_get\_sb}、\code{ext2\_fill\_super}）、bootstrap/目录/文件的 iops 与 fops、\code{ext2\_register\_super()}、\code{ext2\_put\_super()}：作为统一 VFS 的一种文件系统，可挂在 \code{/mnt/ext2} 或作根文件系统 \\
+    \file{kernel/fs/exec.c}、\file{kernel/fs/sysfile.c} & \code{exec} 经 \code{inode->i\_fop->read\_at} 读 ELF；\code{open/read/write} 经 \code{file->f\_op} 分派；\code{abspath()} 与 \code{cwdpath} \\
     \file{user/waltest.c} & WAL 示例与语义、压力、断电测试 \\
     \file{Makefile} & \code{xjournal.o}、\code{rootdev.o}；\code{fs\_ext2.img} 与 \code{install-rpi3-ext2} 目标 \\
     \bottomrule

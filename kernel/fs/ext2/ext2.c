@@ -1,9 +1,8 @@
 // Small ext2 filesystem backend for the VFS mount at /mnt/ext2.
 //
 // It supports classic ext2 regular files, linear directories and all three
-// levels of indirect blocks.  Operations are serialized by the e2.lock
-// sleeplock (SD transfers are slow polled I/O; a spinlock would keep
-// interrupts off on this CPU for the whole operation).
+// levels of indirect blocks.  Every mounted device has its own ext2_fs and
+// sleeplock; ordinary device I/O goes through bread()/bwrite().
 //
 // ext2 itself has no journal.  When a raw xv6 root partition exists, every
 // mutating operation becomes one transaction in an external journal kept in
@@ -17,10 +16,12 @@
 #include <kernel/spinlock.h>
 #include <kernel/sleeplock.h>
 #include <kernel/fs.h>
+#include <kernel/buf.h>
 #include <kernel/ext2.h>
 #include <kernel/fat32.h>
 #include <kernel/stat.h>
 #include <kernel/file.h>
+#include <kernel/device.h>
 #include <kernel/vfs.h>
 #include <kernel/module.h>
 #include <kernel/blkdev.h>
@@ -31,6 +32,20 @@
 #define EXT2_S_IFMT  0xf000
 #define EXT2_S_IFDIR 0x4000
 #define EXT2_S_IFREG 0x8000
+
+#define EXT2_FEATURE_COMPAT_HAS_JOURNAL 0x0004
+#define EXT2_FEATURE_COMPAT_EXT_ATTR    0x0008
+#define EXT2_FEATURE_COMPAT_RESIZE_INO  0x0010
+#define EXT2_FEATURE_COMPAT_DIR_INDEX   0x0020
+#define EXT2_FEATURE_INCOMPAT_FILETYPE  0x0002
+#define EXT2_FEATURE_RO_SPARSE_SUPER    0x0001
+#define EXT2_FEATURE_RO_LARGE_FILE      0x0002
+
+// Layout-changing inode flags this small driver cannot interpret safely.
+#define EXT2_COMPR_FL       0x00000004
+#define EXT2_INDEX_FL       0x00001000
+#define EXT4_EXTENTS_FL     0x00080000
+#define EXT4_INLINE_DATA_FL 0x10000000
 
 struct einode {
   uint32 ino;
@@ -44,15 +59,17 @@ struct einode {
 
 #define E2_MAXFREED 256
 
-static struct {
+struct ext2_fs {
   struct sleeplock lock;
   int ready;
   int dirty;
+  int was_unclean;       // mounted with EXT2_VALID_FS already clear
   int journal;          // external xjournal transactions enabled
   int direct;           // current write bypasses the journal (file data)
   uint32 nfreed;        // blocks freed in the current transaction
   uint32 freed[E2_MAXFREED];
   struct { uint32 ino; int ref; int orphan; } open[NFILE];
+  int dev;              // block device of the partition (mmcblk0pN)
   uint32 part_lba;
   uint32 part_sectors;
   uint32 blocks;
@@ -66,14 +83,49 @@ static struct {
   uint32 desc_size;
   uint32 groups;
   uint32 gd_block;
-} e2;
+  uchar sectorbuf[SECTOR];
+  uchar inodebuf[512];
+  uchar *blockbuf;
+  // Scratch pages are private to this mounted instance and protected by
+  // lock.  Three independent pages are needed for a triple-indirect path.
+  uint32 *ptrbuf[3];
+};
 
-static uchar sectorbuf[SECTOR];
-static uchar blockbuf[4096];
-static uchar inodebuf[512];
-// Pointer blocks are shared scratch storage protected by e2.lock.  Three
-// independent pages are needed while walking/pruning a triple-indirect path.
-static uint32 ptrbuf[3][1024];
+static struct ext2_fs ext2_instances[NSUPER];
+static struct sleeplock ext2_mount_lock;
+static int xj_owner_dev;
+static struct inode_ops ext2_iops;
+static struct inode_ops ext2_file_iops;
+static struct inode_ops ext2_dir_iops;
+static const struct file_operations ext2_file_fops;
+static const struct file_operations ext2_dir_fops;
+
+static struct ext2_fs*
+ext2_by_dev(int dev)
+{
+  if(dev <= 0 || dev >= NSUPER)
+    return 0;
+  return &ext2_instances[dev];
+}
+
+static struct ext2_fs*
+ext2_from_inode(struct inode *ip)
+{
+  struct super_block *sb = ip ? getsuper(ip->dev) : 0;
+  return sb && sb->priv ? sb->priv : 0;
+}
+
+// The two legacy ext2-only system calls predate VFS mounts.  Keep them bound
+// to the first mounted ext2 instance; normal file operations always select
+// the instance from ip->dev and super_block.priv.
+static struct ext2_fs*
+ext2_default(void)
+{
+  for(int dev = 1; dev < NSUPER; dev++)
+    if(ext2_instances[dev].ready)
+      return &ext2_instances[dev];
+  return 0;
+}
 
 static uint16 le16(const uchar *p) { return p[0] | ((uint16)p[1] << 8); }
 static uint32 le32(const uchar *p) {
@@ -85,59 +137,119 @@ static void put32(uchar *p, uint32 v) {
   p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24;
 }
 
-// All ext2 sector I/O goes through these two functions so the journal can
-// capture metadata writes and serve them back to later reads.
+// The external journal remains sector based.  Reads first consult its
+// uncommitted overlay, then obtain the containing filesystem block via bread.
 static int
-e2_rsector(uint32 lba, void *buf)
+e2_rsector(struct ext2_fs *fs, uint32 lba, void *buf)
 {
-  if(e2.journal && xj_read(lba, buf))
+  if(fs->journal && xj_read(lba, buf))
     return 0;
-  return sdsector(lba, buf, 0);
+  uint32 rel = lba - fs->part_lba;
+  uint32 bsize = blkdev_bsize(fs->dev);
+  uint64 byte = (uint64)rel * SECTOR;
+  if(bsize < SECTOR || byte / bsize > 0xffffffffU)
+    return -1;
+  struct buf *bp = bread(fs->dev, (uint32)(byte / bsize));
+  if(bp->error){
+    brelse(bp);
+    return -1;
+  }
+  memmove(buf, bp->data + byte % bsize, SECTOR);
+  brelse(bp);
+  return 0;
 }
 
+// Write one contiguous range through its cached filesystem block.  A 4 KiB
+// ext2 data block therefore causes one device write, not eight 512-byte
+// read/modify/write cycles.
 static int
-e2_wsector(uint32 lba, const void *buf)
+e2_cache_write(struct ext2_fs *fs, uint64 byte, const void *src, uint32 n)
 {
-  if(e2.journal && xj_active() && (!e2.direct || xj_contains(lba)))
-    return xj_write(lba, buf);
-  return sdsector(lba, (void*)buf, 1);
+  uint32 bsize = blkdev_bsize(fs->dev);
+  if(bsize < SECTOR)
+    return -1;
+  if(n > bsize - byte % bsize)
+    return -1;
+  if(byte / bsize > 0xffffffffU)
+    return -1;
+  struct buf *bp = bread(fs->dev, (uint32)(byte / bsize));
+  if(bp->error){
+    brelse(bp);
+    return -1;
+  }
+  memmove(bp->data + byte % bsize, src, n);
+  bwrite(bp);
+  int error = bp->error;
+  brelse(bp);
+  return error ? -1 : 0;
 }
 
 static int
-diskbytes(uint64 byte, void *dst, uint32 n)
+diskbytes(struct ext2_fs *fs, uint64 byte, void *dst, uint32 n)
 {
   uchar *p = dst;
-  if(byte + n < byte || byte + n > (uint64)e2.part_sectors * SECTOR)
+  if(byte + n < byte || byte + n > (uint64)fs->part_sectors * SECTOR)
     return -1;
   while(n){
-    uint32 lba = e2.part_lba + byte / SECTOR;
+    uint32 lba = fs->part_lba + byte / SECTOR;
     uint32 off = byte % SECTOR;
     uint32 take = SECTOR - off;
     if(take > n) take = n;
-    if(e2_rsector(lba, sectorbuf) < 0) return -1;
-    memmove(p, sectorbuf + off, take);
+    if(e2_rsector(fs, lba, fs->sectorbuf) < 0) return -1;
+    memmove(p, fs->sectorbuf + off, take);
     p += take; byte += take; n -= take;
   }
   return 0;
 }
 
 static int
-diskbytes_write(uint64 byte, const void *src, uint32 n)
+diskbytes_write(struct ext2_fs *fs, uint64 byte, const void *src, uint32 n)
 {
   const uchar *p = src;
-  if(byte + n < byte || byte + n > (uint64)e2.part_sectors * SECTOR)
+  if(byte + n < byte || byte + n > (uint64)fs->part_sectors * SECTOR)
     return -1;
   while(n){
-    uint32 lba = e2.part_lba + byte / SECTOR;
+    uint32 bsize = blkdev_bsize(fs->dev);
+    if(bsize < SECTOR)
+      return -1;
+    uint32 block_take = bsize - byte % bsize;
+    if(block_take > n) block_take = n;
+
+    // Normal writes, including ordered file data, modify a cached ext2 block
+    // and write it once.  If a data write overlaps a sector already captured
+    // by the current transaction, preserve the old sector-level rule and
+    // update that journal copy instead.
+    int journal_range = fs->journal && xj_active() && !fs->direct;
+    if(fs->journal && xj_active() && fs->direct){
+      uint64 first = byte / SECTOR;
+      uint64 last = (byte + block_take - 1) / SECTOR;
+      for(uint64 s = first; s <= last; s++)
+        if(xj_contains(fs->part_lba + s)){
+          journal_range = 1;
+          break;
+        }
+    }
+    if(!journal_range){
+      if(e2_cache_write(fs, byte, p, block_take) < 0)
+        return -1;
+      p += block_take;
+      byte += block_take;
+      n -= block_take;
+      continue;
+    }
+
+    // Metadata stays outside the home bcache until commit.  Capture complete
+    // 512-byte sectors in xjournal, overlaying an earlier write when present.
+    uint32 lba = fs->part_lba + byte / SECTOR;
     uint32 off = byte % SECTOR;
     uint32 take = SECTOR - off;
-    if(take > n) take = n;
+    if(take > block_take) take = block_take;
     if(off == 0 && take == SECTOR){
-      if(e2_wsector(lba, p) < 0) return -1;
+      if(xj_write(lba, p) < 0) return -1;
     } else {
-      if(e2_rsector(lba, sectorbuf) < 0) return -1;
-      memmove(sectorbuf + off, p, take);
-      if(e2_wsector(lba, sectorbuf) < 0) return -1;
+      if(e2_rsector(fs, lba, fs->sectorbuf) < 0) return -1;
+      memmove(fs->sectorbuf + off, p, take);
+      if(xj_write(lba, fs->sectorbuf) < 0) return -1;
     }
     p += take; byte += take; n -= take;
   }
@@ -145,171 +257,186 @@ diskbytes_write(uint64 byte, const void *src, uint32 n)
 }
 
 static int
-readblock(uint32 bno, void *dst)
+readblock(struct ext2_fs *fs, uint32 bno, void *dst)
 {
-  if(bno == 0 || bno >= e2.blocks) return -1;
-  return diskbytes((uint64)bno * e2.block_size, dst, e2.block_size);
+  if(bno == 0 || bno >= fs->blocks) return -1;
+  return diskbytes(fs, (uint64)bno * fs->block_size, dst, fs->block_size);
 }
 
 static int
-writeblock(uint32 bno, const void *src)
+writeblock(struct ext2_fs *fs, uint32 bno, const void *src)
 {
-  if(bno == 0 || bno >= e2.blocks) return -1;
-  return diskbytes_write((uint64)bno * e2.block_size, src, e2.block_size);
+  if(bno == 0 || bno >= fs->blocks) return -1;
+  return diskbytes_write(fs, (uint64)bno * fs->block_size, src, fs->block_size);
 }
 
 // File contents bypass the journal (ordered mode): they reach the card before
 // the transaction that makes them reachable commits.
 static int
-writeblock_data(uint32 bno, const void *src)
+writeblock_data(struct ext2_fs *fs, uint32 bno, const void *src)
 {
-  e2.direct = 1;
-  int r = writeblock(bno, src);
-  e2.direct = 0;
+  fs->direct = 1;
+  int r = writeblock(fs, bno, src);
+  fs->direct = 0;
   return r;
 }
 
 static int
-readgd(uint32 group, uchar *gd)
+readgd(struct ext2_fs *fs, uint32 group, uchar *gd)
 {
-  if(group >= e2.groups || e2.desc_size > sizeof(inodebuf)) return -1;
-  return diskbytes((uint64)e2.gd_block * e2.block_size +
-                   group * e2.desc_size, gd, e2.desc_size);
+  if(group >= fs->groups || fs->desc_size > sizeof(fs->inodebuf)) return -1;
+  return diskbytes(fs, (uint64)fs->gd_block * fs->block_size +
+                   group * fs->desc_size, gd, fs->desc_size);
 }
 
 static int
-writegd(uint32 group, uchar *gd)
+writegd(struct ext2_fs *fs, uint32 group, uchar *gd)
 {
-  if(group >= e2.groups || e2.desc_size > sizeof(inodebuf)) return -1;
-  return diskbytes_write((uint64)e2.gd_block * e2.block_size +
-                         group * e2.desc_size, gd, e2.desc_size);
+  if(group >= fs->groups || fs->desc_size > sizeof(fs->inodebuf)) return -1;
+  return diskbytes_write(fs, (uint64)fs->gd_block * fs->block_size +
+                         group * fs->desc_size, gd, fs->desc_size);
 }
 
 static int
-readinode(uint32 ino, struct einode *ip)
+readinode(struct ext2_fs *fs, uint32 ino, struct einode *ip)
 {
   uint32 group, index, table;
   uint64 gd_off, off;
-  if(!e2.ready || ino == 0 || ino > e2.inodes) return -1;
-  group = (ino - 1) / e2.inodes_per_group;
-  index = (ino - 1) % e2.inodes_per_group;
-  if(group >= e2.groups || e2.inode_size > sizeof(inodebuf)) return -1;
-  gd_off = (uint64)e2.gd_block * e2.block_size + group * e2.desc_size;
-  if(diskbytes(gd_off, inodebuf, e2.desc_size) < 0) return -1;
-  table = le32(inodebuf + 8);
-  off = (uint64)table * e2.block_size + (uint64)index * e2.inode_size;
-  if(diskbytes(off, inodebuf, e2.inode_size) < 0) return -1;
+  if(!fs->ready || ino == 0 || ino > fs->inodes) return -1;
+  group = (ino - 1) / fs->inodes_per_group;
+  index = (ino - 1) % fs->inodes_per_group;
+  if(group >= fs->groups || fs->inode_size > sizeof(fs->inodebuf)) return -1;
+  gd_off = (uint64)fs->gd_block * fs->block_size + group * fs->desc_size;
+  if(diskbytes(fs, gd_off, fs->inodebuf, fs->desc_size) < 0) return -1;
+  table = le32(fs->inodebuf + 8);
+  off = (uint64)table * fs->block_size + (uint64)index * fs->inode_size;
+  if(diskbytes(fs, off, fs->inodebuf, fs->inode_size) < 0) return -1;
   ip->ino = ino;
-  ip->mode = le16(inodebuf);
-  ip->links = le16(inodebuf + 26);
-  ip->size = le32(inodebuf + 4);
+  ip->mode = le16(fs->inodebuf);
+  ip->links = le16(fs->inodebuf + 26);
+  ip->size = le32(fs->inodebuf + 4);
   if((ip->mode & EXT2_S_IFMT) == EXT2_S_IFREG)
-    ip->size |= (uint64)le32(inodebuf + 108) << 32;
-  ip->sectors = le32(inodebuf + 28);
-  ip->flags = le32(inodebuf + 32);
-  for(int i = 0; i < 15; i++) ip->block[i] = le32(inodebuf + 40 + i*4);
+    ip->size |= (uint64)le32(fs->inodebuf + 108) << 32;
+  ip->sectors = le32(fs->inodebuf + 28);
+  ip->flags = le32(fs->inodebuf + 32);
+  for(int i = 0; i < 15; i++) ip->block[i] = le32(fs->inodebuf + 40 + i*4);
   return 0;
 }
 
 static int
-writeinode(struct einode *ip)
+inode_supported(struct einode *ip)
 {
-  uint32 group, index, table;
-  uint64 off;
-  if(ip->ino == 0 || ip->ino > e2.inodes) return -1;
-  group = (ip->ino - 1) / e2.inodes_per_group;
-  index = (ip->ino - 1) % e2.inodes_per_group;
-  if(readgd(group, inodebuf) < 0) return -1;
-  table = le32(inodebuf + 8);
-  off = (uint64)table * e2.block_size + (uint64)index * e2.inode_size;
-  if(diskbytes(off, inodebuf, e2.inode_size) < 0) return -1;
-  put16(inodebuf, ip->mode);
-  put32(inodebuf + 4, (uint32)ip->size);
-  put16(inodebuf + 26, ip->links);
-  put32(inodebuf + 28, ip->sectors);
-  put32(inodebuf + 32, ip->flags);
-  for(int i = 0; i < 15; i++) put32(inodebuf + 40 + i*4, ip->block[i]);
-  if(e2.inode_size >= 112 && (ip->mode & EXT2_S_IFMT) == EXT2_S_IFREG)
-    put32(inodebuf + 108, ip->size >> 32);
-  return diskbytes_write(off, inodebuf, e2.inode_size);
+  uint16 kind = ip->mode & EXT2_S_IFMT;
+  if(kind != EXT2_S_IFREG && kind != EXT2_S_IFDIR)
+    return -1;
+  if(ip->flags & (EXT2_COMPR_FL | EXT4_EXTENTS_FL | EXT4_INLINE_DATA_FL))
+    return -1;
+  // htree directories require indexed lookup/insertion and cannot safely be
+  // treated as the linear ext2_dir_entry_2 stream implemented below.
+  if(kind == EXT2_S_IFDIR && (ip->flags & EXT2_INDEX_FL))
+    return -1;
+  return 0;
 }
 
 static int
-clearinode(uint32 ino)
+writeinode(struct ext2_fs *fs, struct einode *ip)
+{
+  uint32 group, index, table;
+  uint64 off;
+  if(ip->ino == 0 || ip->ino > fs->inodes) return -1;
+  group = (ip->ino - 1) / fs->inodes_per_group;
+  index = (ip->ino - 1) % fs->inodes_per_group;
+  if(readgd(fs, group, fs->inodebuf) < 0) return -1;
+  table = le32(fs->inodebuf + 8);
+  off = (uint64)table * fs->block_size + (uint64)index * fs->inode_size;
+  if(diskbytes(fs, off, fs->inodebuf, fs->inode_size) < 0) return -1;
+  put16(fs->inodebuf, ip->mode);
+  put32(fs->inodebuf + 4, (uint32)ip->size);
+  put16(fs->inodebuf + 26, ip->links);
+  put32(fs->inodebuf + 28, ip->sectors);
+  put32(fs->inodebuf + 32, ip->flags);
+  for(int i = 0; i < 15; i++) put32(fs->inodebuf + 40 + i*4, ip->block[i]);
+  if(fs->inode_size >= 112 && (ip->mode & EXT2_S_IFMT) == EXT2_S_IFREG)
+    put32(fs->inodebuf + 108, ip->size >> 32);
+  return diskbytes_write(fs, off, fs->inodebuf, fs->inode_size);
+}
+
+static int
+clearinode(struct ext2_fs *fs, uint32 ino)
 {
   uchar gd[64];
-  uint32 group = (ino - 1) / e2.inodes_per_group;
-  uint32 index = (ino - 1) % e2.inodes_per_group;
-  if(ino == 0 || ino > e2.inodes || readgd(group, gd) < 0) return -1;
+  uint32 group = (ino - 1) / fs->inodes_per_group;
+  uint32 index = (ino - 1) % fs->inodes_per_group;
+  if(ino == 0 || ino > fs->inodes || readgd(fs, group, gd) < 0) return -1;
   uint32 table = le32(gd + 8);
-  uint64 off = (uint64)table * e2.block_size + (uint64)index * e2.inode_size;
-  memset(inodebuf, 0, e2.inode_size);
-  return diskbytes_write(off, inodebuf, e2.inode_size);
+  uint64 off = (uint64)table * fs->block_size + (uint64)index * fs->inode_size;
+  memset(fs->inodebuf, 0, fs->inode_size);
+  return diskbytes_write(fs, off, fs->inodebuf, fs->inode_size);
 }
 
 static uint64
-max_file_blocks(void)
+max_file_blocks(struct ext2_fs *fs)
 {
-  uint64 n = e2.block_size / 4;
+  uint64 n = fs->block_size / 4;
   return 12 + n + n*n + n*n*n;
 }
 
 static uint32
-fileblock(struct einode *ip, uint64 logical)
+fileblock(struct ext2_fs *fs, struct einode *ip, uint64 logical)
 {
-  uint64 n = e2.block_size / 4;
+  uint64 n = fs->block_size / 4;
   if(logical < 12) return ip->block[logical];
   logical -= 12;
   if(logical < n){
-    if(ip->block[12] == 0 || readblock(ip->block[12], ptrbuf[0]) < 0)
+    if(ip->block[12] == 0 || readblock(fs, ip->block[12], fs->ptrbuf[0]) < 0)
       return 0;
-    return ptrbuf[0][logical];
+    return fs->ptrbuf[0][logical];
   }
   logical -= n;
   if(logical < n*n){
-    if(ip->block[13] == 0 || readblock(ip->block[13], ptrbuf[0]) < 0)
+    if(ip->block[13] == 0 || readblock(fs, ip->block[13], fs->ptrbuf[0]) < 0)
       return 0;
-    uint32 child = ptrbuf[0][logical / n];
-    if(child == 0 || readblock(child, ptrbuf[1]) < 0)
+    uint32 child = fs->ptrbuf[0][logical / n];
+    if(child == 0 || readblock(fs, child, fs->ptrbuf[1]) < 0)
       return 0;
-    return ptrbuf[1][logical % n];
+    return fs->ptrbuf[1][logical % n];
   }
   logical -= n*n;
   if(logical >= n*n*n || ip->block[14] == 0 ||
-     readblock(ip->block[14], ptrbuf[0]) < 0)
+     readblock(fs, ip->block[14], fs->ptrbuf[0]) < 0)
     return 0;
   uint64 per_top = n*n;
-  uint32 middle = ptrbuf[0][logical / per_top];
-  if(middle == 0 || readblock(middle, ptrbuf[1]) < 0)
+  uint32 middle = fs->ptrbuf[0][logical / per_top];
+  if(middle == 0 || readblock(fs, middle, fs->ptrbuf[1]) < 0)
     return 0;
   logical %= per_top;
-  uint32 leaf = ptrbuf[1][logical / n];
-  if(leaf == 0 || readblock(leaf, ptrbuf[2]) < 0)
+  uint32 leaf = fs->ptrbuf[1][logical / n];
+  if(leaf == 0 || readblock(fs, leaf, fs->ptrbuf[2]) < 0)
     return 0;
-  return ptrbuf[2][logical % n];
+  return fs->ptrbuf[2][logical % n];
 }
 
 static int
-adjust_super_count(uint32 offset, int delta)
+adjust_super_count(struct ext2_fs *fs, uint32 offset, int delta)
 {
   uchar v[4];
-  if(diskbytes(1024 + offset, v, sizeof(v)) < 0) return -1;
+  if(diskbytes(fs, 1024 + offset, v, sizeof(v)) < 0) return -1;
   put32(v, le32(v) + delta);
-  return diskbytes_write(1024 + offset, v, sizeof(v));
+  return diskbytes_write(fs, 1024 + offset, v, sizeof(v));
 }
 
 static int
-mark_write_session_dirty(void)
+mark_write_session_dirty(struct ext2_fs *fs)
 {
   uchar state[2];
-  if(e2.dirty) return 0;
-  if(diskbytes(1024 + 58, state, sizeof(state)) < 0) return -1;
+  if(fs->dirty) return 0;
+  if(diskbytes(fs, 1024 + 58, state, sizeof(state)) < 0) return -1;
   put16(state, 0); // clear EXT2_VALID_FS until a future clean-unmount exists
-  e2.direct = 1;   // outside any transaction: stays set even if one aborts
-  int r = diskbytes_write(1024 + 58, state, sizeof(state));
-  e2.direct = 0;
+  fs->direct = 1;   // outside any transaction: stays set even if one aborts
+  int r = diskbytes_write(fs, 1024 + 58, state, sizeof(state));
+  fs->direct = 0;
   if(r < 0 || sdflush() < 0) return -1;
-  e2.dirty = 1;
+  fs->dirty = 1;
   printf("ext2: write session active; run e2fsck after unclean power loss\n");
   return 0;
 }
@@ -318,39 +445,39 @@ mark_write_session_dirty(void)
 // overwritten in place) before the free commits: an abort or a crash would
 // hand it back to its old owner with foreign contents.
 static int
-freed_in_tx(uint32 bno)
+freed_in_tx(struct ext2_fs *fs, uint32 bno)
 {
-  for(uint32 i = 0; i < e2.nfreed; i++)
-    if(e2.freed[i] == bno) return 1;
+  for(uint32 i = 0; i < fs->nfreed; i++)
+    if(fs->freed[i] == bno) return 1;
   return 0;
 }
 
 static int
-alloc_block(uint32 preferred_group, uint32 *out)
+alloc_block(struct ext2_fs *fs, uint32 preferred_group, uint32 *out)
 {
   uchar gd[64];
-  for(uint32 pass = 0; pass < e2.groups; pass++){
-    uint32 group = (preferred_group + pass) % e2.groups;
-    uint32 first = e2.first_data_block + group * e2.blocks_per_group;
-    uint32 count = e2.blocks_per_group;
-    if(first >= e2.blocks) continue;
-    if(count > e2.blocks - first) count = e2.blocks - first;
-    if(readgd(group, gd) < 0 || le16(gd + 12) == 0) continue;
+  for(uint32 pass = 0; pass < fs->groups; pass++){
+    uint32 group = (preferred_group + pass) % fs->groups;
+    uint32 first = fs->first_data_block + group * fs->blocks_per_group;
+    uint32 count = fs->blocks_per_group;
+    if(first >= fs->blocks) continue;
+    if(count > fs->blocks - first) count = fs->blocks - first;
+    if(readgd(fs, group, gd) < 0 || le16(gd + 12) == 0) continue;
     uint32 bitmap = le32(gd);
-    if(readblock(bitmap, blockbuf) < 0) return -1;
+    if(readblock(fs, bitmap, fs->blockbuf) < 0) return -1;
     for(uint32 bit = 0; bit < count; bit++){
-      if((blockbuf[bit >> 3] & (1U << (bit & 7))) != 0) continue;
-      if(freed_in_tx(first + bit)) continue;   // still owned if we abort
-      blockbuf[bit >> 3] |= 1U << (bit & 7);
-      if(writeblock(bitmap, blockbuf) < 0) return -1;
+      if((fs->blockbuf[bit >> 3] & (1U << (bit & 7))) != 0) continue;
+      if(freed_in_tx(fs, first + bit)) continue;   // still owned if we abort
+      fs->blockbuf[bit >> 3] |= 1U << (bit & 7);
+      if(writeblock(fs, bitmap, fs->blockbuf) < 0) return -1;
       put16(gd + 12, le16(gd + 12) - 1);
-      if(writegd(group, gd) < 0 || adjust_super_count(12, -1) < 0)
+      if(writegd(fs, group, gd) < 0 || adjust_super_count(fs, 12, -1) < 0)
         return -1;
       *out = first + bit;
       // The block is unreachable until this transaction commits, so it can
       // be zeroed in place instead of through the journal.
-      memset(blockbuf, 0, e2.block_size);
-      if(writeblock_data(*out, blockbuf) < 0) return -1;
+      memset(fs->blockbuf, 0, fs->block_size);
+      if(writeblock_data(fs, *out, fs->blockbuf) < 0) return -1;
       return 0;
     }
   }
@@ -358,53 +485,53 @@ alloc_block(uint32 preferred_group, uint32 *out)
 }
 
 static int
-free_block(uint32 bno)
+free_block(struct ext2_fs *fs, uint32 bno)
 {
   uchar gd[64];
-  if(bno < e2.first_data_block || bno >= e2.blocks) return -1;
-  uint32 group = (bno - e2.first_data_block) / e2.blocks_per_group;
-  uint32 bit = (bno - e2.first_data_block) % e2.blocks_per_group;
-  if(readgd(group, gd) < 0) return -1;
+  if(bno < fs->first_data_block || bno >= fs->blocks) return -1;
+  uint32 group = (bno - fs->first_data_block) / fs->blocks_per_group;
+  uint32 bit = (bno - fs->first_data_block) % fs->blocks_per_group;
+  if(readgd(fs, group, gd) < 0) return -1;
   uint32 bitmap = le32(gd);
-  if(readblock(bitmap, blockbuf) < 0 ||
-     (blockbuf[bit >> 3] & (1U << (bit & 7))) == 0) return -1;
-  blockbuf[bit >> 3] &= ~(1U << (bit & 7));
-  if(writeblock(bitmap, blockbuf) < 0) return -1;
+  if(readblock(fs, bitmap, fs->blockbuf) < 0 ||
+     (fs->blockbuf[bit >> 3] & (1U << (bit & 7))) == 0) return -1;
+  fs->blockbuf[bit >> 3] &= ~(1U << (bit & 7));
+  if(writeblock(fs, bitmap, fs->blockbuf) < 0) return -1;
   put16(gd + 12, le16(gd + 12) + 1);
-  if(e2.nfreed < E2_MAXFREED) e2.freed[e2.nfreed++] = bno;
-  return writegd(group, gd) < 0 ? -1 : adjust_super_count(12, 1);
+  if(fs->nfreed < E2_MAXFREED) fs->freed[fs->nfreed++] = bno;
+  return writegd(fs, group, gd) < 0 ? -1 : adjust_super_count(fs, 12, 1);
 }
 
 static int
-alloc_inode(uint32 preferred_group, uint16 mode, struct einode *ip)
+alloc_inode(struct ext2_fs *fs, uint32 preferred_group, uint16 mode, struct einode *ip)
 {
   uchar gd[64];
-  for(uint32 pass = 0; pass < e2.groups; pass++){
-    uint32 group = (preferred_group + pass) % e2.groups;
-    uint32 count = e2.inodes_per_group;
-    uint32 first = group * e2.inodes_per_group + 1;
-    if(first > e2.inodes) continue;
-    if(count > e2.inodes - first + 1) count = e2.inodes - first + 1;
-    if(readgd(group, gd) < 0 || le16(gd + 14) == 0) continue;
+  for(uint32 pass = 0; pass < fs->groups; pass++){
+    uint32 group = (preferred_group + pass) % fs->groups;
+    uint32 count = fs->inodes_per_group;
+    uint32 first = group * fs->inodes_per_group + 1;
+    if(first > fs->inodes) continue;
+    if(count > fs->inodes - first + 1) count = fs->inodes - first + 1;
+    if(readgd(fs, group, gd) < 0 || le16(gd + 14) == 0) continue;
     uint32 bitmap = le32(gd + 4);
-    if(readblock(bitmap, blockbuf) < 0) return -1;
+    if(readblock(fs, bitmap, fs->blockbuf) < 0) return -1;
     for(uint32 bit = 0; bit < count; bit++){
       uint32 ino = first + bit;
-      if(ino < e2.first_ino ||
-         (blockbuf[bit >> 3] & (1U << (bit & 7))) != 0) continue;
-      blockbuf[bit >> 3] |= 1U << (bit & 7);
-      if(writeblock(bitmap, blockbuf) < 0) return -1;
+      if(ino < fs->first_ino ||
+         (fs->blockbuf[bit >> 3] & (1U << (bit & 7))) != 0) continue;
+      fs->blockbuf[bit >> 3] |= 1U << (bit & 7);
+      if(writeblock(fs, bitmap, fs->blockbuf) < 0) return -1;
       put16(gd + 14, le16(gd + 14) - 1);
       if((mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
         put16(gd + 16, le16(gd + 16) + 1);
-      if(writegd(group, gd) < 0 || adjust_super_count(16, -1) < 0)
+      if(writegd(fs, group, gd) < 0 || adjust_super_count(fs, 16, -1) < 0)
         return -1;
-      if(clearinode(ino) < 0) return -1;
+      if(clearinode(fs, ino) < 0) return -1;
       memset(ip, 0, sizeof(*ip));
       ip->ino = ino;
       ip->mode = mode;
       ip->links = 1;
-      if(writeinode(ip) < 0) return -1;
+      if(writeinode(fs, ip) < 0) return -1;
       return 0;
     }
   }
@@ -412,43 +539,43 @@ alloc_inode(uint32 preferred_group, uint16 mode, struct einode *ip)
 }
 
 static int
-free_inode(uint32 ino, int directory)
+free_inode(struct ext2_fs *fs, uint32 ino, int directory)
 {
   uchar gd[64];
-  if(ino < e2.first_ino || ino > e2.inodes) return -1;
-  uint32 group = (ino - 1) / e2.inodes_per_group;
-  uint32 bit = (ino - 1) % e2.inodes_per_group;
-  if(readgd(group, gd) < 0) return -1;
+  if(ino < fs->first_ino || ino > fs->inodes) return -1;
+  uint32 group = (ino - 1) / fs->inodes_per_group;
+  uint32 bit = (ino - 1) % fs->inodes_per_group;
+  if(readgd(fs, group, gd) < 0) return -1;
   uint32 bitmap = le32(gd + 4);
-  if(readblock(bitmap, blockbuf) < 0 ||
-     (blockbuf[bit >> 3] & (1U << (bit & 7))) == 0) return -1;
-  blockbuf[bit >> 3] &= ~(1U << (bit & 7));
-  if(writeblock(bitmap, blockbuf) < 0) return -1;
+  if(readblock(fs, bitmap, fs->blockbuf) < 0 ||
+     (fs->blockbuf[bit >> 3] & (1U << (bit & 7))) == 0) return -1;
+  fs->blockbuf[bit >> 3] &= ~(1U << (bit & 7));
+  if(writeblock(fs, bitmap, fs->blockbuf) < 0) return -1;
   put16(gd + 14, le16(gd + 14) + 1);
   if(directory){
     uint16 used = le16(gd + 16);
     if(used == 0) return -1;
     put16(gd + 16, used - 1);
   }
-  if(writegd(group, gd) < 0 || adjust_super_count(16, 1) < 0)
+  if(writegd(fs, group, gd) < 0 || adjust_super_count(fs, 16, 1) < 0)
     return -1;
-  return clearinode(ino);
+  return clearinode(fs, ino);
 }
 
 static int
-alloc_pointer_block(struct einode *ip, uint32 group, uint32 *slot)
+alloc_pointer_block(struct ext2_fs *fs, struct einode *ip, uint32 group, uint32 *slot)
 {
-  if(alloc_block(group, slot) < 0)
+  if(alloc_block(fs, group, slot) < 0)
     return -1;
-  ip->sectors += e2.block_size / SECTOR;
+  ip->sectors += fs->block_size / SECTOR;
   return 0;
 }
 
 static int
-set_fileblock(struct einode *ip, uint64 logical, uint32 bno)
+set_fileblock(struct ext2_fs *fs, struct einode *ip, uint64 logical, uint32 bno)
 {
-  uint64 n = e2.block_size / 4;
-  uint32 group = (ip->ino - 1) / e2.inodes_per_group;
+  uint64 n = fs->block_size / 4;
+  uint32 group = (ip->ino - 1) / fs->inodes_per_group;
   if(logical < 12){
     ip->block[logical] = bno;
     return 0;
@@ -457,28 +584,28 @@ set_fileblock(struct einode *ip, uint64 logical, uint32 bno)
   if(logical < n){
     if(ip->block[12] == 0){
       if(bno == 0) return 0;
-      if(alloc_pointer_block(ip, group, &ip->block[12]) < 0) return -1;
+      if(alloc_pointer_block(fs, ip, group, &ip->block[12]) < 0) return -1;
     }
-    if(readblock(ip->block[12], ptrbuf[0]) < 0) return -1;
-    ptrbuf[0][logical] = bno;
-    return writeblock(ip->block[12], ptrbuf[0]);
+    if(readblock(fs, ip->block[12], fs->ptrbuf[0]) < 0) return -1;
+    fs->ptrbuf[0][logical] = bno;
+    return writeblock(fs, ip->block[12], fs->ptrbuf[0]);
   }
   logical -= n;
   if(logical < n*n){
     uint32 top = logical / n, leaf = logical % n;
     if(ip->block[13] == 0){
       if(bno == 0) return 0;
-      if(alloc_pointer_block(ip, group, &ip->block[13]) < 0) return -1;
+      if(alloc_pointer_block(fs, ip, group, &ip->block[13]) < 0) return -1;
     }
-    if(readblock(ip->block[13], ptrbuf[0]) < 0) return -1;
-    if(ptrbuf[0][top] == 0){
+    if(readblock(fs, ip->block[13], fs->ptrbuf[0]) < 0) return -1;
+    if(fs->ptrbuf[0][top] == 0){
       if(bno == 0) return 0;
-      if(alloc_pointer_block(ip, group, &ptrbuf[0][top]) < 0 ||
-         writeblock(ip->block[13], ptrbuf[0]) < 0) return -1;
+      if(alloc_pointer_block(fs, ip, group, &fs->ptrbuf[0][top]) < 0 ||
+         writeblock(fs, ip->block[13], fs->ptrbuf[0]) < 0) return -1;
     }
-    if(readblock(ptrbuf[0][top], ptrbuf[1]) < 0) return -1;
-    ptrbuf[1][leaf] = bno;
-    return writeblock(ptrbuf[0][top], ptrbuf[1]);
+    if(readblock(fs, fs->ptrbuf[0][top], fs->ptrbuf[1]) < 0) return -1;
+    fs->ptrbuf[1][leaf] = bno;
+    return writeblock(fs, fs->ptrbuf[0][top], fs->ptrbuf[1]);
   }
   logical -= n*n;
   if(logical >= n*n*n) return -1;
@@ -487,60 +614,60 @@ set_fileblock(struct einode *ip, uint64 logical, uint32 bno)
   uint32 leaf = logical % n;
   if(ip->block[14] == 0){
     if(bno == 0) return 0;
-    if(alloc_pointer_block(ip, group, &ip->block[14]) < 0) return -1;
+    if(alloc_pointer_block(fs, ip, group, &ip->block[14]) < 0) return -1;
   }
-  if(readblock(ip->block[14], ptrbuf[0]) < 0) return -1;
-  if(ptrbuf[0][top] == 0){
+  if(readblock(fs, ip->block[14], fs->ptrbuf[0]) < 0) return -1;
+  if(fs->ptrbuf[0][top] == 0){
     if(bno == 0) return 0;
-    if(alloc_pointer_block(ip, group, &ptrbuf[0][top]) < 0 ||
-       writeblock(ip->block[14], ptrbuf[0]) < 0) return -1;
+    if(alloc_pointer_block(fs, ip, group, &fs->ptrbuf[0][top]) < 0 ||
+       writeblock(fs, ip->block[14], fs->ptrbuf[0]) < 0) return -1;
   }
-  if(readblock(ptrbuf[0][top], ptrbuf[1]) < 0) return -1;
-  if(ptrbuf[1][middle] == 0){
+  if(readblock(fs, fs->ptrbuf[0][top], fs->ptrbuf[1]) < 0) return -1;
+  if(fs->ptrbuf[1][middle] == 0){
     if(bno == 0) return 0;
-    if(alloc_pointer_block(ip, group, &ptrbuf[1][middle]) < 0 ||
-       writeblock(ptrbuf[0][top], ptrbuf[1]) < 0) return -1;
+    if(alloc_pointer_block(fs, ip, group, &fs->ptrbuf[1][middle]) < 0 ||
+       writeblock(fs, fs->ptrbuf[0][top], fs->ptrbuf[1]) < 0) return -1;
   }
-  if(readblock(ptrbuf[1][middle], ptrbuf[2]) < 0) return -1;
-  ptrbuf[2][leaf] = bno;
-  return writeblock(ptrbuf[1][middle], ptrbuf[2]);
+  if(readblock(fs, fs->ptrbuf[1][middle], fs->ptrbuf[2]) < 0) return -1;
+  fs->ptrbuf[2][leaf] = bno;
+  return writeblock(fs, fs->ptrbuf[1][middle], fs->ptrbuf[2]);
 }
 
 static uint32
-get_or_alloc_fileblock(struct einode *ip, uint64 logical)
+get_or_alloc_fileblock(struct ext2_fs *fs, struct einode *ip, uint64 logical)
 {
-  uint32 bno = fileblock(ip, logical);
+  uint32 bno = fileblock(fs, ip, logical);
   if(bno) return bno;
-  uint32 group = (ip->ino - 1) / e2.inodes_per_group;
-  if(alloc_block(group, &bno) < 0 || set_fileblock(ip, logical, bno) < 0)
+  uint32 group = (ip->ino - 1) / fs->inodes_per_group;
+  if(alloc_block(fs, group, &bno) < 0 || set_fileblock(fs, ip, logical, bno) < 0)
     return 0;
-  ip->sectors += e2.block_size / SECTOR;
+  ip->sectors += fs->block_size / SECTOR;
   return bno;
 }
 
 static int
-ptr_empty(uint32 *p)
+ptr_empty(struct ext2_fs *fs, uint32 *p)
 {
-  for(uint32 i = 0; i < e2.block_size / 4; i++)
+  for(uint32 i = 0; i < fs->block_size / 4; i++)
     if(p[i]) return 0;
   return 1;
 }
 
 static void
-account_free(struct einode *ip)
+account_free(struct ext2_fs *fs, struct einode *ip)
 {
-  uint32 sectors = e2.block_size / SECTOR;
+  uint32 sectors = fs->block_size / SECTOR;
   ip->sectors = ip->sectors >= sectors ? ip->sectors - sectors : 0;
 }
 
 // Free one data block and prune now-empty indirect blocks on its path.
 static int
-clear_fileblock(struct einode *ip, uint64 logical)
+clear_fileblock(struct ext2_fs *fs, struct einode *ip, uint64 logical)
 {
-  uint64 n = e2.block_size / 4;
+  uint64 n = fs->block_size / 4;
   if(logical < 12){
-    if(ip->block[logical] && free_block(ip->block[logical]) < 0) return -1;
-    if(ip->block[logical]) account_free(ip);
+    if(ip->block[logical] && free_block(fs, ip->block[logical]) < 0) return -1;
+    if(ip->block[logical]) account_free(fs, ip);
     ip->block[logical] = 0;
     return 0;
   }
@@ -548,98 +675,98 @@ clear_fileblock(struct einode *ip, uint64 logical)
   if(logical < n){
     uint32 root = ip->block[12];
     if(root == 0) return 0;
-    if(readblock(root, ptrbuf[0]) < 0) return -1;
-    if(ptrbuf[0][logical]){
-      if(free_block(ptrbuf[0][logical]) < 0) return -1;
-      account_free(ip); ptrbuf[0][logical] = 0;
+    if(readblock(fs, root, fs->ptrbuf[0]) < 0) return -1;
+    if(fs->ptrbuf[0][logical]){
+      if(free_block(fs, fs->ptrbuf[0][logical]) < 0) return -1;
+      account_free(fs, ip); fs->ptrbuf[0][logical] = 0;
     }
-    if(ptr_empty(ptrbuf[0])){
-      if(free_block(root) < 0) return -1;
-      account_free(ip); ip->block[12] = 0;
-    } else if(writeblock(root, ptrbuf[0]) < 0) return -1;
+    if(ptr_empty(fs, fs->ptrbuf[0])){
+      if(free_block(fs, root) < 0) return -1;
+      account_free(fs, ip); ip->block[12] = 0;
+    } else if(writeblock(fs, root, fs->ptrbuf[0]) < 0) return -1;
     return 0;
   }
   logical -= n;
   if(logical < n*n){
     uint32 top = logical / n, leaf = logical % n;
     uint32 root = ip->block[13];
-    if(root == 0 || readblock(root, ptrbuf[0]) < 0) return root ? -1 : 0;
-    uint32 child = ptrbuf[0][top];
-    if(child == 0 || readblock(child, ptrbuf[1]) < 0) return child ? -1 : 0;
-    if(ptrbuf[1][leaf]){
-      if(free_block(ptrbuf[1][leaf]) < 0) return -1;
-      account_free(ip); ptrbuf[1][leaf] = 0;
+    if(root == 0 || readblock(fs, root, fs->ptrbuf[0]) < 0) return root ? -1 : 0;
+    uint32 child = fs->ptrbuf[0][top];
+    if(child == 0 || readblock(fs, child, fs->ptrbuf[1]) < 0) return child ? -1 : 0;
+    if(fs->ptrbuf[1][leaf]){
+      if(free_block(fs, fs->ptrbuf[1][leaf]) < 0) return -1;
+      account_free(fs, ip); fs->ptrbuf[1][leaf] = 0;
     }
-    if(ptr_empty(ptrbuf[1])){
-      if(free_block(child) < 0) return -1;
-      account_free(ip); ptrbuf[0][top] = 0;
-    } else if(writeblock(child, ptrbuf[1]) < 0) return -1;
-    if(ptr_empty(ptrbuf[0])){
-      if(free_block(root) < 0) return -1;
-      account_free(ip); ip->block[13] = 0;
-    } else if(writeblock(root, ptrbuf[0]) < 0) return -1;
+    if(ptr_empty(fs, fs->ptrbuf[1])){
+      if(free_block(fs, child) < 0) return -1;
+      account_free(fs, ip); fs->ptrbuf[0][top] = 0;
+    } else if(writeblock(fs, child, fs->ptrbuf[1]) < 0) return -1;
+    if(ptr_empty(fs, fs->ptrbuf[0])){
+      if(free_block(fs, root) < 0) return -1;
+      account_free(fs, ip); ip->block[13] = 0;
+    } else if(writeblock(fs, root, fs->ptrbuf[0]) < 0) return -1;
     return 0;
   }
   logical -= n*n;
   if(logical >= n*n*n) return -1;
   uint32 top = logical / (n*n), middle = (logical / n) % n, leaf = logical % n;
   uint32 root = ip->block[14];
-  if(root == 0 || readblock(root, ptrbuf[0]) < 0) return root ? -1 : 0;
-  uint32 midblock = ptrbuf[0][top];
-  if(midblock == 0 || readblock(midblock, ptrbuf[1]) < 0)
+  if(root == 0 || readblock(fs, root, fs->ptrbuf[0]) < 0) return root ? -1 : 0;
+  uint32 midblock = fs->ptrbuf[0][top];
+  if(midblock == 0 || readblock(fs, midblock, fs->ptrbuf[1]) < 0)
     return midblock ? -1 : 0;
-  uint32 leafblock = ptrbuf[1][middle];
-  if(leafblock == 0 || readblock(leafblock, ptrbuf[2]) < 0)
+  uint32 leafblock = fs->ptrbuf[1][middle];
+  if(leafblock == 0 || readblock(fs, leafblock, fs->ptrbuf[2]) < 0)
     return leafblock ? -1 : 0;
-  if(ptrbuf[2][leaf]){
-    if(free_block(ptrbuf[2][leaf]) < 0) return -1;
-    account_free(ip); ptrbuf[2][leaf] = 0;
+  if(fs->ptrbuf[2][leaf]){
+    if(free_block(fs, fs->ptrbuf[2][leaf]) < 0) return -1;
+    account_free(fs, ip); fs->ptrbuf[2][leaf] = 0;
   }
-  if(ptr_empty(ptrbuf[2])){
-    if(free_block(leafblock) < 0) return -1;
-    account_free(ip); ptrbuf[1][middle] = 0;
-  } else if(writeblock(leafblock, ptrbuf[2]) < 0) return -1;
-  if(ptr_empty(ptrbuf[1])){
-    if(free_block(midblock) < 0) return -1;
-    account_free(ip); ptrbuf[0][top] = 0;
-  } else if(writeblock(midblock, ptrbuf[1]) < 0) return -1;
-  if(ptr_empty(ptrbuf[0])){
-    if(free_block(root) < 0) return -1;
-    account_free(ip); ip->block[14] = 0;
-  } else if(writeblock(root, ptrbuf[0]) < 0) return -1;
+  if(ptr_empty(fs, fs->ptrbuf[2])){
+    if(free_block(fs, leafblock) < 0) return -1;
+    account_free(fs, ip); fs->ptrbuf[1][middle] = 0;
+  } else if(writeblock(fs, leafblock, fs->ptrbuf[2]) < 0) return -1;
+  if(ptr_empty(fs, fs->ptrbuf[1])){
+    if(free_block(fs, midblock) < 0) return -1;
+    account_free(fs, ip); fs->ptrbuf[0][top] = 0;
+  } else if(writeblock(fs, midblock, fs->ptrbuf[1]) < 0) return -1;
+  if(ptr_empty(fs, fs->ptrbuf[0])){
+    if(free_block(fs, root) < 0) return -1;
+    account_free(fs, ip); ip->block[14] = 0;
+  } else if(writeblock(fs, root, fs->ptrbuf[0]) < 0) return -1;
   return 0;
 }
 
-static int tx_checkpoint(struct einode *ip);
+static int tx_checkpoint(struct ext2_fs *fs, struct einode *ip);
 
 static int
-truncate_inode(struct einode *ip, uint64 newsize)
+truncate_inode(struct ext2_fs *fs, struct einode *ip, uint64 newsize)
 {
-  uint64 maxsize = max_file_blocks() * e2.block_size;
+  uint64 maxsize = max_file_blocks(fs) * fs->block_size;
   if(newsize > maxsize) return -1;
   if(newsize < ip->size){
-    uint64 oldblocks = (ip->size + e2.block_size - 1) / e2.block_size;
-    uint64 keepblocks = (newsize + e2.block_size - 1) / e2.block_size;
+    uint64 oldblocks = (ip->size + fs->block_size - 1) / fs->block_size;
+    uint64 keepblocks = (newsize + fs->block_size - 1) / fs->block_size;
     while(oldblocks > keepblocks){
-      if(clear_fileblock(ip, --oldblocks) < 0) return -1;
+      if(clear_fileblock(fs, ip, --oldblocks) < 0) return -1;
       // Keep the inode consistent with the blocks freed so far, so a split
       // transaction (tx_checkpoint) never commits dangling pointers.
-      if(ip->size > oldblocks * e2.block_size)
-        ip->size = oldblocks * e2.block_size;
-      if(e2.journal && xj_space() <= 96 && tx_checkpoint(ip) < 0) return -1;
+      if(ip->size > oldblocks * fs->block_size)
+        ip->size = oldblocks * fs->block_size;
+      if(fs->journal && xj_space() <= 96 && tx_checkpoint(fs, ip) < 0) return -1;
     }
-    if(newsize && (newsize % e2.block_size)){
-      uint32 bno = fileblock(ip, newsize / e2.block_size);
+    if(newsize && (newsize % fs->block_size)){
+      uint32 bno = fileblock(fs, ip, newsize / fs->block_size);
       if(bno){
-        if(readblock(bno, blockbuf) < 0) return -1;
-        memset(blockbuf + newsize % e2.block_size, 0,
-               e2.block_size - newsize % e2.block_size);
-        if(writeblock_data(bno, blockbuf) < 0) return -1;
+        if(readblock(fs, bno, fs->blockbuf) < 0) return -1;
+        memset(fs->blockbuf + newsize % fs->block_size, 0,
+               fs->block_size - newsize % fs->block_size);
+        if(writeblock_data(fs, bno, fs->blockbuf) < 0) return -1;
       }
     }
   }
   ip->size = newsize;
-  return writeinode(ip);
+  return writeinode(fs, ip);
 }
 
 static int
@@ -651,24 +778,24 @@ nameeq(const uchar *p, int n, const char *s, int sn)
 }
 
 static int
-e2dirlookup(struct einode *dp, const char *name, int namelen, uint32 *ino)
+e2dirlookup(struct ext2_fs *fs, struct einode *dp, const char *name, int namelen, uint32 *ino)
 {
   uint64 pos = 0, loaded = (uint64)-1;
   if((dp->mode & EXT2_S_IFMT) != EXT2_S_IFDIR) return -1;
   while(pos + 8 <= dp->size){
-    uint64 logical = pos / e2.block_size;
-    uint32 inblock = pos % e2.block_size;
+    uint64 logical = pos / fs->block_size;
+    uint32 inblock = pos % fs->block_size;
     if(logical != loaded){
-      uint32 b = fileblock(dp, logical);
-      if(b == 0 || readblock(b, blockbuf) < 0) return -1;
+      uint32 b = fileblock(fs, dp, logical);
+      if(b == 0 || readblock(fs, b, fs->blockbuf) < 0) return -1;
       loaded = logical;
     }
-    if(inblock + 8 > e2.block_size) return -1;
-    uchar *de = blockbuf + inblock;
+    if(inblock + 8 > fs->block_size) return -1;
+    uchar *de = fs->blockbuf + inblock;
     uint32 deino = le32(de);
     uint16 reclen = le16(de + 4);
     uint8 nlen = de[6];
-    if(reclen < 8 || (reclen & 3) || inblock + reclen > e2.block_size)
+    if(reclen < 8 || (reclen & 3) || inblock + reclen > fs->block_size)
       return -1;
     if(deino && nlen <= reclen - 8 && nameeq(de + 8, nlen, name, namelen)){
       *ino = deino;
@@ -680,19 +807,19 @@ e2dirlookup(struct einode *dp, const char *name, int namelen, uint32 *ino)
 }
 
 static int
-e2diradd(struct einode *dp, const char *name, int namelen, uint32 ino, uint8 type)
+e2diradd(struct ext2_fs *fs, struct einode *dp, const char *name, int namelen, uint32 ino, uint8 type)
 {
   uint32 need = (8 + namelen + 3) & ~3U;
-  uint64 nblock = (dp->size + e2.block_size - 1) / e2.block_size;
+  uint64 nblock = (dp->size + fs->block_size - 1) / fs->block_size;
   for(uint64 logical = 0; logical < nblock; logical++){
-    uint32 bno = fileblock(dp, logical);
-    if(bno == 0 || readblock(bno, blockbuf) < 0) return -1;
-    for(uint32 pos = 0; pos + 8 <= e2.block_size; ){
-      uchar *de = blockbuf + pos;
+    uint32 bno = fileblock(fs, dp, logical);
+    if(bno == 0 || readblock(fs, bno, fs->blockbuf) < 0) return -1;
+    for(uint32 pos = 0; pos + 8 <= fs->block_size; ){
+      uchar *de = fs->blockbuf + pos;
       uint32 deino = le32(de);
       uint16 reclen = le16(de + 4);
       uint8 nlen = de[6];
-      if(reclen < 8 || (reclen & 3) || pos + reclen > e2.block_size)
+      if(reclen < 8 || (reclen & 3) || pos + reclen > fs->block_size)
         return -1;
       uint32 used = deino ? ((8 + nlen + 3) & ~3U) : 0;
       if(deino && nlen > reclen - 8) return -1;
@@ -705,55 +832,55 @@ e2diradd(struct einode *dp, const char *name, int namelen, uint32 ino, uint8 typ
           slot += used;
           slotlen -= used;
         }
-        de = blockbuf + slot;
+        de = fs->blockbuf + slot;
         memset(de, 0, slotlen);
         put32(de, ino);
         put16(de + 4, slotlen);
         de[6] = namelen;
         de[7] = type;
         memmove(de + 8, name, namelen);
-        return writeblock(bno, blockbuf);
+        return writeblock(fs, bno, fs->blockbuf);
       }
       pos += reclen;
     }
   }
 
-  if(nblock >= max_file_blocks()) return -1;
-  uint32 bno = get_or_alloc_fileblock(dp, nblock);
+  if(nblock >= max_file_blocks(fs)) return -1;
+  uint32 bno = get_or_alloc_fileblock(fs, dp, nblock);
   if(bno == 0) return -1;
-  memset(blockbuf, 0, e2.block_size);
-  put32(blockbuf, ino);
-  put16(blockbuf + 4, e2.block_size);
-  blockbuf[6] = namelen;
-  blockbuf[7] = type;
-  memmove(blockbuf + 8, name, namelen);
-  if(writeblock(bno, blockbuf) < 0) return -1;
-  dp->size = (uint64)(nblock + 1) * e2.block_size;
-  return writeinode(dp);
+  memset(fs->blockbuf, 0, fs->block_size);
+  put32(fs->blockbuf, ino);
+  put16(fs->blockbuf + 4, fs->block_size);
+  fs->blockbuf[6] = namelen;
+  fs->blockbuf[7] = type;
+  memmove(fs->blockbuf + 8, name, namelen);
+  if(writeblock(fs, bno, fs->blockbuf) < 0) return -1;
+  dp->size = (uint64)(nblock + 1) * fs->block_size;
+  return writeinode(fs, dp);
 }
 
 static int
-e2dirremove(struct einode *dp, const char *name, int namelen)
+e2dirremove(struct ext2_fs *fs, struct einode *dp, const char *name, int namelen)
 {
   uint64 pos = 0, loaded = (uint64)-1;
   uint32 bno = 0;
   while(pos + 8 <= dp->size){
-    uint64 logical = pos / e2.block_size;
-    uint32 inblock = pos % e2.block_size;
+    uint64 logical = pos / fs->block_size;
+    uint32 inblock = pos % fs->block_size;
     if(logical != loaded){
-      bno = fileblock(dp, logical);
-      if(bno == 0 || readblock(bno, blockbuf) < 0) return -1;
+      bno = fileblock(fs, dp, logical);
+      if(bno == 0 || readblock(fs, bno, fs->blockbuf) < 0) return -1;
       loaded = logical;
     }
-    uchar *de = blockbuf + inblock;
+    uchar *de = fs->blockbuf + inblock;
     uint32 deino = le32(de);
     uint16 reclen = le16(de + 4);
     uint8 nlen = de[6];
-    if(reclen < 8 || (reclen & 3) || inblock + reclen > e2.block_size)
+    if(reclen < 8 || (reclen & 3) || inblock + reclen > fs->block_size)
       return -1;
     if(deino && nlen <= reclen - 8 && nameeq(de + 8, nlen, name, namelen)){
       put32(de, 0);
-      return writeblock(bno, blockbuf);
+      return writeblock(fs, bno, fs->blockbuf);
     }
     pos += reclen;
   }
@@ -761,22 +888,22 @@ e2dirremove(struct einode *dp, const char *name, int namelen)
 }
 
 static int
-e2dirempty(struct einode *dp)
+e2dirempty(struct ext2_fs *fs, struct einode *dp)
 {
   uint64 pos = 0, loaded = (uint64)-1;
   while(pos + 8 <= dp->size){
-    uint64 logical = pos / e2.block_size;
-    uint32 inblock = pos % e2.block_size;
+    uint64 logical = pos / fs->block_size;
+    uint32 inblock = pos % fs->block_size;
     if(logical != loaded){
-      uint32 bno = fileblock(dp, logical);
-      if(bno == 0 || readblock(bno, blockbuf) < 0) return 0;
+      uint32 bno = fileblock(fs, dp, logical);
+      if(bno == 0 || readblock(fs, bno, fs->blockbuf) < 0) return 0;
       loaded = logical;
     }
-    uchar *de = blockbuf + inblock;
+    uchar *de = fs->blockbuf + inblock;
     uint32 deino = le32(de);
     uint16 reclen = le16(de + 4);
     uint8 nlen = de[6];
-    if(reclen < 8 || (reclen & 3) || inblock + reclen > e2.block_size)
+    if(reclen < 8 || (reclen & 3) || inblock + reclen > fs->block_size)
       return 0;
     if(deino && !(nlen == 1 && de[8] == '.') &&
        !(nlen == 2 && de[8] == '.' && de[9] == '.'))
@@ -787,26 +914,26 @@ e2dirempty(struct einode *dp)
 }
 
 static int
-e2dirreplace(struct einode *dp, const char *name, int namelen, uint32 ino)
+e2dirreplace(struct ext2_fs *fs, struct einode *dp, const char *name, int namelen, uint32 ino)
 {
   uint64 pos = 0, loaded = (uint64)-1;
   uint32 bno = 0;
   while(pos + 8 <= dp->size){
-    uint64 logical = pos / e2.block_size;
-    uint32 inblock = pos % e2.block_size;
+    uint64 logical = pos / fs->block_size;
+    uint32 inblock = pos % fs->block_size;
     if(logical != loaded){
-      bno = fileblock(dp, logical);
-      if(bno == 0 || readblock(bno, blockbuf) < 0) return -1;
+      bno = fileblock(fs, dp, logical);
+      if(bno == 0 || readblock(fs, bno, fs->blockbuf) < 0) return -1;
       loaded = logical;
     }
-    uchar *de = blockbuf + inblock;
+    uchar *de = fs->blockbuf + inblock;
     uint16 reclen = le16(de + 4);
     uint8 nlen = de[6];
-    if(reclen < 8 || (reclen & 3) || inblock + reclen > e2.block_size)
+    if(reclen < 8 || (reclen & 3) || inblock + reclen > fs->block_size)
       return -1;
     if(le32(de) && nlen <= reclen - 8 && nameeq(de + 8, nlen, name, namelen)){
       put32(de, ino);
-      return writeblock(bno, blockbuf);
+      return writeblock(fs, bno, fs->blockbuf);
     }
     pos += reclen;
   }
@@ -814,19 +941,21 @@ e2dirreplace(struct einode *dp, const char *name, int namelen, uint32 ino)
 }
 
 static int
-lookup(const char *path, uint32 *ino, struct einode *ip)
+lookup(struct ext2_fs *fs, const char *path, uint32 *ino, struct einode *ip)
 {
   const char *p = path, *start;
   uint32 curino = EXT2_ROOT_INO, nextino;
   struct einode cur;
-  if(readinode(curino, &cur) < 0) return -1;
+  if(readinode(fs, curino, &cur) < 0 || inode_supported(&cur) < 0)
+    return -1;
   while(*p == '/') p++;
   while(*p){
     start = p;
     while(*p && *p != '/') p++;
-    if(e2dirlookup(&cur, start, p - start, &nextino) < 0) return -1;
+    if(e2dirlookup(fs, &cur, start, p - start, &nextino) < 0) return -1;
     curino = nextino;
-    if(readinode(curino, &cur) < 0) return -1;
+    if(readinode(fs, curino, &cur) < 0 || inode_supported(&cur) < 0)
+      return -1;
     while(*p == '/') p++;
   }
   *ino = curino;
@@ -835,7 +964,7 @@ lookup(const char *path, uint32 *ino, struct einode *ip)
 }
 
 static int
-lookupparent(const char *path, struct einode *parent, char *name, int *namelen)
+lookupparent(struct ext2_fs *fs, const char *path, struct einode *parent, char *name, int *namelen)
 {
   char buf[MAXPATH];
   int n = strlen(path);
@@ -857,120 +986,249 @@ lookupparent(const char *path, struct einode *parent, char *name, int *namelen)
     last[-1] = 0;
   }
   uint32 pino;
-  if(lookup(buf, &pino, parent) < 0 ||
+  if(lookup(fs, buf, &pino, parent) < 0 ||
      (parent->mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
     return -1;
   return 0;
 }
 
 static int
-setup_ext2(uint32 start, uint32 sectors, int partno)
+setup_ext2(struct ext2_fs *fs, uint32 start, uint32 sectors, int partno)
 {
   uchar sb[1024];
   uint32 compat, incompat, rocompat;
-  e2.part_lba = start;
-  e2.part_sectors = sectors;
-  if(diskbytes(1024, sb, sizeof(sb)) < 0 || le16(sb + 56) != EXT2_MAGIC){
+  fs->part_lba = start;
+  fs->part_sectors = sectors;
+  if(diskbytes(fs, 1024, sb, sizeof(sb)) < 0 || le16(sb + 56) != EXT2_MAGIC){
     printf("ext2: p%d has no ext superblock\n", partno); return -1;
   }
   compat = le32(sb + 92);
   incompat = le32(sb + 96);
   rocompat = le32(sb + 100);
-  if(compat & 4U){
+  if(compat & EXT2_FEATURE_COMPAT_HAS_JOURNAL){
     printf("ext2: p%d has a journal; use mke2fs -t ext2\n", partno);
     return -1;
   }
-  // FILETYPE (0x2) is understood. Reject extents, 64-bit block numbers and
-  // other layouts before interpreting an ext4 volume as ext2.
-  if(incompat & ~2U){
+  uint32 compat_ok = EXT2_FEATURE_COMPAT_EXT_ATTR |
+                     EXT2_FEATURE_COMPAT_RESIZE_INO |
+                     EXT2_FEATURE_COMPAT_DIR_INDEX;
+  if(compat & ~compat_ok){
+    printf("ext2: p%d unsupported compat features=0x%x\n", partno, compat);
+    return -1;
+  }
+  // This driver always emits ext2_dir_entry_2 records, so FILETYPE is not
+  // merely optional here: accepting the old 16-bit name_len format and then
+  // writing byte 7 as a type would corrupt a directory.
+  if((incompat & EXT2_FEATURE_INCOMPAT_FILETYPE) == 0 ||
+     (incompat & ~EXT2_FEATURE_INCOMPAT_FILETYPE)){
     printf("ext2: p%d unsupported incompat features=0x%x\n", partno, incompat);
     return -1;
   }
-  if(rocompat & ~3U){
+  uint32 rocompat_ok = EXT2_FEATURE_RO_SPARSE_SUPER |
+                       EXT2_FEATURE_RO_LARGE_FILE;
+  if(rocompat & ~rocompat_ok){
     printf("ext2: p%d unsupported ro-compat features=0x%x\n", partno, rocompat);
     return -1;
   }
-  e2.block_size = 1024U << le32(sb + 24);
-  if(e2.block_size < 1024 || e2.block_size > sizeof(blockbuf)){
-    printf("ext2: p%d unsupported block size %d\n", partno, e2.block_size); return -1;
+  fs->block_size = 1024U << le32(sb + 24);
+  if(fs->block_size < 1024 || fs->block_size > BLK_MAX_BSIZE){
+    printf("ext2: p%d unsupported block size %d\n", partno, fs->block_size); return -1;
   }
-  e2.inodes = le32(sb);
-  e2.blocks = le32(sb + 4);
-  e2.first_data_block = le32(sb + 20);
-  e2.first_ino = le32(sb + 76) ? le32(sb + 84) : 11;
-  if(e2.blocks == 0 || e2.inodes == 0 ||
-     (uint64)e2.blocks * e2.block_size > (uint64)sectors * SECTOR){
+  fs->inodes = le32(sb);
+  fs->blocks = le32(sb + 4);
+  fs->first_data_block = le32(sb + 20);
+  fs->first_ino = le32(sb + 76) ? le32(sb + 84) : 11;
+  if(fs->blocks == 0 || fs->inodes == 0 ||
+     (uint64)fs->blocks * fs->block_size > (uint64)sectors * SECTOR){
     printf("ext2: p%d geometry exceeds partition\n", partno);
     return -1;
   }
-  e2.blocks_per_group = le32(sb + 32);
-  e2.inodes_per_group = le32(sb + 40);
-  e2.inode_size = le32(sb + 76) ? le16(sb + 88) : 128;
-  if(e2.inode_size < 128 || e2.inode_size > sizeof(inodebuf) ||
-     e2.inodes_per_group == 0 || e2.blocks_per_group == 0 ||
-     e2.inodes_per_group > e2.block_size * 8 ||
-     e2.blocks_per_group > e2.block_size * 8)
+  fs->blocks_per_group = le32(sb + 32);
+  fs->inodes_per_group = le32(sb + 40);
+  fs->inode_size = le32(sb + 76) ? le16(sb + 88) : 128;
+  if(fs->inode_size < 128 || fs->inode_size > sizeof(fs->inodebuf) ||
+     fs->inodes_per_group == 0 || fs->blocks_per_group == 0 ||
+     fs->inodes_per_group > fs->block_size * 8 ||
+     fs->blocks_per_group > fs->block_size * 8)
     return -1;
-  e2.desc_size = 32;
-  e2.groups = (e2.blocks - e2.first_data_block +
-               e2.blocks_per_group - 1) / e2.blocks_per_group;
-  e2.gd_block = e2.block_size == 1024 ? 2 : 1;
-  e2.ready = 1;
-  e2.dirty = 0;
+  fs->desc_size = 32;
+  fs->groups = (fs->blocks - fs->first_data_block +
+               fs->blocks_per_group - 1) / fs->blocks_per_group;
+  fs->gd_block = fs->block_size == 1024 ? 2 : 1;
+  // setup_ext2() read the fixed 1024-byte superblock using the partition's
+  // initial 512-byte cache geometry.  Drop those entries before changing the
+  // cache key to the filesystem block size.
+  if(binvalidate(fs->dev) < 0 || blkdev_set_bsize(fs->dev, fs->block_size) < 0)
+    return -1;
+  fs->ready = 1;
+  fs->dirty = 0;
+  fs->was_unclean = (le16(sb + 58) & 1U) == 0;
+  if(fs->was_unclean)
+    printf("ext2: p%d was not clean; preserving dirty state until e2fsck\n",
+           partno);
   printf("ext2: p%d ready rw start=%d sectors=%d block=%d groups=%d\n",
-         partno, start, sectors, e2.block_size, e2.groups);
+         partno, start, sectors, fs->block_size, fs->groups);
   return 0;
 }
 
+// External journal: the unused tail of the raw xv6 root partition.  The
+// invariant ext2 geometry is read first so the home partition has its final
+// cache block size; replay then completes before VFS exposes the mount or any
+// mutable metadata is used.
+static int
+ext2_journal_init(struct ext2_fs *fs)
+{
+  // There is one external log region.  Only one mounted ext2 instance may
+  // own it; additional instances remain valid ext2 mounts but write through
+  // without this optional journal.
+  if(xj_owner_dev && xj_owner_dev != fs->dev)
+    return 0;
+  struct blkdev *jbd = rootdev_xv6_part();
+  struct blkdev *home = blkdev_get(fs->dev);
+  uint32 jstart = FSSIZE * (BSIZE / SECTOR);
+  if(jbd && jbd->disk && jbd->nsect > jstart && home){
+    if(xj_init(jbd, jstart, jbd->nsect - jstart, home) < 0)
+      return -1;
+    fs->journal = 1;
+    xj_owner_dev = fs->dev;
+  } else {
+    printf("ext2: no raw xv6 root partition; external journal disabled\n");
+  }
+  return 0;
+}
+
+static void
+ext2_drop_instance(struct ext2_fs *fs)
+{
+  if(fs->blockbuf){
+    kfree(fs->blockbuf);
+    fs->blockbuf = 0;
+  }
+  for(int i = 0; i < 3; i++)
+    if(fs->ptrbuf[i]){
+      kfree(fs->ptrbuf[i]);
+      fs->ptrbuf[i] = 0;
+    }
+  memset(fs->open, 0, sizeof(fs->open));
+  memset(fs->freed, 0, sizeof(fs->freed));
+  fs->ready = 0;
+  fs->dirty = 0;
+  fs->was_unclean = 0;
+  fs->journal = 0;
+  fs->direct = 0;
+  fs->nfreed = 0;
+  fs->dev = 0;
+  fs->part_lba = 0;
+  fs->part_sectors = 0;
+  fs->blocks = fs->inodes = fs->groups = 0;
+}
+
+// fill_super (Linux ext2_fill_super): open the ext2 on partition dev, whose
+// place on the card comes from the block-device table, not from the MBR.
+// After reading invariant geometry, the journal is recovered before the
+// mounted filesystem is published.  Each block device owns a separate
+// ext2_fs through super_block.priv.
+static int
+ext2_fill_super(int dev, int flags)
+{
+  struct blkdev *bd = blkdev_get(dev);
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  int r = -1;
+  if(bd == 0 || bd->disk == 0 || fs == 0)
+    return -1;
+  acquiresleep(&ext2_mount_lock);
+  acquiresleep(&fs->lock);
+  int was_ready = fs->ready;
+  if(was_ready && fs->dev == dev)
+    r = 0;
+  if(!fs->ready){
+    fs->dev = dev;
+    fs->part_lba = bd->start;
+    fs->part_sectors = bd->nsect;
+    fs->block_size = blkdev_bsize(dev);
+    if(fs->blockbuf == 0)
+      fs->blockbuf = (uchar*)kalloc();
+    for(int i = 0; i < 3; i++)
+      if(fs->ptrbuf[i] == 0)
+        fs->ptrbuf[i] = (uint32*)kalloc();
+    if(fs->blockbuf && fs->ptrbuf[0] && fs->ptrbuf[1] && fs->ptrbuf[2]){
+      if(setup_ext2(fs, bd->start, bd->nsect, bd->partno) == 0 &&
+         ext2_journal_init(fs) == 0){
+        struct einode root;
+        if(readinode(fs, EXT2_ROOT_INO, &root) == 0 &&
+           inode_supported(&root) == 0 &&
+           (root.mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
+          r = 0;
+        else
+          printf("ext2: invalid or unsupported root inode\n");
+      }
+    }
+  }
+  if(!was_ready && r < 0){
+    if(fs->journal){
+      xj_shutdown(bd);
+      xj_owner_dev = 0;
+    }
+    binvalidate(dev);
+    blkdev_set_bsize(dev, SECTOR);
+    ext2_drop_instance(fs);
+  }
+  releasesleep(&fs->lock);
+  releasesleep(&ext2_mount_lock);
+  if(r < 0)
+    return -1;
+  return ext2_register_super(dev, (flags & VFS_MOUNT_RDONLY) != 0);
+}
+
+// source names a device node ("/dev/root"), or, as in /etc/fstab, it is just
+// "ext2": then the partition already set up, else the first Linux (0x83)
+// partition that holds an ext2.
+static int
+ext2_get_sb(struct fs_type *t, char *source, int flags)
+{
+  int dev = lookup_bdev(source);
+  struct ext2_fs *fs = ext2_default();
+  if(dev < 0 && fs)
+    dev = fs->dev;
+  for(int i = 0; dev < 0 && i < NBLKDEV; i++){
+    struct blkdev *bd = blkdev_at(i);
+    if(bd && bd->disk && bd->ptype == 0x83 && t->fill_super(bd->dev, flags) == 0)
+      dev = bd->dev;
+  }
+  if(dev <= 0 || dev >= NSUPER || blkdev_get(dev) == 0)
+    return -1;
+  if(getsuper(dev) == 0 && t->fill_super(dev, flags) < 0)
+    return -1;
+  return dev;
+}
+
+static struct fs_type ext2_type = {
+  .name = "ext2",
+  .get_sb = ext2_get_sb,
+  .fill_super = ext2_fill_super,
+};
+
+// Linux init_ext2_fs(): only make the type known; the partition is opened
+// when it is mounted.
 void
 ext2init(void)
 {
-  uchar mbr[512];
-  int found = 0;
-  initsleeplock(&e2.lock, "ext2");
-  e2.ready = 0;
-  // External journal: the unused tail of the raw xv6 root partition.  It must
-  // be recovered before any ext2 metadata is interpreted.
-  struct blkdev *jbd = rootdev_xv6_part();
-  uint32 jstart = FSSIZE * (BSIZE / SECTOR);
-  if(jbd && jbd->disk && jbd->nsect > jstart &&
-     xj_init(jbd, jstart, jbd->nsect - jstart) == 0)
-    e2.journal = 1;
-  else
-    printf("ext2: no raw xv6 root partition; external journal disabled\n");
-  if(sdsector(0, mbr, 0) < 0) return;
-  if(mbr[510] != 0x55 || mbr[511] != 0xaa){
-    printf("ext2: no MBR; disabled\n");
-    return;
+  initsleeplock(&ext2_mount_lock, "ext2-mount");
+  for(int dev = 0; dev < NSUPER; dev++){
+    memset(&ext2_instances[dev], 0, sizeof(ext2_instances[dev]));
+    initsleeplock(&ext2_instances[dev].lock, "ext2");
   }
-  // rootfstype=ext2 root=...pN names the partition; try it first.
-  int pref = rootdev_ext2_part();
-  if(pref >= 1 && pref <= 4){
-    uchar *p = mbr + 446 + (pref - 1)*16;
-    if(le32(p + 8) != 0 && setup_ext2(le32(p + 8), le32(p + 12), pref) == 0)
-      return;
-    printf("ext2: root partition p%d has no usable ext2\n", pref);
-  }
-  // Try every Linux partition. This permits p2 to remain ext4 while a simple
-  // ext2 filesystem is placed in p3.
-  for(int i = 0; i < 4; i++){
-    uchar *p = mbr + 446 + i*16;
-    if(p[4] == 0x83 && le32(p + 8) != 0){
-      found = 1;
-      if(setup_ext2(le32(p + 8), le32(p + 12), i + 1) == 0) return;
-    }
-  }
-  if(!found) printf("ext2: no Linux partition; disabled\n");
-  else printf("ext2: no compatible ext2 partition; disabled\n");
+  xj_owner_dev = 0;
+  register_filesystem(&ext2_type);
 }
 
-// Order 5: needs the xv6 partition rootdev ("sdroot") found, for its journal.
+// Order 5: registers the type before vfsinit() (order 6) lists them.
 late_initcall_ord("ext2", ext2init, 5);
 
 int
 ext2ready(void)
 {
-  return e2.ready;
+  return ext2_default() != 0;
 }
 
 // First card sector of the partition the driver mounted (0 if none), so
@@ -978,7 +1236,8 @@ ext2ready(void)
 uint32
 ext2_part_lba(void)
 {
-  return e2.ready ? e2.part_lba : 0;
+  struct ext2_fs *fs = ext2_default();
+  return fs ? fs->part_lba : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -989,37 +1248,62 @@ ext2_part_lba(void)
 // partition) writes go straight to the card as before.
 
 static void
-tx_begin(void)
+tx_begin(struct ext2_fs *fs)
 {
-  e2.nfreed = 0;
-  if(e2.journal)
+  fs->nfreed = 0;
+  if(fs->journal)
     xj_begin();
 }
 
 static int
-tx_end(int ok)
+tx_end(struct ext2_fs *fs, int ok)
 {
-  e2.nfreed = 0;
-  if(!e2.journal)
+  fs->nfreed = 0;
+  if(!fs->journal)
     return ok ? 0 : -1;
   if(!ok){
     xj_abort();
     return -1;
   }
-  return xj_commit();
+  int r = xj_commit();
+  return r;
+}
+
+static int
+mark_write_session_clean(struct ext2_fs *fs)
+{
+  uchar state[2];
+  if(!fs->dirty)
+    return sdflush();
+  // A clean shutdown can close only the write session started by this mount.
+  // If the volume arrived dirty, do not falsely certify older unchecked
+  // metadata as consistent merely because this session is ending cleanly.
+  if(fs->was_unclean){
+    fs->dirty = 0;
+    return sdflush();
+  }
+  if(diskbytes(fs, 1024 + 58, state, sizeof(state)) < 0)
+    return -1;
+  put16(state, 1);               // EXT2_VALID_FS
+  tx_begin(fs);
+  int ok = diskbytes_write(fs, 1024 + 58, state, sizeof(state)) == 0;
+  if(tx_end(fs, ok) < 0 || sdflush() < 0)
+    return -1;
+  fs->dirty = 0;
+  return 0;
 }
 
 // Very large truncates or writes touch more metadata than one transaction
 // holds.  At a consistent point (the inode written with a matching size) the
 // work so far is committed and a new transaction continues.
 static int
-tx_checkpoint(struct einode *ip)
+tx_checkpoint(struct ext2_fs *fs, struct einode *ip)
 {
-  if(!e2.journal || xj_space() > 96)
+  if(!fs->journal || xj_space() > 96)
     return 0;
-  if(writeinode(ip) < 0 || xj_commit() < 0)
+  if(writeinode(fs, ip) < 0 || xj_commit() < 0)
     return -1;
-  e2.nfreed = 0;
+  fs->nfreed = 0;
   xj_begin();
   return 0;
 }
@@ -1031,17 +1315,17 @@ tx_checkpoint(struct einode *ip)
 // are released when the last descriptor closes, as in Unix.
 
 static int
-open_slot(uint32 ino)
+open_slot(struct ext2_fs *fs, uint32 ino)
 {
   for(int i = 0; i < NFILE; i++)
-    if(e2.open[i].ref > 0 && e2.open[i].ino == ino)
+    if(fs->open[i].ref > 0 && fs->open[i].ino == ino)
       return i;
   return -1;
 }
 
 // Drop one link from an inode whose directory entry is already gone.
 static int
-drop_link(struct einode *ip)
+drop_link(struct ext2_fs *fs, struct einode *ip)
 {
   int directory = (ip->mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
   if(directory)
@@ -1049,85 +1333,89 @@ drop_link(struct einode *ip)
   else if(ip->links)
     ip->links--;
   if(ip->links)
-    return writeinode(ip);
-  int s = open_slot(ip->ino);
+    return writeinode(fs, ip);
+  int s = open_slot(fs, ip->ino);
   if(s >= 0){
-    e2.open[s].orphan = 1;
-    return writeinode(ip);       // links=0 on disk, blocks kept until close
+    fs->open[s].orphan = 1;
+    return writeinode(fs, ip);       // links=0 on disk, blocks kept until close
   }
-  if(truncate_inode(ip, 0) < 0)
+  if(truncate_inode(fs, ip, 0) < 0)
     return -1;
-  return free_inode(ip->ino, directory);
+  return free_inode(fs, ip->ino, directory);
 }
 
 int
 ext2open(char *path, uint64 *handle)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode ip;
   uint32 ino;
   int free = -1;
-  acquiresleep(&e2.lock);
-  if(lookup(path, &ino, &ip) < 0){
-    releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  if(lookup(fs, path, &ino, &ip) < 0){
+    releasesleep(&fs->lock);
     return -1;
   }
-  int s = open_slot(ino);
+  int s = open_slot(fs, ino);
   if(s < 0){
     for(int i = 0; i < NFILE; i++)
-      if(e2.open[i].ref == 0){ free = i; break; }
+      if(fs->open[i].ref == 0){ free = i; break; }
     if(free < 0){
-      releasesleep(&e2.lock);
+      releasesleep(&fs->lock);
       return -1;
     }
     s = free;
-    e2.open[s].ino = ino;
-    e2.open[s].orphan = 0;
+    fs->open[s].ino = ino;
+    fs->open[s].orphan = 0;
   }
-  e2.open[s].ref++;
+  fs->open[s].ref++;
   *handle = ino;
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return 0;
 }
 
 void
-ext2release(uint64 handle)
+ext2release(int dev, uint64 handle)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return;
   struct einode ip;
-  acquiresleep(&e2.lock);
-  int s = open_slot((uint32)handle);
+  acquiresleep(&fs->lock);
+  int s = open_slot(fs, (uint32)handle);
   if(s < 0)
     panic("ext2release");
-  if(--e2.open[s].ref == 0 && e2.open[s].orphan){
-    e2.open[s].orphan = 0;
-    tx_begin();
-    int ok = readinode((uint32)handle, &ip) == 0 && ip.links == 0 &&
-             truncate_inode(&ip, 0) == 0 &&
-             free_inode(ip.ino, (ip.mode & EXT2_S_IFMT) == EXT2_S_IFDIR) == 0;
-    if(tx_end(ok) < 0)
+  if(--fs->open[s].ref == 0 && fs->open[s].orphan){
+    fs->open[s].orphan = 0;
+    tx_begin(fs);
+    int ok = readinode(fs, (uint32)handle, &ip) == 0 && ip.links == 0 &&
+             truncate_inode(fs, &ip, 0) == 0 &&
+             free_inode(fs, ip.ino, (ip.mode & EXT2_S_IFMT) == EXT2_S_IFDIR) == 0;
+    if(tx_end(fs, ok) < 0)
       printf("ext2: orphan inode %d not reclaimed; run e2fsck\n", (int)handle);
   }
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
 }
 
 // ---------------------------------------------------------------------------
 // Reads.
 
 static int
-read_locked(struct einode *ip, uint64 off, void *dst, int n)
+read_locked(struct ext2_fs *fs, struct einode *ip, uint64 off, void *dst, int n)
 {
   int done = 0;
   if(n < 0 || (ip->mode & EXT2_S_IFMT) != EXT2_S_IFREG) return -1;
   if(off >= ip->size) return 0;
   if((uint64)n > ip->size - off) n = ip->size - off;
   while(done < n){
-    uint64 logical = off / e2.block_size;
-    uint32 boff = off % e2.block_size;
-    int take = e2.block_size - boff;
-    uint32 b = fileblock(ip, logical);
+    uint64 logical = off / fs->block_size;
+    uint32 boff = off % fs->block_size;
+    int take = fs->block_size - boff;
+    uint32 b = fileblock(fs, ip, logical);
     if(take > n - done) take = n - done;
-    if(b == 0) memset(blockbuf, 0, e2.block_size);
-    else if(readblock(b, blockbuf) < 0) return -1;
-    memmove((uchar*)dst + done, blockbuf + boff, take);
+    if(b == 0) memset(fs->blockbuf, 0, fs->block_size);
+    else if(readblock(fs, b, fs->blockbuf) < 0) return -1;
+    memmove((uchar*)dst + done, fs->blockbuf + boff, take);
     off += take; done += take;
   }
   return done;
@@ -1136,25 +1424,29 @@ read_locked(struct einode *ip, uint64 off, void *dst, int n)
 int
 ext2readfile(char *path, uint64 off, void *dst, int n)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode ip;
   uint32 ino;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(lookup(path, &ino, &ip) == 0)
-    r = read_locked(&ip, off, dst, n);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  if(lookup(fs, path, &ino, &ip) == 0)
+    r = read_locked(fs, &ip, off, dst, n);
+  releasesleep(&fs->lock);
   return r;
 }
 
 int
-ext2readino(uint64 handle, uint64 off, void *dst, int n)
+ext2readino(int dev, uint64 handle, uint64 off, void *dst, int n)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode ip;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(readinode((uint32)handle, &ip) == 0)
-    r = read_locked(&ip, off, dst, n);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  if(readinode(fs, (uint32)handle, &ip) == 0)
+    r = read_locked(fs, &ip, off, dst, n);
+  releasesleep(&fs->lock);
   return r;
 }
 
@@ -1169,61 +1461,65 @@ fill_stat(struct einode *ip, uint *ino, ushort *mode, uint64 *size)
 int
 ext2stat(char *path, uint *ino, ushort *mode, uint64 *size)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode ip;
   uint32 inum;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(lookup(path, &inum, &ip) == 0){
+  acquiresleep(&fs->lock);
+  if(lookup(fs, path, &inum, &ip) == 0){
     fill_stat(&ip, ino, mode, size);
     r = 0;
   }
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return r;
 }
 
 int
-ext2statino(uint64 handle, uint *ino, ushort *mode, uint64 *size)
+ext2statino(int dev, uint64 handle, uint *ino, ushort *mode, uint64 *size)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode ip;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(readinode((uint32)handle, &ip) == 0){
+  acquiresleep(&fs->lock);
+  if(readinode(fs, (uint32)handle, &ip) == 0){
     fill_stat(&ip, ino, mode, size);
     r = 0;
   }
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return r;
 }
 
-// The index-th entry of directory dp (e2.lock held).  1: found, 0: end.
+// The index-th entry of directory dp (fs->lock held).  1: found, 0: end.
 static int
-readdir_core(struct einode *dpp, int index, struct ext2_user_dirent *out)
+readdir_core(struct ext2_fs *fs, struct einode *dpp, int index, struct ext2_user_dirent *out)
 {
   struct einode dp = *dpp, child;
   uint64 pos = 0, loaded = (uint64)-1;
   int seen = 0;
   if(index < 0 || (dp.mode & EXT2_S_IFMT) != EXT2_S_IFDIR) return -1;
   while(pos + 8 <= dp.size){
-    uint64 logical = pos / e2.block_size;
-    uint32 inblock = pos % e2.block_size;
+    uint64 logical = pos / fs->block_size;
+    uint32 inblock = pos % fs->block_size;
     if(logical != loaded){
-      uint32 b = fileblock(&dp, logical);
-      if(b == 0 || readblock(b, blockbuf) < 0) break;
+      uint32 b = fileblock(fs, &dp, logical);
+      if(b == 0 || readblock(fs, b, fs->blockbuf) < 0) break;
       loaded = logical;
     }
-    uchar *de = blockbuf + inblock;
+    uchar *de = fs->blockbuf + inblock;
     uint32 deino = le32(de);
     uint16 reclen = le16(de + 4);
     uint8 nlen = de[6];
     uint8 type = de[7];
-    if(reclen < 8 || (reclen & 3) || inblock + reclen > e2.block_size) break;
+    if(reclen < 8 || (reclen & 3) || inblock + reclen > fs->block_size) break;
     if(deino && nlen <= reclen - 8){
       if(seen++ == index){
         memset(out, 0, sizeof(*out));
         out->inode = deino; out->type = type;
         memmove(out->name, de + 8, nlen);
         out->name[nlen] = 0;
-        if(readinode(deino, &child) == 0){ out->size = child.size; out->mode = child.mode; }
+        if(readinode(fs, deino, &child) == 0){ out->size = child.size; out->mode = child.mode; }
         return 1;
       }
     }
@@ -1235,115 +1531,123 @@ readdir_core(struct einode *dpp, int index, struct ext2_user_dirent *out)
 int
 ext2readdir(char *path, int index, struct ext2_user_dirent *out)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode dp;
   uint32 ino;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(lookup(path, &ino, &dp) == 0)
-    r = readdir_core(&dp, index, out);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  if(lookup(fs, path, &ino, &dp) == 0)
+    r = readdir_core(fs, &dp, index, out);
+  releasesleep(&fs->lock);
   return r;
 }
 
 // ---------------------------------------------------------------------------
 // Mutations.  Each public entry point is lock + transaction + *_locked().
 
-// Create regular file name in directory *parent (e2.lock held, in a
+// Create regular file name in directory *parent (fs->lock held, in a
 // transaction); the new inode number goes to *out.
 static int
-create_core(struct einode *parent, const char *name, int namelen, uint32 *out)
+create_core(struct ext2_fs *fs, struct einode *parent, const char *name, int namelen, uint32 *out)
 {
   struct einode child;
   uint32 ino;
-  if(!e2.ready || e2dirlookup(parent, name, namelen, &ino) == 0 ||
-     mark_write_session_dirty() < 0)
+  if(!fs->ready || e2dirlookup(fs, parent, name, namelen, &ino) == 0 ||
+     mark_write_session_dirty(fs) < 0)
     return -1;
-  uint32 group = (parent->ino - 1) / e2.inodes_per_group;
-  if(alloc_inode(group, EXT2_S_IFREG | 0644, &child) < 0 ||
-     e2diradd(parent, name, namelen, child.ino, 1) < 0)
+  uint32 group = (parent->ino - 1) / fs->inodes_per_group;
+  if(alloc_inode(fs, group, EXT2_S_IFREG | 0644, &child) < 0 ||
+     e2diradd(fs, parent, name, namelen, child.ino, 1) < 0)
     return -1;               // the aborted transaction also undoes alloc_inode
   *out = child.ino;
   return 0;
 }
 
 static int
-create_locked(char *path)
+create_locked(struct ext2_fs *fs, char *path)
 {
   struct einode parent, existing;
   uint32 ino;
   char name[EXT2_NAME_MAX + 1];
   int namelen;
-  if(!e2.ready || lookup(path, &ino, &existing) == 0 ||
-     lookupparent(path, &parent, name, &namelen) < 0)
+  if(!fs->ready || lookup(fs, path, &ino, &existing) == 0 ||
+     lookupparent(fs, path, &parent, name, &namelen) < 0)
     return -1;
-  return create_core(&parent, name, namelen, &ino);
+  return create_core(fs, &parent, name, namelen, &ino);
 }
 
 int
 ext2createfile(char *path)
 {
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int r = tx_end(create_locked(path) == 0);
-  releasesleep(&e2.lock);
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int r = tx_end(fs, create_locked(fs, path) == 0);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
-truncate_locked(struct einode *ip, uint64 size)
+truncate_locked(struct ext2_fs *fs, struct einode *ip, uint64 size)
 {
   if((ip->mode & EXT2_S_IFMT) != EXT2_S_IFREG ||
-     mark_write_session_dirty() < 0)
+     mark_write_session_dirty(fs) < 0)
     return -1;
-  return truncate_inode(ip, size);
+  return truncate_inode(fs, ip, size);
 }
 
 int
 ext2truncatefile(char *path, uint64 size)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode ip;
   uint32 ino;
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int ok = lookup(path, &ino, &ip) == 0 && truncate_locked(&ip, size) == 0;
-  int r = tx_end(ok);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int ok = lookup(fs, path, &ino, &ip) == 0 && truncate_locked(fs, &ip, size) == 0;
+  int r = tx_end(fs, ok);
+  releasesleep(&fs->lock);
   return r;
 }
 
 int
-ext2truncino(uint64 handle, uint64 size)
+ext2truncino(int dev, uint64 handle, uint64 size)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode ip;
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int ok = readinode((uint32)handle, &ip) == 0 &&
-           truncate_locked(&ip, size) == 0;
-  int r = tx_end(ok);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int ok = readinode(fs, (uint32)handle, &ip) == 0 &&
+           truncate_locked(fs, &ip, size) == 0;
+  int r = tx_end(fs, ok);
+  releasesleep(&fs->lock);
   return r;
 }
 
 // Returns bytes written; on a partial failure the completed prefix is kept.
 static int
-write_locked(struct einode *ip, uint64 off, int user_src, uint64 src, int n)
+write_locked(struct ext2_fs *fs, struct einode *ip, uint64 off, int user_src, uint64 src, int n)
 {
   int done = 0;
-  uint64 maxsize = max_file_blocks() * e2.block_size;
+  uint64 maxsize = max_file_blocks(fs) * fs->block_size;
   if(n < 0 || off + n < off || off + n > maxsize ||
      (ip->mode & EXT2_S_IFMT) != EXT2_S_IFREG ||
-     mark_write_session_dirty() < 0)
+     mark_write_session_dirty(fs) < 0)
     return -1;
   while(done < n){
-    uint64 logical = off / e2.block_size;
-    uint32 boff = off % e2.block_size;
-    int take = e2.block_size - boff;
+    uint64 logical = off / fs->block_size;
+    uint32 boff = off % fs->block_size;
+    int take = fs->block_size - boff;
     if(take > n - done) take = n - done;
-    if(tx_checkpoint(ip) < 0) break;
-    uint32 bno = get_or_alloc_fileblock(ip, logical);
-    if(bno == 0 || readblock(bno, blockbuf) < 0 ||
-       either_copyin(blockbuf + boff, user_src, src + done, take) < 0 ||
-       writeblock_data(bno, blockbuf) < 0)
+    if(tx_checkpoint(fs, ip) < 0) break;
+    uint32 bno = get_or_alloc_fileblock(fs, ip, logical);
+    if(bno == 0 || readblock(fs, bno, fs->blockbuf) < 0 ||
+       either_copyin(fs->blockbuf + boff, user_src, src + done, take) < 0 ||
+       writeblock_data(fs, bno, fs->blockbuf) < 0)
       break;
     off += take;
     done += take;
@@ -1351,14 +1655,14 @@ write_locked(struct einode *ip, uint64 off, int user_src, uint64 src, int n)
   }
   if(done == 0)
     return -1;
-  return writeinode(ip) < 0 ? -1 : done;
+  return writeinode(fs, ip) < 0 ? -1 : done;
 }
 
 static int
-write_common(struct einode *ip, uint64 off, int user_src, uint64 src, int n)
+write_common(struct ext2_fs *fs, struct einode *ip, uint64 off, int user_src, uint64 src, int n)
 {
-  int r = write_locked(ip, off, user_src, src, n);
-  if(tx_end(r > 0) < 0)
+  int r = write_locked(fs, ip, off, user_src, src, n);
+  if(tx_end(fs, r > 0) < 0)
     return -1;
   return r;
 }
@@ -1367,150 +1671,158 @@ int
 ext2writefile(char *path, struct fat32_file *ignored, uint64 off,
               int user_src, uint64 src, int n)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   struct einode ip;
   uint32 ino;
   (void)ignored;
   if(n == 0) return 0;
-  acquiresleep(&e2.lock);
-  tx_begin();
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
   int r;
-  if(lookup(path, &ino, &ip) < 0){
-    tx_end(0);
+  if(lookup(fs, path, &ino, &ip) < 0){
+    tx_end(fs, 0);
     r = -1;
   } else
-    r = write_common(&ip, off, user_src, src, n);
-  releasesleep(&e2.lock);
+    r = write_common(fs, &ip, off, user_src, src, n);
+  releasesleep(&fs->lock);
   return r;
 }
 
 int
-ext2writeino(uint64 handle, uint64 off, int user_src, uint64 src, int n)
+ext2writeino(int dev, uint64 handle, uint64 off, int user_src, uint64 src, int n)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode ip;
   if(n == 0) return 0;
-  acquiresleep(&e2.lock);
-  tx_begin();
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
   int r;
-  if(readinode((uint32)handle, &ip) < 0){
-    tx_end(0);
+  if(readinode(fs, (uint32)handle, &ip) < 0){
+    tx_end(fs, 0);
     r = -1;
   } else
-    r = write_common(&ip, off, user_src, src, n);
-  releasesleep(&e2.lock);
+    r = write_common(fs, &ip, off, user_src, src, n);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
-mkdir_core(struct einode *pp, const char *name, int namelen, uint32 *out)
+mkdir_core(struct ext2_fs *fs, struct einode *pp, const char *name, int namelen, uint32 *out)
 {
   struct einode parent = *pp, child;
   uint32 ino, bno;
-  if(!e2.ready || e2dirlookup(&parent, name, namelen, &ino) == 0 ||
-     mark_write_session_dirty() < 0)
+  if(!fs->ready || e2dirlookup(fs, &parent, name, namelen, &ino) == 0 ||
+     mark_write_session_dirty(fs) < 0)
     return -1;
-  uint32 group = (parent.ino - 1) / e2.inodes_per_group;
-  if(alloc_inode(group, EXT2_S_IFDIR | 0755, &child) < 0)
+  uint32 group = (parent.ino - 1) / fs->inodes_per_group;
+  if(alloc_inode(fs, group, EXT2_S_IFDIR | 0755, &child) < 0)
     return -1;
   child.links = 2;
-  bno = get_or_alloc_fileblock(&child, 0);
+  bno = get_or_alloc_fileblock(fs, &child, 0);
   if(bno == 0)
     return -1;
-  memset(blockbuf, 0, e2.block_size);
-  put32(blockbuf, child.ino);
-  put16(blockbuf + 4, 12);
-  blockbuf[6] = 1; blockbuf[7] = 2; blockbuf[8] = '.';
-  put32(blockbuf + 12, parent.ino);
-  put16(blockbuf + 16, e2.block_size - 12);
-  blockbuf[18] = 2; blockbuf[19] = 2;
-  blockbuf[20] = '.'; blockbuf[21] = '.';
-  child.size = e2.block_size;
-  if(writeblock(bno, blockbuf) < 0 || writeinode(&child) < 0 ||
-     e2diradd(&parent, name, namelen, child.ino, 2) < 0)
+  memset(fs->blockbuf, 0, fs->block_size);
+  put32(fs->blockbuf, child.ino);
+  put16(fs->blockbuf + 4, 12);
+  fs->blockbuf[6] = 1; fs->blockbuf[7] = 2; fs->blockbuf[8] = '.';
+  put32(fs->blockbuf + 12, parent.ino);
+  put16(fs->blockbuf + 16, fs->block_size - 12);
+  fs->blockbuf[18] = 2; fs->blockbuf[19] = 2;
+  fs->blockbuf[20] = '.'; fs->blockbuf[21] = '.';
+  child.size = fs->block_size;
+  if(writeblock(fs, bno, fs->blockbuf) < 0 || writeinode(fs, &child) < 0 ||
+     e2diradd(fs, &parent, name, namelen, child.ino, 2) < 0)
     return -1;
-  if(readinode(parent.ino, &parent) < 0)   // e2diradd may have grown it
+  if(readinode(fs, parent.ino, &parent) < 0)   // e2diradd may have grown it
     return -1;
   parent.links++;
   *out = child.ino;
-  return writeinode(&parent);
+  return writeinode(fs, &parent);
 }
 
 static int
-mkdir_locked(char *path)
+mkdir_locked(struct ext2_fs *fs, char *path)
 {
   struct einode parent, existing;
   uint32 ino;
   char name[EXT2_NAME_MAX + 1];
   int namelen;
-  if(!e2.ready || lookup(path, &ino, &existing) == 0 ||
-     lookupparent(path, &parent, name, &namelen) < 0)
+  if(!fs->ready || lookup(fs, path, &ino, &existing) == 0 ||
+     lookupparent(fs, path, &parent, name, &namelen) < 0)
     return -1;
-  return mkdir_core(&parent, name, namelen, &ino);
+  return mkdir_core(fs, &parent, name, namelen, &ino);
 }
 
 int
 ext2mkdir(char *path)
 {
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int r = tx_end(mkdir_locked(path) == 0);
-  releasesleep(&e2.lock);
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int r = tx_end(fs, mkdir_locked(fs, path) == 0);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
-unlink_core(struct einode *pp, const char *name, int namelen)
+unlink_core(struct ext2_fs *fs, struct einode *pp, const char *name, int namelen)
 {
   struct einode parent = *pp, child;
   uint32 ino;
   if((namelen == 1 && name[0] == '.') ||
      (namelen == 2 && name[0] == '.' && name[1] == '.') ||
-     e2dirlookup(&parent, name, namelen, &ino) < 0 ||
-     readinode(ino, &child) < 0 || child.links == 0)
+     e2dirlookup(fs, &parent, name, namelen, &ino) < 0 ||
+     readinode(fs, ino, &child) < 0 || child.links == 0)
     return -1;
   int directory = (child.mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
-  if((directory && !e2dirempty(&child)) ||
-     mark_write_session_dirty() < 0 ||
-     e2dirremove(&parent, name, namelen) < 0)
+  if((directory && !e2dirempty(fs, &child)) ||
+     mark_write_session_dirty(fs) < 0 ||
+     e2dirremove(fs, &parent, name, namelen) < 0)
     return -1;
   if(directory){
-    if(readinode(parent.ino, &parent) < 0) return -1;
+    if(readinode(fs, parent.ino, &parent) < 0) return -1;
     if(parent.links) parent.links--;     // child's ".." no longer counts
-    if(writeinode(&parent) < 0) return -1;
+    if(writeinode(fs, &parent) < 0) return -1;
   }
-  return drop_link(&child);
+  return drop_link(fs, &child);
 }
 
 static int
-unlink_locked(char *path)
+unlink_locked(struct ext2_fs *fs, char *path)
 {
   struct einode parent;
   char name[EXT2_NAME_MAX + 1];
   int namelen;
-  if(lookupparent(path, &parent, name, &namelen) < 0)
+  if(lookupparent(fs, path, &parent, name, &namelen) < 0)
     return -1;
-  return unlink_core(&parent, name, namelen);
+  return unlink_core(fs, &parent, name, namelen);
 }
 
 int
 ext2unlink(char *path)
 {
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int r = tx_end(unlink_locked(path) == 0);
-  releasesleep(&e2.lock);
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int r = tx_end(fs, unlink_locked(fs, path) == 0);
+  releasesleep(&fs->lock);
   return r;
 }
 
 // Is directory `dir` equal to, or an ancestor of, directory `ino`?
 static int
-is_ancestor(uint32 dir, uint32 ino)
+is_ancestor(struct ext2_fs *fs, uint32 dir, uint32 ino)
 {
   struct einode cur;
-  for(uint32 steps = 0; steps < e2.inodes; steps++){
+  for(uint32 steps = 0; steps < fs->inodes; steps++){
     if(ino == dir) return 1;
     if(ino == EXT2_ROOT_INO) return 0;
     uint32 up;
-    if(readinode(ino, &cur) < 0 || e2dirlookup(&cur, "..", 2, &up) < 0)
+    if(readinode(fs, ino, &cur) < 0 || e2dirlookup(fs, &cur, "..", 2, &up) < 0)
       return 1;                          // be conservative on a damaged tree
     if(up == ino) return 0;
     ino = up;
@@ -1519,7 +1831,7 @@ is_ancestor(uint32 dir, uint32 ino)
 }
 
 static int
-rename_core(struct einode *op, const char *oldname, int oldlen,
+rename_core(struct ext2_fs *fs, struct einode *op, const char *oldname, int oldlen,
             struct einode *np, const char *newname, int newlen)
 {
   struct einode oldparent = *op, newparent = *np, child, target;
@@ -1528,86 +1840,90 @@ rename_core(struct einode *op, const char *oldname, int oldlen,
      (oldlen == 2 && oldname[0] == '.' && oldname[1] == '.') ||
      (newlen == 1 && newname[0] == '.') ||
      (newlen == 2 && newname[0] == '.' && newname[1] == '.') ||
-     e2dirlookup(&oldparent, oldname, oldlen, &ino) < 0 ||
-     readinode(ino, &child) < 0)
+     e2dirlookup(fs, &oldparent, oldname, oldlen, &ino) < 0 ||
+     readinode(fs, ino, &child) < 0)
     return -1;
   int isdir = (child.mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
   // A directory cannot be moved below itself: that would detach a cycle.
-  if(isdir && is_ancestor(child.ino, newparent.ino))
+  if(isdir && is_ancestor(fs, child.ino, newparent.ino))
     return -1;
-  int exists = e2dirlookup(&newparent, newname, newlen, &tino) == 0;
+  int exists = e2dirlookup(fs, &newparent, newname, newlen, &tino) == 0;
   if(exists && tino == child.ino)
     return 0;                            // same object: POSIX no-op
   if(exists){
-    if(readinode(tino, &target) < 0) return -1;
+    if(readinode(fs, tino, &target) < 0) return -1;
     int tdir = (target.mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
-    if(isdir != tdir || (tdir && !e2dirempty(&target)))
+    if(isdir != tdir || (tdir && !e2dirempty(fs, &target)))
       return -1;
   }
-  if(mark_write_session_dirty() < 0)
+  if(mark_write_session_dirty(fs) < 0)
     return -1;
   // Point the new name at the child (replacing any target), then drop the old
   // name.  With the journal the whole sequence commits atomically.
   if(exists){
-    if(e2dirreplace(&newparent, newname, newlen, child.ino) < 0) return -1;
-  } else if(e2diradd(&newparent, newname, newlen, child.ino, isdir ? 2 : 1) < 0)
+    if(e2dirreplace(fs, &newparent, newname, newlen, child.ino) < 0) return -1;
+  } else if(e2diradd(fs, &newparent, newname, newlen, child.ino, isdir ? 2 : 1) < 0)
     return -1;
-  if(readinode(oldparent.ino, &oldparent) < 0 ||
-     e2dirremove(&oldparent, oldname, oldlen) < 0)
+  if(readinode(fs, oldparent.ino, &oldparent) < 0 ||
+     e2dirremove(fs, &oldparent, oldname, oldlen) < 0)
     return -1;
   if(isdir && oldparent.ino != newparent.ino){
-    if(e2dirreplace(&child, "..", 2, newparent.ino) < 0) return -1;
-    if(readinode(oldparent.ino, &oldparent) < 0) return -1;
+    if(e2dirreplace(fs, &child, "..", 2, newparent.ino) < 0) return -1;
+    if(readinode(fs, oldparent.ino, &oldparent) < 0) return -1;
     if(oldparent.links) oldparent.links--;
-    if(writeinode(&oldparent) < 0) return -1;
-    if(readinode(newparent.ino, &newparent) < 0) return -1;
+    if(writeinode(fs, &oldparent) < 0) return -1;
+    if(readinode(fs, newparent.ino, &newparent) < 0) return -1;
     newparent.links++;
-    if(writeinode(&newparent) < 0) return -1;
+    if(writeinode(fs, &newparent) < 0) return -1;
   }
   if(exists){
     if((target.mode & EXT2_S_IFMT) == EXT2_S_IFDIR){
-      if(readinode(newparent.ino, &newparent) < 0) return -1;
+      if(readinode(fs, newparent.ino, &newparent) < 0) return -1;
       if(newparent.links) newparent.links--;   // replaced dir's ".."
-      if(writeinode(&newparent) < 0) return -1;
+      if(writeinode(fs, &newparent) < 0) return -1;
     }
-    if(readinode(tino, &target) < 0 || drop_link(&target) < 0)
+    if(readinode(fs, tino, &target) < 0 || drop_link(fs, &target) < 0)
       return -1;
   }
   return 0;
 }
 
 static int
-rename_locked(char *oldpath, char *newpath)
+rename_locked(struct ext2_fs *fs, char *oldpath, char *newpath)
 {
   struct einode oldparent, newparent;
   char oldname[EXT2_NAME_MAX + 1], newname[EXT2_NAME_MAX + 1];
   int oldlen, newlen;
-  if(lookupparent(oldpath, &oldparent, oldname, &oldlen) < 0 ||
-     lookupparent(newpath, &newparent, newname, &newlen) < 0)
+  if(lookupparent(fs, oldpath, &oldparent, oldname, &oldlen) < 0 ||
+     lookupparent(fs, newpath, &newparent, newname, &newlen) < 0)
     return -1;
-  return rename_core(&oldparent, oldname, oldlen, &newparent, newname, newlen);
+  return rename_core(fs, &oldparent, oldname, oldlen, &newparent, newname, newlen);
 }
 
 int
 ext2rename(char *oldpath, char *newpath)
 {
+  struct ext2_fs *fs = ext2_default();
+  if(fs == 0) return -1;
   if(strncmp(oldpath, newpath, MAXPATH) == 0) return 0;
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int r = tx_end(rename_locked(oldpath, newpath) == 0);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int r = tx_end(fs, rename_locked(fs, oldpath, newpath) == 0);
+  releasesleep(&fs->lock);
   return r;
 }
 
 int
-ext2fsync(void)
+ext2fsync(int dev)
 {
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready) return -1;
   int r;
-  acquiresleep(&e2.lock);
+  acquiresleep(&fs->lock);
   // Each operation already committed synchronously (journal) or wrote its
   // sectors in place; sdflush is the card-level completion barrier.
   r = sdflush();
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return r;
 }
 
@@ -1615,73 +1931,95 @@ ext2fsync(void)
 // VFS inode operations (vfs.h).  The VFS keeps one struct inode per ext2
 // inode in use, with ip->inum = the ext2 inode number, so ext2 is mounted
 // like any other filesystem and can be the root.  Each in-memory inode holds
-// a slot in e2.open, which is what keeps an unlinked-but-open file alive
+// a slot in fs->open, which is what keeps an unlinked-but-open file alive
 // (drop_link() marks it orphan); evict() releases the slot.
 
-static void
+static int
 e2fill(struct inode *ip, struct einode *e)
 {
-  ip->type = (e->mode & EXT2_S_IFMT) == EXT2_S_IFDIR ? T_DIR : T_FILE;
+  if(inode_supported(e) < 0)
+    return -1;
+  uint16 kind = e->mode & EXT2_S_IFMT;
+  ip->type = kind == EXT2_S_IFDIR ? T_DIR : T_FILE;
   ip->nlink = e->links;
   ip->size = e->size;
   ip->major = ip->minor = 0;
+  if(ip->type == T_DIR){
+    ip->iop = &ext2_dir_iops;
+    ip->i_fop = &ext2_dir_fops;
+  } else {
+    ip->iop = &ext2_file_iops;
+    ip->i_fop = &ext2_file_fops;
+  }
+  return 0;
 }
 
 static int
 e2_read_inode(struct inode *ip)
 {
+  struct ext2_fs *fs = ext2_from_inode(ip);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode e;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(readinode(ip->inum, &e) == 0){
-    int s = open_slot(ip->inum);
+  acquiresleep(&fs->lock);
+  if(readinode(fs, ip->inum, &e) == 0 && inode_supported(&e) == 0){
+    int s = open_slot(fs, ip->inum);
     if(s < 0)
       for(int i = 0; i < NFILE; i++)
-        if(e2.open[i].ref == 0){
+        if(fs->open[i].ref == 0){
           s = i;
-          e2.open[s].ino = ip->inum;
-          e2.open[s].orphan = 0;
+          fs->open[s].ino = ip->inum;
+          fs->open[s].orphan = 0;
           break;
         }
     if(s >= 0){
-      e2.open[s].ref++;
-      e2fill(ip, &e);
-      r = 0;
+      if(e2fill(ip, &e) == 0){
+        fs->open[s].ref++;
+        r = 0;
+      }
     }
   }
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static void
 e2_evict(struct inode *ip)
 {
-  acquiresleep(&e2.lock);
-  int s = open_slot(ip->inum);
-  releasesleep(&e2.lock);
+  struct ext2_fs *fs = ext2_from_inode(ip);
+  if(fs == 0 || !fs->ready) return;
+  acquiresleep(&fs->lock);
+  int s = open_slot(fs, ip->inum);
+  releasesleep(&fs->lock);
   if(s >= 0)
-    ext2release(ip->inum);       // reclaims the inode if it is an orphan
+    ext2release(ip->dev, ip->inum); // reclaims it if it is an orphan
 }
 
 static struct inode*
 e2_lookup(struct inode *dp, char *name)
 {
+  struct ext2_fs *fs = ext2_from_inode(dp);
+  if(fs == 0 || !fs->ready) return 0;
   struct einode d;
   uint32 ino;
-  acquiresleep(&e2.lock);
-  int ok = readinode(dp->inum, &d) == 0 &&
+  acquiresleep(&fs->lock);
+  int ok = readinode(fs, dp->inum, &d) == 0 &&
+           inode_supported(&d) == 0 &&
            (d.mode & EXT2_S_IFMT) == EXT2_S_IFDIR &&
-           e2dirlookup(&d, name, strlen(name), &ino) == 0;
-  releasesleep(&e2.lock);
+           e2dirlookup(fs, &d, name, strlen(name), &ino) == 0;
+  releasesleep(&fs->lock);
   return ok ? iget(dp->dev, ino) : 0;
 }
 
 static struct inode*
 e2_create(struct inode *dp, char *name, short type, short major, short minor)
 {
+  struct ext2_fs *fs = ext2_from_inode(dp);
+  if(fs == 0 || !fs->ready){ iput(dp); return 0; }
   struct inode *ip;
   struct einode d;
   uint32 ino;
+  int dev = dp->dev;
 
   ilock(dp);
   ip = e2_lookup(dp, name);
@@ -1698,23 +2036,23 @@ e2_create(struct inode *dp, char *name, short type, short major, short minor)
     iput(dp);                    // no device nodes on ext2
     return 0;
   }
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int ok = readinode(dp->inum, &d) == 0 &&
-           (type == T_DIR ? mkdir_core(&d, name, strlen(name), &ino)
-                          : create_core(&d, name, strlen(name), &ino)) == 0;
-  int r = tx_end(ok);
-  int fresh = r == 0 && readinode(dp->inum, &d) == 0;
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int ok = readinode(fs, dp->inum, &d) == 0 &&
+           (type == T_DIR ? mkdir_core(fs, &d, name, strlen(name), &ino)
+                          : create_core(fs, &d, name, strlen(name), &ino)) == 0;
+  int r = tx_end(fs, ok);
+  int fresh = r == 0 && readinode(fs, dp->inum, &d) == 0;
+  releasesleep(&fs->lock);
   if(fresh){                     // directory grew / gained a link
-    ilock(dp);                   // (lock order: inode lock before e2.lock)
-    e2fill(dp, &d);
+    ilock(dp);                   // (lock order: inode lock before fs->lock)
+    (void)e2fill(dp, &d);
     iunlock(dp);
   }
   iput(dp);
   if(r < 0)
     return 0;
-  ip = iget(dp->dev, ino);
+  ip = iget(dev, ino);
   ilock(ip);
   return ip;
 }
@@ -1722,47 +2060,55 @@ e2_create(struct inode *dp, char *name, short type, short major, short minor)
 static int
 e2_unlink(struct inode *dp, char *name)
 {
+  struct ext2_fs *fs = ext2_from_inode(dp);
+  if(fs == 0 || !fs->ready) return -1;
   struct einode d;
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int ok = readinode(dp->inum, &d) == 0 &&
-           unlink_core(&d, name, strlen(name)) == 0;
-  int r = tx_end(ok);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int ok = readinode(fs, dp->inum, &d) == 0 &&
+           unlink_core(fs, &d, name, strlen(name)) == 0;
+  int r = tx_end(fs, ok);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
 e2_rename(struct inode *odp, char *oname, struct inode *ndp, char *nname)
 {
+  struct ext2_fs *fs = ext2_from_inode(odp);
+  if(fs == 0 || fs != ext2_from_inode(ndp) || !fs->ready) return -1;
   struct einode o, n;
-  acquiresleep(&e2.lock);
-  tx_begin();
-  int ok = readinode(odp->inum, &o) == 0 && readinode(ndp->inum, &n) == 0 &&
-           rename_core(&o, oname, strlen(oname), &n, nname, strlen(nname)) == 0;
-  int r = tx_end(ok);
-  releasesleep(&e2.lock);
+  acquiresleep(&fs->lock);
+  tx_begin(fs);
+  int ok = readinode(fs, odp->inum, &o) == 0 && readinode(fs, ndp->inum, &n) == 0 &&
+           rename_core(fs, &o, oname, strlen(oname), &n, nname, strlen(nname)) == 0;
+  int r = tx_end(fs, ok);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
 e2_readdir(struct inode *dp, int index, char *name, uint *ino)
 {
-  static struct ext2_user_dirent de;   // protected by e2.lock
+  struct ext2_fs *fs = ext2_from_inode(dp);
+  if(fs == 0 || !fs->ready) return -1;
+  struct ext2_user_dirent de;
   struct einode d;
   int r = -1;
-  acquiresleep(&e2.lock);
-  if(readinode(dp->inum, &d) == 0 && (r = readdir_core(&d, index, &de)) > 0){
+  acquiresleep(&fs->lock);
+  if(readinode(fs, dp->inum, &d) == 0 && (r = readdir_core(fs, &d, index, &de)) > 0){
     safestrcpy(name, de.name, NAMEMAX);
     *ino = de.inode;
   }
-  releasesleep(&e2.lock);
+  releasesleep(&fs->lock);
   return r;
 }
 
 static int
 e2_read(struct inode *ip, int user_dst, uint64 dst, uint64 off, uint n)
 {
+  struct ext2_fs *fs = ext2_from_inode(ip);
+  if(fs == 0 || !fs->ready) return -1;
   if(ip->type == T_DIR)
     return vfs_dir_read(ip, user_dst, dst, off, n, e2_readdir);
   char *page = kalloc();
@@ -1771,7 +2117,7 @@ e2_read(struct inode *ip, int user_dst, uint64 dst, uint64 off, uint n)
     return -1;
   while(total < (int)n){
     int chunk = n - total > PGSIZE ? PGSIZE : n - total;
-    int got = ext2readino(ip->inum, off + total, page, chunk);
+    int got = ext2readino(ip->dev, ip->inum, off + total, page, chunk);
     if(got <= 0)
       break;
     if(either_copyout(user_dst, dst + total, page, got) < 0){
@@ -1791,7 +2137,7 @@ e2_write(struct inode *ip, int user_src, uint64 src, uint64 off, uint n)
 {
   if(ip->type != T_FILE)
     return -1;
-  int r = ext2writeino(ip->inum, off, user_src, src, n);
+  int r = ext2writeino(ip->dev, ip->inum, off, user_src, src, n);
   if(r > 0 && off + r > ip->size)
     ip->size = off + r;
   return r;
@@ -1800,7 +2146,7 @@ e2_write(struct inode *ip, int user_src, uint64 src, uint64 off, uint n)
 static int
 e2_truncate(struct inode *ip, uint64 size)
 {
-  if(ip->type != T_FILE || ext2truncino(ip->inum, size) < 0)
+  if(ip->type != T_FILE || ext2truncino(ip->dev, ip->inum, size) < 0)
     return -1;
   ip->size = size;
   return 0;
@@ -1809,20 +2155,100 @@ e2_truncate(struct inode *ip, uint64 size)
 static int
 e2_fsync(struct inode *ip)
 {
-  return ext2fsync();
+  return ext2fsync(ip->dev);
 }
 
+static int
+e2_file_read_at(struct file *f, int user_dst, uint64 dst, uint64 off, uint n)
+{
+  return e2_read(f->ip, user_dst, dst, off, n);
+}
+
+static int
+e2_file_write_at(struct file *f, int user_src, uint64 src, uint64 off,
+                 uint n)
+{
+  return e2_write(f->ip, user_src, src, off, n);
+}
+
+static int
+e2_file_fsync(struct file *f, int dataonly)
+{
+  (void)dataonly;
+  return e2_fsync(f->ip);
+}
+
+static const struct file_operations ext2_file_fops = {
+  .fread = generic_file_fread,
+  .fwrite = generic_file_fwrite,
+  .read_at = e2_file_read_at,
+  .write_at = e2_file_write_at,
+  .fsync = e2_file_fsync,
+  .poll = generic_file_poll,
+};
+
+static const struct file_operations ext2_dir_fops = {
+  .fread = generic_file_fread,
+  .read_at = e2_file_read_at,
+  .poll = generic_file_poll,
+};
+
+static int
+ext2_put_super(struct super_block *sb)
+{
+  struct ext2_fs *fs = sb ? sb->priv : 0;
+  struct blkdev *bd = sb ? blkdev_get(sb->dev) : 0;
+  int r = -1;
+  if(fs == 0 || bd == 0)
+    return -1;
+
+  acquiresleep(&ext2_mount_lock);
+  acquiresleep(&fs->lock);
+  if(!fs->ready || fs->dev != sb->dev || xj_active())
+    goto out;
+  // The clean flag is the final filesystem metadata transaction.  Only after
+  // it is durable may the external log and the cached home blocks disappear.
+  if(mark_write_session_clean(fs) < 0 || binvalidate(fs->dev) < 0)
+    goto out;
+  if(fs->journal){
+    if(xj_shutdown(bd) < 0)
+      goto out;
+    fs->journal = 0;
+    xj_owner_dev = 0;
+    // Recovery during shutdown can have checkpointed a pending transaction.
+    if(binvalidate(fs->dev) < 0)
+      goto out;
+  }
+  if(blkdev_set_bsize(fs->dev, SECTOR) < 0)
+    goto out;
+  ext2_drop_instance(fs);
+  r = 0;
+out:
+  releasesleep(&fs->lock);
+  releasesleep(&ext2_mount_lock);
+  return r;
+}
+
+// Superblock bootstrap table. e2_read_inode learns the inode type and e2fill
+// switches to the corresponding directory or regular-file tables.
 static struct inode_ops ext2_iops = {
+  .read_inode = e2_read_inode,
+  .evict = e2_evict,
+};
+
+static struct inode_ops ext2_file_iops = {
+  .read_inode = e2_read_inode,
+  .evict = e2_evict,
+  .truncate = e2_truncate,
+};
+
+static struct inode_ops ext2_dir_iops = {
   .read_inode = e2_read_inode,
   .evict = e2_evict,
   .lookup = e2_lookup,
   .create = e2_create,
   .unlink = e2_unlink,
   .rename = e2_rename,
-  .read = e2_read,
-  .write = e2_write,
-  .truncate = e2_truncate,
-  .fsync = e2_fsync,
 };
 
 // Make the ext2 partition known to the VFS as the filesystem on block
@@ -1830,8 +2256,11 @@ static struct inode_ops ext2_iops = {
 int
 ext2_register_super(int dev, int readonly)
 {
-  if(!e2.ready)
+  struct ext2_fs *fs = ext2_by_dev(dev);
+  if(fs == 0 || !fs->ready)
     return -1;
-  return fs_super_register(dev, "ext2", &ext2_iops, EXT2_ROOT_INO,
-                           readonly, 0, 0, 0);
+  if(fs_super_register(dev, "ext2", &ext2_iops, EXT2_ROOT_INO,
+                       readonly, 0, 0, fs) < 0)
+    return -1;
+  return fs_super_set_put_super(dev, ext2_put_super);
 }

@@ -162,6 +162,18 @@ sys_mount(void)
 }
 
 uint64
+sys_umount(void)
+{
+  char target[MAXPATH];
+  if(argstr(0, target, sizeof(target)) < 0 || abspath(target) < 0)
+    return -1;
+  VFSTRACE("sys_umount: target=%s\n", target);
+  int r = vfsumount(target);
+  VFSTRACE("sys_umount: target=%s result=%d\n", target, r);
+  return r;
+}
+
+uint64
 sys_rename(void)
 {
   char oldpath[MAXPATH], newpath[MAXPATH];
@@ -934,8 +946,7 @@ sys_open(void)
   if(ip->type == T_FILE){
     int wr = (omode & (O_WRONLY | O_RDWR)) != 0;
     if(((wr || (omode & O_TRUNC)) && fs_is_readonly(ip)) ||
-       ((omode & O_TRUNC) && ip->iop->truncate(ip, 0) < 0) ||
-       (ip->iop->open && ip->iop->open(ip, omode) < 0)){
+       ((omode & O_TRUNC) && ip->iop->truncate(ip, 0) < 0)){
       iunlockput(ip);
       end_op();
       return -1;
@@ -950,33 +961,46 @@ sys_open(void)
     return -1;
   }
 
+  f->ip = ip;
+  f->readable = !(omode & O_WRONLY);
+  f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+  f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
+
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
   } else {
     f->type = FD_INODE;
     f->off = 0;
-    file_inode_setup(f);
+    if(file_inode_setup(f) < 0){
+      myproc()->ofile[fd] = 0;
+      f->ip = 0;
+      f->type = FD_NONE;
+      fileclose(f);
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
   }
-  f->ip = ip;
-  f->readable = !(omode & O_WRONLY);
-  f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
-  f->flags = omode & (O_WRONLY | O_RDWR | O_NONBLOCK);
 
 #if VFS_TRACE
   if(vfs_open_trace_take()){
     struct super_block *sb = getsuper(ip->dev);
     printf("vfs-trace: sys_open: path=%s -> fd=%d fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
            path, fd, sb ? sb->type : "unknown", ip->dev, ip->inum,
-           ip->type, omode, ip->type == T_DEVICE ? "file_operations" :
-           "inode_ops(read/write)");
+           ip->type, omode, ip->type == T_DEVICE ?
+           "major->file_operations" : "inode.i_fop->file_operations");
   }
 #endif
 
-  // Give the driver a chance to attach per-open state.  On failure the
-  // driver's release() must not run, so detach f as a plain FD_NONE file.
-  if(f->type == FD_DEVICE && chrdev_open(f) < 0){
+  // Select device operations by major, or run the filesystem's per-open
+  // hook after file.f_op has been copied from inode.i_fop. On failure the
+  // release hook must not run, so detach the file before dropping it.
+  int open_failed = f->type == FD_DEVICE ? chrdev_open(f) < 0 :
+                    (f->f_op->open && f->f_op->open(f) < 0);
+  if(open_failed){
     myproc()->ofile[fd] = 0;
+    f->ip = 0;
     f->type = FD_NONE;
     f->f_op = 0;
     fileclose(f);

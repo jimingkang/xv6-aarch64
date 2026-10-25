@@ -1,0 +1,57 @@
+\paragraph{ext2 根文件系统.} \file{cmdline\_xv6.txt} 写成 \code{root=/dev/mmcblk0p3 rootfstype=ext2}。和 Linux 一样，ext2 在阶段一只登记“有这种文件系统”，打开分区、读超级块、恢复日志都推迟到阶段二 \code{mount\_root()} 调用它的 \code{fill\_super} 时才做：
+
+\begin{txtcode}
+main()
+  binit()、iinit()                     块缓存；itable（50 项）；fs_mountinit() 清空挂载表
+  do_initcalls()
+    [device] sdhost_probe()            add_disk(mmcblk0)：块层扫描 MBR，登记
+                                       mmcblk0p1～p3 为块设备 3～5
+    [late]   rootdev_init()            ======== 阶段一 ========
+      fat32mount(p1)                   挂上启动分区，读 cmdline_xv6.txt
+      check_rootfstype()               rootfstype=ext2 -> ROOTFS_EXT2
+      name_to_bdev("/dev/mmcblk0p3")
+                                  (a') root= 换成块设备 5：ROOT_DEV = 5
+      自动探测 xv6 分区                仍然找 p2：ext2 的外置日志在 p2 尾部，
+                                       以后由 rootdev_xv6_part() 取得
+    [late 5] ext2init()           (b') 只 register_filesystem(&ext2_type)，
+                                       把 "ext2" 挂进 file_systems 链表，不读盘
+    [late 6] vfsinit()                 登记 procfs、sysfs、fat32、netfs
+  userinit()、scheduler()
+forkret()
+  prepare_namespace()                  ======== 阶段二 ========
+    1. rootfs（dev 7） 2. devtmpfs（dev 8）
+                                       与 xv6fs 根完全相同
+    3. kmknod("/dev/root", BLOCKDEV, 5)
+                                  (c') rootfs 里的节点 (7,5)，次设备号 = ROOT_DEV
+       mount_root("/dev/root", "/root")
+         vfs_get_sb("ext2", "/dev/root", VFS_MOUNT_ROOTLOG)
+           get_fs_type("ext2")         沿 file_systems 链表找到 ext2_type
+           ext2_get_sb()
+             lookup_bdev("/dev/root")
+                                  (d') namei 到 (7,5)：T_DEVICE、主设备号
+                                       BLOCKDEV、次设备号 5 -> dev 5
+             getsuper(5) == 0          dev 5 还没有超级块
+             ext2_fill_super(5)        blkdev_get(5)：p3 的起点、长度、读写回调
+               setup_ext2()            读并校验 ext2 超级块、块组描述符、特性位
+               ext2_journal_init()     在 p2 内第 65536 扇区起 xj_init()，
+                                       有已提交事务就先重放
+               readinode(2)            根 inode 必须是受支持的目录
+               ext2_register_super(5)  supers[5]：类型 ext2、ext2_iops、
+                                       rootino 2、priv = &ext2_instances[5]
+         klookup("/root")              (7,4)
+         fs_mount((7,4), 5)            mtab.m[0]：(7,4) 被 dev 5 的根目录盖住
+       kchdir("/root")                 follow_mount：m[0] -> getsuper(5)
+                                       -> iget(5, 2)，当前目录 = (5,2)
+       kmknod("dev")                   ext2 上没有 /dev 就建一个（e2_create()）
+       devtmpfs_mount("dev")           m[1]：ext2 的 /dev (5,76) 被 dev 8 盖住，
+                                       此时路径是 /root/dev
+    4. fs_move_mount(".", "/")         m[0].mp 从 (7,4) 改成 (7,1)，路径改写为
+                                       "/" 和 "/dev"
+       fs_set_root(当前目录)           "/" = (5,2)，rootfs 被压在下面
+initcode：exec("/init")                ======== 阶段三 ========
+  /init：mount_fstab()                 /proc、/sys、/boot、/mnt/net；ext2 那一行
+                                       因 dev 5 已经是 m[0] 而被拒绝（busy）
+\end{txtcode}
+
+\paragraph{ext2 根的 (a$'$)--(d$'$).} (a$'$) 把 \code{root=} 解析成块设备 5（\code{mmcblk0p3}）并记为 ROOT\_DEV。(b$'$) \code{ext2init()} 只在类型链表里登记 \code{ext2\_type}，不碰 SD 卡。阶段二的 (c$'$) 让 \code{/dev/root} 的次设备号等于 5，(d$'$) \code{lookup\_bdev()} 从节点读回 5，\code{ext2\_fill\_super(5)} 才第一次打开 p3：分区起点与长度来自块设备表 \code{blkdev\_get(5)}，而不是 ext2 自己再去解析 MBR。从这里开始，ext2 根与 xv6fs 根走的是同一条路：\code{kchdir}、在新根的 \code{/dev} 上挂 devtmpfs、MS\_MOVE、chroot。两条调用链的差别只剩 \code{mount\_root()} 里 \code{get\_fs\_type()} 取到哪一个类型。
+

@@ -70,7 +70,12 @@ int             filepoll(struct file*, int);
 int             fileioctl(struct file*, uint64, uint64);
 uint64          filemmap(struct file*, uint64, uint64, int, int, uint64);
 int             filemunmap(struct file*, uint64, uint64);
-void            file_inode_setup(struct file*);
+int             file_inode_setup(struct file*);
+int             generic_file_fread(struct file*, int, uint64, int);
+int             generic_file_fwrite(struct file*, int, uint64, int);
+int             generic_file_poll(struct file*, int);
+int             file_inode_read_locked(struct inode*, int, uint64, uint64,
+                                       uint);
 
 // fs.c
 int             fsinit(int);
@@ -190,16 +195,17 @@ int             ext2writefile(char*, struct fat32_file*, uint64, int, uint64, in
 int             ext2mkdir(char*);
 int             ext2unlink(char*);
 int             ext2rename(char*, char*);
-int             ext2fsync(void);
+int             ext2fsync(int);
 int             ext2open(char*, uint64*);
-void            ext2release(uint64);
-int             ext2readino(uint64, uint64, void*, int);
-int             ext2writeino(uint64, uint64, int, uint64, int);
-int             ext2truncino(uint64, uint64);
-int             ext2statino(uint64, uint*, ushort*, uint64*);
+void            ext2release(int, uint64);
+int             ext2readino(int, uint64, uint64, void*, int);
+int             ext2writeino(int, uint64, uint64, int, uint64, int);
+int             ext2truncino(int, uint64, uint64);
+int             ext2statino(int, uint64, uint*, ushort*, uint64*);
 
 // xjournal.c
-int             xj_init(struct blkdev*, uint32, uint32);
+int             xj_init(struct blkdev*, uint32, uint32, struct blkdev*);
+int             xj_shutdown(struct blkdev*);
 int             xj_ready(void);
 uint32          xj_space(void);
 void            xj_begin(void);
@@ -223,6 +229,7 @@ int             vfsftruncate(struct vnode*, uint64);
 int             vfsfsync(struct vnode*);
 int             vfsstat(struct vnode*, struct stat*);
 int             vfsmount(char*, char*, char*, int);
+int             vfsumount(char*);
 
 // kalloc.c
 void*           kalloc(void);

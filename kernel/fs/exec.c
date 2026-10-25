@@ -14,7 +14,7 @@
 #include <kernel/vfs.h>
 
 // The executable is a locked inode of any mounted filesystem, read through
-// its filesystem's read operation, inside a log transaction.
+// its default file operations, inside a log transaction.
 struct execsrc {
   struct inode *ip;
 };
@@ -29,7 +29,7 @@ struct elf_image {
 static int
 srcread(struct execsrc *src, uint64 dst, uint off, uint n)
 {
-  return src->ip->iop->read(src->ip, 0, dst, off, n);
+  return file_inode_read_locked(src->ip, 0, dst, off, n);
 }
 
 static void

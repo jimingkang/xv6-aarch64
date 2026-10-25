@@ -233,7 +233,7 @@ usb_device_register(接口1)  ->  device_register()  ->  无驱动匹配
        ->  命中静态 alias 表 ->  queue_work(kmod_wq, slot)
             ->  kmod_run() ->  kmod_load("/lib/modules/usbmouse.ko")
                  ->  begin_op(); namei(); ilock()
-                 ->  ip->iop->read(ip, 0, ko_image, 0, sz)   % ext2 分派，非经典 readi()
+                 ->  file_inode_read_locked(ip, ...)          % 经 inode->i_fop->read_at 分派
                  ->  load_module_image()：模块区分配、符号解析、RELA 重定位
                  ->  run init: usbmouse_driver_init()
                       ->  init_workqueue(usbmouse_wq)        % 日志 "usbmouse_wq worker=0 pid=17"
@@ -246,7 +246,8 @@ usb_device_register(接口1)  ->  device_register()  ->  无驱动匹配
 
 两个要点。其一，\code{driver\_register()} 会重新遍历总线上\textbf{已存在}的设备，所以“设备
 先登记并异步排队装载、驱动后注册”的次序仍能绑定接口 1，无需手动 \code{insmod}。其二，
-\code{kmod\_load()} 里读 \texttt{.ko} 必须走 \code{ip->iop->read}（VFS 分派），不能用经典
+\code{kmod\_load()} 里读 \texttt{.ko} 必须走 \code{file\_inode\_read\_locked()}，由
+\code{inode->i\_fop->read\_at} 做 VFS 分派，不能用经典
 xv6fs 的 \code{readi()}：\code{readi()} 的 \code{bmap()->getsb()} 假设设备带 xv6 超级块，在
 ext2 根上会直接 \code{panic: getsb: device has no xv6 filesystem}。本日志的验收点正是这行：
 

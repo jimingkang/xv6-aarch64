@@ -15,9 +15,11 @@
 // Commit protocol (every step ends with sdflush(), a CMD13 completion barrier):
 //   1. descriptor + payload          4. clear the commit record
 //   2. commit record  <- commit point
-//   3. payload copied to home LBAs
+//   3. payload copied to home blocks through bcache
 // Recovery replays a transaction only when the commit record and a checksum
-// over descriptor and payload both validate, so a torn log is ignored.
+// over descriptor and payload both validate.  Once a valid commit record is
+// present, any unreadable or inconsistent descriptor/payload is fatal: the
+// protected filesystem must not be mounted on top of an unrecovered commit.
 //
 // The caller serializes transactions (ext2 holds its sleeplock).
 
@@ -26,6 +28,8 @@
 #include "aarch64.h"
 #include <kernel/defs.h>
 #include <kernel/blkdev.h>
+#include <kernel/sleeplock.h>
+#include <kernel/buf.h>
 
 #define XJ_SECTOR 512
 #define XJ_CAP    1024                       // sectors per transaction
@@ -39,6 +43,7 @@ static struct {
   int ready;
   int active;
   struct blkdev *bd;   // partition holding the log (the xv6 partition)
+  struct blkdev *home; // ext2 partition protected by this log
   uint32 start;        // first log sector, relative to bd
   uint32 seq;
   uint32 count;
@@ -47,11 +52,13 @@ static struct {
   uint32 desc[XJ_DESC * XJ_SECTOR / 4];      // descriptor sectors
   uchar commit[XJ_SECTOR];
   uchar tmp[XJ_SECTOR];
+  uchar done[XJ_CAP];
 } xj;
 
-// Log sector s (relative to the log start) through the partition's rw.  Home
-// sectors are still absolute card LBAs written with sdsector(): those belong
-// to the ext2 partition, which ext2.c addresses directly.
+// The log itself deliberately uses a sector-level hook: its on-disk format and
+// ordering barriers are expressed in 512-byte sectors.  Home sectors, however,
+// are checkpointed through bread()/bwrite() below so the ext2 cache is updated
+// rather than bypassed.
 static int
 log_rw(uint32 s, void *buf, int write)
 {
@@ -131,63 +138,148 @@ clear_commit(void)
 static int
 write_home(uint32 count)
 {
-  for(uint32 i = 0; i < count; i++)
-    if(sdsector(xj.lba[i], slot(i), 1) < 0)
+  if(xj.home == 0)
+    return -1;
+  uint32 bsize = blkdev_bsize(xj.home->dev);
+  if(bsize < XJ_SECTOR || bsize > BLK_MAX_BSIZE ||
+     bsize % XJ_SECTOR)
+    return -1;
+  uint32 spb = bsize / XJ_SECTOR;
+  memset(xj.done, 0, count);
+  for(uint32 i = 0; i < count; i++){
+    if(xj.lba[i] < xj.home->start)
       return -1;
+    uint64 rel = (uint64)xj.lba[i] - xj.home->start;
+    if(xj.home->nsect && rel >= xj.home->nsect)
+      return -1;
+  }
+
+  // Several logged metadata sectors commonly belong to one 4 KiB ext2
+  // block.  Lock that cached block once, overlay every matching sector, and
+  // issue one block write.
+  for(uint32 i = 0; i < count; i++){
+    if(xj.done[i])
+      continue;
+    uint64 rel = (uint64)xj.lba[i] - xj.home->start;
+    uint32 bno = rel / spb;
+    struct buf *bp = bread(xj.home->dev, bno);
+    if(bp->error){
+      brelse(bp);
+      return -1;
+    }
+    for(uint32 j = i; j < count; j++){
+      if(xj.done[j])
+        continue;
+      uint64 jrel = (uint64)xj.lba[j] - xj.home->start;
+      if(jrel / spb != bno)
+        continue;
+      memmove(bp->data + (jrel % spb) * XJ_SECTOR,
+              slot(j), XJ_SECTOR);
+      xj.done[j] = 1;
+    }
+    bwrite(bp);
+    int error = bp->error;
+    brelse(bp);
+    if(error)
+      return -1;
+  }
   return sdflush();
 }
 
-// Replay a committed but not yet checkpointed transaction.
-static void
+// Replay a committed but not yet checkpointed transaction.  A missing commit
+// is normal.  An invalid commit sector can be retired, but after a valid
+// commit record has been observed every replay error is fatal and the record
+// is preserved for a later repair/retry.
+static int
 recover(void)
 {
   uint32 seq, count, sum;
-  if(log_rw(XJ_DESC + XJ_CAP, xj.commit, 0) < 0 ||
-     !commit_valid(&seq, &count, &sum))
-    return;
+  if(log_rw(XJ_DESC + XJ_CAP, xj.commit, 0) < 0)
+    return -1;
+  if(get32(xj.commit) != XJ_CMAGIC)
+    return 0;
+  if(!commit_valid(&seq, &count, &sum)){
+    printf("xjournal: invalid commit record; retiring it\n");
+    return clear_commit();
+  }
   for(uint32 i = 0; i < XJ_DESC; i++)
     if(log_rw(i, (uchar*)xj.desc + i * XJ_SECTOR, 0) < 0)
-      return;
+      return -1;
   if(xj.desc[0] != XJ_DMAGIC || xj.desc[1] != seq || xj.desc[2] != count){
-    printf("xjournal: commit record without matching descriptor; discarded\n");
-    clear_commit();
-    return;
+    printf("xjournal: committed seq=%d has no matching descriptor\n", seq);
+    return -1;
   }
   for(uint32 i = 0; i < count; i++)
     if(log_rw(XJ_DESC + i, slot(i), 0) < 0)
-      return;
+      return -1;
   if(txsum(count) != sum){
-    printf("xjournal: torn transaction seq=%d; discarded\n", seq);
-    clear_commit();
-    return;
+    printf("xjournal: committed seq=%d has a torn payload\n", seq);
+    return -1;
   }
   for(uint32 i = 0; i < count; i++)
     xj.lba[i] = xj.desc[4 + i];
   if(write_home(count) < 0 || clear_commit() < 0){
     printf("xjournal: replay of seq=%d failed\n", seq);
-    return;
+    return -1;
   }
   xj.seq = seq;
   printf("xjournal: replayed seq=%d (%d sectors)\n", seq, count);
+  return 0;
+}
+
+static void
+free_pages(void)
+{
+  for(int i = 0; i < XJ_CAP / XJ_SPP; i++)
+    if(xj.page[i]){
+      kfree(xj.page[i]);
+      xj.page[i] = 0;
+    }
 }
 
 int
-xj_init(struct blkdev *bd, uint32 start, uint32 nsectors)
+xj_init(struct blkdev *bd, uint32 start, uint32 nsectors,
+        struct blkdev *home)
 {
   if(xj.ready)
-    return 0;
-  if(nsectors < XJ_TOTAL)
+    return xj.bd == bd && xj.home == home && xj.start == start ? 0 : -1;
+  if(nsectors < XJ_TOTAL || home == 0)
     return -1;
   for(int i = 0; i < XJ_CAP / XJ_SPP; i++){
-    if((xj.page[i] = kalloc()) == 0)
-      panic("xjournal: no memory");
+    if((xj.page[i] = kalloc()) == 0){
+      free_pages();
+      return -1;
+    }
   }
   xj.bd = bd;
+  xj.home = home;
   xj.start = start;
+  if(recover() < 0){
+    printf("xjournal: recovery failed; refusing ext2 mount\n");
+    free_pages();
+    memset(&xj, 0, sizeof(xj));
+    return -1;
+  }
   xj.ready = 1;
-  recover();
   printf("xjournal: ready on %s+%d (lba=%d) capacity=%d sectors\n",
          bd->name, start, bd->start + start, XJ_CAP);
+  return 0;
+}
+
+// Cleanly detach the singleton journal from its home filesystem.  Re-run
+// recovery first because a previous checkpoint may have failed after its
+// commit point; only an empty durable log can be released safely.
+int
+xj_shutdown(struct blkdev *home)
+{
+  if(!xj.ready)
+    return 0;
+  if(home == 0 || xj.home != home || xj.active)
+    return -1;
+  if(recover() < 0 || sdflush() < 0)
+    return -1;
+  free_pages();
+  memset(&xj, 0, sizeof(xj));
   return 0;
 }
 

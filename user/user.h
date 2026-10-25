@@ -71,6 +71,7 @@ int udp_recv_timeout(int, uint32*, uint16*, void*, int, int);
 int icmp_send(uint32, int, int, const void*, int);
 int icmp_recv(int, uint32*, uint16*, void*, int);
 int mount(const char*, const char*, const char*, int);
+int umount(const char*);
 int tty_attach(int);
 int tty_set_foreground(int);
 int vmdump(int);

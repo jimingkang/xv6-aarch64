@@ -272,4 +272,4 @@ rootdev_init(void)
 
 // Level late: mounting the root is what Linux does after do_initcalls(),
 // by which time every block driver above has had its probe run.
-late_initcall("sdroot", rootdev_init);
+late_initcall("rootdev", rootdev_init);

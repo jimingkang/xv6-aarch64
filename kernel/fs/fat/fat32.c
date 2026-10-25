@@ -1356,6 +1356,6 @@ fat32init(void)
 }
 
 // Level fs: FAT32 driver state only; the boot filesystem itself is
-// mounted later by sdroot.
+// mounted later by rootdev_init().
 fs_initcall("fat32", fat32init);
 

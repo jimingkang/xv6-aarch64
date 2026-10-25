@@ -794,7 +794,7 @@ panic: mutex_lock: no process
 
 ### 原因
 
-`rpi3-lock` 将 FAT32 的全局 spinlock 改成了可睡眠 FIFO mutex。`sdroot` 属于 late initcall，运行
+`rpi3-lock` 将 FAT32 的全局 spinlock 改成了可睡眠 FIFO mutex。`rootdev_init()` 属于 late initcall，运行
 在 `userinit()` 和 `scheduler()` 之前；挂载 bootfs 后，`cmdline_init()` 立即通过 FAT32 读取配置，
 此时 CPU 尚无当前进程，`myproc() == 0`。第一版 `mutex_lock()` 强制要求进程 owner，因此在锁实际
 没有竞争时也直接 panic。

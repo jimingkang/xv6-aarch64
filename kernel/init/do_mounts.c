@@ -31,6 +31,7 @@
 #include <kernel/stat.h>
 #include <kernel/defs.h>
 #include <kernel/blkdev.h>
+#include <kernel/vfs.h>
 #include <kernel/workqueue.h>
 #include <kernel/device.h>
 #include <kernel/input.h>
@@ -85,7 +86,8 @@ ramfs_create(int n, int dev, char *name, uint nblocks, uint ninodes)
   if(ramdisk_create(n, dev, name, nblocks * BSIZE, BSIZE) < 0)
     panic("ramfs: no RAM disk");
   ramfs_mkfs(dev, nblocks, ninodes);
-  if(fs_readsuper(dev) < 0)
+  struct fs_type *t = get_fs_type("xv6fs");
+  if(t == 0 || t->fill_super(dev, 0) < 0)
     panic("ramfs: bad superblock");
 }
 
@@ -378,47 +380,20 @@ devtmpfs_mount(char *path, char *shown)
 
 // ---------------------------------------------------------------------------
 
-// The block device a device node names: /dev/root -> its minor number.
-static int
-node_to_blkdev(char *devname)
-{
-  struct inode *ip = klookup(devname);
-  int dev = -1;
-
-  if(ip){
-    ilock(ip);
-    if(ip->type == T_DEVICE && ip->major == BLOCKDEV)
-      dev = ip->minor;
-    iunlock(ip);
-    kput(ip);
-  }
-  return dev;
-}
-
 // mount_root(): mount the filesystem on the block device named by the node
-// devname on directory dir.  rootfstype= picks the filesystem: xv6fs is read
-// by fsinit() (superblock + log recovery), ext2 was opened by ext2init() and
-// is checked against the node.  Both become an ordinary entry of the one
-// mount table, so both are MS_MOVEd and chrooted the same way afterwards.
+// devname on directory dir.  rootfstype= picks the registered type; its
+// get_sb resolves devname with lookup_bdev() and runs fill_super (xv6fs:
+// block size, superblock, log recovery; ext2: external journal recovery and
+// superblock).  The result is an ordinary entry of the one mount
+// table, so both are MS_MOVEd and chrooted the same way afterwards.
 static void
 mount_root(char *devname, char *dir)
 {
-  int dev = node_to_blkdev(devname);
-  char *type;
-  struct blkdev *bd = dev > 0 ? blkdev_get(dev) : 0;
-
-  if(rootdev_fstype() == ROOTFS_EXT2){
-    if(bd == 0 || !ext2ready() || bd->start != ext2_part_lba() ||
-       ext2_register_super(dev, 0) < 0)
-      panic("VFS: Unable to mount root fs (ext2) on /dev/root");
-    type = "ext2";
-  } else {
-    // sb_set_blocksize(): the partition was added with 512-byte blocks.
-    // fill_super: superblock check and log recovery.
-    if(dev < 0 || blkdev_set_bsize(dev, BSIZE) < 0 || fsinit(dev) < 0)
-      panic("VFS: Unable to mount root fs on /dev/root");
-    type = "xv6fs";
-  }
+  char *type = rootdev_fstype() == ROOTFS_EXT2 ? "ext2" : "xv6fs";
+  int dev = vfs_get_sb(type, devname, VFS_MOUNT_ROOTLOG);
+  if(dev < 0)
+    panic("VFS: Unable to mount root fs on /dev/root");
+  struct blkdev *bd = blkdev_get(dev);
   struct inode *mp = klookup(dir);
   if(mp == 0 || fs_mount(mp, dev, type, devname, dir) < 0)
     panic("VFS: cannot attach root");
