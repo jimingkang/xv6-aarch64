@@ -10,6 +10,7 @@
 #include <kernel/sched.h>
 #include <kernel/camera.h>
 #include <kernel/defs.h>
+#include <uapi/sched.h>
 
 struct cpu cpus[NCPU];
 struct proc *proc_head;
@@ -52,7 +53,24 @@ vmspace_alloc(void)
   return vm;
 }
 
-static void
+// Wrap an already built page table in a fresh private vmspace.  exec() uses
+// this when the caller shares its address space with a CLONE_VM sibling (a
+// vfork parent), so the new image must not replace the shared one.
+struct vmspace*
+vmspace_wrap(pagetable_t pagetable, uint64 sz)
+{
+  struct vmspace *vm = kalloc();
+  if(vm == 0)
+    return 0;
+  memset(vm, 0, sizeof(*vm));
+  initlock(&vm->lock, "vmspace");
+  vm->pagetable = pagetable;
+  vm->sz = sz;
+  vm->refcount = 1;
+  return vm;
+}
+
+void
 vmspace_put(struct vmspace *vm)
 {
   int last;
@@ -446,6 +464,16 @@ found:
     return 0;
   }
 
+  // Likewise an empty descriptor table and an fs_struct with no cwd.
+  // do_clone() replaces them with shared or copied ones.
+  p->files = files_alloc();
+  p->fs = fs_alloc();
+  if(p->files == 0 || p->fs == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -495,6 +523,14 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   vmspace_put(p->vm);
   p->vm = 0;
+  // exit() already dropped live tables; only allocproc's or do_clone()'s
+  // empty ones reach here, and putting those never sleeps.
+  files_put(p->files);
+  p->files = 0;
+  fs_put(p->fs);
+  p->fs = 0;
+  p->nfpin = 0;
+  p->vfork_pending = 0;
   p->pid = 0;
   p->tgid = 0;
   p->is_thread = 0;
@@ -546,8 +582,7 @@ userinit(void)
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
-  p->cwd = 0;              // set by prepare_namespace() in forkret()
-  safestrcpy(p->cwdpath, "/", sizeof(p->cwdpath));
+  // p->fs->cwd is set by prepare_namespace() in forkret(); cwdpath is "/".
 
   make_runnable(p, 0);
 
@@ -609,39 +644,79 @@ growproc(int n)
   return 0;
 }
 
-// Internal do_clone() modes.  These are deliberately not the user ABI clone
-// flags yet: the current clone system call has the fixed three-argument
-// thread-creation interface.
-#define DO_CLONE_VM 0x1
+// clone flags this kernel implements.  CLONE_SIGHAND is accepted for the
+// Linux rules below; signal dispositions are not per task yet.
+#define CLONE_SUPPORTED (CSIGNAL | CLONE_VM | CLONE_FS | CLONE_FILES | \
+                         CLONE_SIGHAND | CLONE_VFORK | CLONE_THREAD | \
+                         CLONE_PARENT_SETTID | CLONE_CHILD_SETTID)
 
-// Common implementation for process fork and user-thread clone.  Every child
-// gets its own proc slot, kernel stack, context and trapframe.  DO_CLONE_VM
-// selects whether the user address space is shared or copied.
-static int
-do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
+// Common implementation of fork, the thread library's clone and the Linux
+// style clone, after Linux copy_process().  Every child gets its own proc
+// slot, kernel stack, context and trapframe; flags select which of the
+// address space (CLONE_VM), descriptor table (CLONE_FILES) and cwd
+// (CLONE_FS) are shared rather than copied.
+//
+// stack, if non-zero, becomes the child's sp.  entry, if non-zero, starts
+// the child at entry(arg) instead of returning 0 from the system call; the
+// thread-library SYS_clone ABI uses this.  CLONE_VFORK suspends the caller
+// until the child calls exec() or exits.
+int
+do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
+         uint64 entry, uint64 arg)
 {
-  int i, id;
+  int id;
   struct proc *np;
   struct proc *p = myproc();
   struct vmspace *vm = p->vm;
+  struct files_struct *files;
+  struct fs_struct *fs;
+  int exit_signal = flags & CSIGNAL;
 
-  if(flags & ~DO_CLONE_VM)
+  // Linux's consistency rules: a thread shares signal handlers, which in
+  // turn requires a shared address space.
+  if(flags & ~(uint64)CLONE_SUPPORTED)
     return -1;
-  if((flags & DO_CLONE_VM) &&
-     (entry == 0 || stack_top < 16 || (stack_top & 15) != 0))
+  if((flags & CLONE_THREAD) && !(flags & CLONE_SIGHAND))
     return -1;
+  if((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
+    return -1;
+  if(exit_signal != 0 && exit_signal != SIGCHLD)
+    return -1;
+  // Two runnable tasks cannot use one user stack.  A vfork child may,
+  // because its parent stays suspended until the child execs or exits.
+  if((flags & CLONE_VM) && !(flags & CLONE_VFORK) && stack == 0)
+    return -1;
+  if(stack != 0 && (stack < 16 || (stack & 15) != 0))
+    return -1;
+
+  if(flags & CLONE_FILES){
+    files_get(p->files);
+    files = p->files;
+  } else if((files = files_dup(p->files)) == 0){
+    return -1;
+  }
+  if(flags & CLONE_FS){
+    fs_get(p->fs);
+    fs = p->fs;
+  } else if((fs = fs_copy(p->fs)) == 0){
+    files_put(files);
+    return -1;
+  }
+
   if((np = allocproc()) == 0)
-    return -1;
+    goto bad;
 
-  if(flags & DO_CLONE_VM){
+  if(flags & CLONE_VM){
     acquire(&vm->lock);
-    if(vm->execing || entry >= vm->sz || stack_top > vm->sz ||
-       walkaddr(vm->pagetable, entry) == 0 ||
-       walkaddr(vm->pagetable, stack_top - 1) == 0){
+    if(vm->execing ||
+       (entry != 0 && (entry >= vm->sz ||
+                       walkaddr(vm->pagetable, entry) == 0)) ||
+       (stack != 0 && (stack > vm->sz ||
+                       walkaddr(vm->pagetable, stack - 1) == 0))){
       release(&vm->lock);
       freeproc(np);
       release(&np->lock);
-      return -1;
+      goto bad;
     }
     vm->refcount++;
     release(&vm->lock);
@@ -649,8 +724,6 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
     // Replace allocproc's private empty vmspace with the caller's vmspace.
     vmspace_put(np->vm);
     np->vm = vm;
-    np->is_thread = 1;
-    np->tgid = p->tgid;
   } else {
     // fork: retain allocproc's private vmspace and populate it from parent.
     acquire(&vm->lock);
@@ -658,7 +731,7 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
       release(&vm->lock);
       freeproc(np);
       release(&np->lock);
-      return -1;
+      goto bad;
     }
     if(vm->camera_mapped){
       if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
@@ -666,35 +739,39 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
         release(&vm->lock);
         freeproc(np);
         release(&np->lock);
-        return -1;
+        goto bad;
       }
       np->vm->camera_mapped = 1;
     }
     np->vm->sz = vm->sz;
     release(&vm->lock);
+  }
+  if(flags & CLONE_THREAD){
+    np->is_thread = 1;
+    np->tgid = p->tgid;
+  } else {
     np->tgid = np->pid;
   }
 
   // Begin with the caller's saved user register image, then select the user
   // return point required by fork or thread creation.
   *np->trapframe = *p->trapframe;
-  if(flags & DO_CLONE_VM){
+  if(entry != 0){
     np->trapframe->elr = entry;
-    np->trapframe->sp = stack_top;
     np->trapframe->x0 = arg;
     np->trapframe->x30 = 0;
   } else {
-    // fork returns zero in the child; the parent receives the child PID.
+    // fork/clone return zero in the child; the parent receives the child TID.
     np->trapframe->x0 = 0;
   }
+  if(stack != 0)
+    np->trapframe->sp = stack;
 
-  // Descriptor-table entries remain per task for now, while each duplicated
-  // entry references the same underlying open-file description.
-  for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
-      np->ofile[i] = filedup(p->ofile[i]);
-  np->cwd = idup(p->cwd);
-  safestrcpy(np->cwdpath, p->cwdpath, sizeof(np->cwdpath));
+  // allocproc's empty tables are released without sleeping.
+  files_put(np->files);
+  np->files = files;
+  fs_put(np->fs);
+  np->fs = fs;
   np->sid = p->sid;
   np->pgid = p->pgid;
   np->ctty = p->ctty;
@@ -712,30 +789,92 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
   id = np->pid;
   release(&np->lock);
 
+  // The child has not run yet, so both TIDs are visible before it starts.
+  // As in Linux, a bad pointer here is ignored rather than undoing clone.
+  if(flags & CLONE_PARENT_SETTID)
+    copyout(p->vm->pagetable, ptid, (char *)&id, sizeof(id));
+  if(flags & CLONE_CHILD_SETTID)
+    copyout(np->vm->pagetable, ctid, (char *)&id, sizeof(id));
+
   acquire(&wait_lock);
   np->parent = p;
+  np->vfork_pending = (flags & CLONE_VFORK) != 0;
   release(&wait_lock);
 
   acquire(&np->lock);
   make_runnable(np, 0);
   release(&np->lock);
+
+  // vfork: sleep until vfork_done() reports the child's exec or exit.  The
+  // proc slot cannot be recycled meanwhile: only this parent reaps it.
+  if(flags & CLONE_VFORK){
+    acquire(&wait_lock);
+    while(np->vfork_pending && !p->killed)
+      sleep(&np->vfork_pending, &wait_lock);
+    release(&wait_lock);
+  }
   return id;
+
+bad:
+  files_put(files);
+  fs_put(fs);
+  return -1;
 }
 
-// Create a new process with a private copy of the caller's address space.
+// Release a CLONE_VFORK parent: the child has exec'd a new image or is
+// exiting, so it no longer borrows the parent's address space.
+void
+vfork_done(struct proc *p)
+{
+  acquire(&wait_lock);
+  if(p->vfork_pending){
+    p->vfork_pending = 0;
+    wakeup(&p->vfork_pending);
+  }
+  release(&wait_lock);
+}
+
+// True when no other live task belongs to p's thread group.  Only a member
+// of the group can add one, so the answer stays valid while p is busy.
+int
+thread_group_alone(struct proc *p)
+{
+  int alone = !p->is_thread;
+
+  acquire(&wait_lock);
+  for(struct proc *t = proc_head; t && alone; t = t->next){
+    if(t == p)
+      continue;
+    acquire(&t->lock);
+    if(t->is_thread && t->tgid == p->tgid && t->state != UNUSED &&
+       t->state != ZOMBIE)
+      alone = 0;
+    release(&t->lock);
+  }
+  release(&wait_lock);
+  return alone;
+}
+
+// Create a new process with a private copy of the caller's address space,
+// descriptor table and cwd.
 int
 fork(void)
 {
-  return do_clone(0, 0, 0, 0);
+  return do_clone(SIGCHLD, 0, 0, 0, 0, 0);
 }
 
-// Create a new schedulable user thread in the caller's address space.
-// entry receives arg in x0 and must terminate with texit(); the user library
-// supplies a wrapper that guarantees this when the thread function returns.
+// The thread library's fixed SYS_clone ABI: a POSIX thread in the caller's
+// thread group, sharing address space, descriptor table and cwd, as
+// pthread_create() asks of Linux.  entry receives arg in x0 and must
+// terminate with texit(); the user library supplies a wrapper that
+// guarantees this when the thread function returns.
 int
 threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 {
-  return do_clone(DO_CLONE_VM, entry, arg, stack_top);
+  if(entry == 0 || stack_top == 0)
+    return -1;
+  return do_clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+                  CLONE_THREAD, stack_top, 0, 0, entry, arg);
 }
 
 static void
@@ -743,19 +882,14 @@ threadexit(int status)
 {
   struct proc *p = myproc();
 
+  vfork_done(p);
   net_udp_closeproc(p->pid);
-  for(int fd = 0; fd < NOFILE; fd++){
-    if(p->ofile[fd]){
-      fileclose(p->ofile[fd]);
-      p->ofile[fd] = 0;
-    }
-  }
-  if(p->cwd){
-    begin_op();
-    iput(p->cwd);
-    end_op();
-    p->cwd = 0;
-  }
+  // Drop this thread's references; the last sharer closes the files.
+  fdput_all(p);
+  files_put(p->files);
+  p->files = 0;
+  fs_put(p->fs);
+  p->fs = 0;
 
   acquire(&wait_lock);
   // Children forked by this thread must not retain a parent pointer to a proc
@@ -846,6 +980,9 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
+  // A vfork child stops borrowing its parent's address space here.
+  vfork_done(p);
+
   // exit() is process-wide. Ask sibling threads to leave, then reap their
   // proc slots before publishing the leader as a zombie. Killed sleepers are
   // made runnable so they can observe p->killed at the kernel/user boundary.
@@ -884,19 +1021,13 @@ exit(int status)
 
   net_udp_closeproc(p->pid);
 
-  // Close all open files.
-  for(int fd = 0; fd < NOFILE; fd++){
-    if(p->ofile[fd]){
-      struct file *f = p->ofile[fd];
-      fileclose(f);
-      p->ofile[fd] = 0;
-    }
-  }
-
-  begin_op();
-  iput(p->cwd);
-  end_op();
-  p->cwd = 0;
+  // Drop the descriptor table and cwd.  Open files are closed and cwd is
+  // released only when no CLONE_FILES / CLONE_FS sharer remains.
+  fdput_all(p);
+  files_put(p->files);
+  p->files = 0;
+  fs_put(p->fs);
+  p->fs = 0;
 
   acquire(&wait_lock);
 

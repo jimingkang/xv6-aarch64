@@ -209,7 +209,7 @@ pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
   pthread_records_unlock();
 
   top = ((uint64)record->stack + POSIX_THREAD_STACK + 16) & ~15ULL;
-  tid = clone(pthread_boot, record, (void *)top);
+  tid = thread_clone(pthread_boot, record, (void *)top);
   if(tid < 0){
     pthread_records_lock();
     if(pthread_records == record)

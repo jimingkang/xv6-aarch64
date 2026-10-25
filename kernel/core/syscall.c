@@ -150,6 +150,7 @@ extern uint64 sys_pty_open(void);
 extern uint64 sys_getrandom(void);
 extern uint64 sys_rename(void);
 extern uint64 sys_clone(void);
+extern uint64 sys_clone_flags(void);
 extern uint64 sys_texit(void);
 extern uint64 sys_tjoin(void);
 extern uint64 sys_gettid(void);
@@ -271,6 +272,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_net_dns]       sys_net_dns,
 [SYS_poll]          sys_poll,
 [SYS_ioctl]         sys_ioctl,
+[SYS_clone_flags]   sys_clone_flags,
 };
 
 void
@@ -293,6 +295,8 @@ syscall(void)
 #endif
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     p->trapframe->x0 = syscalls[num]();
+    // Drop the struct file references fdget() pinned for this call.
+    fdput_all(p);
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);

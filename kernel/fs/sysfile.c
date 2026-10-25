@@ -93,7 +93,6 @@ static int
 abspath(char *path)
 {
   char tmp[MAXPATH];
-  struct proc *p = myproc();
   int n;
 
   if(path[0] == 0)
@@ -101,10 +100,12 @@ abspath(char *path)
   if(path[0] == '/'){
     safestrcpy(tmp, path, sizeof(tmp));
   } else {
-    int a = strlen(p->cwdpath), b = strlen(path);
+    char cwd[MAXPATH];
+    fs_cwdpath(cwd, sizeof(cwd));
+    int a = strlen(cwd), b = strlen(path);
     if(a + 1 + b + 1 > MAXPATH)
       return -1;
-    memmove(tmp, p->cwdpath, a);
+    memmove(tmp, cwd, a);
     tmp[a] = '/';
     memmove(tmp + a + 1, path, b + 1);
   }
@@ -276,6 +277,7 @@ sys_ext2readdir(void)
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
+// The file stays valid until this system call returns (see fdget()).
 static int
 argfd(int n, int *pfd, struct file **pf)
 {
@@ -284,7 +286,7 @@ argfd(int n, int *pfd, struct file **pf)
 
   if(argint(n, &fd) < 0)
     return -1;
-  if(fd < 0 || fd >= NOFILE || (f=myproc()->ofile[fd]) == 0)
+  if((f = fdget(fd)) == 0)
     return -1;
   if(pfd)
     *pfd = fd;
@@ -348,16 +350,7 @@ sys_pwrite(void)
 static int
 fdalloc(struct file *f)
 {
-  int fd;
-  struct proc *p = myproc();
-
-  for(fd = 0; fd < NOFILE; fd++){
-    if(p->ofile[fd] == 0){
-      p->ofile[fd] = f;
-      return fd;
-    }
-  }
-  return -1;
+  return fd_install(f);
 }
 
 // Create a POSIX-shaped TCP socket.  bind() records the port and listen()
@@ -608,8 +601,7 @@ sys_epoll_ctl(void)
       return -1;
     eventp = &event;
   }
-  if(fd < 0 || fd >= NOFILE || (target = myproc()->ofile[fd]) == 0 ||
-     target == epfile)
+  if((target = fdget(fd)) == 0 || target == epfile)
     return -1;
   return epollctl(epfile->epoll, op, fd, target, eventp);
 }
@@ -666,12 +658,11 @@ sys_poll(void)
       pfds[i].revents = 0;
       if(pfds[i].fd < 0)
         continue;
-      if(pfds[i].fd >= NOFILE || myproc()->ofile[pfds[i].fd] == 0){
+      if((files[i] = fget(pfds[i].fd)) == 0){
         pfds[i].revents = POLLNVAL;
         ready++;
         continue;
       }
-      files[i] = filedup(myproc()->ofile[pfds[i].fd]);
       pfds[i].revents = filepoll(files[i], pfds[i].events);
       fileclose(files[i]);
       if(pfds[i].revents)
@@ -706,9 +697,10 @@ sys_dup(void)
 
   if(argfd(0, 0, &f) < 0)
     return -1;
-  if((fd=fdalloc(f)) < 0)
+  if((fd=fdalloc(filedup(f))) < 0){
+    fileclose(f);
     return -1;
-  filedup(f);
+  }
   return fd;
 }
 
@@ -716,7 +708,6 @@ uint64
 sys_dup2(void)
 {
   struct file *f, *old;
-  struct proc *p = myproc();
   int oldfd, newfd;
 
   if(argfd(0, &oldfd, &f) < 0 || argint(1, &newfd) < 0 ||
@@ -724,8 +715,7 @@ sys_dup2(void)
     return -1;
   if(oldfd == newfd)
     return newfd;
-  old = p->ofile[newfd];
-  p->ofile[newfd] = filedup(f);
+  old = fd_replace(newfd, filedup(f));
   if(old)
     fileclose(old);
   return newfd;
@@ -735,14 +725,15 @@ uint64
 sys_getcwd(void)
 {
   struct proc *p = myproc();
+  char cwd[MAXPATH];
   uint64 address;
   int size, length;
 
   if(argaddr(0, &address) < 0 || argint(1, &size) < 0 || size <= 0)
     return -1;
-  length = strlen(p->cwdpath) + 1;
-  if(length > size || copyout(p->vm->pagetable, address, p->cwdpath,
-                              length) < 0)
+  fs_cwdpath(cwd, sizeof(cwd));
+  length = strlen(cwd) + 1;
+  if(length > size || copyout(p->vm->pagetable, address, cwd, length) < 0)
     return -1;
   return address;
 }
@@ -788,9 +779,14 @@ sys_munmap(void)
   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
     return -1;
   for(int fd = 0; fd < NOFILE; fd++){
-    f = myproc()->ofile[fd];
-    if(f && f->f_op && f->f_op->munmap)
-      return filemunmap(f, addr, len);
+    if((f = fget(fd)) == 0)
+      continue;
+    if(f->f_op && f->f_op->munmap){
+      int r = filemunmap(f, addr, len);
+      fileclose(f);
+      return r;
+    }
+    fileclose(f);
   }
   return camera_munmap_current(addr, len);
 }
@@ -814,9 +810,8 @@ sys_close(void)
   int fd;
   struct file *f;
 
-  if(argfd(0, &fd, &f) < 0)
+  if(argint(0, &fd) < 0 || (f = fd_replace(fd, 0)) == 0)
     return -1;
-  myproc()->ofile[fd] = 0;
   fileclose(f);
   return 0;
 }
@@ -953,9 +948,7 @@ sys_open(void)
     }
   }
 
-  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
-    if(f)
-      fileclose(f);
+  if((f = filealloc()) == 0){
     iunlockput(ip);
     end_op();
     return -1;
@@ -973,7 +966,6 @@ sys_open(void)
     f->type = FD_INODE;
     f->off = 0;
     if(file_inode_setup(f) < 0){
-      myproc()->ofile[fd] = 0;
       f->ip = 0;
       f->type = FD_NONE;
       fileclose(f);
@@ -986,8 +978,8 @@ sys_open(void)
 #if VFS_TRACE
   if(vfs_open_trace_take()){
     struct super_block *sb = getsuper(ip->dev);
-    printf("vfs-trace: sys_open: path=%s -> fd=%d fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
-           path, fd, sb ? sb->type : "unknown", ip->dev, ip->inum,
+    printf("vfs-trace: sys_open: path=%s fs=%s dev=%d ino=%d type=%d mode=%x dispatch=%s\n",
+           path, sb ? sb->type : "unknown", ip->dev, ip->inum,
            ip->type, omode, ip->type == T_DEVICE ?
            "major->file_operations" : "inode.i_fop->file_operations");
   }
@@ -999,7 +991,6 @@ sys_open(void)
   int open_failed = f->type == FD_DEVICE ? chrdev_open(f) < 0 :
                     (f->f_op->open && f->f_op->open(f) < 0);
   if(open_failed){
-    myproc()->ofile[fd] = 0;
     f->ip = 0;
     f->type = FD_NONE;
     f->f_op = 0;
@@ -1012,6 +1003,12 @@ sys_open(void)
   iunlock(ip);
   end_op();
 
+  // Publish the descriptor last: a CLONE_FILES sibling must never see a
+  // half-opened file.
+  if((fd = fdalloc(f)) < 0){
+    fileclose(f);
+    return -1;
+  }
   return fd;
 }
 
@@ -1060,7 +1057,6 @@ sys_chdir(void)
 {
   char path[MAXPATH];
   struct inode *ip;
-  struct proc *p = myproc();
 
   if(argstr(0, path, MAXPATH) < 0 || abspath(path) < 0)
     return -1;
@@ -1076,10 +1072,8 @@ sys_chdir(void)
     return -1;
   }
   ireadunlock(ip);
-  iput(p->cwd);
+  iput(fs_set_cwd(ip, path));
   end_op();
-  p->cwd = ip;
-  safestrcpy(p->cwdpath, path, sizeof(p->cwdpath));
   return 0;
 }
 
@@ -1141,15 +1135,15 @@ sys_pipe(void)
   fd0 = -1;
   if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
     if(fd0 >= 0)
-      p->ofile[fd0] = 0;
+      fd_replace(fd0, 0);
     fileclose(rf);
     fileclose(wf);
     return -1;
   }
   if(copyout(p->vm->pagetable, fdarray, (char*)&fd0, sizeof(fd0)) < 0 ||
      copyout(p->vm->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1)) < 0){
-    p->ofile[fd0] = 0;
-    p->ofile[fd1] = 0;
+    fd_replace(fd0, 0);
+    fd_replace(fd1, 0);
     fileclose(rf);
     fileclose(wf);
     return -1;
@@ -1179,9 +1173,9 @@ sys_pty_open(void)
 
 bad:
   if(fdm >= 0)
-    p->ofile[fdm] = 0;
+    fd_replace(fdm, 0);
   if(fds >= 0)
-    p->ofile[fds] = 0;
+    fd_replace(fds, 0);
   fileclose(master);
   fileclose(slave);
   return -1;

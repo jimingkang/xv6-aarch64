@@ -105,6 +105,32 @@ struct vmspace {
   int camera_mapped;          // fixed read-only Unicam DMA mapping
 };
 
+// Reference-counted descriptor table (Linux files_struct).  CLONE_FILES
+// tasks share one table; otherwise clone copies it.  lock protects count and
+// fd[]; each non-zero fd[] entry owns one struct file reference.
+struct files_struct {
+  struct spinlock lock;
+  int count;
+  struct file *fd[NOFILE];
+};
+
+// Reference-counted filesystem context (Linux fs_struct).  CLONE_FS tasks
+// share one, so chdir() in one is seen by all.  lock protects users, cwd and
+// cwdpath; cwd is a native inode reference owned by the fs_struct.
+struct fs_struct {
+  struct spinlock lock;
+  int users;
+  struct inode *cwd;           // Current directory (native inode)
+  char cwdpath[MAXPATH];       // Current directory as a normalized absolute
+                               // path; relative paths are resolved against it
+                               // so they also work below VFS mount points
+};
+
+// Files a system call looked up in a shared descriptor table.  Each holds a
+// reference so a concurrent close() in a CLONE_FILES sibling cannot free the
+// struct file mid-call; syscall() drops them when the handler returns.
+#define NFPIN 4
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -147,11 +173,13 @@ struct proc {
   struct context context;      // swtch() here to run process
   void (*kthread_fn)(void*);   // kernel-thread entry, or zero for user process
   void *kthread_arg;
-  struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory (native inode)
-  char cwdpath[MAXPATH];       // Current directory as a normalized absolute
-                               // path; relative paths are resolved against it
-                               // so they also work below VFS mount points
+  struct files_struct *files;  // Descriptor table, shared by CLONE_FILES
+  struct fs_struct *fs;        // cwd, shared by CLONE_FS
+  struct file *fpin[NFPIN];    // References pinned by the current syscall
+  int nfpin;
+
+  // wait_lock must be held when using this:
+  int vfork_pending;           // CLONE_VFORK parent waits until exec/exit
   char name[16];               // Process name (debugging)
 };
 

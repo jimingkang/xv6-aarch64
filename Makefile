@@ -127,6 +127,7 @@ FS_OBJS = \
   $K/fs/pipe.o \
   $K/fs/exec.o \
   $K/fs/sysfile.o \
+  $K/fs/fdtable.o \
   $K/fs/fat/fat32.o \
   $K/fs/ext2/ext2.o \
   $K/fs/ext2/xjournal.o \
@@ -598,6 +599,7 @@ UPROGS=\
 	$U/_evtest\
 	$U/_spin\
 	$U/_threadtest\
+	$U/_clonetest\
 	$U/_reboot\
 	$U/_wget\
 	$U/_posixtest\

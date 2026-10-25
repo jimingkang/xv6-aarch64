@@ -175,23 +175,32 @@ exec(char *path, char **argv)
   int dynamic = 0;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
-  struct vmspace *vm = p->vm;
+  struct vmspace *vm = p->vm, *newvm = 0;
+  int shared;
 
   // Replacing a shared address space underneath another thread is unsafe.
   // This first implementation requires callers to join all other threads
   // before exec. execing closes the race with a concurrent clone().
+  // Sharers outside the thread group (a CLONE_VM | CLONE_VFORK parent) are
+  // left alone: the new image gets a fresh private vmspace instead.
   acquire(&vm->lock);
-  if(vm->refcount != 1 || vm->execing){
+  shared = vm->refcount != 1;
+  if(vm->execing){
     release(&vm->lock);
     return -1;
   }
-  vm->execing = 1;
+  if(!shared)
+    vm->execing = 1;
   release(&vm->lock);
+  if(shared && !thread_group_alone(p))
+    return -1;
 
   if(srcopen(&src, path) < 0){
-    acquire(&vm->lock);
-    vm->execing = 0;
-    release(&vm->lock);
+    if(!shared){
+      acquire(&vm->lock);
+      vm->execing = 0;
+      release(&vm->lock);
+    }
     return -1;
   }
 
@@ -305,6 +314,17 @@ exec(char *path, char **argv)
   // value, which goes in x0.
   p->trapframe->x1 = sp;
 
+  // Last steps that can fail: the private vmspace for a CLONE_VM caller and,
+  // as Linux unshare_files(), a private descriptor table.
+  if(shared && (newvm = vmspace_wrap(pagetable, sz)) == 0)
+    goto bad;
+  if(unshare_files() < 0){
+    if(newvm)
+      kfree(newvm);
+    newvm = 0;
+    goto bad;
+  }
+
   // Save program name for debugging.
   for(last=s=path; *s; s++)
     if(*s == '/')
@@ -312,14 +332,22 @@ exec(char *path, char **argv)
   safestrcpy(p->name, last, sizeof(p->name));
     
   // Commit to the user image.
-  acquire(&vm->lock);
-  oldpagetable = vm->pagetable;
-  oldsz = vm->sz;
-  vm->pagetable = pagetable;
-  vm->sz = sz;
-  vm->camera_mapped = 0;       // mmap belongs to the replaced address space
-  vm->execing = 0;
-  release(&vm->lock);
+  if(shared){
+    // The old vmspace stays with its other users; switchuvm() below moves
+    // this CPU off it before our reference is dropped.
+    oldpagetable = 0;
+    oldsz = 0;
+    p->vm = newvm;
+  } else {
+    acquire(&vm->lock);
+    oldpagetable = vm->pagetable;
+    oldsz = vm->sz;
+    vm->pagetable = pagetable;
+    vm->sz = sz;
+    vm->camera_mapped = 0;       // mmap belongs to the replaced address space
+    vm->execing = 0;
+    release(&vm->lock);
+  }
   p->trapframe->elr = initial_entry; // dynamic: ld.so; static: main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
@@ -337,14 +365,21 @@ exec(char *path, char **argv)
     procvmtrace(p, "exec-image:first");
   }
 #endif
-  uvmfree(oldpagetable, oldsz);
+  if(shared)
+    vmspace_put(vm);         // now off the old page table
+  else
+    uvmfree(oldpagetable, oldsz);
+  // A vfork parent may run again: the child no longer uses its memory.
+  vfork_done(p);
 
   return argc; // this ends up in x0, the first argument to main(argc, argv)
 
  bad:
-  acquire(&vm->lock);
-  vm->execing = 0;
-  release(&vm->lock);
+  if(!shared){
+    acquire(&vm->lock);
+    vm->execing = 0;
+    release(&vm->lock);
+  }
   if(pagetable)
     uvmfree(pagetable, sz);
   srcclose(&src);

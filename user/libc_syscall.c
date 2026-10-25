@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <uapi/poll.h>
+#include <uapi/sched.h>
 
 // The only user-space entry that executes svc.  Public functions below form
 // the libc ABI and deliberately hide the kernel syscall-number ABI.
@@ -157,8 +158,42 @@ int sched_setaffinity(int pid, uint mask)
 int sched_yield(void) { return SC0(sched_yield); }
 uint64 clock_us(void) { return (uint64)SC0(clock_us); }
 int getcpu(void) { return SC0(getcpu); }
-int clone(void (*entry)(void *), void *arg, void *stack)
+// The thread library's fixed SYS_clone ABI: entry(arg) on stack, as a
+// thread sharing memory, descriptors and cwd with the caller.
+int thread_clone(void (*entry)(void *), void *arg, void *stack)
 { return SC3(clone, P(entry), P(arg), P(stack)); }
+
+extern long __clone(int (*)(void *), void *, int, void *, int *, void *,
+                    int *);
+
+// Linux/glibc clone(fn, stack, flags, arg, ... ptid, tls, ctid).  stack is
+// the top of the child's stack; the child runs exit(fn(arg)).  The optional
+// arguments are read only when the flags that use them are set.
+int clone(int (*fn)(void *), void *stack, int flags, void *arg, ...)
+{
+  int *ptid = 0, *ctid = 0;
+  void *tls = 0;
+  va_list arguments;
+  long r;
+
+  if(fn == 0){
+    errno = EINVAL;
+    return -1;
+  }
+  va_start(arguments, arg);
+  if(flags & (CLONE_PARENT_SETTID | CLONE_CHILD_SETTID)){
+    ptid = va_arg(arguments, int *);
+    tls = va_arg(arguments, void *);
+    ctid = va_arg(arguments, int *);
+  }
+  va_end(arguments);
+  if(stack)
+    stack = (void *)((uint64)stack & ~15ULL);
+  r = __clone(fn, stack, flags, arg, ptid, tls, ctid);
+  if(r < 0)
+    errno = EIO;
+  return r;
+}
 int tjoin(int tid, int *status) { return SC2(tjoin, I(tid), P(status)); }
 int socket(int domain, int type, int protocol)
 { return SC3(socket, I(domain), I(type), I(protocol)); }

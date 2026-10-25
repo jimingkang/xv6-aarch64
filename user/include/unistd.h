@@ -12,6 +12,7 @@
 #define SEEK_END 2
 
 pid_t fork(void);
+pid_t vfork(void);
 void _exit(int) __attribute__((noreturn));
 int execv(const char *, char *const []);
 pid_t getpid(void);

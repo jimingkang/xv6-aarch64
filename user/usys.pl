@@ -16,3 +16,44 @@ print " mov x4, x5\n";
 print " mov x5, x6\n";
 print " svc #0\n";
 print " ret\n";
+
+# long __clone(fn, stack, flags, arg, ptid, tls, ctid): the Linux-style
+# clone() back end.  fn and arg ride through svc in x9/x10, because the child
+# starts with a copy of the parent's registers; the child then never returns
+# here and leaves through exit(fn(arg)).  It must be assembly so the child
+# touches no stack frame of the parent between svc and fn.
+print "#include <uapi/syscall.h>\n";
+print ".global __clone\n";
+print "__clone:\n";
+print " mov x9, x0\n";
+print " mov x10, x3\n";
+print " mov x0, x2\n";
+print " mov x2, x4\n";
+print " mov x3, x5\n";
+print " mov x4, x6\n";
+print " mov x7, #SYS_clone_flags\n";
+print " svc #0\n";
+print " cbz x0, 1f\n";
+print " ret\n";
+print "1:\n";
+print " mov x29, #0\n";
+print " mov x30, #0\n";
+print " mov x0, x10\n";
+print " blr x9\n";
+print " mov x7, #SYS_exit\n";
+print " svc #0\n";
+print " b .\n";
+
+# pid_t vfork(void) = clone(CLONE_VM | CLONE_VFORK | SIGCHLD, 0, ...).  The
+# child borrows this very stack until it calls exec() or _exit(), so vfork
+# must be a leaf that pushes nothing.
+print ".global vfork\n";
+print "vfork:\n";
+print " mov x0, #0x4111\n";
+print " mov x1, #0\n";
+print " mov x2, #0\n";
+print " mov x3, #0\n";
+print " mov x4, #0\n";
+print " mov x7, #SYS_clone_flags\n";
+print " svc #0\n";
+print " ret\n";

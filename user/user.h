@@ -37,7 +37,11 @@ int readlink(const char*, char*, int);
 int reboot(int);
 int connect(int, const void*, int);
 uint32 net_dns(void);
-int clone(void (*)(void*), void*, void*);
+int thread_clone(void (*)(void*), void*, void*);
+// Linux-style clone(fn, stack, flags, arg, ... ptid, tls, ctid); flags are
+// the CLONE_* values in <uapi/sched.h>.
+int clone(int (*)(void*), void*, int, void*, ...);
+int vfork(void);
 int texit(int) __attribute__((noreturn));
 int tjoin(int, int*);
 

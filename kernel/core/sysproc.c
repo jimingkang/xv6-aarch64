@@ -53,6 +53,22 @@ sys_clone(void)
   return threadclone(entry, arg, stack_top);
 }
 
+// Linux-style clone(flags, stack, parent_tid, tls, child_tid), argument
+// order as on arm64.  The child returns 0 on stack (or the caller's stack
+// when stack is 0, which only CLONE_VFORK permits with CLONE_VM).  TLS is
+// not supported, so tls is ignored.
+uint64
+sys_clone_flags(void)
+{
+  uint64 flags, stack, ptid, tls, ctid;
+  if(argaddr(0, &flags) < 0 || argaddr(1, &stack) < 0 ||
+     argaddr(2, &ptid) < 0 || argaddr(3, &tls) < 0 ||
+     argaddr(4, &ctid) < 0)
+    return -1;
+  (void)tls;
+  return do_clone(flags, stack, ptid, ctid, 0, 0);
+}
+
 uint64
 sys_texit(void)
 {

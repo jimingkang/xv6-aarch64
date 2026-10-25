@@ -46,6 +46,27 @@ void            ttyintr(void);
 // exec.c
 int             exec(char*, char**);
 
+// fdtable.c
+struct files_struct;
+struct fs_struct;
+struct files_struct* files_alloc(void);
+struct files_struct* files_dup(struct files_struct*);
+void            files_get(struct files_struct*);
+void            files_put(struct files_struct*);
+int             unshare_files(void);
+int             fd_install(struct file*);
+struct file*    fd_replace(int, struct file*);
+struct file*    fget(int);
+struct file*    fdget(int);
+void            fdput_all(struct proc*);
+struct fs_struct* fs_alloc(void);
+struct fs_struct* fs_copy(struct fs_struct*);
+void            fs_get(struct fs_struct*);
+void            fs_put(struct fs_struct*);
+struct inode*   fs_cwd(void);
+struct inode*   fs_set_cwd(struct inode*, char*);
+void            fs_cwdpath(char*, int);
+
 // file.c
 struct file*    filealloc(void);
 void            fileclose(struct file*);
@@ -268,6 +289,12 @@ void            printfinit(void);
 void            exit(int);
 int             fork(void);
 int             threadclone(uint64, uint64, uint64);
+int             do_clone(uint64, uint64, uint64, uint64, uint64, uint64);
+void            vfork_done(struct proc*);
+int             thread_group_alone(struct proc*);
+struct vmspace;
+struct vmspace* vmspace_wrap(pagetable_t, uint64);
+void            vmspace_put(struct vmspace*);
 int             threadjoin(int, uint64);
 int             growproc(int);
 int             kill(int);
