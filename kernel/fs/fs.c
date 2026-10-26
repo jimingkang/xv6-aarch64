@@ -1304,7 +1304,7 @@ namex(char *path, int nameiparent, char *name)
   if(*path == '/')
     ip = rootdir();
   else
-    ip = idup(myproc()->cwd);
+    ip = fs_cwd();
 
   while((path = skipelem(path, name)) != 0){
     FSTRACE("namex: component='%s' current=(dev=%d ino=%d) remaining='%s'\n",

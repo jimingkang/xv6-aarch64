@@ -40,7 +40,7 @@ thread_create(thread_t *thread, void (*fn)(void *), void *arg)
   start->fn = fn;
   start->arg = arg;
   top = ((uint64)thread->stack + THREAD_STACK_SIZE + 16) & ~15ULL;
-  thread->tid = clone(thread_boot, start, (void *)top);
+  thread->tid = thread_clone(thread_boot, start, (void *)top);
   if(thread->tid < 0){
     free(start);
     free(thread->stack);

@@ -156,6 +156,20 @@ test_fork(void)
   }
   wait(&status);
   check(late[PG + 5] == 42, "fork: shared page first faulted by the child");
+
+  // A vfork child borrows the parent's address space, VMAs included: its
+  // stores land in the parent's mappings, and its exit must not unmap them.
+  int pid = vfork();
+  if(pid == 0){
+    pr[1] = 'v';
+    late[PG + 6] = 43;
+    exit(0);
+  }
+  wait(&status);
+  check(pid > 0 && pr[1] == 'v' && late[PG + 6] == 43,
+        "vfork: child writes the parent's mappings");
+  check(pr[0] == 'p' && late[PG + 5] == 42,
+        "vfork: mappings survive the child's exit");
   munmap(sh, PG);
   munmap(pr, PG);
   munmap(late, 2 * PG);

@@ -131,7 +131,6 @@ kput(struct inode *ip)
 static int
 kchdir(char *path)
 {
-  struct proc *p = myproc();
   struct inode *ip = klookup(path);
   if(ip == 0)
     return -1;
@@ -142,9 +141,9 @@ kchdir(char *path)
     kput(ip);
     return -1;
   }
-  if(p->cwd)
-    kput(p->cwd);
-  p->cwd = ip;
+  struct inode *old = fs_set_cwd(ip, 0);
+  if(old)
+    kput(old);
   return 0;
 }
 
@@ -410,7 +409,7 @@ prepare_namespace(void)
   ramfs_create(0, ROOTFS_DEV, "ram0", 32, 16);
   struct inode *r = fs_dev_root(ROOTFS_DEV);
   fs_set_root(r);
-  p->cwd = r;
+  p->fs->cwd = r;
   kmknod("/dev", T_DIR, 0, 0);
   kmknod("/dev/console", T_DEVICE, CONSOLE, 0);
   kmknod("/root", T_DIR, 0, 0);
@@ -438,13 +437,13 @@ prepare_namespace(void)
   devtmpfs_mount("dev", "/root/dev");
 
   // mount(".", "/", MS_MOVE): the root mount leaves /root and covers "/".
-  struct inode *from = idup(p->cwd), *to = klookup("/");
+  struct inode *from = idup(p->fs->cwd), *to = klookup("/");
   if(fs_move_mount(from, to, "/") < 0)
     panic("prepare_namespace: MS_MOVE");
   kput(from);
 
   // chroot("."): "/" is now the disk root for every process.
-  fs_set_root(p->cwd);
-  safestrcpy(p->cwdpath, "/", sizeof(p->cwdpath));
+  fs_set_root(p->fs->cwd);
+  safestrcpy(p->fs->cwdpath, "/", sizeof(p->fs->cwdpath));
   printf("VFS: root moved over rootfs, chroot done; running /init\n");
 }
