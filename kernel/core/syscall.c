@@ -12,7 +12,9 @@ int
 fetchaddr(uint64 addr, uint64 *ip)
 {
   struct proc *p = myproc();
-  if(addr >= p->vm->sz || addr+sizeof(uint64) > p->vm->sz)
+  // Any mapped user address, not only [0, sz): argv may live in an mmap()
+  // region.  copyin() rejects unmapped ones.
+  if(addr >= (1ULL << 38) || addr + sizeof(uint64) > (1ULL << 38))
     return -1;
   if(copyin(p->vm->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
@@ -164,6 +166,7 @@ extern uint64 sys_pread(void);
 extern uint64 sys_pwrite(void);
 extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
+extern uint64 sys_msync(void);
 extern uint64 sys_init_module(void);
 extern uint64 sys_delete_module(void);
 extern uint64 sys_getcwd(void);
@@ -259,6 +262,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_pwrite]       sys_pwrite,
 [SYS_mmap]         sys_mmap,
 [SYS_munmap]       sys_munmap,
+[SYS_msync]        sys_msync,
 [SYS_init_module]  sys_init_module,
 [SYS_delete_module] sys_delete_module,
 [SYS_getcwd]        sys_getcwd,

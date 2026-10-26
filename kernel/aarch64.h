@@ -235,6 +235,10 @@ typedef uint64 *pagetable_t; // 512 PTEs
 // cache (the libc.so text cache in exec.c): per-process teardown must not
 // kfree it, and fork maps the same physical page instead of copying it.
 #define PTE_SHARED (1UL << 55)
+// PTE_SPECIAL marks a leaf installed for a VM_PFNMAP mapping (device memory,
+// a framebuffer, a DMA buffer): the frame has no owner in this address space,
+// and copyin()/copyout() may use it only if the kernel direct map covers it.
+#define PTE_SPECIAL (1UL << 56)
 
 // attribute index
 // index is set by mair_el1

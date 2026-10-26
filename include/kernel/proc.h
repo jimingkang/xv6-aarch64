@@ -1,3 +1,7 @@
+#include <kernel/rwsem.h>
+
+struct vm_area_struct;
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 sp;
@@ -94,15 +98,18 @@ enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 #define SIGINT 2
 
 // Reference-counted user address space shared by all user threads in a
-// thread group.  The lock serializes page-table changes and protects sz and
-// refcount.
+// thread group (Linux mm_struct).  The lock serializes page-table changes and
+// protects sz, refcount and changes to the mmap list; mmap_lock (sleepable)
+// orders mmap/munmap against page faults, see kernel/mm/mmap.c.
 struct vmspace {
   struct spinlock lock;
   int refcount;
   int execing;
   pagetable_t pagetable;
-  uint64 sz;
-  int camera_mapped;          // fixed read-only Unicam DMA mapping
+  uint64 sz;                  // [0, sz): image, heap and stack
+  struct rw_semaphore mmap_lock;
+  struct vm_area_struct *mmap; // mmap() regions, sorted by address
+  int camera_mapped;          // number of /dev/video0 DMA mappings
 };
 
 // Per-process state

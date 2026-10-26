@@ -192,8 +192,9 @@ fileread(struct file *f, uint64 addr, int n)
 // filesystem operations; returns the bytes written.  xv6fs writes go through the log a
 // few blocks per transaction (inode, indirect block, allocation blocks and
 // 2 blocks of slop for non-aligned writes must fit in one transaction);
-// other filesystems take the whole request.
-static int
+// other filesystems take the whole request.  mmap writeback uses it with a
+// kernel source (user_src == 0).
+int
 file_write_at(struct file *f, int user_src, uint64 addr, uint64 off, int n)
 {
   struct inode *ip = f->ip;
@@ -308,21 +309,6 @@ int
 fileioctl(struct file *f, uint64 cmd, uint64 arg)
 {
   return f && f->f_op && f->f_op->ioctl ? f->f_op->ioctl(f, cmd, arg) : -1;
-}
-
-uint64
-filemmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
-         uint64 off)
-{
-  return f && f->f_op && f->f_op->mmap ?
-    f->f_op->mmap(f, addr, len, prot, flags, off) : (uint64)-1;
-}
-
-int
-filemunmap(struct file *f, uint64 addr, uint64 len)
-{
-  return f && f->f_op && f->f_op->munmap ?
-    f->f_op->munmap(f, addr, len) : -1;
 }
 
 int

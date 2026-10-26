@@ -6,5 +6,6 @@
 
 void *mmap(void *, size_t, int, int, int, off_t);
 int munmap(void *, size_t);
+int msync(void *, size_t, int);
 
 #endif

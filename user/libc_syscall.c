@@ -179,6 +179,8 @@ void *mmap(void *addr, unsigned long len, int prot, int flags, int fd,
            long offset)
 { return (void *)SC6(mmap, P(addr), I(len), I(prot), I(flags), I(fd), I(offset)); }
 int munmap(void *addr, unsigned long len) { return SC2(munmap, P(addr), I(len)); }
+int msync(void *addr, unsigned long len, int flags)
+{ return SC3(msync, P(addr), I(len), I(flags)); }
 int init_module(void *image, unsigned long size, const char *args)
 { return SC3(init_module, P(image), I(size), P(args)); }
 int delete_module(const char *name) { return SC1(delete_module, P(name)); }

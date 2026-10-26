@@ -110,6 +110,7 @@ int pread(int, void*, int, uint64);
 int pwrite(int, const void*, int, uint64);
 void *mmap(void*, unsigned long, int, int, int, long);
 int munmap(void*, unsigned long);
+int msync(void*, unsigned long, int);
 int init_module(void*, unsigned long, const char*);
 int delete_module(const char*);
 int poll(struct pollfd*, unsigned long, int);

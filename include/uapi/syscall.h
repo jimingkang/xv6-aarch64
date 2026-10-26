@@ -95,5 +95,6 @@
 #define SYS_poll          91
 #define SYS_ioctl         92
 #define SYS_umount        93
+#define SYS_msync         94
 
 #endif

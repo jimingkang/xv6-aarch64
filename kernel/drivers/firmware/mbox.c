@@ -34,7 +34,7 @@
 #define MBOX_PROP_CH 8U
 #define MBOX_SUCCESS 0x80000000U
 
-#define MBOX_MSG_WORDS 32
+#define MBOX_MSG_WORDS 64
 #define CACHE_LINE     64
 
 static struct spinlock mbox_lock;
@@ -61,21 +61,92 @@ msg_sync(int to_device)
   asm volatile("dsb sy" ::: "memory");
 }
 
+// Post msg[] (already filled) on the property channel and wait for its
+// reply.  Caller holds mbox_lock.  Returns 0 when our reply arrived.
+static int
+mbox_call_locked(void)
+{
+  uint64 deadline;
+
+  msg_sync(1);
+  deadline = r_cntvct_el0() + r_cntfrq_el0();      // 1 s
+  uint32 word = ((uint32)V2P(msg) & ~0xfU) | MBOX_PROP_CH;
+  while(!(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)){     // drain stale replies
+    (void)mbox_rd(MBOX_READ);
+    stale++;
+  }
+  while(mbox_rd(MBOX_STATUS) & MBOX_FULL)
+    if(r_cntvct_el0() >= deadline)
+      return -1;
+  *(volatile uint32 *)(MBOX_BASE + MBOX_WRITE) = word;
+  for(;;){
+    while(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)
+      if(r_cntvct_el0() >= deadline)
+        return -1;
+    if(mbox_rd(MBOX_READ) == word)
+      break;
+    stale++;                      // someone else's reply: keep waiting
+  }
+  msg_sync(0);
+  return 0;
+}
+
+static void
+mbox_lock_init(void)
+{
+  if(!mbox_ready){
+    initlock(&mbox_lock, "mbox");
+    mbox_ready = 1;
+  }
+}
+
+// Send several tags in one message, as Linux rpi_firmware_property_list():
+// the framebuffer must be configured and allocated in a single request.
+// tags[] holds complete tag records (tag, value size, 0, values...) without
+// the message header and end tag; it receives the reply.  Returns 0 when
+// the firmware accepted the whole message.
+int
+mbox_property_list(uint32 *tags, int words)
+{
+  int ok = 0;
+
+  if(words < 3 || words > MBOX_MSG_WORDS - 3)
+    return -1;
+  mbox_lock_init();
+  acquire(&mbox_lock);
+  msg[0] = (words + 3) * 4;
+  msg[1] = 0;
+  for(int i = 0; i < words; i++)
+    msg[2 + i] = tags[i];
+  msg[2 + words] = 0;             // end tag
+  last.err = MBOX_ERR_TIMEOUT;
+  last.status = last.tag_resp = last.value0 = 0;
+  if(mbox_call_locked() == 0){
+    last.status = msg[1];
+    last.stale = stale;
+    if(msg[1] == MBOX_SUCCESS){
+      for(int i = 0; i < words; i++)
+        tags[i] = msg[2 + i];
+      last.err = MBOX_OK;
+      ok = 1;
+    } else
+      last.err = MBOX_ERR_REQUEST;
+  }
+  release(&mbox_lock);
+  return ok ? 0 : -1;
+}
+
 // Send one tag.  value[] carries the request in and the response out.
 // Returns 0 on success, -1 on timeout or a firmware error.
 int
 mbox_property(uint32 tag, uint32 *value, int value_bytes)
 {
   int words = (value_bytes + 3) / 4;
-  uint64 deadline;
   int ok = 0;
 
   if(words < 1 || words > MBOX_MSG_WORDS - 6)
     return -1;
-  if(!mbox_ready){
-    initlock(&mbox_lock, "mbox");
-    mbox_ready = 1;
-  }
+  mbox_lock_init();
   acquire(&mbox_lock);
 
   msg[0] = (6 + words) * 4;       // total size
@@ -90,29 +161,11 @@ mbox_property(uint32 tag, uint32 *value, int value_bytes)
   for(int i = 0; i < words; i++)
     msg[5 + i] = value[i];
   msg[5 + words] = 0;             // end tag
-  msg_sync(1);
 
   last.err = MBOX_ERR_TIMEOUT;
   last.status = last.tag_resp = last.value0 = 0;
-  deadline = r_cntvct_el0() + r_cntfrq_el0();      // 1 s
-  uint32 word = ((uint32)V2P(msg) & ~0xfU) | MBOX_PROP_CH;
-  while(!(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)){     // drain stale replies
-    (void)mbox_rd(MBOX_READ);
-    stale++;
-  }
-  while(mbox_rd(MBOX_STATUS) & MBOX_FULL)
-    if(r_cntvct_el0() >= deadline)
-      goto out;
-  *(volatile uint32 *)(MBOX_BASE + MBOX_WRITE) = word;
-  for(;;){
-    while(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)
-      if(r_cntvct_el0() >= deadline)
-        goto out;
-    if(mbox_rd(MBOX_READ) == word)
-      break;
-    stale++;                      // someone else's reply: keep waiting
-  }
-  msg_sync(0);
+  if(mbox_call_locked() < 0)
+    goto out;
   last.status = msg[1];
   last.tag_resp = msg[4];
   last.value0 = msg[5];

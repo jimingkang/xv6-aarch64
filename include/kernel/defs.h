@@ -68,8 +68,7 @@ int             filetruncate(struct file*, uint64);
 int             filefsync(struct file*, int);
 int             filepoll(struct file*, int);
 int             fileioctl(struct file*, uint64, uint64);
-uint64          filemmap(struct file*, uint64, uint64, int, int, uint64);
-int             filemunmap(struct file*, uint64, uint64);
+int             file_write_at(struct file*, int, uint64, uint64, int);
 int             file_inode_setup(struct file*);
 int             generic_file_fread(struct file*, int, uint64, int);
 int             generic_file_fwrite(struct file*, int, uint64, int);
@@ -499,7 +498,6 @@ void            bcm2837_disable_irq(int);
 
 // unicam.c (camera bridge: Unicam CSI-2 -> /dev/video0)
 void            camera_init(void);
-int             camera_munmap_current(uint64, uint64);
 void            unicam_irq(void);
 
 // camera sensor drivers (register a struct camsensor)

@@ -21,6 +21,7 @@ struct resource {
 
 struct file;
 struct inode;
+struct vm_area_struct;
 
 // Open-file operations shared by filesystems and devices. read/write are the
 // original stateless character-device hooks (console, tty). Drivers that need per-open state set the optional
@@ -46,9 +47,11 @@ struct file_operations {
   int (*fsync)(struct file *f, int dataonly);
   int (*poll)(struct file *f, int events);
   int (*ioctl)(struct file *f, uint64 cmd, uint64 arg);
-  uint64 (*mmap)(struct file *f, uint64 addr, uint64 len, int prot,
-                 int flags, uint64 off);
-  int (*munmap)(struct file *f, uint64 addr, uint64 len);
+  // Linux-style mmap: the core has chosen vma->vm_start/vm_end and checked
+  // permissions; the driver validates vma->vm_pgoff and the length, then
+  // installs frames with remap_pfn_range() or sets vma->vm_ops->fault.
+  // Regular files leave it 0 and get the generic demand-paged mapping.
+  int (*mmap)(struct file *f, struct vm_area_struct *vma);
 };
 
 struct device;

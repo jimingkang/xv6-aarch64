@@ -707,6 +707,68 @@ DMA 方向的地址转换更容易出错。DWC2 USB、Unicam 这些\emph{总线�
 
 \code{0xC0000000} 别名表示“绕过 VideoCore 的 L2 缓存直接访问 SDRAM”。这不是新的内存，也不是 CPU 虚拟地址，而是同一片 RAM 在 GPU 总线上的另一种编址。
 
+\subsection{PCIe：BAR、DMA 与 IOMMU}
+
+PCIe 把两条方向相反的访问路径放在同一条互连上，因而最容易把地址概念混在一起。CPU 访问设备时走
+\emph{入站}路径：操作系统给设备的 BAR 分配一段 CPU 物理地址，CPU 对这段 MMIO 窗口执行
+\code{ldr}/\code{str}，Root Complex 再把访问路由成 PCIe 请求。设备主动访问主机内存时走
+\emph{出站}路径：设备自己的 DMA 引擎发出 PCIe Memory Read/Write 请求，目标是驱动交给设备的
+DMA 地址。BAR 和 DMA 因而不是同一套地址，也不是互相替代的功能。
+
+一块 PCIe 设备通常同时涉及四种地址：
+
+\begin{table}[htbp]
+  \centering
+  \caption{PCIe 设备涉及的地址空间}
+  \label{tab:pcie-addresses}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    地址 & 含义 \\
+    \midrule
+    设备内部地址 & 设备片内 SRAM、FIFO 或寄存器在设备内部互连上的地址，通常只由设备逻辑直接使用 \\
+    BAR/MMIO 地址 & CPU 访问设备寄存器或可见设备内存窗口时使用的主机物理地址 \\
+    DMA/IOVA 地址 & 设备 DMA 请求中携带的地址；驱动把它写进设备描述符或 DMA 寄存器 \\
+    主机物理地址 & 数据在主机 DDR 中实际占用的位置 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+没有 IOMMU 时，DMA 地址通常就是设备可达的主机物理地址；有 IOMMU 时，设备使用 IOVA，
+IOMMU 硬件依据内核建立的页表把它翻译成主机物理地址并检查访问权限。IOMMU 不搬运数据，真正
+发起读写、产生 PCIe TLP 的仍是设备内部 DMA 引擎。它的价值是隔离设备、支持虚拟机、让连续
+IOVA 映射到离散物理页，以及适配设备的地址位宽限制。
+
+DMA 的“数据源”由方向和设备功能决定，并不固定为设备 SRAM。设备向主机写数据时，来源可以是
+设备 SRAM，也可以是接收 FIFO、硬件流水线的实时输出，或者经控制器读出的外部介质数据：网卡
+从 PHY/MAC 接收包，NVMe 控制器从 NAND 读数据，采集卡从传感器得到数据。它们可能先暂存在
+SRAM/FIFO，也可能边产生边由 DMA 写入主机 DDR：
+
+\begin{txtcode}
+设备 SRAM / RX FIFO / 硬件流水线 / 外部输入
+        -> 设备 DMA 引擎
+        -> PCIe Memory Write TLP
+        -> IOMMU（可选：IOVA -> 主机 PA）
+        -> 主机 DDR
+\end{txtcode}
+
+反方向传输时，主机 DDR 才是数据源。以网卡发送为例，驱动在 DDR 中准备数据包与描述符，把
+DMA 地址写入网卡；网卡 DMA 引擎发出 Memory Read，从 DDR 取回数据，送进设备 TX FIFO，最后
+由 MAC/PHY 发出：
+
+\begin{txtcode}
+主机 DDR
+        -> IOMMU（可选）
+        -> PCIe Memory Read completion
+        -> 设备 DMA 引擎
+        -> 设备 SRAM / TX FIFO / 处理单元
+\end{txtcode}
+
+所以“CPU 通过 BAR 读设备 SRAM”和“设备通过 DMA 把数据写进 DDR”是两件不同的事；即便同一块
+设备 SRAM 同时参与二者，前者经过 MMIO 窗口，后者由设备 DMA 引擎完成。PCIe 设备也不一定必须
+实现 DMA：低速控制设备可以只暴露 BAR；网卡、NVMe、GPU 等高吞吐设备则必须依靠 DMA，避免 CPU
+逐字节搬运。
+
 \section{缓存与 TLB：三个真机故障}
 \label{sec:caches}
 

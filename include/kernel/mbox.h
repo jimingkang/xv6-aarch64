@@ -10,6 +10,13 @@
 #define MBOX_TAG_SET_DOMAIN_STATE  0x00038030U
 #define MBOX_TAG_SET_GPIO_STATE    0x00038041U
 #define MBOX_TAG_SET_GPIO_CONFIG   0x00038043U
+#define MBOX_TAG_ALLOCATE_BUFFER   0x00040001U
+#define MBOX_TAG_GET_PITCH         0x00040008U
+#define MBOX_TAG_SET_PHYS_WH       0x00048003U
+#define MBOX_TAG_SET_VIRT_WH       0x00048004U
+#define MBOX_TAG_SET_DEPTH         0x00048005U
+#define MBOX_TAG_SET_PIXEL_ORDER   0x00048006U
+#define MBOX_TAG_SET_VIRT_OFFSET   0x00048009U
 
 #define MBOX_CLOCK_CORE  4U          // VPU core clock: also clocks BSC (I2C)
 
@@ -36,6 +43,7 @@ struct mbox_result {
 };
 
 int    mbox_property(uint32 tag, uint32 *value, int value_bytes);
+int    mbox_property_list(uint32 *tags, int words);
 void   mbox_last_result(struct mbox_result *r);
 char  *mbox_strerror(int err);
 uint32 mbox_get_firmware_rev(void);

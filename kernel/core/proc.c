@@ -10,6 +10,7 @@
 #include <kernel/sched.h>
 #include <kernel/camera.h>
 #include <kernel/defs.h>
+#include <kernel/mm.h>
 
 struct cpu cpus[NCPU];
 struct proc *proc_head;
@@ -43,6 +44,7 @@ vmspace_alloc(void)
     return 0;
   memset(vm, 0, sizeof(*vm));
   initlock(&vm->lock, "vmspace");
+  init_rwsem(&vm->mmap_lock, "mmap_lock");
   vm->pagetable = uvmcreate();
   if(vm->pagetable == 0){
     kfree(vm);
@@ -566,7 +568,9 @@ growproc(int n)
   acquire(&vm->lock);
   sz = vm->sz;
   if(n > 0){
-    if((sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
+    // The heap may not grow into the lowest mmap() region.
+    if(sz + n < sz || PGROUNDUP(sz + n) > mmap_lowest(vm) ||
+       (sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
       release(&vm->lock);
       return -1;
     }
@@ -630,8 +634,15 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
   if((flags & DO_CLONE_VM) &&
      (entry == 0 || stack_top < 16 || (stack_top & 15) != 0))
     return -1;
-  if((np = allocproc()) == 0)
+  // fork copies the VMAs: keep mmap/munmap out until the copy is done.  The
+  // sleepable lock must be taken before allocproc() returns np->lock held.
+  if(!(flags & DO_CLONE_VM))
+    down_read(&vm->mmap_lock);
+  if((np = allocproc()) == 0){
+    if(!(flags & DO_CLONE_VM))
+      up_read(&vm->mmap_lock);
     return -1;
+  }
 
   if(flags & DO_CLONE_VM){
     acquire(&vm->lock);
@@ -656,22 +667,22 @@ do_clone(uint flags, uint64 entry, uint64 arg, uint64 stack_top)
     acquire(&vm->lock);
     if(uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz) < 0){
       release(&vm->lock);
+      up_read(&vm->mmap_lock);
       freeproc(np);
       release(&np->lock);
       return -1;
     }
-    if(vm->camera_mapped){
-      if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
-                  PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
-        release(&vm->lock);
-        freeproc(np);
-        release(&np->lock);
-        return -1;
-      }
-      np->vm->camera_mapped = 1;
-    }
     np->vm->sz = vm->sz;
+    if(dup_mmap(vm, np->vm) < 0){
+      release(&vm->lock);
+      up_read(&vm->mmap_lock);
+      mmap_abort(np->vm);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
     release(&vm->lock);
+    up_read(&vm->mmap_lock);
     np->tgid = np->pid;
   }
 
@@ -883,6 +894,11 @@ exit(int status)
   release(&wait_lock);
 
   net_udp_closeproc(p->pid);
+
+  // The thread group is gone, so nothing else uses the address space: write
+  // dirty MAP_SHARED pages back and drop the mappings' file references
+  // while this process can still sleep and do I/O.
+  exit_mmap(p->vm);
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -1552,6 +1568,7 @@ procvmdump(int pid)
     if(p->state != UNUSED && p->vm != 0 && p->vm->pagetable != 0 &&
        (pid == 0 || p->pid == pid)){
       procvmtrace(p, "vmmap-manual");
+      mmap_dump(p->vm);
       found++;
     }
     release(&p->lock);

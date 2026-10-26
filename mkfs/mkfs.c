@@ -41,6 +41,8 @@ void rsect(uint sec, void *buf);
 uint ialloc(ushort type);
 void iappend(uint inum, void *p, int n);
 void die(const char *);
+uint mkdirent(uint parent, const char *name);
+void rounddir(uint inum);
 
 // mkfs/lsdir.c: list the regular files in a directory (host headers isolated in
 // that file so they don't clash with xv6's struct dirent / redefined stat).
@@ -75,7 +77,9 @@ int
 main(int argc, char *argv[])
 {
   int i, cc, fd;
-  uint rootino, binino, libino, modino, inum, off;
+  uint rootino, binino, libino, modino, inum;
+  uint dirinos[32];
+  int ndirs = 0;
   struct dirent de;
   char buf[BSIZE];
   struct dinode din;
@@ -146,6 +150,7 @@ main(int argc, char *argv[])
 
   rootino = ialloc(T_DIR);
   assert(rootino == ROOTINO);
+  dirinos[ndirs++] = rootino;
 
   bzero(&de, sizeof(de));
   de.inum = xshort(rootino);
@@ -157,52 +162,32 @@ main(int argc, char *argv[])
   strcpy(de.name, "..");
   iappend(rootino, &de, sizeof(de));
 
-  // Build /bin into the image itself.  init must not have to manufacture the
-  // executable namespace on every boot.
-  binino = ialloc(T_DIR);
-  bzero(&de, sizeof(de));
-  de.inum = xshort(binino);
-  strcpy(de.name, "bin");
-  iappend(rootino, &de, sizeof(de));
+  // Build the fixed root hierarchy into the image.  /init should mount and
+  // start services, not manufacture the persistent directory tree on every
+  // boot.  Keep /bin, /lib and /lib/modules first so their historical inode
+  // numbers remain stable for filesystem tracing documentation.
+  binino = mkdirent(rootino, "bin");
+  libino = mkdirent(rootino, "lib");
+  modino = mkdirent(libino, "modules");
+  dirinos[ndirs++] = binino;
+  dirinos[ndirs++] = libino;
+  dirinos[ndirs++] = modino;
 
-  bzero(&de, sizeof(de));
-  de.inum = xshort(binino);
-  strcpy(de.name, ".");
-  iappend(binino, &de, sizeof(de));
-
-  bzero(&de, sizeof(de));
-  de.inum = xshort(rootino);
-  strcpy(de.name, "..");
-  iappend(binino, &de, sizeof(de));
-
-  // Build /lib/modules too, so a loadable .ko lives where insmod expects it --
-  // the same directory Linux keeps /lib/modules/$(uname -r) in.
-  libino = ialloc(T_DIR);
-  modino = ialloc(T_DIR);
-  bzero(&de, sizeof(de));
-  de.inum = xshort(libino);
-  strcpy(de.name, "lib");
-  iappend(rootino, &de, sizeof(de));
-  bzero(&de, sizeof(de));
-  de.inum = xshort(modino);
-  strcpy(de.name, "modules");
-  iappend(libino, &de, sizeof(de));
-  bzero(&de, sizeof(de));
-  de.inum = xshort(libino);
-  strcpy(de.name, ".");
-  iappend(libino, &de, sizeof(de));
-  bzero(&de, sizeof(de));
-  de.inum = xshort(rootino);
-  strcpy(de.name, "..");
-  iappend(libino, &de, sizeof(de));
-  bzero(&de, sizeof(de));
-  de.inum = xshort(modino);
-  strcpy(de.name, ".");
-  iappend(modino, &de, sizeof(de));
-  bzero(&de, sizeof(de));
-  de.inum = xshort(libino);
-  strcpy(de.name, "..");
-  iappend(modino, &de, sizeof(de));
+  dirinos[ndirs++] = mkdirent(rootino, "dev");
+  dirinos[ndirs++] = mkdirent(rootino, "proc");
+  dirinos[ndirs++] = mkdirent(rootino, "sys");
+  dirinos[ndirs++] = mkdirent(rootino, "boot");
+  uint mntino = mkdirent(rootino, "mnt");
+  dirinos[ndirs++] = mntino;
+  uint ext2ino = mkdirent(mntino, "ext2");
+  dirinos[ndirs++] = ext2ino;
+  dirinos[ndirs++] = mkdirent(mntino, "net");
+  dirinos[ndirs++] = mkdirent(ext2ino, "video");
+  dirinos[ndirs++] = mkdirent(rootino, "etc");
+  dirinos[ndirs++] = mkdirent(rootino, "root");
+  uint usrino = mkdirent(rootino, "usr");
+  dirinos[ndirs++] = usrino;
+  dirinos[ndirs++] = mkdirent(usrino, "bin");
 
   // Ingest the installed modules tree into /lib/modules.  Each file is copied
   // under its real name, exactly as a modules_install'd .ko sits in
@@ -320,35 +305,57 @@ main(int argc, char *argv[])
     close(fd);
   }
 
-  // fix size of root inode dir
-  rinode(rootino, &din);
-  off = xint(din.size);
-  off = ((off/BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(rootino, &din);
-
-  // Directory sizes are rounded to a complete filesystem block in xv6.
-  rinode(binino, &din);
-  off = xint(din.size);
-  off = ((off/BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(binino, &din);
-
-  rinode(libino, &din);
-  off = xint(din.size);
-  off = ((off/BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(libino, &din);
-
-  rinode(modino, &din);
-  off = xint(din.size);
-  off = ((off/BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(modino, &din);
+  // Directory reads use fixed-size blocks, so round every directory created
+  // above, including nested mount points, to a complete filesystem block.
+  for(i = 0; i < ndirs; i++)
+    rounddir(dirinos[i]);
 
   balloc(freeblock);
 
   exit(0);
+}
+
+// Add a directory entry to parent and initialize the child directory's dot
+// entries.  The caller records the returned inode for final size rounding.
+uint
+mkdirent(uint parent, const char *name)
+{
+  struct dirent de;
+  uint inum;
+
+  if(strlen(name) >= DIRSIZ){
+    fprintf(stderr, "mkfs: directory name too long: %s\n", name);
+    exit(1);
+  }
+  inum = ialloc(T_DIR);
+  bzero(&de, sizeof(de));
+  de.inum = xshort(inum);
+  strcpy(de.name, name);
+  iappend(parent, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(inum);
+  strcpy(de.name, ".");
+  iappend(inum, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(parent);
+  strcpy(de.name, "..");
+  iappend(inum, &de, sizeof(de));
+  return inum;
+}
+
+void
+rounddir(uint inum)
+{
+  struct dinode din;
+  uint off;
+
+  rinode(inum, &din);
+  off = xint(din.size);
+  off = ((off / BSIZE) + 1) * BSIZE;
+  din.size = xint(off);
+  winode(inum, &din);
 }
 
 void

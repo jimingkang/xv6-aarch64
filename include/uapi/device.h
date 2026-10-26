@@ -15,5 +15,7 @@
 #define CAMERA     5
 /* 6 was ROOTUPDATE (/dev/sdroot), removed */
 #define BLOCKDEV   7
+#define MEM        8     /* /dev/mem (minor 1), /dev/zero (minor 5) */
+#define FB         9     /* /dev/fb0 */
 
 #endif

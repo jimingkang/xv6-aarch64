@@ -6,6 +6,7 @@
 #include <kernel/device.h>
 #include <kernel/kobject.h>
 #include <kernel/module.h>
+#include <kernel/mm.h>
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -73,6 +74,7 @@ main()
     printf("kernel image built: %s (%s)\n", kernel_build_time, kernel_build_rev);
     printf("\n");
     procinit();      // process table
+    mmap_init();     // VMA and shared page caches for mmap()
     workqueue_init(); // schedulable bottom halves run on kworker
     rnginit();       // BCM2837 hardware random source for cryptographic keys
     syncinit();      // process synchronization objects

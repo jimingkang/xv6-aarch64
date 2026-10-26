@@ -16,7 +16,7 @@
 #define EXTMEM    0x00000000L
 #define PHYSTOP   0x07000000L               // keep the ramdisk out of kalloc
 #define KERNPA    0x00080000L
-#define EARLYTOP  0x00200000L
+#define EARLYTOP  0x00400000L               // bootstrap map: [0, 4MB)
 #define RAMDISK_PA 0x07000000L
 #define RAMDISK_SIZE (1024*1024L)
 // Physically contiguous DMA memory for the camera (Unicam writes frames

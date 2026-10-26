@@ -71,7 +71,8 @@ CORE_OBJS = \
 
 MM_OBJS = \
   $K/mm/kalloc.o \
-  $K/mm/vm.o
+  $K/mm/vm.o \
+  $K/mm/mmap.o
 
 LIB_OBJS = \
   $K/lib/printf.o \
@@ -100,6 +101,10 @@ DRIVER_NET_OBJS = \
   $K/drivers/net/wireless/mt7601u.o \
   $K/drivers/net/wireless/brcmfmac.o \
   $K/drivers/net/wireless/wpa_crypto.o
+
+DRIVER_CHAR_OBJS = \
+  $K/drivers/char/mem.o \
+  $K/drivers/video/fbdev/bcm2708_fb.o
 
 DRIVER_TTY_OBJS = \
   $K/drivers/tty/console.o \
@@ -138,7 +143,8 @@ NET_OBJS = \
 
 OBJS = $(ARCH_OBJS) $(INIT_OBJS) $(CORE_OBJS) $(MM_OBJS) $(LIB_OBJS) \
   $(DRIVER_BASE_OBJS) $(DRIVER_MMC_OBJS) $(DRIVER_USB_OBJS) \
-  $(DRIVER_NET_OBJS) $(DRIVER_TTY_OBJS) $(DRIVER_BLOCK_OBJS) \
+  $(DRIVER_NET_OBJS) $(DRIVER_CHAR_OBJS) $(DRIVER_TTY_OBJS) \
+  $(DRIVER_BLOCK_OBJS) \
   $(DRIVER_MEDIA_OBJS) $(FS_OBJS) $(NET_OBJS)
 
 # Try to infer the correct TOOLPREFIX if not set
@@ -375,10 +381,13 @@ ext2root-image: $$(UPROGS) $U/libc.so $U/ld-xv6.so modules_install
 	$(MKE2FS) -F -t ext2 -b 4096 \
 	  -O filetype,sparse_super,large_file,^has_journal,^extent,^64bit,^metadata_csum \
 	  -L $(EXT2_LABEL) "$(EXT2_IMAGE)"
-	@{ echo "mkdir bin"; \
+	@{ for d in bin dev proc sys boot mnt mnt/ext2 mnt/net \
+	                  mnt/ext2/video etc root usr usr/bin lib; do \
+	       echo "mkdir $$d"; \
+	   done; \
 	   for f in $(UPROGS); do n=$${f#$U/_}; echo "write $$f bin/$$n"; done; \
 	   echo "write $U/_init init"; \
-	   echo "mkdir lib"; echo "write $U/libc.so lib/libc.so"; \
+	   echo "write $U/libc.so lib/libc.so"; \
 	   echo "write $U/ld-xv6.so lib/ld-xv6.so"; \
 	   echo "mkdir lib/modules"; \
 	   for f in $(MODULES); do n=$${f##*/}; echo "write $(MODULE_INSTALL_DIR)/$$n lib/modules/$$n"; done; } > ext2root.debugfs
@@ -585,6 +594,7 @@ UPROGS=\
 	$U/_stressfs\
 	$U/_usertests\
 	$U/_vmmap\
+	$U/_mmaptest\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\

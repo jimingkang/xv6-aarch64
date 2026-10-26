@@ -22,6 +22,8 @@
 #include <kernel/socket.h>
 #include <kernel/fs_trace.h>
 #include <uapi/poll.h>
+#include <kernel/mman.h>
+#include <kernel/mm.h>
 
 // Keep open tracing useful on a serial console without turning a long-running
 // camera/server workload into an unbounded log stream.
@@ -326,7 +328,8 @@ sys_pread(void)
   uint64 dst, off;
   int n;
   if(argfd(0, 0, &f) < 0 || argaddr(1, &dst) < 0 ||
-     argint(2, &n) < 0 || argaddr(3, &off) < 0)
+     argint(2, &n) < 0 || argaddr(3, &off) < 0 ||
+     fault_in_user_range(dst, n, 1) < 0)
     return -1;
   return filepread(f, dst, n, off);
 }
@@ -338,7 +341,8 @@ sys_pwrite(void)
   uint64 src, off;
   int n;
   if(argfd(0, 0, &f) < 0 || argaddr(1, &src) < 0 ||
-     argint(2, &n) < 0 || argaddr(3, &off) < 0)
+     argint(2, &n) < 0 || argaddr(3, &off) < 0 ||
+     fault_in_user_range(src, n, 0) < 0)
     return -1;
   return filepwrite(f, src, n, off);
 }
@@ -754,45 +758,51 @@ sys_read(void)
   int n;
   uint64 p;
 
-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0 ||
+     fault_in_user_range(p, n, 1) < 0)
     return -1;
   return fileread(f, p, n);
 }
 
-// Minimal device mmap.  Filesystems do not yet provide page-cache-backed
-// mappings; a character driver owns the selected virtual address and physical
-// pages.  This is sufficient for coherent DMA mappings such as /dev/video0.
+// mmap(addr, len, prot, flags, fd, offset), Linux semantics: see
+// kernel/mm/mmap.c.  Regular files of every filesystem use the generic
+// demand-paged mapping; a device's f_op->mmap installs its own frames.
 uint64
 sys_mmap(void)
 {
-  struct file *f;
+  struct file *f = 0;
   uint64 addr, len, off;
-  int prot, flags;
+  int prot, flags, fd;
 
   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 ||
      argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
-     argfd(4, 0, &f) < 0 || argaddr(5, &off) < 0)
+     argint(4, &fd) < 0 || argaddr(5, &off) < 0)
     return (uint64)-1;
-  return filemmap(f, addr, len, prot, flags, off);
+  if(!(flags & MAP_ANONYMOUS) &&
+     (fd < 0 || fd >= NOFILE || (f = myproc()->ofile[fd]) == 0))
+    return (uint64)-1;
+  return do_mmap(f, addr, len, prot, flags, off);
 }
 
 uint64
 sys_munmap(void)
 {
-  struct file *f;
   uint64 addr, len;
 
-  // The mapping callback is selected by the mapping address.  For now only
-  // /dev/video0 supplies mmap, so find an open camera descriptor belonging to
-  // this process rather than adding a global VMA table prematurely.
   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
     return -1;
-  for(int fd = 0; fd < NOFILE; fd++){
-    f = myproc()->ofile[fd];
-    if(f && f->f_op && f->f_op->munmap)
-      return filemunmap(f, addr, len);
-  }
-  return camera_munmap_current(addr, len);
+  return do_munmap(myproc()->vm, addr, len);
+}
+
+uint64
+sys_msync(void)
+{
+  uint64 addr, len;
+  int flags;
+
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 || argint(2, &flags) < 0)
+    return -1;
+  return do_msync(myproc()->vm, addr, len, flags);
 }
 
 uint64
@@ -802,7 +812,8 @@ sys_write(void)
   int n;
   uint64 p;
 
-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0 ||
+     fault_in_user_range(p, n, 0) < 0)
     return -1;
 
   return filewrite(f, p, n);

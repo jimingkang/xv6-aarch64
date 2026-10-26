@@ -5,6 +5,7 @@
 #include <kernel/spinlock.h>
 #include <kernel/proc.h>
 #include <kernel/defs.h>
+#include <kernel/mm.h>
 #include <kernel/elf.h>
 #include <kernel/stat.h>
 #include <kernel/fcntl.h>
@@ -311,13 +312,15 @@ exec(char *path, char **argv)
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
     
-  // Commit to the user image.
+  // Commit to the user image.  mmap() regions belong to the replaced
+  // address space: unmap them (writing dirty shared pages back) while the
+  // old page table is still installed.
+  exit_mmap(vm);
   acquire(&vm->lock);
   oldpagetable = vm->pagetable;
   oldsz = vm->sz;
   vm->pagetable = pagetable;
   vm->sz = sz;
-  vm->camera_mapped = 0;       // mmap belongs to the replaced address space
   vm->execing = 0;
   release(&vm->lock);
   p->trapframe->elr = initial_entry; // dynamic: ld.so; static: main

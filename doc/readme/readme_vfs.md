@@ -1117,8 +1117,9 @@ Killed: 0
 
 `/proc` 没有对应的磁盘数据块。打开目录时，procfs 扫描 `proc[NPROC]` 并为当前有效进程生成
 PID 目录；读取 `status` 时持有目标进程的锁并生成当时的状态快照。进程退出后，对应路径立即
-失效。`init` 会创建可见的 `/proc`、`/mnt`、`/mnt/ext2` 挂载点目录，但这些目录下面的
-内容由 VFS 后端覆盖，而不是写入 xv6 磁盘文件系统。
+失效。`mkfs`/`ext2root-image` 在构建根镜像时创建可见的 `/proc`、`/mnt`、
+`/mnt/ext2` 等挂载点目录；挂载后这些目录下面显示的是 VFS 后端内容，而不是根文件系统中
+原目录的数据。
 
 procfs 还提供内存诊断文件：
 
@@ -1143,7 +1144,7 @@ kernel main
   -> vfsinit()                    初始化空的 mount table
   -> userinit()
        -> /init
-            -> 创建 /etc 和挂载点
+            -> 使用镜像中预建的 /etc 和挂载点
             -> 读取 /etc/fstab
             -> mount(2)
                  -> vfsmount()
@@ -1155,15 +1156,25 @@ kernel main
 procfs，而普通路径继续进入原生 xv6 inode 文件系统。根文件系统可用于启动 `/init`；其他
 文件系统由 init 在 shell 出现前按配置挂载，而不是由内核硬编码自动挂载。
 
-`init` 确保以下磁盘目录存在：
+根文件系统镜像的构建步骤确保以下固定目录存在，`init` 不再在每次启动时重复调用
+`mkdir()`：
 
 ```text
+/bin
+/dev
 /proc
+/sys
 /boot
 /mnt
 /mnt/ext2
+/mnt/ext2/video
 /mnt/net
 /etc
+/root
+/usr
+/usr/bin
+/lib
+/lib/modules
 ```
 
 首次启动还会创建：
@@ -1324,10 +1335,10 @@ main()
        [late 6] vfsinit()               登记 procfs、sysfs、fat32、netfs
 ```
 
-#### 2. init 创建挂载点并读取 fstab
+#### 2. 镜像预建挂载点，init 读取 fstab
 
-进入用户态后，`user/init.c` 先调用 `mkdir("boot")` 创建原生 xv6 目录 `/boot`，然后在首次
-生成的 `/etc/fstab` 中写入：
+`mkfs`（xv6fs）或 `ext2root-image` 的 `debugfs` 脚本在构建根镜像时已经创建 `/boot`。
+进入用户态后，`user/init.c` 只在缺少 `/etc/fstab` 时写入默认配置：
 
 ```text
 bootfs /boot fat32 rw 0 0
@@ -1339,7 +1350,6 @@ bootfs /boot fat32 rw 0 0
 
 ```text
 /init
-  -> mkdir("/boot")
   -> mount_fstab()
        -> mount("bootfs", "/boot", "fat32", read-write)
             -> sys_mount()

@@ -5,6 +5,7 @@
 #include <kernel/spinlock.h>
 #include <kernel/proc.h>
 #include <kernel/defs.h>
+#include <kernel/mm.h>
 /*如果中断发生在进程的内核上下文中，
  比如：中断发生在进程执行系统调用期间，
 usertrap -> syscall -> sys_write -> filewrite ...
@@ -76,6 +77,36 @@ userirq(void)
   intr_off();
 }
 
+// EL0 data abort (EC 0x24) or instruction abort (EC 0x20).  Translation
+// (DFSC 0b0001ll), access-flag (0b0010ll) and permission (0b0011ll) faults
+// may be demand paging of an mmap() region; anything else, or an address no
+// VMA allows, falls through to the "unexpected" report and kills the
+// process (SIGSEGV/SIGBUS in Linux terms).
+static int
+user_page_fault(struct proc *p, uint64 esr)
+{
+  uint64 far = r_far_el1();
+  uint64 iss = esr & 0x1ffffff;
+  uint64 fsc = iss & 0x3f;
+  int flags = 0, r;
+
+  if(fsc < 0x04 || fsc > 0x0f || far < mmap_lowest(p->vm))
+    return 0;                 // not an mmap() region: keep the full report
+  if(((esr >> 26) & 0x3f) == 0x20)
+    flags |= FAULT_FLAG_INSTR;
+  else if((iss & (1 << 6)) && !(iss & (1 << 8)))   // WnR, not cache maint.
+    flags |= FAULT_FLAG_WRITE;
+  intr_on();                  // reading a file page may sleep
+  r = handle_mm_fault(p->vm, far, flags);
+  if(r == VM_FAULT_OK)
+    return 1;
+  printf("pid %d %s: %s at va=%p pc=%p\n", p->pid, p->name,
+         r == VM_FAULT_SIGBUS ? "SIGBUS" : r == VM_FAULT_OOM ?
+         "out of memory" : "SIGSEGV", far, p->trapframe->elr);
+  p->killed = 1;
+  return 1;
+}
+
 void
 usertrap(void)
 {
@@ -96,6 +127,8 @@ usertrap(void)
     // The syscall may have woken a higher-priority process for this CPU.
     if(resched_pending())
       yield();
+  } else if((ec == 0x24 || ec == 0x20) && user_page_fault(p, esr)){
+    // Data/instruction abort from EL0 satisfied by an mmap() VMA.
   } else {
     printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());

@@ -84,7 +84,7 @@ entry:
         // x3 = physical address of l2kpgt
         adrp x3, l2kpgt
         // x4 = physical end of kernel image
-        ldr x4, =V2P_WO(end)
+        ldr x4, =EARLYTOP        // map all early allocator RAM, not just the image
         bl entrypgtinit
         
 

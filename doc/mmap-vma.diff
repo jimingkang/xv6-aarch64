@@ -1,0 +1,2825 @@
+--- a/Makefile	2026-10-26 16:52:51.000000000 +0000
++++ b/Makefile	2026-10-26 19:15:07.649587910 +0000
+@@ -71,7 +71,8 @@
+ 
+ MM_OBJS = \
+   $K/mm/kalloc.o \
+-  $K/mm/vm.o
++  $K/mm/vm.o \
++  $K/mm/mmap.o
+ 
+ LIB_OBJS = \
+   $K/lib/printf.o \
+@@ -101,6 +102,10 @@
+   $K/drivers/net/wireless/brcmfmac.o \
+   $K/drivers/net/wireless/wpa_crypto.o
+ 
++DRIVER_CHAR_OBJS = \
++  $K/drivers/char/mem.o \
++  $K/drivers/video/fbdev/bcm2708_fb.o
++
+ DRIVER_TTY_OBJS = \
+   $K/drivers/tty/console.o \
+   $K/drivers/tty/tty.o \
+@@ -138,7 +143,8 @@
+ 
+ OBJS = $(ARCH_OBJS) $(INIT_OBJS) $(CORE_OBJS) $(MM_OBJS) $(LIB_OBJS) \
+   $(DRIVER_BASE_OBJS) $(DRIVER_MMC_OBJS) $(DRIVER_USB_OBJS) \
+-  $(DRIVER_NET_OBJS) $(DRIVER_TTY_OBJS) $(DRIVER_BLOCK_OBJS) \
++  $(DRIVER_NET_OBJS) $(DRIVER_CHAR_OBJS) $(DRIVER_TTY_OBJS) \
++  $(DRIVER_BLOCK_OBJS) \
+   $(DRIVER_MEDIA_OBJS) $(FS_OBJS) $(NET_OBJS)
+ 
+ # Try to infer the correct TOOLPREFIX if not set
+@@ -588,6 +594,7 @@
+ 	$U/_stressfs\
+ 	$U/_usertests\
+ 	$U/_vmmap\
++	$U/_mmaptest\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
+--- a/include/kernel/defs.h	2026-10-26 16:52:48.000000000 +0000
++++ b/include/kernel/defs.h	2026-10-26 19:12:07.968768243 +0000
+@@ -68,8 +68,7 @@
+ int             filefsync(struct file*, int);
+ int             filepoll(struct file*, int);
+ int             fileioctl(struct file*, uint64, uint64);
+-uint64          filemmap(struct file*, uint64, uint64, int, int, uint64);
+-int             filemunmap(struct file*, uint64, uint64);
++int             file_write_at(struct file*, int, uint64, uint64, int);
+ int             file_inode_setup(struct file*);
+ int             generic_file_fread(struct file*, int, uint64, int);
+ int             generic_file_fwrite(struct file*, int, uint64, int);
+@@ -499,7 +498,6 @@
+ 
+ // unicam.c (camera bridge: Unicam CSI-2 -> /dev/video0)
+ void            camera_init(void);
+-int             camera_munmap_current(uint64, uint64);
+ void            unicam_irq(void);
+ 
+ // camera sensor drivers (register a struct camsensor)
+--- a/include/kernel/device.h	2026-10-25 15:51:44.000000000 +0000
++++ b/include/kernel/device.h	2026-10-26 19:12:07.969351334 +0000
+@@ -21,6 +21,7 @@
+ 
+ struct file;
+ struct inode;
++struct vm_area_struct;
+ 
+ // Open-file operations shared by filesystems and devices. read/write are the
+ // original stateless character-device hooks (console, tty). Drivers that need per-open state set the optional
+@@ -46,9 +47,11 @@
+   int (*fsync)(struct file *f, int dataonly);
+   int (*poll)(struct file *f, int events);
+   int (*ioctl)(struct file *f, uint64 cmd, uint64 arg);
+-  uint64 (*mmap)(struct file *f, uint64 addr, uint64 len, int prot,
+-                 int flags, uint64 off);
+-  int (*munmap)(struct file *f, uint64 addr, uint64 len);
++  // Linux-style mmap: the core has chosen vma->vm_start/vm_end and checked
++  // permissions; the driver validates vma->vm_pgoff and the length, then
++  // installs frames with remap_pfn_range() or sets vma->vm_ops->fault.
++  // Regular files leave it 0 and get the generic demand-paged mapping.
++  int (*mmap)(struct file *f, struct vm_area_struct *vma);
+ };
+ 
+ struct device;
+--- a/include/kernel/mbox.h	2026-10-21 01:21:21.000000000 +0000
++++ b/include/kernel/mbox.h	2026-10-26 19:13:21.217477688 +0000
+@@ -10,6 +10,13 @@
+ #define MBOX_TAG_SET_DOMAIN_STATE  0x00038030U
+ #define MBOX_TAG_SET_GPIO_STATE    0x00038041U
+ #define MBOX_TAG_SET_GPIO_CONFIG   0x00038043U
++#define MBOX_TAG_ALLOCATE_BUFFER   0x00040001U
++#define MBOX_TAG_GET_PITCH         0x00040008U
++#define MBOX_TAG_SET_PHYS_WH       0x00048003U
++#define MBOX_TAG_SET_VIRT_WH       0x00048004U
++#define MBOX_TAG_SET_DEPTH         0x00048005U
++#define MBOX_TAG_SET_PIXEL_ORDER   0x00048006U
++#define MBOX_TAG_SET_VIRT_OFFSET   0x00048009U
+ 
+ #define MBOX_CLOCK_CORE  4U          // VPU core clock: also clocks BSC (I2C)
+ 
+@@ -36,6 +43,7 @@
+ };
+ 
+ int    mbox_property(uint32 tag, uint32 *value, int value_bytes);
++int    mbox_property_list(uint32 *tags, int words);
+ void   mbox_last_result(struct mbox_result *r);
+ char  *mbox_strerror(int err);
+ uint32 mbox_get_firmware_rev(void);
+--- a/include/kernel/mm.h	1970-01-01 00:00:00.000000000 +0000
++++ b/include/kernel/mm.h	2026-10-26 19:10:08.554457432 +0000
+@@ -0,0 +1,108 @@
++#ifndef XV6_MM_H
++#define XV6_MM_H
++
++// Virtual memory areas: the Linux mm_struct/vm_area_struct model, reduced to
++// what xv6 needs for mmap(2).
++//
++//   struct vmspace (mm_struct)
++//     pagetable, sz            [0, sz): text/data/heap/stack, managed by
++//                              exec/sbrk exactly as before
++//     mmap -> vma -> vma ...   one vm_area_struct per mmap() region, sorted
++//                              by address, all above MMAP_MIN
++//
++// A VMA describes what a range *should* contain; the page table only holds
++// what has been touched so far.  The first access to a page takes a data or
++// instruction abort, usertrap() calls handle_mm_fault(), and the VMA decides
++// how the page is produced:
++//
++//   anonymous private      zero-filled private page
++//   file      private      private page filled from the file (MAP_PRIVATE)
++//   anonymous shared       page in the shared page cache, zero-filled
++//   file      shared       page in the shared page cache keyed by inode,
++//                          written back by munmap()/msync()/exit
++//   device (VM_PFNMAP)     driver's f_op->mmap() installs PTEs for physical
++//                          frames with remap_pfn_range(), or vm_ops->fault
++//                          returns a frame on demand
++
++#include <kernel/types.h>
++
++struct file;
++struct vmspace;
++struct vm_area_struct;
++
++// User virtual address window handed out by mmap() without MAP_FIXED.  The
++// heap (sbrk) may grow up to the lowest VMA; mmap() allocates top-down.
++// The highest 256 MiB below the 256 GiB TTBR0 limit is left free, for the
++// old fixed Unicam window and as a guard.
++#define MMAP_MIN   0x0000001000000000ULL   // 64 GiB
++#define MMAP_TOP   0x0000003ff0000000ULL   // 256 GiB - 256 MiB
++
++// vm_flags, same bit values as Linux include/linux/mm.h.
++#define VM_READ      0x00000001UL
++#define VM_WRITE     0x00000002UL
++#define VM_EXEC      0x00000004UL
++#define VM_SHARED    0x00000008UL
++#define VM_MAYWRITE  0x00000020UL   // file opened for writing
++#define VM_PFNMAP    0x00000400UL   // raw physical frames, no struct page
++#define VM_IO        0x00004000UL   // memory-mapped I/O
++#define VM_DONTCOPY  0x00020000UL   // fork() does not inherit this VMA
++// xv6 extension: the driver does not need the struct file kept alive.  A
++// /dev/video0 mapping must not keep the camera streaming after close(fd).
++#define VM_NOFILEREF 0x80000000UL
++
++// vm_fault.flags
++#define FAULT_FLAG_WRITE  0x01
++#define FAULT_FLAG_INSTR  0x02
++#define FAULT_FLAG_KERNEL 0x04      // copyin/copyout touching a user page
++
++// vm_ops->fault() and handle_mm_fault() results.
++#define VM_FAULT_OK       0
++#define VM_FAULT_SIGSEGV  1         // no VMA or access not permitted
++#define VM_FAULT_SIGBUS   2         // beyond end of file / device refused
++#define VM_FAULT_OOM      3
++
++struct vm_fault {
++  uint64 address;                   // page-aligned faulting user address
++  uint64 pgoff;                     // vma->vm_pgoff + page index in VMA
++  int flags;                        // FAULT_FLAG_*
++  uint64 pfn;                       // out: physical frame for a PFNMAP VMA
++};
++
++struct vm_operations_struct {
++  void (*open)(struct vm_area_struct *vma);    // VMA duplicated (fork/split)
++  void (*close)(struct vm_area_struct *vma);   // VMA removed
++  int (*fault)(struct vm_area_struct *vma, struct vm_fault *vmf);
++};
++
++struct vm_area_struct {
++  uint64 vm_start;                  // first byte, page aligned
++  uint64 vm_end;                    // one past the last byte, page aligned
++  uint64 vm_flags;                  // VM_*
++  uint64 vm_page_prot;              // memory type: PTE_NORMAL/_NC/PTE_DEVICE
++  uint64 vm_pgoff;                  // file offset (or frame) in pages
++  struct file *vm_file;             // backing file, 0 if anonymous
++  const struct vm_operations_struct *vm_ops;
++  void *vm_private_data;            // driver state
++  uint64 vm_shmkey;                 // page-cache key of shared anon memory
++  struct vmspace *vm_mm;            // owning address space
++  struct vm_area_struct *vm_next;   // address-sorted list
++};
++
++// mm/mmap.c
++void   mmap_init(void);
++uint64 do_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
++               uint64 off);
++int    do_munmap(struct vmspace *vm, uint64 addr, uint64 len);
++int    do_msync(struct vmspace *vm, uint64 addr, uint64 len, int flags);
++int    handle_mm_fault(struct vmspace *vm, uint64 va, int flags);
++int    dup_mmap(struct vmspace *old, struct vmspace *new);
++void   exit_mmap(struct vmspace *vm);
++void   mmap_abort(struct vmspace *vm);
++uint64 mmap_lowest(struct vmspace *vm);
++void   mmap_dump(struct vmspace *vm);
++int    remap_pfn_range(struct vm_area_struct *vma, uint64 addr, uint64 pfn,
++                       uint64 size, uint64 prot);
++int    fault_in_user_range(uint64 va, uint64 len, int write);
++int    pa_kernel_mapped(uint64 pa);
++
++#endif
+--- a/include/kernel/proc.h	2026-10-26 16:52:48.000000000 +0000
++++ b/include/kernel/proc.h	2026-10-26 19:10:37.580521020 +0000
+@@ -1,3 +1,7 @@
++#include <kernel/rwsem.h>
++
++struct vm_area_struct;
++
+ // Saved registers for kernel context switches.
+ struct context {
+   uint64 sp;
+@@ -94,15 +98,18 @@
+ #define SIGINT 2
+ 
+ // Reference-counted user address space shared by all user threads in a
+-// thread group.  The lock serializes page-table changes and protects sz and
+-// refcount.
++// thread group (Linux mm_struct).  The lock serializes page-table changes and
++// protects sz, refcount and changes to the mmap list; mmap_lock (sleepable)
++// orders mmap/munmap against page faults, see kernel/mm/mmap.c.
+ struct vmspace {
+   struct spinlock lock;
+   int refcount;
+   int execing;
+   pagetable_t pagetable;
+-  uint64 sz;
+-  int camera_mapped;          // fixed read-only Unicam DMA mapping
++  uint64 sz;                  // [0, sz): image, heap and stack
++  struct rw_semaphore mmap_lock;
++  struct vm_area_struct *mmap; // mmap() regions, sorted by address
++  int camera_mapped;          // number of /dev/video0 DMA mappings
+ };
+ 
+ // Per-process state
+--- a/include/uapi/device.h	2026-10-23 18:31:08.000000000 +0000
++++ b/include/uapi/device.h	2026-10-26 19:12:54.700010531 +0000
+@@ -15,5 +15,7 @@
+ #define CAMERA     5
+ /* 6 was ROOTUPDATE (/dev/sdroot), removed */
+ #define BLOCKDEV   7
++#define MEM        8     /* /dev/mem (minor 1), /dev/zero (minor 5) */
++#define FB         9     /* /dev/fb0 */
+ 
+ #endif
+--- a/include/uapi/fb.h	1970-01-01 00:00:00.000000000 +0000
++++ b/include/uapi/fb.h	2026-10-26 19:13:45.398304345 +0000
+@@ -0,0 +1,26 @@
++#ifndef _UAPI_FB_H
++#define _UAPI_FB_H
++
++#include "types.h"
++
++/* Subset of Linux include/uapi/linux/fb.h: same ioctl numbers and the
++ * leading fields of the two screeninfo structures. */
++#define FBIOGET_VSCREENINFO  0x4600
++#define FBIOGET_FSCREENINFO  0x4602
++
++struct fb_fix_screeninfo {
++  char id[16];
++  uint64 smem_start;      /* physical start of the frame buffer */
++  uint32 smem_len;        /* length of the frame buffer: mmap() this */
++  uint32 line_length;     /* bytes per scan line (pitch) */
++};
++
++struct fb_var_screeninfo {
++  uint32 xres;
++  uint32 yres;
++  uint32 xres_virtual;
++  uint32 yres_virtual;
++  uint32 bits_per_pixel;
++};
++
++#endif
+--- a/include/uapi/mman.h	2026-10-13 16:48:46.000000000 +0000
++++ b/include/uapi/mman.h	2026-10-26 19:10:18.498292046 +0000
+@@ -1,10 +1,22 @@
+ #ifndef _UAPI_MMAN_H
+ #define _UAPI_MMAN_H
+ 
+-#define PROT_READ   0x1
+-#define PROT_WRITE  0x2
++/* Same values as Linux include/uapi/asm-generic/mman-common.h. */
++#define PROT_NONE      0x0
++#define PROT_READ      0x1
++#define PROT_WRITE     0x2
++#define PROT_EXEC      0x4
+ 
+-#define MAP_SHARED  0x01
+-#define MAP_FAILED  ((void *)-1)
++#define MAP_SHARED     0x01    /* stores reach the file / other mappers */
++#define MAP_PRIVATE    0x02    /* private copy of the file's pages */
++#define MAP_FIXED      0x10    /* exactly at addr, replacing old mappings */
++#define MAP_ANONYMOUS  0x20    /* zero-filled memory, fd ignored */
++#define MAP_ANON       MAP_ANONYMOUS
++#define MAP_POPULATE   0x8000  /* fault every page in at mmap() time */
++#define MAP_FAILED     ((void *)-1)
++
++#define MS_ASYNC       1
++#define MS_INVALIDATE  2
++#define MS_SYNC        4
+ 
+ #endif
+--- a/include/uapi/syscall.h	2026-10-26 16:52:48.000000000 +0000
++++ b/include/uapi/syscall.h	2026-10-26 19:11:32.622304943 +0000
+@@ -95,5 +95,6 @@
+ #define SYS_poll          91
+ #define SYS_ioctl         92
+ #define SYS_umount        93
++#define SYS_msync         94
+ 
+ #endif
+--- a/kernel/aarch64.h	2026-10-21 01:21:21.000000000 +0000
++++ b/kernel/aarch64.h	2026-10-26 19:10:08.553967762 +0000
+@@ -235,6 +235,10 @@
+ // cache (the libc.so text cache in exec.c): per-process teardown must not
+ // kfree it, and fork maps the same physical page instead of copying it.
+ #define PTE_SHARED (1UL << 55)
++// PTE_SPECIAL marks a leaf installed for a VM_PFNMAP mapping (device memory,
++// a framebuffer, a DMA buffer): the frame has no owner in this address space,
++// and copyin()/copyout() may use it only if the kernel direct map covers it.
++#define PTE_SPECIAL (1UL << 56)
+ 
+ // attribute index
+ // index is set by mair_el1
+--- a/kernel/arch/arm64/entry.S	2026-10-21 19:00:22.000000000 +0000
++++ b/kernel/arch/arm64/entry.S	2026-10-26 19:02:23.613604540 +0000
+@@ -84,7 +84,7 @@
+         // x3 = physical address of l2kpgt
+         adrp x3, l2kpgt
+         // x4 = physical end of kernel image
+-        ldr x4, =V2P_WO(end)
++        ldr x4, =EARLYTOP        // map all early allocator RAM, not just the image
+         bl entrypgtinit
+         
+ 
+--- a/kernel/core/proc.c	2026-10-26 16:52:48.000000000 +0000
++++ b/kernel/core/proc.c	2026-10-26 19:10:37.584915860 +0000
+@@ -10,6 +10,7 @@
+ #include <kernel/sched.h>
+ #include <kernel/camera.h>
+ #include <kernel/defs.h>
++#include <kernel/mm.h>
+ 
+ struct cpu cpus[NCPU];
+ struct proc *proc_head;
+@@ -43,6 +44,7 @@
+     return 0;
+   memset(vm, 0, sizeof(*vm));
+   initlock(&vm->lock, "vmspace");
++  init_rwsem(&vm->mmap_lock, "mmap_lock");
+   vm->pagetable = uvmcreate();
+   if(vm->pagetable == 0){
+     kfree(vm);
+@@ -566,7 +568,9 @@
+   acquire(&vm->lock);
+   sz = vm->sz;
+   if(n > 0){
+-    if((sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
++    // The heap may not grow into the lowest mmap() region.
++    if(sz + n < sz || PGROUNDUP(sz + n) > mmap_lowest(vm) ||
++       (sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
+       release(&vm->lock);
+       return -1;
+     }
+@@ -630,8 +634,15 @@
+   if((flags & DO_CLONE_VM) &&
+      (entry == 0 || stack_top < 16 || (stack_top & 15) != 0))
+     return -1;
+-  if((np = allocproc()) == 0)
++  // fork copies the VMAs: keep mmap/munmap out until the copy is done.  The
++  // sleepable lock must be taken before allocproc() returns np->lock held.
++  if(!(flags & DO_CLONE_VM))
++    down_read(&vm->mmap_lock);
++  if((np = allocproc()) == 0){
++    if(!(flags & DO_CLONE_VM))
++      up_read(&vm->mmap_lock);
+     return -1;
++  }
+ 
+   if(flags & DO_CLONE_VM){
+     acquire(&vm->lock);
+@@ -656,22 +667,22 @@
+     acquire(&vm->lock);
+     if(uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz) < 0){
+       release(&vm->lock);
++      up_read(&vm->mmap_lock);
+       freeproc(np);
+       release(&np->lock);
+       return -1;
+     }
+-    if(vm->camera_mapped){
+-      if(mappages(np->vm->pagetable, CAM_MMAP_BASE, CAM_MMAP_BYTES, CAMDMA_PA,
+-                  PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
+-        release(&vm->lock);
+-        freeproc(np);
+-        release(&np->lock);
+-        return -1;
+-      }
+-      np->vm->camera_mapped = 1;
+-    }
+     np->vm->sz = vm->sz;
++    if(dup_mmap(vm, np->vm) < 0){
++      release(&vm->lock);
++      up_read(&vm->mmap_lock);
++      mmap_abort(np->vm);
++      freeproc(np);
++      release(&np->lock);
++      return -1;
++    }
+     release(&vm->lock);
++    up_read(&vm->mmap_lock);
+     np->tgid = np->pid;
+   }
+ 
+@@ -884,6 +895,11 @@
+ 
+   net_udp_closeproc(p->pid);
+ 
++  // The thread group is gone, so nothing else uses the address space: write
++  // dirty MAP_SHARED pages back and drop the mappings' file references
++  // while this process can still sleep and do I/O.
++  exit_mmap(p->vm);
++
+   // Close all open files.
+   for(int fd = 0; fd < NOFILE; fd++){
+     if(p->ofile[fd]){
+@@ -1552,6 +1568,7 @@
+     if(p->state != UNUSED && p->vm != 0 && p->vm->pagetable != 0 &&
+        (pid == 0 || p->pid == pid)){
+       procvmtrace(p, "vmmap-manual");
++      mmap_dump(p->vm);
+       found++;
+     }
+     release(&p->lock);
+--- a/kernel/core/syscall.c	2026-10-26 16:52:48.000000000 +0000
++++ b/kernel/core/syscall.c	2026-10-26 19:17:37.490940944 +0000
+@@ -12,7 +12,9 @@
+ fetchaddr(uint64 addr, uint64 *ip)
+ {
+   struct proc *p = myproc();
+-  if(addr >= p->vm->sz || addr+sizeof(uint64) > p->vm->sz)
++  // Any mapped user address, not only [0, sz): argv may live in an mmap()
++  // region.  copyin() rejects unmapped ones.
++  if(addr >= (1ULL << 38) || addr + sizeof(uint64) > (1ULL << 38))
+     return -1;
+   if(copyin(p->vm->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
+     return -1;
+@@ -164,6 +166,7 @@
+ extern uint64 sys_pwrite(void);
+ extern uint64 sys_mmap(void);
+ extern uint64 sys_munmap(void);
++extern uint64 sys_msync(void);
+ extern uint64 sys_init_module(void);
+ extern uint64 sys_delete_module(void);
+ extern uint64 sys_getcwd(void);
+@@ -259,6 +262,7 @@
+ [SYS_pwrite]       sys_pwrite,
+ [SYS_mmap]         sys_mmap,
+ [SYS_munmap]       sys_munmap,
++[SYS_msync]        sys_msync,
+ [SYS_init_module]  sys_init_module,
+ [SYS_delete_module] sys_delete_module,
+ [SYS_getcwd]        sys_getcwd,
+--- a/kernel/core/trap.c	2026-10-21 01:21:21.000000000 +0000
++++ b/kernel/core/trap.c	2026-10-26 19:16:16.225942005 +0000
+@@ -5,6 +5,7 @@
+ #include <kernel/spinlock.h>
+ #include <kernel/proc.h>
+ #include <kernel/defs.h>
++#include <kernel/mm.h>
+ /*如果中断发生在进程的内核上下文中，
+  比如：中断发生在进程执行系统调用期间，
+ usertrap -> syscall -> sys_write -> filewrite ...
+@@ -76,6 +77,36 @@
+   intr_off();
+ }
+ 
++// EL0 data abort (EC 0x24) or instruction abort (EC 0x20).  Translation
++// (DFSC 0b0001ll), access-flag (0b0010ll) and permission (0b0011ll) faults
++// may be demand paging of an mmap() region; anything else, or an address no
++// VMA allows, falls through to the "unexpected" report and kills the
++// process (SIGSEGV/SIGBUS in Linux terms).
++static int
++user_page_fault(struct proc *p, uint64 esr)
++{
++  uint64 far = r_far_el1();
++  uint64 iss = esr & 0x1ffffff;
++  uint64 fsc = iss & 0x3f;
++  int flags = 0, r;
++
++  if(fsc < 0x04 || fsc > 0x0f || far < mmap_lowest(p->vm))
++    return 0;                 // not an mmap() region: keep the full report
++  if(((esr >> 26) & 0x3f) == 0x20)
++    flags |= FAULT_FLAG_INSTR;
++  else if((iss & (1 << 6)) && !(iss & (1 << 8)))   // WnR, not cache maint.
++    flags |= FAULT_FLAG_WRITE;
++  intr_on();                  // reading a file page may sleep
++  r = handle_mm_fault(p->vm, far, flags);
++  if(r == VM_FAULT_OK)
++    return 1;
++  printf("pid %d %s: %s at va=%p pc=%p\n", p->pid, p->name,
++         r == VM_FAULT_SIGBUS ? "SIGBUS" : r == VM_FAULT_OOM ?
++         "out of memory" : "SIGSEGV", far, p->trapframe->elr);
++  p->killed = 1;
++  return 1;
++}
++
+ void
+ usertrap(void)
+ {
+@@ -96,6 +127,8 @@
+     // The syscall may have woken a higher-priority process for this CPU.
+     if(resched_pending())
+       yield();
++  } else if((ec == 0x24 || ec == 0x20) && user_page_fault(p, esr)){
++    // Data/instruction abort from EL0 satisfied by an mmap() VMA.
+   } else {
+     printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
+     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
+--- a/kernel/drivers/char/mem.c	1970-01-01 00:00:00.000000000 +0000
++++ b/kernel/drivers/char/mem.c	2026-10-26 19:12:54.703878983 +0000
+@@ -0,0 +1,129 @@
++// /dev/mem and /dev/zero, after Linux drivers/char/mem.c.
++//
++//   /dev/mem   mmap(fd, offset = physical address): map device registers
++//              (Device-nGnRnE) or memory the kernel allocator does not own
++//              into a process with remap_pfn_range().  Like Linux with
++//              CONFIG_STRICT_DEVMEM, RAM below PHYSTOP (kernel image and
++//              kalloc pages) is refused.
++//   /dev/zero  read returns zeros, write discards; MAP_PRIVATE gives
++//              zero-filled private pages and MAP_SHARED gives shared
++//              anonymous memory, i.e. the mapping is simply anonymous.
++
++#include <kernel/types.h>
++#include <kernel/param.h>
++#include "memlayout.h"
++#include "aarch64.h"
++#include <kernel/spinlock.h>
++#include <kernel/sleeplock.h>
++#include <kernel/fs.h>
++#include <kernel/file.h>
++#include <kernel/defs.h>
++#include <kernel/device.h>
++#include <kernel/module.h>
++#include <kernel/mm.h>
++
++#define MEM_MINOR   1
++#define ZERO_MINOR  5
++
++#define PERIPH_END  (LOCAL_BASE_PA + PGSIZE)   // last MMIO page of BCM2837
++
++static int
++mem_minor(struct file *f)
++{
++  return f->ip ? f->ip->minor : -1;
++}
++
++// Memory type for a physical range.  An alias must use the same attribute
++// as the kernel's own mapping of that range (mixed cacheability is
++// architecturally unsafe), and MMIO must be Device memory.
++static int
++devmem_prot(uint64 pa, uint64 size, uint64 *prot)
++{
++  uint64 end = pa + size;
++
++  if(end < pa || pa < PHYSTOP || end > PERIPH_END)
++    return -1;
++  if(pa >= PERIPHERAL_BASE_PA){
++    *prot = PTE_DEVICE;
++    return 0;
++  }
++  if(end > PERIPHERAL_BASE_PA)
++    return -1;                       // straddles RAM and MMIO
++  if((pa >= RAMDISK_PA && end <= RAMDISK_PA + RAMDISK_SIZE) ||
++     (pa >= MODAREA_PA && end <= MODAREA_PA + MODAREA_SIZE))
++    *prot = PTE_NORMAL;
++  else
++    *prot = PTE_NORMAL_NC;           // DMA buffers, GPU memory, framebuffer
++  return 0;
++}
++
++static int
++mem_mmap(struct file *f, struct vm_area_struct *vma)
++{
++  uint64 size = vma->vm_end - vma->vm_start, prot;
++
++  if(mem_minor(f) == ZERO_MINOR){
++    vma->vm_flags |= VM_NOFILEREF;   // becomes a plain anonymous mapping
++    return 0;
++  }
++  if(devmem_prot(vma->vm_pgoff << PGSHIFT, size, &prot) < 0)
++    return -1;
++  if(prot == PTE_DEVICE && (vma->vm_flags & VM_EXEC))
++    return -1;
++  return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, size, prot);
++}
++
++static int
++mem_fread(struct file *f, int user_dst, uint64 dst, int n)
++{
++  static char zeros[64];
++
++  if(mem_minor(f) != ZERO_MINOR)
++    return -1;                       // /dev/mem: use mmap
++  for(int done = 0; done < n; ){
++    int m = n - done < (int)sizeof(zeros) ? n - done : (int)sizeof(zeros);
++    if(either_copyout(user_dst, dst + done, zeros, m) < 0)
++      return done ? done : -1;
++    done += m;
++  }
++  return n;
++}
++
++static int
++mem_fwrite(struct file *f, int user_src, uint64 src, int n)
++{
++  return mem_minor(f) == ZERO_MINOR ? n : -1;
++}
++
++static void
++mem_init(void)
++{
++  static struct file_operations fops = {
++    .fread = mem_fread,
++    .fwrite = mem_fwrite,
++    .mmap = mem_mmap,
++  };
++  static struct device mem_device = {
++    .name = "mem",
++    .class = "mem",
++    .devnode = "mem",
++    .dev_major = MEM,
++    .dev_minor = MEM_MINOR,
++  };
++  static struct device zero_device = {
++    .name = "zero",
++    .class = "mem",
++    .devnode = "zero",
++    .dev_major = MEM,
++    .dev_minor = ZERO_MINOR,
++  };
++
++  if(register_chrdev(MEM, "mem", &fops) < 0){
++    printf("mem: cannot register major %d\n", MEM);
++    return;
++  }
++  if(device_register(&mem_device) < 0 || device_register(&zero_device) < 0)
++    printf("mem: cannot register /dev/mem or /dev/zero\n");
++}
++
++module_init("mem", mem_init);
+--- a/kernel/drivers/firmware/mbox.c	2026-10-21 01:21:21.000000000 +0000
++++ b/kernel/drivers/firmware/mbox.c	2026-10-26 19:13:21.217070118 +0000
+@@ -34,7 +34,7 @@
+ #define MBOX_PROP_CH 8U
+ #define MBOX_SUCCESS 0x80000000U
+ 
+-#define MBOX_MSG_WORDS 32
++#define MBOX_MSG_WORDS 64
+ #define CACHE_LINE     64
+ 
+ static struct spinlock mbox_lock;
+@@ -61,21 +61,92 @@
+   asm volatile("dsb sy" ::: "memory");
+ }
+ 
++// Post msg[] (already filled) on the property channel and wait for its
++// reply.  Caller holds mbox_lock.  Returns 0 when our reply arrived.
++static int
++mbox_call_locked(void)
++{
++  uint64 deadline;
++
++  msg_sync(1);
++  deadline = r_cntvct_el0() + r_cntfrq_el0();      // 1 s
++  uint32 word = ((uint32)V2P(msg) & ~0xfU) | MBOX_PROP_CH;
++  while(!(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)){     // drain stale replies
++    (void)mbox_rd(MBOX_READ);
++    stale++;
++  }
++  while(mbox_rd(MBOX_STATUS) & MBOX_FULL)
++    if(r_cntvct_el0() >= deadline)
++      return -1;
++  *(volatile uint32 *)(MBOX_BASE + MBOX_WRITE) = word;
++  for(;;){
++    while(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)
++      if(r_cntvct_el0() >= deadline)
++        return -1;
++    if(mbox_rd(MBOX_READ) == word)
++      break;
++    stale++;                      // someone else's reply: keep waiting
++  }
++  msg_sync(0);
++  return 0;
++}
++
++static void
++mbox_lock_init(void)
++{
++  if(!mbox_ready){
++    initlock(&mbox_lock, "mbox");
++    mbox_ready = 1;
++  }
++}
++
++// Send several tags in one message, as Linux rpi_firmware_property_list():
++// the framebuffer must be configured and allocated in a single request.
++// tags[] holds complete tag records (tag, value size, 0, values...) without
++// the message header and end tag; it receives the reply.  Returns 0 when
++// the firmware accepted the whole message.
++int
++mbox_property_list(uint32 *tags, int words)
++{
++  int ok = 0;
++
++  if(words < 3 || words > MBOX_MSG_WORDS - 3)
++    return -1;
++  mbox_lock_init();
++  acquire(&mbox_lock);
++  msg[0] = (words + 3) * 4;
++  msg[1] = 0;
++  for(int i = 0; i < words; i++)
++    msg[2 + i] = tags[i];
++  msg[2 + words] = 0;             // end tag
++  last.err = MBOX_ERR_TIMEOUT;
++  last.status = last.tag_resp = last.value0 = 0;
++  if(mbox_call_locked() == 0){
++    last.status = msg[1];
++    last.stale = stale;
++    if(msg[1] == MBOX_SUCCESS){
++      for(int i = 0; i < words; i++)
++        tags[i] = msg[2 + i];
++      last.err = MBOX_OK;
++      ok = 1;
++    } else
++      last.err = MBOX_ERR_REQUEST;
++  }
++  release(&mbox_lock);
++  return ok ? 0 : -1;
++}
++
+ // Send one tag.  value[] carries the request in and the response out.
+ // Returns 0 on success, -1 on timeout or a firmware error.
+ int
+ mbox_property(uint32 tag, uint32 *value, int value_bytes)
+ {
+   int words = (value_bytes + 3) / 4;
+-  uint64 deadline;
+   int ok = 0;
+ 
+   if(words < 1 || words > MBOX_MSG_WORDS - 6)
+     return -1;
+-  if(!mbox_ready){
+-    initlock(&mbox_lock, "mbox");
+-    mbox_ready = 1;
+-  }
++  mbox_lock_init();
+   acquire(&mbox_lock);
+ 
+   msg[0] = (6 + words) * 4;       // total size
+@@ -90,29 +161,11 @@
+   for(int i = 0; i < words; i++)
+     msg[5 + i] = value[i];
+   msg[5 + words] = 0;             // end tag
+-  msg_sync(1);
+ 
+   last.err = MBOX_ERR_TIMEOUT;
+   last.status = last.tag_resp = last.value0 = 0;
+-  deadline = r_cntvct_el0() + r_cntfrq_el0();      // 1 s
+-  uint32 word = ((uint32)V2P(msg) & ~0xfU) | MBOX_PROP_CH;
+-  while(!(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)){     // drain stale replies
+-    (void)mbox_rd(MBOX_READ);
+-    stale++;
+-  }
+-  while(mbox_rd(MBOX_STATUS) & MBOX_FULL)
+-    if(r_cntvct_el0() >= deadline)
+-      goto out;
+-  *(volatile uint32 *)(MBOX_BASE + MBOX_WRITE) = word;
+-  for(;;){
+-    while(mbox_rd(MBOX_STATUS) & MBOX_EMPTY)
+-      if(r_cntvct_el0() >= deadline)
+-        goto out;
+-    if(mbox_rd(MBOX_READ) == word)
+-      break;
+-    stale++;                      // someone else's reply: keep waiting
+-  }
+-  msg_sync(0);
++  if(mbox_call_locked() < 0)
++    goto out;
+   last.status = msg[1];
+   last.tag_resp = msg[4];
+   last.value0 = msg[5];
+--- a/kernel/drivers/media/platform/unicam.c	2026-10-21 17:12:43.000000000 +0000
++++ b/kernel/drivers/media/platform/unicam.c	2026-10-26 19:12:31.333370747 +0000
+@@ -47,6 +47,7 @@
+ #include <kernel/defs.h>
+ #include <kernel/device.h>
+ #include <kernel/mman.h>
++#include <kernel/mm.h>
+ #include <kernel/mbox.h>
+ #include <kernel/camsensor.h>
+ #include <kernel/workqueue.h>
+@@ -925,87 +926,52 @@
+   return r < 0 ? -1 : n;
+ }
+ 
+-static uint64
+-cammmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
+-        uint64 off)
++// One more/fewer /dev/video0 mapping in this address space.  camread() uses
++// the count to offer the zero-copy header-only dequeue.
++static void
++cam_vma_open(struct vm_area_struct *vma)
+ {
+-  struct cam_file *cf = f->private_data;
+-  struct vmspace *vm = myproc()->vm;
+-  uint64 va = addr ? addr : CAM_MMAP_BASE;
+-
+-  if(cf == 0 || va != CAM_MMAP_BASE || off != 0 ||
+-     len != CAM_MMAP_BYTES || prot != PROT_READ ||
+-     !(flags & MAP_SHARED))
+-    return (uint64)-1;
+-
+-  acquire(&vm->lock);
+-  if(vm->camera_mapped){
+-    release(&vm->lock);
+-    return (uint64)-1;
+-  }
+-  for(uint64 a = va; a < va + len; a += PGSIZE){
+-    pte_t *pte = walk(vm->pagetable, a, 0);
+-    if(pte && (*pte & PTE_V)){
+-      release(&vm->lock);
+-      return (uint64)-1;
+-    }
+-  }
+-  // Use the same Normal-NC attribute as the kernel alias.  Mixing cacheable
+-  // and non-cacheable aliases for one physical DMA page is architecturally
+-  // unsafe; RO applies only to CPU page-table accesses, not Unicam AXI writes.
+-  if(mappages(vm->pagetable, va, len, CAMDMA_PA,
+-              PTE_NORMAL_NC | PTE_URO | PTE_XN) < 0){
+-    // mappages() may have installed a prefix before a page-table allocation
+-    // failed.  Reserved DMA pages are never freed; remove only those leaves.
+-    for(uint64 a = va; a < va + len; a += PGSIZE){
+-      pte_t *pte = walk(vm->pagetable, a, 0);
+-      if(pte && (*pte & PTE_V) && (*pte & PTE_AF))
+-        *pte = 0;
+-    }
+-    flush_tlb();
+-    release(&vm->lock);
+-    return (uint64)-1;
+-  }
+-  flush_tlb();
+-  vm->camera_mapped = 1;
+-  release(&vm->lock);
+-  return va;
++  acquire(&vma->vm_mm->lock);
++  vma->vm_mm->camera_mapped++;
++  release(&vma->vm_mm->lock);
+ }
+ 
+-static int
+-cammunmap(struct file *f, uint64 addr, uint64 len)
++static void
++cam_vma_close(struct vm_area_struct *vma)
+ {
+-  struct cam_file *cf = f->private_data;
+-
+-  if(cf == 0 || addr != CAM_MMAP_BASE || len != CAM_MMAP_BYTES)
+-    return -1;
+-  acquiresleep(&cam.busy);
+-  if(cf->held_slot >= 0){
+-    acquire(&cam.lock);
+-    release_slot_locked(cf->held_slot);
+-    release(&cam.lock);
+-    cf->held_slot = -1;
+-  }
+-  releasesleep(&cam.busy);
+-  return camera_munmap_current(addr, len);
++  acquire(&vma->vm_mm->lock);
++  vma->vm_mm->camera_mapped--;
++  release(&vma->vm_mm->lock);
+ }
+ 
+-int
+-camera_munmap_current(uint64 addr, uint64 len)
++static const struct vm_operations_struct cam_vm_ops = {
++  .open = cam_vma_open,
++  .close = cam_vma_close,
++};
++
++// mmap(0, CAM_MMAP_BYTES, PROT_READ, MAP_SHARED, fd, 0): both DMA slots,
++// read-only.  The core picked the address; userspace finds slot n at
++// map + n * CAM_SLOT_BYTES.
++static int
++cammmap(struct file *f, struct vm_area_struct *vma)
+ {
+-  struct vmspace *vm = myproc()->vm;
++  struct cam_file *cf = f->private_data;
+ 
+-  if(addr != CAM_MMAP_BASE || len != CAM_MMAP_BYTES)
++  if(cf == 0 || vma->vm_pgoff != 0 ||
++     vma->vm_end - vma->vm_start != CAM_MMAP_BYTES ||
++     (vma->vm_flags & (VM_WRITE | VM_EXEC)) || !(vma->vm_flags & VM_SHARED))
+     return -1;
+-  acquire(&vm->lock);
+-  if(!vm->camera_mapped){
+-    release(&vm->lock);
++  // Use the same Normal-NC attribute as the kernel alias.  Mixing cacheable
++  // and non-cacheable aliases for one physical DMA page is architecturally
++  // unsafe; RO applies only to CPU page-table accesses, not Unicam AXI writes.
++  if(remap_pfn_range(vma, vma->vm_start, CAMDMA_PA >> PGSHIFT,
++                     CAM_MMAP_BYTES, PTE_NORMAL_NC) < 0)
+     return -1;
+-  }
+-  uvmunmap(vm->pagetable, addr, len / PGSIZE, 0);
+-  flush_tlb();
+-  vm->camera_mapped = 0;
+-  release(&vm->lock);
++  // As before the VMA framework, the mapping outlives close(fd), and the
++  // last close still stops the stream: do not pin the file.
++  vma->vm_flags |= VM_NOFILEREF;
++  vma->vm_ops = &cam_vm_ops;
++  cam_vma_open(vma);
+   return 0;
+ }
+ 
+@@ -1083,7 +1049,6 @@
+     .fwrite = camwrite,
+     .release = camrelease,
+     .mmap = cammmap,
+-    .munmap = cammunmap,
+   };
+ 
+   initlock(&cam.lock, "unicam");
+--- a/kernel/drivers/video/fbdev/bcm2708_fb.c	1970-01-01 00:00:00.000000000 +0000
++++ b/kernel/drivers/video/fbdev/bcm2708_fb.c	2026-10-26 19:13:52.762050235 +0000
+@@ -0,0 +1,142 @@
++// /dev/fb0: the VideoCore firmware framebuffer, after Linux
++// drivers/video/fbdev/bcm2708_fb.c.
++//
++// The firmware allocates the frame buffer in GPU memory at the top of RAM
++// (on QEMU raspi3b too), outside the kernel's direct map.  Userspace draws
++// into it through mmap(): f_op->mmap maps the frames write-combining
++// (Normal non-cacheable, Linux pgprot_writecombine) with remap_pfn_range().
++// ioctl(FBIOGET_[VF]SCREENINFO) reports the geometry.
++
++#include <kernel/types.h>
++#include <kernel/param.h>
++#include "memlayout.h"
++#include "aarch64.h"
++#include <kernel/spinlock.h>
++#include <kernel/sleeplock.h>
++#include <kernel/fs.h>
++#include <kernel/file.h>
++#include <kernel/defs.h>
++#include <kernel/device.h>
++#include <kernel/module.h>
++#include <kernel/mbox.h>
++#include <kernel/mm.h>
++#include <uapi/fb.h>
++
++#define FB_WIDTH   640
++#define FB_HEIGHT  480
++#define FB_DEPTH   32
++
++static struct {
++  struct spinlock lock;
++  int ready;
++  uint32 width, height, depth, pitch;
++  uint64 base;                  // ARM physical address
++  uint32 size;
++} fb;
++
++// Configure and allocate in one property message; the firmware ignores a
++// separate ALLOCATE_BUFFER that follows the geometry in another message.
++static int
++fb_alloc(void)
++{
++  uint32 t[] = {
++    MBOX_TAG_SET_PHYS_WH,     8, 0, FB_WIDTH, FB_HEIGHT,
++    MBOX_TAG_SET_VIRT_WH,     8, 0, FB_WIDTH, FB_HEIGHT,
++    MBOX_TAG_SET_VIRT_OFFSET, 8, 0, 0, 0,
++    MBOX_TAG_SET_DEPTH,       4, 0, FB_DEPTH,
++    MBOX_TAG_SET_PIXEL_ORDER, 4, 0, 1,          // RGB
++    MBOX_TAG_ALLOCATE_BUFFER, 8, 0, PGSIZE, 0,
++    MBOX_TAG_GET_PITCH,       4, 0, 0,
++  };
++
++  if(mbox_property_list(t, NELEM(t)) < 0 || t[26] == 0 || t[27] == 0)
++    return -1;
++  fb.width = t[3];
++  fb.height = t[4];
++  fb.depth = t[18];
++  fb.base = t[26] & 0x3fffffffU;             // VC bus address -> ARM PA
++  fb.size = t[27];
++  fb.pitch = t[31];
++  return 0;
++}
++
++static int
++fb_open(struct file *f)
++{
++  int r = 0;
++
++  acquire(&fb.lock);
++  if(!fb.ready){
++    if(fb_alloc() == 0){
++      fb.ready = 1;
++      printf("fb0: %dx%d %d bpp pitch %d, %d bytes at pa %p\n", fb.width,
++             fb.height, fb.depth, fb.pitch, fb.size, fb.base);
++    } else {
++      printf("fb0: firmware did not allocate a frame buffer\n");
++      r = -1;
++    }
++  }
++  release(&fb.lock);
++  return r;
++}
++
++static int
++fb_mmap(struct file *f, struct vm_area_struct *vma)
++{
++  uint64 size = vma->vm_end - vma->vm_start;
++  uint64 len = PGROUNDUP(fb.size);
++
++  if(!fb.ready || vma->vm_pgoff > len / PGSIZE ||
++     size > len - vma->vm_pgoff * PGSIZE || (vma->vm_flags & VM_EXEC))
++    return -1;
++  return remap_pfn_range(vma, vma->vm_start,
++                         (fb.base >> PGSHIFT) + vma->vm_pgoff, size,
++                         PTE_NORMAL_NC);
++}
++
++static int
++fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
++{
++  if(!fb.ready)
++    return -1;
++  if(cmd == FBIOGET_FSCREENINFO){
++    struct fb_fix_screeninfo fix;
++    memset(&fix, 0, sizeof(fix));
++    safestrcpy(fix.id, "BCM2708 FB", sizeof(fix.id));
++    fix.smem_start = fb.base;
++    fix.smem_len = fb.size;
++    fix.line_length = fb.pitch;
++    return either_copyout(1, arg, &fix, sizeof(fix));
++  }
++  if(cmd == FBIOGET_VSCREENINFO){
++    struct fb_var_screeninfo var;
++    memset(&var, 0, sizeof(var));
++    var.xres = var.xres_virtual = fb.width;
++    var.yres = var.yres_virtual = fb.height;
++    var.bits_per_pixel = fb.depth;
++    return either_copyout(1, arg, &var, sizeof(var));
++  }
++  return -1;
++}
++
++static void
++bcm2708_fb_init(void)
++{
++  static struct file_operations fops = {
++    .open = fb_open,
++    .ioctl = fb_ioctl,
++    .mmap = fb_mmap,
++  };
++  static struct device fb_device = {
++    .name = "fb0",
++    .class = "graphics",
++    .devnode = "fb0",
++    .dev_major = FB,
++  };
++
++  initlock(&fb.lock, "fb0");
++  if(register_chrdev(FB, "fb0", &fops) < 0 || device_register(&fb_device) < 0)
++    printf("fb0: cannot register /dev/fb0\n");
++}
++
++module_init("bcm2708_fb", bcm2708_fb_init);
+--- a/kernel/fs/exec.c	2026-10-26 16:52:48.000000000 +0000
++++ b/kernel/fs/exec.c	2026-10-26 19:10:53.082286128 +0000
+@@ -5,6 +5,7 @@
+ #include <kernel/spinlock.h>
+ #include <kernel/proc.h>
+ #include <kernel/defs.h>
++#include <kernel/mm.h>
+ #include <kernel/elf.h>
+ #include <kernel/stat.h>
+ #include <kernel/fcntl.h>
+@@ -311,13 +312,15 @@
+       last = s+1;
+   safestrcpy(p->name, last, sizeof(p->name));
+     
+-  // Commit to the user image.
++  // Commit to the user image.  mmap() regions belong to the replaced
++  // address space: unmap them (writing dirty shared pages back) while the
++  // old page table is still installed.
++  exit_mmap(vm);
+   acquire(&vm->lock);
+   oldpagetable = vm->pagetable;
+   oldsz = vm->sz;
+   vm->pagetable = pagetable;
+   vm->sz = sz;
+-  vm->camera_mapped = 0;       // mmap belongs to the replaced address space
+   vm->execing = 0;
+   release(&vm->lock);
+   p->trapframe->elr = initial_entry; // dynamic: ld.so; static: main
+--- a/kernel/fs/file.c	2026-10-25 15:46:30.000000000 +0000
++++ b/kernel/fs/file.c	2026-10-26 19:12:07.967916810 +0000
+@@ -192,8 +192,9 @@
+ // filesystem operations; returns the bytes written.  xv6fs writes go through the log a
+ // few blocks per transaction (inode, indirect block, allocation blocks and
+ // 2 blocks of slop for non-aligned writes must fit in one transaction);
+-// other filesystems take the whole request.
+-static int
++// other filesystems take the whole request.  mmap writeback uses it with a
++// kernel source (user_src == 0).
++int
+ file_write_at(struct file *f, int user_src, uint64 addr, uint64 off, int n)
+ {
+   struct inode *ip = f->ip;
+@@ -310,21 +311,6 @@
+   return f && f->f_op && f->f_op->ioctl ? f->f_op->ioctl(f, cmd, arg) : -1;
+ }
+ 
+-uint64
+-filemmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
+-         uint64 off)
+-{
+-  return f && f->f_op && f->f_op->mmap ?
+-    f->f_op->mmap(f, addr, len, prot, flags, off) : (uint64)-1;
+-}
+-
+-int
+-filemunmap(struct file *f, uint64 addr, uint64 len)
+-{
+-  return f && f->f_op && f->f_op->munmap ?
+-    f->f_op->munmap(f, addr, len) : -1;
+-}
+-
+ int
+ filepread(struct file *f, uint64 addr, int n, uint64 off)
+ {
+--- a/kernel/fs/sysfile.c	2026-10-26 16:52:48.000000000 +0000
++++ b/kernel/fs/sysfile.c	2026-10-26 19:12:07.967085976 +0000
+@@ -22,6 +22,8 @@
+ #include <kernel/socket.h>
+ #include <kernel/fs_trace.h>
+ #include <uapi/poll.h>
++#include <kernel/mman.h>
++#include <kernel/mm.h>
+ 
+ // Keep open tracing useful on a serial console without turning a long-running
+ // camera/server workload into an unbounded log stream.
+@@ -326,7 +328,8 @@
+   uint64 dst, off;
+   int n;
+   if(argfd(0, 0, &f) < 0 || argaddr(1, &dst) < 0 ||
+-     argint(2, &n) < 0 || argaddr(3, &off) < 0)
++     argint(2, &n) < 0 || argaddr(3, &off) < 0 ||
++     fault_in_user_range(dst, n, 1) < 0)
+     return -1;
+   return filepread(f, dst, n, off);
+ }
+@@ -338,7 +341,8 @@
+   uint64 src, off;
+   int n;
+   if(argfd(0, 0, &f) < 0 || argaddr(1, &src) < 0 ||
+-     argint(2, &n) < 0 || argaddr(3, &off) < 0)
++     argint(2, &n) < 0 || argaddr(3, &off) < 0 ||
++     fault_in_user_range(src, n, 0) < 0)
+     return -1;
+   return filepwrite(f, src, n, off);
+ }
+@@ -754,45 +758,51 @@
+   int n;
+   uint64 p;
+ 
+-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
++  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0 ||
++     fault_in_user_range(p, n, 1) < 0)
+     return -1;
+   return fileread(f, p, n);
+ }
+ 
+-// Minimal device mmap.  Filesystems do not yet provide page-cache-backed
+-// mappings; a character driver owns the selected virtual address and physical
+-// pages.  This is sufficient for coherent DMA mappings such as /dev/video0.
++// mmap(addr, len, prot, flags, fd, offset), Linux semantics: see
++// kernel/mm/mmap.c.  Regular files of every filesystem use the generic
++// demand-paged mapping; a device's f_op->mmap installs its own frames.
+ uint64
+ sys_mmap(void)
+ {
+-  struct file *f;
++  struct file *f = 0;
+   uint64 addr, len, off;
+-  int prot, flags;
++  int prot, flags, fd;
+ 
+   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 ||
+      argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+-     argfd(4, 0, &f) < 0 || argaddr(5, &off) < 0)
++     argint(4, &fd) < 0 || argaddr(5, &off) < 0)
++    return (uint64)-1;
++  if(!(flags & MAP_ANONYMOUS) &&
++     (fd < 0 || fd >= NOFILE || (f = myproc()->ofile[fd]) == 0))
+     return (uint64)-1;
+-  return filemmap(f, addr, len, prot, flags, off);
++  return do_mmap(f, addr, len, prot, flags, off);
+ }
+ 
+ uint64
+ sys_munmap(void)
+ {
+-  struct file *f;
+   uint64 addr, len;
+ 
+-  // The mapping callback is selected by the mapping address.  For now only
+-  // /dev/video0 supplies mmap, so find an open camera descriptor belonging to
+-  // this process rather than adding a global VMA table prematurely.
+   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
+     return -1;
+-  for(int fd = 0; fd < NOFILE; fd++){
+-    f = myproc()->ofile[fd];
+-    if(f && f->f_op && f->f_op->munmap)
+-      return filemunmap(f, addr, len);
+-  }
+-  return camera_munmap_current(addr, len);
++  return do_munmap(myproc()->vm, addr, len);
++}
++
++uint64
++sys_msync(void)
++{
++  uint64 addr, len;
++  int flags;
++
++  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 || argint(2, &flags) < 0)
++    return -1;
++  return do_msync(myproc()->vm, addr, len, flags);
+ }
+ 
+ uint64
+@@ -802,7 +812,8 @@
+   int n;
+   uint64 p;
+ 
+-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
++  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0 ||
++     fault_in_user_range(p, n, 0) < 0)
+     return -1;
+ 
+   return filewrite(f, p, n);
+--- a/kernel/init/main.c	2026-10-23 17:59:21.000000000 +0000
++++ b/kernel/init/main.c	2026-10-26 19:12:31.334182597 +0000
+@@ -6,6 +6,7 @@
+ #include <kernel/device.h>
+ #include <kernel/kobject.h>
+ #include <kernel/module.h>
++#include <kernel/mm.h>
+ 
+ volatile static int started = 0;
+ extern char end[];  // first address after kernel loaded from ELF file
+@@ -73,6 +74,7 @@
+     printf("kernel image built: %s (%s)\n", kernel_build_time, kernel_build_rev);
+     printf("\n");
+     procinit();      // process table
++    mmap_init();     // VMA and shared page caches for mmap()
+     workqueue_init(); // schedulable bottom halves run on kworker
+     rnginit();       // BCM2837 hardware random source for cryptographic keys
+     syncinit();      // process synchronization objects
+--- a/kernel/memlayout.h	2026-10-21 01:21:21.000000000 +0000
++++ b/kernel/memlayout.h	2026-10-26 19:00:23.287528548 +0000
+@@ -16,7 +16,7 @@
+ #define EXTMEM    0x00000000L
+ #define PHYSTOP   0x07000000L               // keep the ramdisk out of kalloc
+ #define KERNPA    0x00080000L
+-#define EARLYTOP  0x00200000L
++#define EARLYTOP  0x00400000L               // bootstrap map: [0, 4MB)
+ #define RAMDISK_PA 0x07000000L
+ #define RAMDISK_SIZE (1024*1024L)
+ // Physically contiguous DMA memory for the camera (Unicam writes frames
+--- a/kernel/mm/mmap.c	1970-01-01 00:00:00.000000000 +0000
++++ b/kernel/mm/mmap.c	2026-10-26 19:16:16.230552740 +0000
+@@ -0,0 +1,1023 @@
++// mmap(2): virtual memory areas, demand paging and the shared page cache.
++//
++// See include/kernel/mm.h for the data structures.  Locks, outermost first:
++//
++//   vm->mmap_lock  rw_semaphore (Linux mmap_lock).  Read for page faults and
++//                  msync, write for mmap/munmap/exit.  Sleepable, so a fault
++//                  may read a file and munmap may write dirty pages back.
++//   vm->lock       spinlock: page-table entries and the vm->mmap list.  The
++//                  list is changed only with both locks held, so growproc()
++//                  can check the heap against the lowest VMA with vm->lock.
++//   pcache.lock    spinlock: the shared page cache.
++//
++// Page ownership:
++//   private (anonymous or MAP_PRIVATE file)  one PTE owns a kalloc() page
++//   shared file                              a pcache_page, mapcount = PTEs;
++//                                            freed with its last mapping
++//   shared anonymous (and /dev/zero)         a pcache_page kept until the
++//                                            shm_object, counted per VMA,
++//                                            dies: the memory has no file
++//   VM_PFNMAP (device)                       no owner; PTE_SPECIAL is set
++//
++// Dirty tracking: Cortex-A53 has no hardware dirty bit, so a MAP_SHARED file
++// page is first mapped read-only even in a PROT_WRITE VMA.  The first store
++// takes a permission fault and handle_mm_fault() makes the PTE writable;
++// "writable PTE in a shared file VMA" therefore means "dirty".  munmap(),
++// msync() and exit write exactly those pages back with f_op->write_at.
++
++#include <kernel/types.h>
++#include <kernel/param.h>
++#include "memlayout.h"
++#include "aarch64.h"
++#include <kernel/spinlock.h>
++#include <kernel/proc.h>
++#include <kernel/defs.h>
++#include <kernel/fs.h>
++#include <kernel/file.h>
++#include <kernel/device.h>
++#include <kernel/mman.h>
++#include <kernel/mm.h>
++
++#define MAXUVA (1ULL << 38)     // TTBR0 covers [0, 256 GiB)
++
++// ---------------------------------------------------------------------------
++// Small object caches.  kalloc() hands out whole pages; a VMA or a page-cache
++// entry is ~100 bytes, so carve pages into objects (a minimal kmem_cache).
++// Pages are never returned to kalloc, as in a slab with no shrinker.
++// ---------------------------------------------------------------------------
++struct objcache {
++  struct spinlock lock;
++  void *free;                   // first word of a free object links the list
++  uint size;
++};
++
++static void*
++obj_alloc(struct objcache *c)
++{
++  void *o;
++
++  acquire(&c->lock);
++  if(c->free == 0){
++    char *page = kalloc();
++    if(page == 0){
++      release(&c->lock);
++      return 0;
++    }
++    for(uint i = 0; i + c->size <= PGSIZE; i += c->size){
++      *(void**)(page + i) = c->free;
++      c->free = page + i;
++    }
++  }
++  o = c->free;
++  c->free = *(void**)o;
++  release(&c->lock);
++  memset(o, 0, c->size);
++  return o;
++}
++
++static void
++obj_free(struct objcache *c, void *o)
++{
++  acquire(&c->lock);
++  *(void**)o = c->free;
++  c->free = o;
++  release(&c->lock);
++}
++
++static struct objcache vma_cache;
++
++// ---------------------------------------------------------------------------
++// Shared page cache.  A page shared by MAP_SHARED mappings is identified by
++// (key, index): key is the in-memory inode for a file (all struct files of
++// one inode share it) or the shm_object of shared anonymous memory; index is
++// the page offset within that object.  A file page lives exactly as long as
++// some PTE maps it: dirty pages are written back before their last mapping
++// goes away, so dropping the entry loses nothing.  An anonymous page has no
++// backing store and lives as long as its shm_object (Linux shmem inode),
++// which every VMA sharing the memory references, mapped or not.
++// ---------------------------------------------------------------------------
++struct pcache_page {
++  struct pcache_page *next;     // hash chain (first: objcache link)
++  uint64 key;
++  uint64 index;
++  uint64 pa;
++  int mapcount;
++};
++
++struct shm_object {
++  struct shm_object *link;      // objcache link while free
++  int ref;                      // VMAs sharing this memory
++};
++
++#define PCACHE_HASH 64
++
++static struct {
++  struct spinlock lock;         // also protects shm_object.ref
++  struct pcache_page *hash[PCACHE_HASH];
++  struct objcache objs;
++  struct objcache shm_objs;
++} pcache;
++
++static struct pcache_page**
++pcache_slot(uint64 key, uint64 index)
++{
++  return &pcache.hash[((key >> 6) ^ (index * 31)) % PCACHE_HASH];
++}
++
++static struct pcache_page*
++pcache_lookup(uint64 key, uint64 index)
++{
++  for(struct pcache_page *p = *pcache_slot(key, index); p; p = p->next)
++    if(p->key == key && p->index == index)
++      return p;
++  return 0;
++}
++
++// One more PTE maps an existing page (fork).
++static void
++pcache_dup(uint64 key, uint64 index)
++{
++  acquire(&pcache.lock);
++  struct pcache_page *p = pcache_lookup(key, index);
++  if(p == 0)
++    panic("pcache_dup");
++  p->mapcount++;
++  release(&pcache.lock);
++}
++
++// A PTE stopped mapping the page.  A file page goes with its last mapping;
++// an anonymous page (keep) stays for the shm_object.
++static void
++pcache_put(uint64 key, uint64 index, int keep)
++{
++  struct pcache_page **pp, *p;
++  uint64 pa = 0;
++
++  acquire(&pcache.lock);
++  for(pp = pcache_slot(key, index); (p = *pp) != 0; pp = &p->next)
++    if(p->key == key && p->index == index)
++      break;
++  if(p == 0)
++    panic("pcache_put");
++  if(--p->mapcount == 0 && !keep){
++    *pp = p->next;
++    pa = p->pa;
++  }
++  release(&pcache.lock);
++  if(pa){
++    kfree(P2V(pa));
++    obj_free(&pcache.objs, p);
++  }
++}
++
++static uint64
++shm_create(void)
++{
++  struct shm_object *o = obj_alloc(&pcache.shm_objs);
++
++  if(o)
++    o->ref = 1;
++  return (uint64)o;
++}
++
++static void
++shm_get(uint64 key)
++{
++  acquire(&pcache.lock);
++  ((struct shm_object *)key)->ref++;
++  release(&pcache.lock);
++}
++
++// Drop a VMA's reference; the last one frees every page of the object.
++// All its PTEs are gone by then (zap_range runs before vma_free).
++static void
++shm_put(uint64 key)
++{
++  struct shm_object *o = (struct shm_object *)key;
++
++  acquire(&pcache.lock);
++  if(--o->ref > 0){
++    release(&pcache.lock);
++    return;
++  }
++  for(int h = 0; h < PCACHE_HASH; h++){
++    struct pcache_page **pp = &pcache.hash[h], *p;
++    while((p = *pp) != 0){
++      if(p->key != key){
++        pp = &p->next;
++        continue;
++      }
++      if(p->mapcount != 0)
++        panic("shm_put: page still mapped");
++      *pp = p->next;
++      kfree(P2V(p->pa));
++      obj_free(&pcache.objs, p);
++    }
++  }
++  release(&pcache.lock);
++  obj_free(&pcache.shm_objs, o);
++}
++
++// ---------------------------------------------------------------------------
++// VMA helpers
++// ---------------------------------------------------------------------------
++void
++mmap_init(void)
++{
++  initlock(&vma_cache.lock, "vma_cache");
++  vma_cache.size = sizeof(struct vm_area_struct);
++  initlock(&pcache.lock, "pcache");
++  initlock(&pcache.objs.lock, "pcache_obj");
++  pcache.objs.size = sizeof(struct pcache_page);
++  initlock(&pcache.shm_objs.lock, "shm_obj");
++  pcache.shm_objs.size = sizeof(struct shm_object);
++}
++
++static int
++vma_is_shared_file(struct vm_area_struct *vma)
++{
++  return (vma->vm_flags & (VM_SHARED | VM_PFNMAP)) == VM_SHARED &&
++         vma->vm_file != 0;
++}
++
++static uint64
++vma_key(struct vm_area_struct *vma)
++{
++  return vma->vm_file ? (uint64)vma->vm_file->ip : vma->vm_shmkey;
++}
++
++static uint64
++vma_index(struct vm_area_struct *vma, uint64 va)
++{
++  return vma->vm_pgoff + (va - vma->vm_start) / PGSIZE;
++}
++
++// Leaf attributes for a page of this VMA.  EL1 never executes user pages.
++static uint64
++vma_pte_flags(struct vm_area_struct *vma, int writable)
++{
++  uint64 perm = vma->vm_page_prot | PTE_PXN;
++
++  if((vma->vm_flags & VM_EXEC) == 0)
++    perm |= PTE_UXN;
++  return perm | (writable ? PTE_U : PTE_URO);
++}
++
++// First VMA with vm_end > va (Linux find_vma), or 0.
++static struct vm_area_struct*
++find_vma(struct vmspace *vm, uint64 va)
++{
++  for(struct vm_area_struct *v = vm->mmap; v; v = v->vm_next)
++    if(va < v->vm_end)
++      return v;
++  return 0;
++}
++
++static int
++range_is_free(struct vmspace *vm, uint64 start, uint64 end)
++{
++  struct vm_area_struct *v = find_vma(vm, start);
++  return v == 0 || v->vm_start >= end;
++}
++
++// Insert into the sorted list.  Caller holds mmap_lock for writing.
++static void
++vma_link(struct vmspace *vm, struct vm_area_struct *vma)
++{
++  struct vm_area_struct **pp = &vm->mmap;
++
++  acquire(&vm->lock);
++  while(*pp && (*pp)->vm_start < vma->vm_start)
++    pp = &(*pp)->vm_next;
++  vma->vm_next = *pp;
++  *pp = vma;
++  release(&vm->lock);
++}
++
++static void
++vma_unlink(struct vmspace *vm, struct vm_area_struct *vma)
++{
++  acquire(&vm->lock);
++  for(struct vm_area_struct **pp = &vm->mmap; *pp; pp = &(*pp)->vm_next)
++    if(*pp == vma){
++      *pp = vma->vm_next;
++      break;
++    }
++  release(&vm->lock);
++}
++
++// A new VMA (split, fork) refers to the same file / anonymous object.
++static void
++vma_get_refs(struct vm_area_struct *vma)
++{
++  if(vma->vm_file)
++    filedup(vma->vm_file);
++  if(vma->vm_shmkey)
++    shm_get(vma->vm_shmkey);
++  if(vma->vm_ops && vma->vm_ops->open)
++    vma->vm_ops->open(vma);
++}
++
++static void
++vma_free(struct vm_area_struct *vma)
++{
++  if(vma->vm_ops && vma->vm_ops->close)
++    vma->vm_ops->close(vma);
++  if(vma->vm_file)
++    fileclose(vma->vm_file);
++  if(vma->vm_shmkey)
++    shm_put(vma->vm_shmkey);
++  obj_free(&vma_cache, vma);
++}
++
++// Top-down search of [max(MMAP_MIN, heap), MMAP_TOP) for len free bytes.
++static uint64
++get_unmapped_area(struct vmspace *vm, uint64 len)
++{
++  uint64 prev_end = PGROUNDUP(vm->sz), best = 0;
++
++  if(prev_end < MMAP_MIN)
++    prev_end = MMAP_MIN;
++  for(struct vm_area_struct *v = vm->mmap; ; v = v->vm_next){
++    uint64 gap_end = v && v->vm_start < MMAP_TOP ? v->vm_start : MMAP_TOP;
++    if(gap_end > prev_end && gap_end - prev_end >= len)
++      best = gap_end - len;
++    if(v == 0)
++      break;
++    if(v->vm_end > prev_end)
++      prev_end = v->vm_end;
++  }
++  return best;
++}
++
++// Lowest address the heap must not grow into.  Caller holds vm->lock.
++uint64
++mmap_lowest(struct vmspace *vm)
++{
++  return vm->mmap ? vm->mmap->vm_start : MAXUVA;
++}
++
++// Physical ranges the kernel direct map covers with Normal memory, so that
++// copyin()/copyout() may reach a PFNMAP page through P2V().  Device memory
++// is excluded: memmove() would make unaligned accesses to it.
++int
++pa_kernel_mapped(uint64 pa)
++{
++  return pa < PHYSTOP ||
++         (pa >= RAMDISK_PA && pa < RAMDISK_PA + RAMDISK_SIZE) ||
++         (pa >= CAMDMA_PA && pa < CAMDMA_PA + CAMDMA_SIZE) ||
++         (pa >= MODAREA_PA && pa < MODAREA_PA + MODAREA_SIZE);
++}
++
++// ---------------------------------------------------------------------------
++// File I/O for faults and writeback
++// ---------------------------------------------------------------------------
++
++// Fill a page from file offset off.  Returns 0, or VM_FAULT_SIGBUS when the
++// page lies wholly beyond end of file (Linux raises SIGBUS there too).  The
++// tail of the last partial page reads as zeros.
++static int
++file_fill_page(struct file *f, uint64 off, char *kva)
++{
++  struct inode *ip = f->ip;
++  int r;
++
++  memset(kva, 0, PGSIZE);
++  ireadlock(ip);
++  if(off >= ip->size){
++    ireadunlock(ip);
++    return VM_FAULT_SIGBUS;
++  }
++  uint n = ip->size - off < PGSIZE ? ip->size - off : PGSIZE;
++  r = f->f_op->read_at(f, 0, (uint64)kva, off, n);
++  ireadunlock(ip);
++  return r < 0 ? VM_FAULT_SIGBUS : VM_FAULT_OK;
++}
++
++// Write one dirty page back, never extending the file: bytes past EOF in the
++// last page are not part of the file (as in Linux).
++static void
++writeback_page(struct vm_area_struct *vma, uint64 index, uint64 pa)
++{
++  struct file *f = vma->vm_file;
++  uint64 off = index * PGSIZE, size;
++
++  ireadlock(f->ip);
++  size = f->ip->size;
++  ireadunlock(f->ip);
++  if(off >= size)
++    return;
++  int n = size - off < PGSIZE ? size - off : PGSIZE;
++  if(file_write_at(f, 0, (uint64)P2V(pa), off, n) != n)
++    printf("mmap: writeback of ino %d offset %p failed\n", f->ip->inum, off);
++}
++
++// Sync the d-cache to the point of unification and invalidate the I-cache,
++// so instructions read from a file into a new page are fetched correctly.
++static void
++sync_icache_page(uint64 pa)
++{
++  uint64 kva = (uint64)P2V(pa);
++
++  for(uint64 p = kva; p < kva + PGSIZE; p += 64)
++    asm volatile("dc cvau, %0" :: "r"(p) : "memory");
++  asm volatile("dsb ish\n\tic ialluis\n\tdsb ish\n\tisb" ::: "memory");
++}
++
++// ---------------------------------------------------------------------------
++// Page fault
++// ---------------------------------------------------------------------------
++
++// Find or create the shared page (key, index) and take one mapping on it.
++static int
++shared_page_get(struct vm_area_struct *vma, uint64 index, uint64 *pa)
++{
++  uint64 key = vma_key(vma);
++  struct pcache_page *p;
++  char *mem;
++  int r;
++
++  acquire(&pcache.lock);
++  if((p = pcache_lookup(key, index)) != 0){
++    p->mapcount++;
++    *pa = p->pa;
++    release(&pcache.lock);
++    return VM_FAULT_OK;
++  }
++  release(&pcache.lock);
++
++  // Not cached: fill a new page without the spinlock (reading may sleep),
++  // then publish it unless another fault won the race meanwhile.
++  if((mem = kalloc()) == 0)
++    return VM_FAULT_OOM;
++  if(vma->vm_file){
++    if((r = file_fill_page(vma->vm_file, index * PGSIZE, mem)) != 0){
++      kfree(mem);
++      return r;
++    }
++  } else
++    memset(mem, 0, PGSIZE);
++
++  struct pcache_page *np = obj_alloc(&pcache.objs);
++  acquire(&pcache.lock);
++  if((p = pcache_lookup(key, index)) != 0){
++    p->mapcount++;
++    *pa = p->pa;
++    release(&pcache.lock);
++    kfree(mem);
++    if(np)
++      obj_free(&pcache.objs, np);
++    return VM_FAULT_OK;
++  }
++  if(np == 0){
++    release(&pcache.lock);
++    kfree(mem);
++    return VM_FAULT_OOM;
++  }
++  np->key = key;
++  np->index = index;
++  np->pa = V2P(mem);
++  np->mapcount = 1;
++  np->next = *pcache_slot(key, index);
++  *pcache_slot(key, index) = np;
++  release(&pcache.lock);
++  *pa = np->pa;
++  return VM_FAULT_OK;
++}
++
++static int
++__handle_mm_fault(struct vmspace *vm, uint64 va, int flags)
++{
++  struct vm_area_struct *vma = find_vma(vm, va);
++  int write = (flags & FAULT_FLAG_WRITE) != 0;
++  int special = 0, r;
++  uint64 index, pa;
++  pte_t *pte;
++
++  if(vma == 0 || va < vma->vm_start)
++    return VM_FAULT_SIGSEGV;
++  if((vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC)) == 0 ||
++     (write && (vma->vm_flags & VM_WRITE) == 0) ||
++     ((flags & FAULT_FLAG_INSTR) && (vma->vm_flags & VM_EXEC) == 0))
++    return VM_FAULT_SIGSEGV;
++  va = PGROUNDDOWN(va);
++  index = vma_index(vma, va);
++
++  // Present already: only a store to a clean shared page has work to do
++  // (mark it dirty by making it writable).  Anything else lost a race with
++  // another thread that installed the page first.
++  acquire(&vm->lock);
++  pte = walk(vm->pagetable, va, 0);
++  if(pte && (*pte & PTE_AF)){
++    if(write && (*pte & PTE_RO)){
++      *pte = (*pte & ~PTE_AP(3)) | PTE_U;
++      flush_tlb();
++    }
++    release(&vm->lock);
++    return VM_FAULT_OK;
++  }
++  release(&vm->lock);
++
++  if(vma->vm_flags & VM_PFNMAP){
++    // A driver either installed every PTE in f_op->mmap (remap_pfn_range)
++    // or supplies frames on demand here.
++    struct vm_fault vmf = { va, index, flags, 0 };
++    if(vma->vm_ops == 0 || vma->vm_ops->fault == 0)
++      return VM_FAULT_SIGBUS;
++    if((r = vma->vm_ops->fault(vma, &vmf)) != VM_FAULT_OK)
++      return r;
++    pa = vmf.pfn << PGSHIFT;
++    special = 1;
++  } else if(vma->vm_flags & VM_SHARED){
++    if((r = shared_page_get(vma, index, &pa)) != VM_FAULT_OK)
++      return r;
++  } else {
++    char *mem = kalloc();
++    if(mem == 0)
++      return VM_FAULT_OOM;
++    if(vma->vm_file){
++      if((r = file_fill_page(vma->vm_file, index * PGSIZE, mem)) != 0){
++        kfree(mem);
++        return r;
++      }
++    } else
++      memset(mem, 0, PGSIZE);
++    pa = V2P(mem);
++  }
++
++  // A shared file page starts clean (read-only) unless this is the store
++  // that dirties it.  Private and anonymous pages get the VMA's permission.
++  int writable = (vma->vm_flags & VM_WRITE) &&
++                 (!vma_is_shared_file(vma) || write);
++  if((vma->vm_flags & VM_EXEC) && !special)
++    sync_icache_page(pa);
++
++  acquire(&vm->lock);
++  pte = walk(vm->pagetable, va, 1);
++  if(pte == 0 || (*pte & PTE_AF)){
++    release(&vm->lock);
++    if(special)
++      ;
++    else if(vma->vm_flags & VM_SHARED)
++      pcache_put(vma_key(vma), index, vma->vm_file == 0);
++    else
++      kfree(P2V(pa));
++    return pte ? VM_FAULT_OK : VM_FAULT_OOM;
++  }
++  *pte = PA2PTE(pa) | vma_pte_flags(vma, writable) | PTE_AF | PTE_V |
++         (special ? PTE_SPECIAL : 0);
++  flush_tlb();
++  release(&vm->lock);
++  return VM_FAULT_OK;
++}
++
++// Resolve a fault at user address va.  Called from usertrap() for EL0
++// aborts, and from copyin()/copyout() with FAULT_FLAG_KERNEL: there the
++// kernel may already hold an inode lock, so only try the mmap_lock and let
++// the copy fail rather than risk an ABBA deadlock with munmap writeback.
++int
++handle_mm_fault(struct vmspace *vm, uint64 va, int flags)
++{
++  int r;
++
++  if(va >= MAXUVA)
++    return VM_FAULT_SIGSEGV;
++  if(flags & FAULT_FLAG_KERNEL){
++    if(!down_read_trylock(&vm->mmap_lock))
++      return VM_FAULT_SIGSEGV;
++  } else
++    down_read(&vm->mmap_lock);
++  r = __handle_mm_fault(vm, va, flags);
++  up_read(&vm->mmap_lock);
++  return r;
++}
++
++// Populate the mapped pages of a user buffer before a system call starts
++// taking filesystem locks (Linux fault_in_pages_*): read(fd, map, n) then
++// finds its destination present and writable.  Pages outside any VMA are
++// left to copyin()/copyout() to reject.
++int
++fault_in_user_range(uint64 va, uint64 len, int write)
++{
++  struct vmspace *vm = myproc()->vm;
++  uint64 a, end;
++
++  if(len == 0 || vm->mmap == 0 || va + len < va)
++    return 0;
++  end = PGROUNDUP(va + len);
++  for(a = PGROUNDDOWN(va); a < end; a += PGSIZE){
++    if(a < mmap_lowest(vm))
++      continue;
++    if(handle_mm_fault(vm, a, write ? FAULT_FLAG_WRITE : 0) != VM_FAULT_OK)
++      return -1;
++  }
++  return 0;
++}
++
++// ---------------------------------------------------------------------------
++// Device mappings
++// ---------------------------------------------------------------------------
++
++// Map [addr, addr+size) of a VMA being set up by f_op->mmap to physical
++// frames starting at pfn, with memory type prot (PTE_DEVICE, PTE_NORMAL_NC,
++// PTE_NORMAL).  As in Linux the PTEs are installed immediately and the VMA
++// becomes VM_IO | VM_PFNMAP: no struct page, nothing to free on unmap.
++int
++remap_pfn_range(struct vm_area_struct *vma, uint64 addr, uint64 pfn,
++                uint64 size, uint64 prot)
++{
++  struct vmspace *vm = vma->vm_mm;
++  uint64 a, perm;
++  pte_t *pte;
++
++  if(addr % PGSIZE || size % PGSIZE || addr < vma->vm_start ||
++     addr + size > vma->vm_end)
++    return -1;
++  vma->vm_flags |= VM_IO | VM_PFNMAP;
++  vma->vm_page_prot = prot;
++  perm = vma_pte_flags(vma, (vma->vm_flags & VM_WRITE) != 0) | PTE_SPECIAL;
++
++  acquire(&vm->lock);
++  for(a = addr; a < addr + size; a += PGSIZE, pfn++){
++    if((pte = walk(vm->pagetable, a, 1)) == 0 || (*pte & PTE_AF))
++      goto bad;
++    *pte = PA2PTE(pfn << PGSHIFT) | perm | PTE_AF | PTE_V;
++  }
++  flush_tlb();
++  release(&vm->lock);
++  return 0;
++
++ bad:
++  // Remove the prefix installed so far; the frames belong to the device.
++  for(uint64 b = addr; b < a; b += PGSIZE)
++    *walk(vm->pagetable, b, 0) = 0;
++  flush_tlb();
++  release(&vm->lock);
++  return -1;
++}
++
++// ---------------------------------------------------------------------------
++// Unmapping
++// ---------------------------------------------------------------------------
++
++// Remove the PTEs of [start, end) inside vma.  With writeback, dirty shared
++// file pages are first written to the file (this may sleep, so it happens
++// before taking vm->lock).  PTEs are cleared in batches; the pages are
++// released only after the broadcast TLB invalidation, because the page table
++// can be live on another core (threads).
++static void
++zap_range(struct vm_area_struct *vma, uint64 start, uint64 end, int writeback)
++{
++  struct vmspace *vm = vma->vm_mm;
++  struct { uint64 pa, index; } batch[32];
++  uint64 a;
++  pte_t *pte;
++
++  if(writeback && vma_is_shared_file(vma)){
++    for(a = start; a < end; a += PGSIZE){
++      uint64 pa = 0;
++      acquire(&vm->lock);
++      pte = walk(vm->pagetable, a, 0);
++      if(pte && (*pte & PTE_AF) && (*pte & PTE_RO) == 0)
++        pa = PTE2PA(*pte);
++      release(&vm->lock);
++      if(pa)
++        writeback_page(vma, vma_index(vma, a), pa);
++    }
++  }
++
++  a = start;
++  while(a < end){
++    int n = 0;
++    acquire(&vm->lock);
++    for(; a < end && n < (int)NELEM(batch); a += PGSIZE){
++      pte = walk(vm->pagetable, a, 0);
++      if(pte == 0 || (*pte & PTE_AF) == 0)
++        continue;
++      batch[n].pa = PTE2PA(*pte);
++      batch[n].index = vma_index(vma, a);
++      n++;
++      *pte = 0;
++    }
++    flush_tlb();
++    release(&vm->lock);
++    for(int i = 0; i < n; i++){
++      if(vma->vm_flags & VM_PFNMAP)
++        continue;
++      if(vma->vm_flags & VM_SHARED)
++        pcache_put(vma_key(vma), batch[i].index, vma->vm_file == 0);
++      else
++        kfree(P2V(batch[i].pa));
++    }
++  }
++}
++
++// Unmap [start, end).  Caller holds mmap_lock for writing.  A VMA cut in the
++// middle is split in two, like Linux __split_vma().
++static int
++__do_munmap(struct vmspace *vm, uint64 start, uint64 end)
++{
++  struct vm_area_struct *vma, *next;
++
++  for(vma = find_vma(vm, start); vma && vma->vm_start < end; vma = next){
++    next = vma->vm_next;
++    if(vma->vm_start < start && vma->vm_end > end){
++      struct vm_area_struct *tail = obj_alloc(&vma_cache);
++      if(tail == 0)
++        return -1;
++      *tail = *vma;
++      tail->vm_start = end;
++      tail->vm_pgoff += (end - vma->vm_start) / PGSIZE;
++      vma_get_refs(tail);
++      acquire(&vm->lock);
++      vma->vm_end = end;
++      tail->vm_next = vma->vm_next;
++      vma->vm_next = tail;
++      release(&vm->lock);
++      next = tail;
++    }
++    uint64 s = vma->vm_start > start ? vma->vm_start : start;
++    uint64 e = vma->vm_end < end ? vma->vm_end : end;
++    zap_range(vma, s, e, 1);
++    if(s == vma->vm_start && e == vma->vm_end){
++      vma_unlink(vm, vma);
++      vma_free(vma);
++    } else {
++      acquire(&vm->lock);
++      if(s == vma->vm_start){
++        vma->vm_pgoff += (e - vma->vm_start) / PGSIZE;
++        vma->vm_start = e;
++      } else
++        vma->vm_end = s;
++      release(&vm->lock);
++    }
++  }
++  return 0;
++}
++
++int
++do_munmap(struct vmspace *vm, uint64 addr, uint64 len)
++{
++  int r;
++
++  if(addr % PGSIZE || len == 0 || addr + len < addr || addr + len > MAXUVA)
++    return -1;
++  down_write(&vm->mmap_lock);
++  r = __do_munmap(vm, addr, addr + PGROUNDUP(len));
++  up_write(&vm->mmap_lock);
++  return r;
++}
++
++// ---------------------------------------------------------------------------
++// mmap
++// ---------------------------------------------------------------------------
++uint64
++do_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
++        uint64 off)
++{
++  struct vmspace *vm = myproc()->vm;
++  struct vm_area_struct *vma;
++  uint64 vm_flags = 0;
++  int type = flags & (MAP_SHARED | MAP_PRIVATE);
++
++  if(len == 0 || PGROUNDUP(len) < len || off % PGSIZE ||
++     (type != MAP_SHARED && type != MAP_PRIVATE) ||
++     (flags & ~(MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS |
++                MAP_POPULATE)) ||
++     (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)))
++    return (uint64)-1;
++  len = PGROUNDUP(len);
++  if(flags & MAP_ANONYMOUS){
++    f = 0;
++    off = 0;
++  }
++
++  // AArch64 cannot express write-only, so PROT_WRITE implies read.
++  if(prot & (PROT_READ | PROT_WRITE))
++    vm_flags |= VM_READ;
++  if(prot & PROT_WRITE)
++    vm_flags |= VM_WRITE;
++  if(prot & PROT_EXEC)
++    vm_flags |= VM_EXEC;
++  if(type == MAP_SHARED)
++    vm_flags |= VM_SHARED;
++
++  if(f){
++    if(!f->readable || f->f_op == 0)
++      return (uint64)-1;                  // EACCES / ENODEV
++    if(f->f_op->mmap == 0){
++      // generic_file_mmap: any filesystem with an offset read backend.
++      if(f->type != FD_INODE || f->f_op->read_at == 0 ||
++         (type == MAP_SHARED && (prot & PROT_WRITE) &&
++          (!f->writable || f->f_op->write_at == 0)))
++        return (uint64)-1;
++    }
++    if(f->writable)
++      vm_flags |= VM_MAYWRITE;
++  }
++
++  down_write(&vm->mmap_lock);
++  if(flags & MAP_FIXED){
++    if(addr % PGSIZE || addr < PGROUNDUP(vm->sz) || addr + len < addr ||
++       addr + len > MAXUVA || __do_munmap(vm, addr, addr + len) < 0)
++      goto bad;
++  } else if(addr == 0 || addr % PGSIZE || addr < MMAP_MIN ||
++            addr + len < addr || addr + len > MMAP_TOP ||
++            !range_is_free(vm, addr, addr + len)){
++    // The address is only a hint, as in Linux.
++    if((addr = get_unmapped_area(vm, len)) == 0)
++      goto bad;
++  }
++
++  if((vma = obj_alloc(&vma_cache)) == 0)
++    goto bad;
++  vma->vm_start = addr;
++  vma->vm_end = addr + len;
++  vma->vm_flags = vm_flags;
++  vma->vm_page_prot = PTE_NORMAL;
++  vma->vm_pgoff = off / PGSIZE;
++  vma->vm_mm = vm;
++  if(f)
++    vma->vm_file = filedup(f);
++  if(f && f->f_op->mmap && f->f_op->mmap(f, vma) < 0){
++    fileclose(vma->vm_file);
++    obj_free(&vma_cache, vma);
++    goto bad;
++  }
++  if((vma->vm_flags & VM_NOFILEREF) && vma->vm_file){
++    fileclose(vma->vm_file);
++    vma->vm_file = 0;
++  }
++  // Shared anonymous memory (MAP_SHARED|MAP_ANONYMOUS, /dev/zero) needs an
++  // object that outlives any one mapping of it.
++  if((vma->vm_flags & (VM_SHARED | VM_PFNMAP)) == VM_SHARED &&
++     vma->vm_file == 0 && (vma->vm_shmkey = shm_create()) == 0){
++    vma_free(vma);
++    goto bad;
++  }
++  vma_link(vm, vma);
++  up_write(&vm->mmap_lock);
++
++  if(flags & MAP_POPULATE)
++    for(uint64 a = addr; a < addr + len; a += PGSIZE)
++      handle_mm_fault(vm, a, 0);
++  return addr;
++
++ bad:
++  up_write(&vm->mmap_lock);
++  return (uint64)-1;
++}
++
++// ---------------------------------------------------------------------------
++// msync: write dirty shared file pages back and mark them clean again.  The
++// PTE is made read-only *before* the write, so a store racing with msync
++// faults and re-dirties the page instead of being lost.
++// ---------------------------------------------------------------------------
++int
++do_msync(struct vmspace *vm, uint64 addr, uint64 len, int flags)
++{
++  uint64 end = addr + PGROUNDUP(len);
++  struct vm_area_struct *vma;
++  int r = 0;
++
++  if(addr % PGSIZE || end < addr ||
++     (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC)))
++    return -1;
++  down_read(&vm->mmap_lock);
++  uint64 a = addr;
++  for(vma = find_vma(vm, addr); vma && vma->vm_start < end;
++      vma = vma->vm_next){
++    if(vma->vm_start > a)
++      r = -1;                             // ENOMEM: hole in the range
++    uint64 s = vma->vm_start > addr ? vma->vm_start : addr;
++    uint64 e = vma->vm_end < end ? vma->vm_end : end;
++    a = e;
++    if(!vma_is_shared_file(vma))
++      continue;
++    for(uint64 p = s; p < e; p += PGSIZE){
++      uint64 pa = 0;
++      acquire(&vm->lock);
++      pte_t *pte = walk(vm->pagetable, p, 0);
++      if(pte && (*pte & PTE_AF) && (*pte & PTE_RO) == 0){
++        pa = PTE2PA(*pte);
++        *pte |= PTE_URO;
++        flush_tlb();
++      }
++      release(&vm->lock);
++      if(pa)
++        writeback_page(vma, vma_index(vma, p), pa);
++    }
++  }
++  if(a < end)
++    r = -1;
++  up_read(&vm->mmap_lock);
++  return r;
++}
++
++// ---------------------------------------------------------------------------
++// fork and exit
++// ---------------------------------------------------------------------------
++
++// Copy the parent's VMAs and the pages they have so far into the child.
++// Caller holds old->mmap_lock for reading and old->lock; the child is not
++// running yet.  Private pages are copied (this kernel has no copy-on-write),
++// shared and device pages are mapped again.  On failure the caller releases
++// the partial copy with mmap_abort().
++int
++dup_mmap(struct vmspace *old, struct vmspace *new)
++{
++  struct vm_area_struct **tail = &new->mmap;
++
++  for(struct vm_area_struct *v = old->mmap; v; v = v->vm_next){
++    if(v->vm_flags & VM_DONTCOPY)
++      continue;
++    struct vm_area_struct *n = obj_alloc(&vma_cache);
++    if(n == 0)
++      return -1;
++    *n = *v;
++    n->vm_mm = new;
++    n->vm_next = 0;
++    vma_get_refs(n);
++    *tail = n;
++    tail = &n->vm_next;
++
++    for(uint64 a = v->vm_start; a < v->vm_end; a += PGSIZE){
++      pte_t *pte = walk(old->pagetable, a, 0), *npte;
++      if(pte == 0 || (*pte & PTE_AF) == 0)
++        continue;
++      if((npte = walk(new->pagetable, a, 1)) == 0)
++        return -1;
++      if(v->vm_flags & VM_PFNMAP){
++        *npte = *pte;
++      } else if(v->vm_flags & VM_SHARED){
++        pcache_dup(vma_key(v), vma_index(v, a));
++        *npte = *pte;
++      } else {
++        char *mem = kalloc();
++        if(mem == 0)
++          return -1;
++        memmove(mem, P2V(PTE2PA(*pte)), PGSIZE);
++        *npte = (*pte & ~PA2PTE(~0ULL)) | PA2PTE(V2P(mem));
++      }
++    }
++  }
++  return 0;
++}
++
++static void
++__exit_mmap(struct vmspace *vm, int writeback)
++{
++  struct vm_area_struct *v;
++
++  while((v = vm->mmap) != 0){
++    zap_range(v, v->vm_start, v->vm_end, writeback);
++    vma_unlink(vm, v);
++    vma_free(v);
++  }
++}
++
++// Tear down every mapping of a process that exits or execs, writing dirty
++// shared file pages back first.
++void
++exit_mmap(struct vmspace *vm)
++{
++  if(vm->mmap == 0)
++    return;
++  down_write(&vm->mmap_lock);
++  __exit_mmap(vm, 1);
++  up_write(&vm->mmap_lock);
++}
++
++// Release a fork child's partial copy without sleeping (no writeback: the
++// parent still maps every dirty page; file references are not the last).
++void
++mmap_abort(struct vmspace *vm)
++{
++  __exit_mmap(vm, 0);
++}
++
++// vmmap: list the VMAs next to the page-table dump.  Caller may hold
++// p->lock, so take only vm->lock.
++void
++mmap_dump(struct vmspace *vm)
++{
++  acquire(&vm->lock);
++  if(vm->mmap)
++    printf("  VMAs (mmap):\n");
++  for(struct vm_area_struct *v = vm->mmap; v; v = v->vm_next){
++    char perm[5] = {
++      (v->vm_flags & VM_READ) ? 'r' : '-',
++      (v->vm_flags & VM_WRITE) ? 'w' : '-',
++      (v->vm_flags & VM_EXEC) ? 'x' : '-',
++      (v->vm_flags & VM_SHARED) ? 's' : 'p', 0 };
++    printf("   %p-%p %s pgoff=%p ", v->vm_start, v->vm_end, perm,
++           v->vm_pgoff);
++    if(v->vm_flags & VM_PFNMAP)
++      printf("device%s\n", (v->vm_flags & VM_IO) ? " io" : "");
++    else if(v->vm_file)
++      printf("file dev=%d ino=%d\n", v->vm_file->ip->dev, v->vm_file->ip->inum);
++    else
++      printf("anon\n");
++  }
++  release(&vm->lock);
++}
+--- a/kernel/mm/vm.c	2026-10-21 01:21:21.000000000 +0000
++++ b/kernel/mm/vm.c	2026-10-26 19:11:20.260839305 +0000
+@@ -7,6 +7,7 @@
+ #include <kernel/fs.h>
+ #include <kernel/spinlock.h>
+ #include <kernel/proc.h>
++#include <kernel/mm.h>
+ 
+ /*
+  * the kernel's page table.
+@@ -383,6 +384,9 @@
+   uint64 pa = walkaddr(pagetable, va);
+   if(pa == 0)
+     return 0;
++  // A device/framebuffer frame mapped by mmap() may have no kernel alias.
++  if((*walk(pagetable, va, 0) & PTE_SPECIAL) && !pa_kernel_mapped(pa))
++    return 0;
+ 
+   return (uint64)P2V(pa);
+ }
+@@ -669,9 +673,34 @@
+   if(pte == 0 || (*pte & PTE_V) != PTE_V || (*pte & PTE_AF) == 0 ||
+      (*pte & PTE_U) == 0 || (*pte & PTE_RO) != 0)
+     return 0;
++  if((*pte & PTE_SPECIAL) && !pa_kernel_mapped(PTE2PA(*pte)))
++    return 0;
+   return (uint64)P2V(PTE2PA(*pte));
+ }
+ 
++// copyin()/copyout() found va absent or read-only.  If it lies in an mmap()
++// region of the current process, page it in (or mark a clean shared page
++// dirty) like a user access would, and retry.  Not while a spinlock is held
++// (pipewrite() copies under pi->lock): demand paging may sleep.  System
++// calls prefault their buffers with fault_in_user_range() for that case.
++static uint64
++uva2ka_fault(pagetable_t pagetable, uint64 va, int write)
++{
++  struct proc *p = myproc();
++  int locked;
++
++  if(p == 0 || p->vm == 0 || p->vm->pagetable != pagetable ||
++     va < mmap_lowest(p->vm))
++    return 0;
++  push_off();
++  locked = mycpu()->noff > 1;
++  pop_off();
++  if(locked || handle_mm_fault(p->vm, va, FAULT_FLAG_KERNEL |
++                               (write ? FAULT_FLAG_WRITE : 0)) != 0)
++    return 0;
++  return write ? uva2ka_writable(pagetable, va) : uva2ka(pagetable, va);
++}
++
+ // Copy from kernel to user.
+ // Copy len bytes from src to virtual address dstva in a given page table.
+ // Return 0 on success, -1 on error (unmapped or read-only destination).
+@@ -683,7 +712,7 @@
+   while(len > 0){
+     va0 = PGROUNDDOWN(dstva);
+     pa0 = uva2ka_writable(pagetable, va0);
+-    if(pa0 == 0)
++    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 1)) == 0)
+       return -1;
+     n = PGSIZE - (dstva - va0);
+     if(n > len)
+@@ -708,7 +737,7 @@
+   while(len > 0){
+     va0 = PGROUNDDOWN(srcva);
+     pa0 = uva2ka(pagetable, va0);
+-    if(pa0 == 0)
++    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 0)) == 0)
+       return -1;
+     n = PGSIZE - (srcva - va0);
+     if(n > len)
+@@ -735,7 +764,7 @@
+   while(got_null == 0 && max > 0){
+     va0 = PGROUNDDOWN(srcva);
+     pa0 = uva2ka(pagetable, va0);
+-    if(pa0 == 0)
++    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 0)) == 0)
+       return -1;
+     n = PGSIZE - (srcva - va0);
+     if(n > max)
+--- a/user/include/sys/mman.h	2026-10-21 16:56:15.000000000 +0000
++++ b/user/include/sys/mman.h	2026-10-26 19:14:11.393567676 +0000
+@@ -6,5 +6,6 @@
+ 
+ void *mmap(void *, size_t, int, int, int, off_t);
+ int munmap(void *, size_t);
++int msync(void *, size_t, int);
+ 
+ #endif
+--- a/user/libc_syscall.c	2026-10-26 16:52:48.000000000 +0000
++++ b/user/libc_syscall.c	2026-10-26 19:14:11.393987838 +0000
+@@ -179,6 +179,8 @@
+            long offset)
+ { return (void *)SC6(mmap, P(addr), I(len), I(prot), I(flags), I(fd), I(offset)); }
+ int munmap(void *addr, unsigned long len) { return SC2(munmap, P(addr), I(len)); }
++int msync(void *addr, unsigned long len, int flags)
++{ return SC3(msync, P(addr), I(len), I(flags)); }
+ int init_module(void *image, unsigned long size, const char *args)
+ { return SC3(init_module, P(image), I(size), P(args)); }
+ int delete_module(const char *name) { return SC1(delete_module, P(name)); }
+--- a/user/mmaptest.c	1970-01-01 00:00:00.000000000 +0000
++++ b/user/mmaptest.c	2026-10-26 19:15:17.290958423 +0000
+@@ -0,0 +1,381 @@
++#include <uapi/types.h>
++#include <uapi/stat.h>
++#include "user/user.h"
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <uapi/fb.h>
++
++// mmap(2) regression test: anonymous, file-backed (MAP_PRIVATE/MAP_SHARED,
++// msync, writeback on munmap), fork inheritance, partial munmap, fault
++// signals, and device mappings (/dev/zero, /dev/mem, /dev/fb0).
++//   mmaptest        run everything
++//   mmaptest fb     only draw into /dev/fb0
++
++#define PG 4096
++#define FILE1 "mmaptest.dat"
++
++static int failures;
++
++static void
++check(int ok, char *what)
++{
++  printf("%s %s\n", ok ? "PASS" : "FAIL", what);
++  if(!ok)
++    failures++;
++}
++
++static char
++pattern(int i)
++{
++  return 'A' + i % 23;
++}
++
++// Run fn in a child and report whether the child was killed by a fault.
++static int
++child_faults(void (*fn)(void *), void *arg)
++{
++  int pid = fork(), status = 0;
++
++  if(pid == 0){
++    fn(arg);
++    exit(0);
++  }
++  wait(&status);
++  return status != 0;
++}
++
++static void
++touch_read(void *p)
++{
++  volatile char c = *(volatile char *)p;
++  (void)c;
++}
++
++static void
++touch_write(void *p)
++{
++  *(volatile char *)p = 1;
++}
++
++static int
++make_file(char *name, int size)
++{
++  char buf[512];
++  int fd, i, n;
++
++  unlink(name);
++  if((fd = open(name, O_CREATE | O_RDWR)) < 0)
++    return -1;
++  for(i = 0; i < size; i += n){
++    n = size - i < (int)sizeof(buf) ? size - i : (int)sizeof(buf);
++    for(int j = 0; j < n; j++)
++      buf[j] = pattern(i + j);
++    if(write(fd, buf, n) != n){
++      close(fd);
++      return -1;
++    }
++  }
++  close(fd);
++  return 0;
++}
++
++static void
++test_anon(void)
++{
++  char *p = mmap(0, 3 * PG, PROT_READ | PROT_WRITE,
++                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  int ok = p != MAP_FAILED;
++
++  check(ok, "anon: mmap 3 pages");
++  if(!ok)
++    return;
++  ok = p[0] == 0 && p[PG] == 0 && p[3 * PG - 1] == 0;
++  for(int i = 0; i < 3 * PG; i++)
++    p[i] = pattern(i);
++  for(int i = 0; i < 3 * PG; i++)
++    if(p[i] != pattern(i))
++      ok = 0;
++  check(ok, "anon: zero-filled on first touch, then read back");
++
++  // Partial munmap splits the VMA: the middle page goes, both ends stay.
++  check(munmap(p + PG, PG) == 0, "anon: munmap middle page");
++  check(p[0] == pattern(0) && p[2 * PG] == pattern(2 * PG),
++        "anon: pages around the hole survive");
++  check(child_faults(touch_read, p + PG), "anon: access to the hole faults");
++  check(munmap(p, 3 * PG) == 0, "anon: munmap the rest");
++  check(child_faults(touch_read, p), "anon: access after munmap faults");
++
++  // A read-only mapping rejects stores.
++  char *r = mmap(0, PG, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  check(r != MAP_FAILED && child_faults(touch_write, r),
++        "anon: store to PROT_READ faults");
++  munmap(r, PG);
++
++  // MAP_FIXED at a chosen address.
++  char *want = (char *)0x2000000000UL;
++  char *f = mmap(want, PG, PROT_READ | PROT_WRITE,
++                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
++  check(f == want, "anon: MAP_FIXED honours the address");
++  if(f == want){
++    f[10] = 7;
++    check(f[10] == 7, "anon: MAP_FIXED page usable");
++    munmap(f, PG);
++  }
++}
++
++static void
++test_fork(void)
++{
++  char *sh = mmap(0, PG, PROT_READ | PROT_WRITE,
++                  MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++  char *pr = mmap(0, PG, PROT_READ | PROT_WRITE,
++                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  int status;
++
++  if(sh == MAP_FAILED || pr == MAP_FAILED){
++    check(0, "fork: mmap");
++    return;
++  }
++  strcpy(sh, "parent");
++  strcpy(pr, "parent");
++  if(fork() == 0){
++    strcpy(sh, "child");
++    strcpy(pr, "child");
++    exit(0);
++  }
++  wait(&status);
++  check(strcmp(sh, "child") == 0, "fork: MAP_SHARED|MAP_ANONYMOUS is shared");
++  check(strcmp(pr, "parent") == 0, "fork: MAP_PRIVATE copy is private");
++
++  // A page the child touches first must reach the parent as well.
++  char *late = mmap(0, 2 * PG, PROT_READ | PROT_WRITE,
++                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++  if(fork() == 0){
++    late[PG + 5] = 42;
++    exit(0);
++  }
++  wait(&status);
++  check(late[PG + 5] == 42, "fork: shared page first faulted by the child");
++  munmap(sh, PG);
++  munmap(pr, PG);
++  munmap(late, 2 * PG);
++}
++
++static void
++test_file_private(void)
++{
++  int size = 2 * PG + 100, fd, ok = 1;
++  char buf[16];
++
++  if(make_file(FILE1, size) < 0 || (fd = open(FILE1, O_RDONLY)) < 0){
++    check(0, "file private: create test file");
++    return;
++  }
++  char *p = mmap(0, 3 * PG, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
++  close(fd);                          // the mapping keeps the file
++  check(p != MAP_FAILED, "file private: mmap O_RDONLY file, PROT_WRITE");
++  if(p == MAP_FAILED)
++    return;
++  for(int i = 0; i < size; i++)
++    if(p[i] != pattern(i))
++      ok = 0;
++  check(ok, "file private: contents match the file (after close(fd))");
++  check(p[size] == 0 && p[3 * PG - 1] == 0,
++        "file private: tail of last page is zero");
++  p[0] = 'z';
++  munmap(p, 3 * PG);
++  fd = open(FILE1, O_RDONLY);
++  check(read(fd, buf, 1) == 1 && buf[0] == pattern(0),
++        "file private: stores never reach the file");
++  close(fd);
++
++  // Offset mapping: page 1 of the file.
++  fd = open(FILE1, O_RDONLY);
++  p = mmap(0, PG, PROT_READ, MAP_PRIVATE, fd, PG);
++  check(p != MAP_FAILED && p[0] == pattern(PG) && p[99] == pattern(PG + 99),
++        "file private: offset = 1 page");
++  munmap(p, PG);
++  check(mmap(0, PG, PROT_READ, MAP_PRIVATE, fd, 100) == MAP_FAILED,
++        "file private: unaligned offset rejected");
++  check(mmap(0, PG, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) == MAP_FAILED,
++        "file shared: PROT_WRITE on O_RDONLY fd rejected");
++  close(fd);
++}
++
++static void
++sigbus_child(void *arg)
++{
++  int fd = open(FILE1, O_RDONLY);
++  char *p = mmap(0, 4 * PG, PROT_READ, MAP_PRIVATE, fd, 0);
++  touch_read(p + 3 * PG);             // wholly beyond EOF
++}
++
++static void
++test_file_shared(void)
++{
++  int size = 2 * PG + 100, fd, ok;
++  char buf[32];
++
++  if(make_file(FILE1, size) < 0 || (fd = open(FILE1, O_RDWR)) < 0){
++    check(0, "file shared: create test file");
++    return;
++  }
++  char *p = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++  check(p != MAP_FAILED, "file shared: mmap");
++  if(p == MAP_FAILED){
++    close(fd);
++    return;
++  }
++  check(p[PG + 1] == pattern(PG + 1), "file shared: read through mapping");
++
++  // msync makes the store visible to read() without unmapping.
++  memmove(p + 10, "msync-ok", 8);
++  check(msync(p, PG, MS_SYNC) == 0, "file shared: msync");
++  check(pread(fd, buf, 8, 10) == 8 && memcmp(buf, "msync-ok", 8) == 0,
++        "file shared: msync wrote the page back");
++
++  // munmap writes the remaining dirty page back, and never extends the file.
++  memmove(p + PG + 20, "munmap-ok", 9);
++  p[size - 1] = '!';
++  check(munmap(p, size) == 0, "file shared: munmap");
++  check(pread(fd, buf, 9, PG + 20) == 9 && memcmp(buf, "munmap-ok", 9) == 0,
++        "file shared: munmap wrote the dirty page back");
++  check(pread(fd, buf, 1, size - 1) == 1 && buf[0] == '!',
++        "file shared: last partial page written back");
++  struct stat st;
++  check(fstat(fd, &st) == 0 && st.size == size,
++        "file shared: file size unchanged");
++
++  // Two processes share one page-cache page.
++  p = mmap(0, PG, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++  if(fork() == 0){
++    int cfd = open(FILE1, O_RDWR);
++    char *q = mmap(0, PG, PROT_READ | PROT_WRITE, MAP_SHARED, cfd, 0);
++    memmove(q + 100, "from-child", 10);
++    exit(0);
++  }
++  wait(0);
++  check(memcmp(p + 100, "from-child", 10) == 0,
++        "file shared: independent mmaps of one file share pages");
++
++  // write() from a mapped buffer, read() into a never-touched mapping.
++  char *dst = mmap(0, PG, PROT_READ | PROT_WRITE,
++                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  ok = pread(fd, dst, 64, 0) == 64 && memcmp(dst, p, 64) == 0;
++  check(ok, "file shared: read() into an untouched mapping");
++  int out = open("mmaptest.out", O_CREATE | O_RDWR | O_TRUNC);
++  ok = write(out, p + 100, 10) == 10 && pread(out, buf, 10, 0) == 10 &&
++       memcmp(buf, "from-child", 10) == 0;
++  check(ok, "file shared: write() from a mapped buffer");
++  close(out);
++  unlink("mmaptest.out");
++  munmap(dst, PG);
++  munmap(p, PG);
++  close(fd);
++
++  check(child_faults(sigbus_child, 0), "file: access beyond EOF faults (SIGBUS)");
++
++  int pfd[2];
++  pipe(pfd);
++  check(mmap(0, PG, PROT_READ, MAP_SHARED, pfd[0], 0) == MAP_FAILED,
++        "file: mmap of a pipe rejected");
++  close(pfd[0]);
++  close(pfd[1]);
++  unlink(FILE1);
++}
++
++static void
++test_devices(void)
++{
++  int fd, status;
++
++  // /dev/zero: MAP_SHARED is shared anonymous memory.
++  if((fd = open("/dev/zero", O_RDWR)) < 0){
++    check(0, "dev/zero: open");
++  } else {
++    char *z = mmap(0, PG, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++    close(fd);
++    check(z != MAP_FAILED && z[0] == 0 && z[PG - 1] == 0, "dev/zero: mmap");
++    if(fork() == 0){
++      z[1] = 9;
++      exit(0);
++    }
++    wait(&status);
++    check(z[1] == 9, "dev/zero: MAP_SHARED visible across fork");
++    munmap(z, PG);
++  }
++
++  // /dev/mem: the BCM2835 system timer (free-running 1 MHz counter).
++  if((fd = open("/dev/mem", O_RDWR)) < 0){
++    check(0, "dev/mem: open");
++  } else {
++    volatile uint32 *t = mmap(0, PG, PROT_READ, MAP_SHARED, fd, 0x3f003000);
++    check(t != MAP_FAILED, "dev/mem: mmap system timer registers");
++    if(t != MAP_FAILED){
++      uint32 a = t[1];                // CLO
++      sleep(1);
++      uint32 b = t[1];
++      printf("     timer CLO %d -> %d\n", a, b);
++      check(b > a, "dev/mem: timer counter advances");
++      munmap((void *)t, PG);
++    }
++    check(mmap(0, PG, PROT_READ, MAP_SHARED, fd, 0x100000) == MAP_FAILED,
++          "dev/mem: kernel RAM refused");
++    close(fd);
++  }
++}
++
++static int
++test_fb(void)
++{
++  struct fb_var_screeninfo var;
++  struct fb_fix_screeninfo fix;
++  int fd = open("/dev/fb0", O_RDWR), ok;
++
++  if(fd < 0){
++    check(0, "fb0: open");
++    return -1;
++  }
++  ok = ioctl(fd, FBIOGET_VSCREENINFO, &var) == 0 &&
++       ioctl(fd, FBIOGET_FSCREENINFO, &fix) == 0;
++  check(ok, "fb0: FBIOGET_VSCREENINFO / FBIOGET_FSCREENINFO");
++  if(!ok){
++    close(fd);
++    return -1;
++  }
++  printf("     fb0 %dx%d %d bpp, line %d, %d bytes\n", var.xres, var.yres,
++         var.bits_per_pixel, fix.line_length, fix.smem_len);
++  uint32 *px = mmap(0, fix.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED,
++                    fd, 0);
++  close(fd);
++  check(px != MAP_FAILED, "fb0: mmap frame buffer");
++  if(px == MAP_FAILED)
++    return -1;
++  // Colour bars.
++  uint32 bars[] = { 0xffffff, 0xffff00, 0x00ffff, 0x00ff00,
++                    0xff00ff, 0xff0000, 0x0000ff, 0x000000 };
++  int stride = fix.line_length / 4;
++  for(int y = 0; y < (int)var.yres; y++)
++    for(int x = 0; x < (int)var.xres; x++)
++      px[y * stride + x] = bars[x * 8 / var.xres];
++  check(px[0] == 0xffffff && px[(var.yres - 1) * stride + var.xres - 1] == 0,
++        "fb0: pixels written and read back");
++  munmap(px, fix.smem_len);
++  return 0;
++}
++
++int
++main(int argc, char **argv)
++{
++  if(argc > 1 && strcmp(argv[1], "fb") == 0)
++    exit(test_fb() < 0);
++  test_anon();
++  test_fork();
++  test_file_private();
++  test_file_shared();
++  test_devices();
++  test_fb();
++  printf("mmaptest: %s (%d failure%s)\n", failures ? "FAILED" : "OK",
++         failures, failures == 1 ? "" : "s");
++  exit(failures != 0);
++}
+--- a/user/user.h	2026-10-26 16:52:48.000000000 +0000
++++ b/user/user.h	2026-10-26 19:14:11.393100668 +0000
+@@ -110,6 +110,7 @@
+ int pwrite(int, const void*, int, uint64);
+ void *mmap(void*, unsigned long, int, int, int, long);
+ int munmap(void*, unsigned long);
++int msync(void*, unsigned long, int);
+ int init_module(void*, unsigned long, const char*);
+ int delete_module(const char*);
+ int poll(struct pollfd*, unsigned long, int);

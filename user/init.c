@@ -107,19 +107,9 @@ main(void)
   dup(0);
   dup(0);
 
-  // Visible mount points.  VFS path routing overlays procfs and ext2 on
-  // these native directories when their corresponding backend is available.
-  mkdir("proc");
-  mkdir("sys");
-  mkdir("boot");
-  mkdir("mnt");
-  mkdir("mnt/ext2");
-  mkdir("mnt/net");
-  mkdir("etc");
-  mkdir("root");
-  mkdir("bin");
-  mkdir("usr");
-  mkdir("usr/bin");
+  // The fixed hierarchy and mount points are created by mkfs when the root
+  // image is built.  init only populates missing configuration files and
+  // mounts filesystems; it must not alter the persistent directory layout.
   create_config("etc/hostname", "xv6-rpi3\n");
   create_config("etc/passwd", "root:xv6:0:0:root:/root:/bin/sh\n");
   create_config("etc/rc", "export PATH=/bin:/usr/bin:/:.\n");
@@ -127,16 +117,12 @@ main(void)
                 "proc /proc procfs ro 0 0\n"
                 "sysfs /sys sysfs rw 0 0\n"
                 "bootfs /boot fat32 rw 0 0\n"
-                "ext2 /mnt/ext2 ext2 rw 0 0\n"
+          //      "ext2 /mnt/ext2 ext2 rw 0 0\n"
                 "192.168.0.195:5640 /mnt/net netfs ro 0 0\n");
   create_config("etc/wifi.conf",
                 "ssid=TP-Link_B114\n"
                 "psk=Minghua123\n");
   mount_fstab();
-  // Default recording/download directory on the ext2 volume (rw, large
-  // files): tftpd serves from it and camshot -v writes frames into it.
-  mkdir("mnt/ext2/video");
-
 #if AUTO_START_WIFI
   // Optional automatic network bring-up. /bin/wifi reads wifi.conf,
   // associates, and obtains an IPv4 address through DHCP.

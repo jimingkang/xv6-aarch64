@@ -7,6 +7,7 @@
 #include <kernel/fs.h>
 #include <kernel/spinlock.h>
 #include <kernel/proc.h>
+#include <kernel/mm.h>
 
 /*
  * the kernel's page table.
@@ -383,6 +384,9 @@ uva2ka(pagetable_t pagetable, uint64 va)
   uint64 pa = walkaddr(pagetable, va);
   if(pa == 0)
     return 0;
+  // A device/framebuffer frame mapped by mmap() may have no kernel alias.
+  if((*walk(pagetable, va, 0) & PTE_SPECIAL) && !pa_kernel_mapped(pa))
+    return 0;
 
   return (uint64)P2V(pa);
 }
@@ -669,7 +673,32 @@ uva2ka_writable(pagetable_t pagetable, uint64 va)
   if(pte == 0 || (*pte & PTE_V) != PTE_V || (*pte & PTE_AF) == 0 ||
      (*pte & PTE_U) == 0 || (*pte & PTE_RO) != 0)
     return 0;
+  if((*pte & PTE_SPECIAL) && !pa_kernel_mapped(PTE2PA(*pte)))
+    return 0;
   return (uint64)P2V(PTE2PA(*pte));
+}
+
+// copyin()/copyout() found va absent or read-only.  If it lies in an mmap()
+// region of the current process, page it in (or mark a clean shared page
+// dirty) like a user access would, and retry.  Not while a spinlock is held
+// (pipewrite() copies under pi->lock): demand paging may sleep.  System
+// calls prefault their buffers with fault_in_user_range() for that case.
+static uint64
+uva2ka_fault(pagetable_t pagetable, uint64 va, int write)
+{
+  struct proc *p = myproc();
+  int locked;
+
+  if(p == 0 || p->vm == 0 || p->vm->pagetable != pagetable ||
+     va < mmap_lowest(p->vm))
+    return 0;
+  push_off();
+  locked = mycpu()->noff > 1;
+  pop_off();
+  if(locked || handle_mm_fault(p->vm, va, FAULT_FLAG_KERNEL |
+                               (write ? FAULT_FLAG_WRITE : 0)) != 0)
+    return 0;
+  return write ? uva2ka_writable(pagetable, va) : uva2ka(pagetable, va);
 }
 
 // Copy from kernel to user.
@@ -683,7 +712,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = uva2ka_writable(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 1)) == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -708,7 +737,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = uva2ka(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 0)) == 0)
       return -1;
     n = PGSIZE - (srcva - va0);
     if(n > len)
@@ -735,7 +764,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = uva2ka(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 0)) == 0)
       return -1;
     n = PGSIZE - (srcva - va0);
     if(n > max)
