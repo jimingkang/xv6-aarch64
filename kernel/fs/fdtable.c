@@ -3,7 +3,7 @@
 //
 // Both objects are reference counted so clone(CLONE_FILES) and
 // clone(CLONE_FS) can share them between tasks, while fork() copies them.
-// Each object lives in its own kalloc() page.
+// Both are small fixed-size objects allocated from slab caches.
 
 #include <kernel/types.h>
 #include <kernel/param.h>
@@ -14,15 +14,27 @@
 #include <kernel/file.h>
 #include <kernel/proc.h>
 #include <kernel/defs.h>
+#include <kernel/slab.h>
+
+static struct kmem_cache files_cache;
+static struct kmem_cache fs_cache;
+
+void
+fdtable_init(void)
+{
+  if(kmem_cache_init(&files_cache, "files_cache",
+                     sizeof(struct files_struct), 16) < 0 ||
+     kmem_cache_init(&fs_cache, "fs_cache", sizeof(struct fs_struct), 16) < 0)
+    panic("fdtable slab caches");
+}
 
 struct files_struct*
 files_alloc(void)
 {
-  struct files_struct *files = kalloc();
+  struct files_struct *files = kmem_cache_alloc(&files_cache);
 
   if(files == 0)
     return 0;
-  memset(files, 0, sizeof(*files));
   initlock(&files->lock, "files");
   files->count = 1;
   return files;
@@ -75,7 +87,7 @@ files_put(struct files_struct *files)
       files->fd[fd] = 0;
     }
   }
-  kfree(files);
+  kmem_cache_free(&files_cache, files);
 }
 
 // exec() gives the new image a private table, as Linux unshare_files().
@@ -188,11 +200,10 @@ fdput_all(struct proc *p)
 struct fs_struct*
 fs_alloc(void)
 {
-  struct fs_struct *fs = kalloc();
+  struct fs_struct *fs = kmem_cache_alloc(&fs_cache);
 
   if(fs == 0)
     return 0;
-  memset(fs, 0, sizeof(*fs));
   initlock(&fs->lock, "fs_struct");
   fs->users = 1;
   safestrcpy(fs->cwdpath, "/", sizeof(fs->cwdpath));
@@ -243,7 +254,7 @@ fs_put(struct fs_struct *fs)
     iput(fs->cwd);
     end_op();
   }
-  kfree(fs);
+  kmem_cache_free(&fs_cache, fs);
 }
 
 // A new reference to the caller's current directory.

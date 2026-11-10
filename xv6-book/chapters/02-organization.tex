@@ -11,7 +11,7 @@
 
 \section{目录结构}
 
-仓库的顶层目录如表~\ref{tab:dirs} 所示。它保留了 xv6 的基本布局：\file{kernel/} 是内核，\file{user/} 是用户程序和用户库，\file{mkfs/} 是在宿主机上运行的文件系统镜像生成工具。在此之上，为了支撑 POSIX 源码兼容、真机部署和调试，又增加了 \file{include/}、\file{firmware/}、\file{tools/} 等目录。
+仓库的顶层目录如表~\ref{tab:dirs} 所示。它保留了 xv6 的基本布局：\file{kernel/} 是内核，\file{user/} 是用户程序和用户库，\file{mkfs/} 是在宿主机上运行的文件系统镜像生成工具。在此之上，为了支撑 POSIX 源码兼容、真机部署和调试，又增加了 \file{include/}、\file{firmware/}、\file{tools/}、\file{doc/} 等目录。
 
 \begin{table}[htbp]
   \centering
@@ -24,13 +24,14 @@
     \midrule
     \file{kernel/} & 内核源码：启动汇编、异常、内存、进程、文件系统、VFS、网络栈、全部驱动 \\
     \file{user/} & 用户程序（\code{sh}、\code{ls}、\code{sshd}、\code{wifi}、\code{camshot} 等）和用户库（\code{ulib}、\code{printf}、\code{umalloc}、线程、POSIX 包装） \\
-    \file{include/} & 面向 POSIX 源码的标准头文件：\code{stdio.h}、\code{unistd.h}、\code{pthread.h}、\code{sys/socket.h} 等 \\
+    \file{include/} & 头文件：\file{include/kernel/} 是内核内部接口，\file{include/uapi/} 是内核与用户态共用的定义（系统调用号、\code{KERNBASE} 等），其余是面向 POSIX 源码的标准头文件：\code{stdio.h}、\code{unistd.h}、\code{pthread.h}、\code{sys/socket.h} 等 \\
     \file{mkfs/} & 宿主机工具 \code{mkfs}，把用户程序打包成 xv6 原生文件系统镜像 \code{fs.img} \\
-    \file{readme/} & 30 余篇专题文档，记录每个功能的设计与调试过程 \\
+    \file{doc/} & \file{doc/readme/} 下 40 余篇专题文档，记录每个功能的设计与调试过程；\file{doc/svg/} 是本书部分插图的源文件 \\
     \file{firmware/} & 无线网卡固件：BCM43430/43455 的 \code{.bin/.txt/.clm\_blob}，MT7601U 的 \code{mt7601u.bin} \\
     \file{tools/} & 调试脚本：串口跟踪的采集、回放和网页导出（\code{trace\_xv6.py} 等） \\
     \file{ports/} & 向其他开发板移植的实验（如全志 T113） \\
     \file{config.txt} & 树莓派固件配置文件，随内核一起拷到启动分区 \\
+    \file{cmdline.txt}、\file{cmdline\_ext2.txt} & 内核命令行（\code{root=}、\code{rootfstype=}），安装时拷到启动分区的 \file{/cmdline.txt}（\ref{sec:rootfs} 节） \\
     \file{Makefile} & 构建、打包、安装、QEMU 运行的全部规则 \\
     \bottomrule
   \end{tabularx}
@@ -38,29 +39,30 @@
 
 \section{内核子系统}
 
-内核约 2.8 万行（含头文件），用户空间约 1.1 万行。按功能可以把内核源文件分成几组（表~\ref{tab:kernel-files}）。阅读时建议先看“启动与异常”和“内存与进程”两组，它们是其余一切的基础。
+内核约 4.2 万行（含头文件），用户空间约 1.7 万行。\file{kernel/} 下的子目录仿照 Linux 的源码树划分（表~\ref{tab:kernel-files}），路径本身就说明了一个文件属于哪个子系统。阅读时建议先看 \file{arch/arm64}、\file{mm} 和 \file{core}，它们是其余一切的基础。
 
 \begin{table}[htbp]
   \centering
-  \caption{内核源文件分组}
+  \caption{\file{kernel/} 下的目录与主要文件}
   \label{tab:kernel-files}
   \small
-  \begin{tabularx}{\linewidth}{@{}p{2.2cm}X@{}}
+  \begin{tabularx}{\linewidth}{@{}p{3.1cm}X@{}}
     \toprule
-    子系统 & 主要文件 \\
+    目录 & 主要文件 \\
     \midrule
-    启动与异常 & \file{entry.S}、\file{start.c}、\file{main.c}、\file{kernel.ld}、\file{trapasm.S}、\file{trap.c}、\file{timer.c}、\file{bcm2837.c} \\
-    内存 & \file{kalloc.c}（物理页分配）、\file{vm.c}（页表）、\file{memlayout.h}、\file{aarch64.h}（系统寄存器与页表位） \\
-    进程与同步 & \file{proc.c}、\file{proc.h}、\file{sched.h}、\file{swtch.S}、\file{spinlock.c}、\file{sleeplock.c}、\file{sync.c}、\file{workqueue.c}、\file{exec.c}、\file{syscall.c}、\file{sysproc.c} \\
-    文件系统 & \file{bio.c}、\file{log.c}、\file{fs.c}、\file{file.c}、\file{sysfile.c}、\file{pipe.c}、\file{vfs.c}、\file{rootdev.c}、\file{fat32.c}、\file{ext2.c}、\file{xjournal.c} \\
-    设备核心 & \file{device.c}、\file{device.h}（总线、设备、驱动、字符设备） \\
-    字符设备 & \file{uart.c}、\file{console.c}、\file{tty.c}、\file{pty.c}、\file{input.c} \\
-    存储 & \file{sdhost.c}（外置 SD 卡）、\file{sd.c}（早期 Arasan SD 驱动） \\
-    USB & \file{dwc2.c}（主机控制器）、\file{usb.c}（USB core 与 URB）、\file{usbkbd.c}、\file{usbnet.c} \\
-    无线网络 & \file{arasan\_sdio.c}、\file{sdio.c}、\file{brcmfmac.c}、\file{wpa\_crypto.c}、\file{mt7601u.c} \\
-    网络协议 & \file{net.c}、\file{net.h}、\file{sysnet.c}、\file{epoll.c} \\
-    摄像头 & \file{mbox.c}（固件 mailbox）、\file{i2c.c}、\file{camsensor.h}、\file{ov5647.c}、\file{unicam.c} \\
-    其他 & \file{rng.c}（硬件随机数）、\file{printf.c}、\file{string.c} \\
+    \file{arch/arm64} & 启动与异常：\file{entry.S}、\file{start.c}、\file{kernelvec.S}、\file{uservec.S}、\file{trapasm.S}、\file{swtch.S}、\file{timer.c}、\file{gicv3.c}、\file{bcm2837.c} \\
+    \file{init} & \file{main.c}（初始化顺序）、\file{cmdline.c}（内核命令行）、\file{do\_mounts.c}（挂根文件系统） \\
+    \file{mm} & \file{kalloc.c}（物理页分配）、\file{vm.c}（页表）、\file{mmap.c}（VMA 与缺页） \\
+    \file{core} & 进程与同步：\file{proc.c}、\file{trap.c}、\file{syscall.c}、\file{sysproc.c}、\file{spinlock.c}、\file{mutex.c}、\file{rwsem.c}、\file{sleeplock.c}、\file{sync.c}、\file{workqueue.c} \\
+    \file{fs} & \file{bio.c}、\file{log.c}、\file{fs.c}、\file{vfs.c}、\file{file.c}、\file{fdtable.c}、\file{sysfile.c}、\file{exec.c}、\file{pipe.c}、\file{epoll.c}；子目录 \file{ext2/}（\file{ext2.c}、\file{xjournal.c}）、\file{fat/}、\file{netfs/} \\
+    \file{net} & 协议栈 \file{net.c} 与套接字系统调用 \file{sysnet.c} \\
+    \file{drivers/base} & 设备模型：\file{device.c}、\file{kobject.c}、\file{module.c}（\code{.ko} 装载）、\file{export.c} \\
+    \file{drivers/block} & \file{blkdev.c}（块设备表与分区）、\file{ramdisk.c}、\file{rootdev.c}（选出 ROOT\_DEV） \\
+    \file{drivers/tty}、\file{char}、\file{input} & \file{uart.c}、\file{console.c}、\file{tty.c}、\file{pty.c}；\file{mem.c}（\code{/dev/mem}、\code{/dev/zero}）；\file{input.c}、\file{usbkbd.c}、\file{usbmouse.c} \\
+    \file{drivers/mmc} & \file{host/sdhost.c}（外置 SD 卡）、\file{host/sd.c}（早期 Arasan SD 驱动）、\file{host/arasan\_sdio.c}、\file{core/sdio.c} \\
+    \file{drivers/usb}、\file{net} & \file{host/dwc2.c}（主机控制器）、\file{core/usb.c}（USB core 与 URB）；\file{net/usb/usbnet.c}、\file{net/wireless/}（\file{brcmfmac.c}、\file{wpa\_crypto.c}、\file{mt7601u.c}） \\
+    \file{drivers/media}、\file{video}、\file{firmware} & \file{i2c/i2c.c}、\file{i2c/ov5647.c}、\file{platform/unicam.c}；\file{fbdev/bcm2708\_fb.c}（\code{/dev/fb0}）；\file{mbox.c}（固件 mailbox） \\
+    \file{lib} & \file{printf.c}、\file{string.c}、\file{rng.c}（硬件随机数） \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -109,12 +111,12 @@ LDFLAGS = -z max-page-size=4096
     \node[box, below=24mm of src] (usrc) {\file{user/*.c}};
     \node[box, right=of usrc] (libc) {\code{libc.a}\\ulib/usys/printf\\umalloc/thread/posix};
     \node[box, right=of libc] (uprog) {\code{\_sh}、\code{\_ls}…\\-Ttext 0};
-    \node[hbox, right=of uprog] (fs) {\code{fs.img}\\32 MiB};
+    \node[hbox, right=of uprog] (fs) {\code{fs.img}（xv6fs）\\\code{fs\_ext2.img}（ext2 根）};
     \draw[arr] (usrc) -- (libc);
     \draw[arr] (libc) -- node[lab, above]{ld} (uprog);
     \draw[arr] (uprog) -- node[lab, above]{mkfs} (fs);
   \end{tikzpicture}
-  \caption{构建流水线：上方生成内核镜像，下方生成根文件系统镜像}
+  \caption{构建流水线：上方生成内核镜像，下方生成文件系统镜像}
   \label{fig:build}
 \end{figure}
 
@@ -146,13 +148,15 @@ _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
 \end{makecode}
 
-\code{usys.S} 由 Perl 脚本 \file{user/usys.pl} 生成，每个系统调用对应三条指令（第~\ref{chap:user} 章）。最后 \code{mkfs} 把所有程序写进一个 32\,MiB 的 xv6 原生文件系统镜像：
+\code{usys.S} 由 Perl 脚本 \file{user/usys.pl} 生成，每个系统调用对应三条指令（第~\ref{chap:user} 章）。程序最后被装进两种镜像。一种是 \code{mkfs} 生成的 32\,MiB xv6 原生文件系统镜像 \code{fs.img}，烧到 SD 卡的 p2：
 
 \begin{makecode}
 fs.img: mkfs/mkfs $(UPROGS)
 	mkfs/mkfs fs.img $(UPROGS)
 	truncate -s 32M fs.img
 \end{makecode}
+
+另一种是根文件系统用的 ext2 镜像 \code{fs\_ext2.img}：\code{make ext2root-image} 先用 e2fsprogs 的 \code{mke2fs} 格式化一个空镜像，再用 \code{debugfs} 建目录、写入 \code{/init}、\code{/bin/*}、\code{/lib/libc.so}、\code{/lib/ld-xv6.so} 和 \file{/lib/modules} 下的 \code{.ko}，烧到 SD 卡的 p3（\ref{sec:ext2-root} 节）。
 
 \begin{note}
   \code{mkfs} 是宿主机程序。如果仓库在 macOS 上编译过，\file{mkfs/mkfs} 就是一个 Mach-O 可执行文件，换到 Linux 构建时必须先删掉它重新编译，否则 \code{make fs.img} 会报 “Syntax error”。
@@ -172,11 +176,12 @@ Makefile 提供了几组目标，覆盖从模拟器到真机的完整工作流�
     目标 & 作用 \\
     \midrule
     \code{make} & 构建内核与 \code{fs.img}，并把内核同步到本机 TFTP 目录 \\
-    \code{make qemu} & 用 \code{raspi3b} 机器启动，\code{fs.img} 作为虚拟 SD 卡 \\
+    \code{make qemu} & 用 \code{tools/mkqemu\_sd.py} 拼出一张带 MBR 的虚拟 SD 卡（启动分区、\code{fs.img}、\code{fs\_ext2.img}），再用 \code{raspi3b} 机器启动 \\
     \code{make qemu-net} & 额外接入 QEMU 的 USB 网卡（CDC-ECM）和用户态 NAT \\
     \code{make qemu-gdb} & 启动后暂停，等待 GDB 连接 \\
     \code{make install-rpi3} & 把内核、\code{config.txt}、Wi-Fi 固件拷到已挂载的启动分区；若给出 \code{RPI3\_XV6\_DEV} 则同时烧写根文件系统 \\
     \code{make install-rpi3-rawfs} & 只把 \code{fs.img} 写入 SD 卡上的 xv6 原始分区 \\
+    \code{make install-rpi3-ext2root} & 重建 \code{fs\_ext2.img} 并写入 \code{RPI3\_EXT2\_DEV} 指定的分区，同时把内核、\code{config.txt} 和 \file{cmdline\_ext2.txt}（作为 \file{cmdline.txt}）装到启动分区 \\
     \code{make install-tftp} & 把内核拷到宿主机 TFTP 目录，真机上用 \code{tftp} 命令下载到 \code{/boot} \\
     \bottomrule
   \end{tabularx}
@@ -187,7 +192,7 @@ QEMU 的 \code{raspi3b} 有两个串口：第一个是 PL011，第二个是 AUX 
 \begin{shcode}
 qemu-system-aarch64 -machine raspi3b -kernel kernel/kernel8-xv6_wifi.img \
     -display none -serial null -serial mon:stdio \
-    -drive file=fs.img,if=sd,format=raw
+    -drive file=build/qemu-rpi3-sd.img,if=sd,format=raw
 \end{shcode}
 
 真机通过启动分区里的 \file{config.txt} 指定内核文件名和几个关键参数：
@@ -196,29 +201,30 @@ qemu-system-aarch64 -machine raspi3b -kernel kernel/kernel8-xv6_wifi.img \
 arm_64bit=1                      # 以 AArch64 状态启动 CPU
 enable_uart=1                    # 打开 GPIO14/15 上的串口
 uart_2ndstage=1                  # 固件自身的启动日志也输出到串口
+disable_commandline_tags=1       # cmdline.txt 留给 xv6 自己读
 core_freq=250                    # 固定 VPU 时钟：Mini UART 波特率依赖它
 core_freq_min=250
 kernel=kernel8-xv6_wifi.img
 camera_auto_detect=0             # 不让固件接管摄像头
 \end{txtcode}
 
-其中 \code{core\_freq=250} 很重要：Mini UART 的波特率由 VPU 核心时钟分频得到，如果固件动态调频，串口就会乱码（第~\ref{sec:early-uart} 节）。
+其中 \code{core\_freq=250} 很重要：Mini UART 的波特率由 VPU 核心时钟分频得到，如果固件动态调频，串口就会乱码（第~\ref{sec:early-uart} 节）。\code{disable\_commandline\_tags=1} 让固件不去处理 \file{cmdline.txt}，内核挂上启动分区后自己读它，从中取出 \code{root=} 等参数（\ref{sec:rootfs} 节）。
 
 \section{内核初始化顺序}
 \label{sec:init-order}
 
-\file{kernel/init/main.c} 是整个内核的入口函数，它的初始化顺序就是全书的目录。下面的代码去掉了注释中的细节，保留了调用顺序：
+前面几节讲的是“文件放在哪里、怎样编出来”，这一节讲“启动后按什么顺序运行”。\file{kernel/init/main.c} 是整个内核的 C 入口，它的初始化顺序就是全书的目录。下面的代码去掉了注释中的细节，保留了调用顺序：
 
 \begin{ccode}
 void main() {
   if(cpuid() == 0){
-    kinit1(end, P2V(EARLYTOP));  // 只用启动页表覆盖的前 2 MiB    -> 第 4 章
+    kinit1(end, P2V(EARLYTOP));  // 只用启动页表覆盖的前 4 MiB    -> 第 4 章
     kvminit();  kvminithart();   // 建立并切换到最终内核页表      -> 第 4 章
     kinit2(P2V(EARLYTOP), P2V(PHYSTOP));
     kobject_subsys_init(); device_init();                       // -> 第 7 章
     sdio_bus_init(); usb_bus_init();
     consoleinit(); ttyinit(); printfinit();                     // 从这里起 printf 可用
-    procinit(); workqueue_init();                               // -> 第 5 章
+    procinit(); mmap_init(); workqueue_init();                  // -> 第 5、4 章
     rnginit(); syncinit(); netinit();
     trapinit(); trapinithart(); gicv3init(); gicv3inithart();   // -> 第 3 章
     timerinit();
@@ -248,7 +254,7 @@ device   sd_driver_init()             SD 卡：add_disk(mmcblk0)，块层扫描 
          usbkbd_driver_init()       2 USB 键盘
          dwc2_driver_init()         4 USB 主控制器
          ov5647_init()              5 摄像头传感器
-late     rootdev_init()               挂起 FAT32 启动分区、读 cmdline_xv6.txt，
+late     rootdev_init()               挂起 FAT32 启动分区、读 cmdline.txt，
                                       选出 ROOT_DEV                -> 第 6 章
          brcmfmac_driver_init()     2 Wi-Fi，固件在启动分区里
          mt7601u_driver_init()      3 USB Wi-Fi，固件在启动分区里
@@ -265,4 +271,7 @@ late     rootdev_init()               挂起 FAT32 启动分区、读 cmdline_xv
   \item 异常向量、中断控制器、定时器依次初始化，但真正打开 CPU 中断要等到 \code{scheduler()}。
   \item Wi-Fi 驱动需要从 FAT32 启动分区读取固件，所以放在 \code{late} 级、排在 \code{rootdev\_init()} 之后——由它挂起 FAT32 启动分区；分区表则早在 \code{device} 级 SD 驱动 \code{add\_disk()} 时由块层扫描好。
   \item 其余三个 CPU 最后才被唤醒，它们只做每核相关的初始化，然后直接进入调度器。
+  \item 根文件系统不在 \code{main()} 里挂载：读超级块要用会睡眠的块缓存，必须等第一个进程在 \code{forkret()} 里调用 \code{prepare\_namespace()}（\ref{sec:ns-callchain} 节）。
 \end{itemize}
+
+下一章从 \code{main()} 之前开始：固件把 CPU 交给内核的第一条指令时，以上这些都还不存在。

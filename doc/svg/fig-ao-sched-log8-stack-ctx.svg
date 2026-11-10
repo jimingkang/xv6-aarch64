@@ -1,0 +1,1250 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="2961" viewBox="0 0 2400 2961" font-family="'WenQuanYi Zen Hei','PingFang SC','Microsoft YaHei',sans-serif" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToyMTg4NzQ2OS1hNGVkLTQzODAtYmJiZi04YzJiNzAxNzA2ZTMAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaCfsraMQIaZONuE0S88eo4QAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpjNDlkMDQ3ZS01MWEyLTRmZWItYWMwYi02NTY4ZDc2OWRkZThscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo8llgf1l7+l7BmqKWKufKGAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg5cKi3H2faPYBbE6hDHEbWuri7V2RrkQWaa42iiDwlfekZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaAXH8+HaauFgTR6jYm2KmUEAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCCqecQZvjrIbwoc8lsmKZfQ0zcy5BXJwwsOUz9FEEw9e2RuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBjnZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjIxODg3NDY5LWE0ZWQtNDM4MC1iYmJmLThjMmI3MDE3MDZlMy9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjU4MzdlNWQzLTcyNzAtNDUwZS04MmQzLWVmMmNiZjFkMTZmZnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDlwqLcfZ9o9gFsTqEMcRta6uLtXZGuRBZprjaKIPCV96JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg3alJpiZtAzTnu2BFcMhPUJB6MmsRw3wM6gNvVqp0RnOiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggtBTUZOyVaElhBxQ9JOLuXgJgtl9nhywA5lG3leI2EAd0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQHM0I+78bGv12hC1uc35B9aIsSd6rhmifH8mv2capTA7YjERrgBZ8/cWq+0v0X1isMa+WPC3qmPr+3uuoLkFGcE=</c2pa:manifest></metadata><rect width="2400" height="2961" fill="#fff"/><defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c0392b"/></marker><marker id="am" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker><marker id="spa" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0,0 L11,5.5 L0,11 z" fill="#c0392b"/></marker></defs>
+<text x="1200.0" y="40.0" font-size="26" fill="#111" text-anchor="middle" font-weight="bold">图 AO　log8（仅用户进程）：init → wifi → login → sh → forktest（128 个子进程）的调度、栈和换出时的 context 对比</text>
+<text x="1200.0" y="68.0" font-size="14" fill="#555" text-anchor="middle">横轴 = 全局编号（内核线程记录已隐藏，[81]–[329] 中间 ~250 条 forktest 重复记录折叠）；色条 = 该 CPU 上两条记录之间运行的任务，条下小字 = 这段时间 sp 所在的内核栈（kstack VA 低位）</text>
+<rect x="176.5" y="103" width="405.0" height="412" fill="#eef3fc"/>
+<text x="182.5" y="119.0" font-size="13" fill="#444" text-anchor="start">① init 读 SD（sdsector 忙等，被定时器 yield，CPU 间漂移）</text>
+<rect x="581.5" y="103" width="378.0" height="412" fill="#fdf3e6"/>
+<text x="587.5" y="119.0" font-size="13" fill="#444" text-anchor="start">② wifi exit → login → sh（键盘中断唤醒）</text>
+<rect x="959.5" y="103" width="675.0" height="412" fill="#f3ecf8"/>
+<text x="965.5" y="119.0" font-size="13" fill="#444" text-anchor="start">③ forktest：父进程 17 连续 fork，子进程各跑一次就 exit</text>
+<rect x="1784.5" y="103" width="486.0" height="412" fill="#ecf6ef"/>
+<text x="1790.5" y="119.0" font-size="13" fill="#444" text-anchor="start">④ 最后几个子进程 → 父 exit 唤醒 sh → sh 回到读命令</text>
+<rect x="170" y="185.0" width="2114" height="34" fill="#fff" fill-opacity="0.5" stroke="#ddd"/>
+<text x="30.0" y="208.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">CPU 0</text>
+<rect x="170" y="277.0" width="2114" height="34" fill="#fff" fill-opacity="0.5" stroke="#ddd"/>
+<text x="30.0" y="300.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">CPU 1</text>
+<rect x="170" y="369.0" width="2114" height="34" fill="#fff" fill-opacity="0.5" stroke="#ddd"/>
+<text x="30.0" y="392.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">CPU 2</text>
+<rect x="170" y="461.0" width="2114" height="34" fill="#fff" fill-opacity="0.5" stroke="#ddd"/>
+<text x="30.0" y="484.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">CPU 3</text>
+<rect x="1648.0" y="103" width="136.5" height="412" fill="#fff" stroke="#bbb" stroke-dasharray="5,4"/>
+<text x="1716.2" y="205.0" font-size="12" fill="#666" text-anchor="middle">[81]–[329] 省略</text>
+<text x="1716.2" y="224.0" font-size="12" fill="#666" text-anchor="middle">同样的模式重复：</text>
+<text x="1716.2" y="243.0" font-size="12" fill="#666" text-anchor="middle">父 17 fork → 子在空闲</text>
+<text x="1716.2" y="262.0" font-size="12" fill="#666" text-anchor="middle">CPU 上换入 → exit →</text>
+<text x="1716.2" y="281.0" font-size="12" fill="#666" text-anchor="middle">下一个子进程用新的</text>
+<text x="1716.2" y="300.0" font-size="12" fill="#666" text-anchor="middle">kstack 槽（VA 每次</text>
+<text x="1716.2" y="319.0" font-size="12" fill="#666" text-anchor="middle">−0x2000，…de000 →</text>
+<text x="1716.2" y="338.0" font-size="12" fill="#666" text-anchor="middle">…ee0000）</text>
+<rect x="190.0" y="375.0" width="27.0" height="22" rx="4" fill="#3b6fd6"/>
+<path d="M184.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="203.5" y="391.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="203.5" y="416.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="190.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[26]</text>
+<text x="217.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[28]</text>
+<text x="219.0" y="370.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="244.0" y="467.0" width="27.0" height="22" rx="4" fill="#3b6fd6"/>
+<path d="M238.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="257.5" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="257.5" y="508.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="244.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[29]</text>
+<text x="271.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[30]</text>
+<text x="273.0" y="462.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="298.0" y="283.0" width="27.0" height="22" rx="4" fill="#3b6fd6"/>
+<path d="M292.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="311.5" y="299.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="311.5" y="324.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="298.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[31]</text>
+<text x="325.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[32]</text>
+<text x="327.0" y="278.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="352.0" y="375.0" width="27.0" height="22" rx="4" fill="#3b6fd6"/>
+<circle cx="352.0" cy="386.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="365.5" y="391.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="365.5" y="416.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="352.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[33]</text>
+<text x="379.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[34]</text>
+<text x="381.0" y="370.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="406.0" y="283.0" width="54.0" height="22" rx="4" fill="#3b6fd6"/>
+<circle cx="406.0" cy="294.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="433.0" y="299.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="433.0" y="324.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="406.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[35]</text>
+<text x="460.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[37]</text>
+<text x="462.0" y="278.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="433.0" y="191.0" width="162.0" height="22" rx="4" fill="#e08a1e"/>
+<path d="M427.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="514.0" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">15 init → exec wifi</text>
+<text x="514.0" y="232.0" font-size="9.5" fill="#e08a1e" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="433.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[36]</text>
+<text x="595.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[42]</text>
+<text x="598.0" y="187.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="487.0" y="375.0" width="27.0" height="22" rx="4" fill="#3b6fd6"/>
+<circle cx="487.0" cy="386.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="500.5" y="391.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">14</text>
+<text x="500.5" y="416.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="487.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[38]</text>
+<text x="514.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[39]</text>
+<text x="517.0" y="371.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="568.0" y="283.0" width="81.0" height="22" rx="4" fill="#3b6fd6"/>
+<circle cx="568.0" cy="294.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="608.5" y="299.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">14 init</text>
+<text x="608.5" y="324.0" font-size="9.5" fill="#3b6fd6" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="568.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[41]</text>
+<text x="649.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[44]</text>
+<text x="652.0" y="279.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="622.0" y="467.0" width="54.0" height="22" rx="4" fill="#2e9d5b"/>
+<path d="M616.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="649.0" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="649.0" y="508.0" font-size="9.5" fill="#2e9d5b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="622.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[43]</text>
+<text x="676.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[45]</text>
+<text x="679.0" y="463.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="730.0" y="467.0" width="27.0" height="22" rx="4" fill="#2e9d5b"/>
+<circle cx="730.0" cy="478.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="743.5" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="743.5" y="508.0" font-size="9.5" fill="#2e9d5b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="730.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[47]</text>
+<text x="757.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[48]</text>
+<text x="760.0" y="463.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="811.0" y="283.0" width="27.0" height="22" rx="4" fill="#2e9d5b"/>
+<path d="M805.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="824.5" y="299.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="824.5" y="324.0" font-size="9.5" fill="#2e9d5b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="811.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[50]</text>
+<text x="838.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[51]</text>
+<text x="841.0" y="279.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="892.0" y="191.0" width="54.0" height="22" rx="4" fill="#1f7a46"/>
+<path d="M886.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="919.0" y="207.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="919.0" y="232.0" font-size="9.5" fill="#1f7a46" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="892.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[53]</text>
+<text x="946.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[55]</text>
+<text x="949.0" y="187.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="919.0" y="375.0" width="378.0" height="22" rx="4" fill="#8e44ad"/>
+<path d="M913.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1108.0" y="391.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">17 sh → exec forktest</text>
+<text x="1108.0" y="416.0" font-size="9.5" fill="#8e44ad" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="919.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[54]</text>
+<text x="1297.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[68]</text>
+<text x="1299.0" y="370.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="973.0" y="467.0" width="54.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M967.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1000.0" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">18</text>
+<text x="1000.0" y="508.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…de000</text>
+<text x="973.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[56]</text>
+<text x="1027.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[58]</text>
+<text x="1030.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1000.0" y="191.0" width="81.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M994.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1040.5" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">19 forktest</text>
+<text x="1040.5" y="232.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…dc000</text>
+<text x="1000.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[57]</text>
+<text x="1081.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[60]</text>
+<text x="1084.0" y="187.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1054.0" y="467.0" width="54.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1048.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1081.0" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">20</text>
+<text x="1081.0" y="508.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…da000</text>
+<text x="1054.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[59]</text>
+<text x="1108.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[61]</text>
+<text x="1111.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1135.0" y="467.0" width="54.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1129.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1162.0" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">21</text>
+<text x="1162.0" y="508.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…d8000</text>
+<text x="1135.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[62]</text>
+<text x="1189.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[64]</text>
+<text x="1192.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1162.0" y="191.0" width="81.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1156.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1202.5" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">22 forktest</text>
+<text x="1202.5" y="232.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…d6000</text>
+<text x="1162.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[63]</text>
+<text x="1243.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[66]</text>
+<text x="1246.0" y="187.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1216.0" y="283.0" width="108.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1210.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1270.0" y="299.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">23 forktest</text>
+<text x="1270.0" y="324.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…d4000</text>
+<text x="1216.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[65]</text>
+<text x="1324.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[69]</text>
+<text x="1327.0" y="279.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1270.0" y="191.0" width="135.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1264.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1337.5" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">24 forktest</text>
+<text x="1337.5" y="232.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…d2000</text>
+<text x="1270.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[67]</text>
+<text x="1405.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[72]</text>
+<text x="1408.0" y="187.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1351.0" y="467.0" width="293.0" height="22" rx="4" fill="#8e44ad" fill-opacity="0.55"/>
+<path d="M1345.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1497.5" y="483.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">17 forktest</text>
+<text x="1497.5" y="508.0" font-size="9.5" fill="#8e44ad" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="1351.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[70]</text>
+<rect x="1378.0" y="283.0" width="81.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1372.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1418.5" y="299.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">25 forktest</text>
+<text x="1418.5" y="324.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…d0000</text>
+<text x="1378.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[71]</text>
+<text x="1459.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[74]</text>
+<text x="1462.0" y="279.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1432.0" y="375.0" width="108.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1426.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1486.0" y="391.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">26 forktest</text>
+<text x="1486.0" y="416.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…ce000</text>
+<text x="1432.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[73]</text>
+<text x="1540.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[77]</text>
+<text x="1543.0" y="371.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1486.0" y="191.0" width="108.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1480.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1540.0" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">27 forktest</text>
+<text x="1540.0" y="232.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…cc000</text>
+<text x="1486.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[75]</text>
+<text x="1594.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[79]</text>
+<text x="1597.0" y="187.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1513.0" y="283.0" width="108.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1507.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1567.0" y="299.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">28 forktest</text>
+<text x="1567.0" y="324.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…ca000</text>
+<text x="1513.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[76]</text>
+<text x="1621.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[80]</text>
+<text x="1624.0" y="279.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1567.0" y="375.0" width="77.0" height="22" rx="4" fill="#7f8c8d" fill-opacity="0.55"/>
+<path d="M1561.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1605.5" y="391.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">29 forktest</text>
+<text x="1605.5" y="416.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…c8000</text>
+<text x="1567.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[78]</text>
+<rect x="1798.0" y="283.0" width="189.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1792.0,294.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1892.5" y="299.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">143 forktest</text>
+<text x="1892.5" y="324.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e4000</text>
+<text x="1798.0" y="272.0" font-size="10" fill="#555" text-anchor="middle">[330]</text>
+<text x="1987.0" y="272.0" font-size="10" fill="#c0392b" text-anchor="middle">[337]</text>
+<text x="1990.0" y="279.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1852.0" y="375.0" width="162.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1846.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="1933.0" y="391.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">144 forktest</text>
+<text x="1933.0" y="416.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="1852.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[332]</text>
+<text x="2014.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[338]</text>
+<text x="2017.0" y="371.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1933.0" y="191.0" width="135.0" height="22" rx="4" fill="#8e44ad"/>
+<circle cx="1933.0" cy="202.0" r="5" fill="#fff" stroke="#222" stroke-width="2"/>
+<text x="2000.5" y="207.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">17 forktest</text>
+<text x="2000.5" y="232.0" font-size="9.5" fill="#8e44ad" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="1933.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[335]</text>
+<text x="2068.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[340]</text>
+<text x="2070.0" y="186.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="1960.0" y="467.0" width="81.0" height="22" rx="4" fill="#7f8c8d"/>
+<path d="M1954.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="2000.5" y="483.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">145 forktest</text>
+<text x="2000.5" y="508.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="1960.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[336]</text>
+<text x="2041.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[339]</text>
+<text x="2044.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="2095.0" y="467.0" width="81.0" height="22" rx="4" fill="#8e44ad"/>
+<path d="M2089.0,478.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="2135.5" y="483.0" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">17 forktest</text>
+<text x="2135.5" y="508.0" font-size="9.5" fill="#8e44ad" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="2095.0" y="456.0" font-size="10" fill="#555" text-anchor="middle">[341]</text>
+<text x="2176.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[344]</text>
+<text x="2179.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="2149.0" y="191.0" width="54.0" height="22" rx="4" fill="#1f7a46"/>
+<path d="M2143.0,202.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="2176.0" y="207.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="2176.0" y="232.0" font-size="9.5" fill="#1f7a46" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="2149.0" y="180.0" font-size="10" fill="#555" text-anchor="middle">[343]</text>
+<text x="2203.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[345]</text>
+<text x="2205.0" y="186.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="2230.0" y="375.0" width="27.0" height="22" rx="4" fill="#1f7a46"/>
+<path d="M2224.0,386.0 l6,-6 l6,6 l-6,6 z" fill="#222"/>
+<text x="2243.5" y="391.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">16</text>
+<text x="2243.5" y="416.0" font-size="9.5" fill="#1f7a46" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e2000</text>
+<text x="2230.0" y="364.0" font-size="10" fill="#555" text-anchor="middle">[346]</text>
+<text x="2257.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[347]</text>
+<text x="2260.0" y="371.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">z</text>
+<rect x="1786.5" y="375.0" width="38.5" height="22" rx="4" fill="#7f8c8d" fill-opacity="0.55"/>
+<text x="1805.8" y="391.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">141</text>
+<text x="1805.8" y="416.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e8000</text>
+<text x="1825.0" y="364.0" font-size="10" fill="#c0392b" text-anchor="middle">[331]</text>
+<text x="1828.0" y="371.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<rect x="1786.5" y="191.0" width="92.5" height="22" rx="4" fill="#8e44ad" fill-opacity="0.55"/>
+<text x="1832.8" y="207.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">17</text>
+<text x="1832.8" y="232.0" font-size="9.5" fill="#8e44ad" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e0000</text>
+<text x="1879.0" y="180.0" font-size="10" fill="#c0392b" text-anchor="middle">[333]</text>
+<text x="1881.0" y="186.0" font-size="14" fill="#c0392b" text-anchor="start" font-weight="bold">↻</text>
+<rect x="1786.5" y="467.0" width="119.5" height="22" rx="4" fill="#7f8c8d" fill-opacity="0.55"/>
+<text x="1846.2" y="483.0" font-size="11" fill="#fff" text-anchor="middle" font-weight="bold">142</text>
+<text x="1846.2" y="508.0" font-size="9.5" fill="#7f8c8d" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…e6000</text>
+<text x="1906.0" y="456.0" font-size="10" fill="#c0392b" text-anchor="middle">[334]</text>
+<text x="1909.0" y="463.0" font-size="15" fill="#c0392b" text-anchor="start" font-weight="bold">×</text>
+<path d="M221.0,386.0 C246.0,386.0 219.0,478.0 237.0,478.0" fill="none" stroke="#3b6fd6" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M275.0,478.0 C300.0,478.0 273.0,294.0 291.0,294.0" fill="none" stroke="#3b6fd6" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M329.0,294.0 C354.0,294.0 327.0,386.0 345.0,386.0" fill="none" stroke="#3b6fd6" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M383.0,386.0 C408.0,386.0 381.0,294.0 399.0,294.0" fill="none" stroke="#3b6fd6" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M464.0,294.0 C489.0,294.0 462.0,386.0 480.0,386.0" fill="none" stroke="#3b6fd6" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M1301.0,386.0 C1326.0,386.0 1326.0,478.0 1344.0,478.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M1883.0,202.0 C1908.0,202.0 1908.0,202.0 1926.0,202.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M2072.0,202.0 C2097.0,202.0 2070.0,478.0 2088.0,478.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#am)"/>
+<path d="M2207.0,202.0 C2232.0,202.0 2205.0,386.0 2223.0,386.0" fill="none" stroke="#1f7a46" stroke-width="1.6" marker-end="url(#am)"/>
+<text x="541.0" y="161.0" font-size="16" fill="#d35400" text-anchor="middle">⚡</text>
+<text x="541.0" y="147.0" font-size="10" fill="#d35400" text-anchor="middle">[40]</text>
+<text x="541.0" y="246.0" font-size="9.5" fill="#d35400" text-anchor="middle">exit</text>
+<text x="541.0" y="257.0" font-size="9.5" fill="#d35400" text-anchor="middle">by 15</text>
+<path d="M541.0,165.0 C566.0,165.0 543.0,294.0 561.0,294.0" fill="none" stroke="#d35400" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="703.0" y="161.0" font-size="16" fill="#d35400" text-anchor="middle">⚡</text>
+<text x="703.0" y="147.0" font-size="10" fill="#d35400" text-anchor="middle">[46]</text>
+<text x="703.0" y="246.0" font-size="9.5" fill="#d35400" text-anchor="middle">consoleintr</text>
+<text x="703.0" y="257.0" font-size="9.5" fill="#d35400" text-anchor="middle">by IRQ</text>
+<path d="M703.0,165.0 C728.0,165.0 705.0,478.0 723.0,478.0" fill="none" stroke="#d35400" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="784.0" y="161.0" font-size="16" fill="#d35400" text-anchor="middle">⚡</text>
+<text x="784.0" y="147.0" font-size="10" fill="#d35400" text-anchor="middle">[49]</text>
+<text x="784.0" y="246.0" font-size="9.5" fill="#d35400" text-anchor="middle">consoleintr</text>
+<text x="784.0" y="257.0" font-size="9.5" fill="#d35400" text-anchor="middle">by IRQ</text>
+<path d="M784.0,165.0 C809.0,165.0 786.0,294.0 804.0,294.0" fill="none" stroke="#d35400" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="865.0" y="161.0" font-size="16" fill="#d35400" text-anchor="middle">⚡</text>
+<text x="865.0" y="147.0" font-size="10" fill="#d35400" text-anchor="middle">[52]</text>
+<text x="865.0" y="246.0" font-size="9.5" fill="#d35400" text-anchor="middle">consoleintr</text>
+<text x="865.0" y="257.0" font-size="9.5" fill="#d35400" text-anchor="middle">by IRQ</text>
+<path d="M865.0,165.0 C890.0,165.0 867.0,202.0 885.0,202.0" fill="none" stroke="#d35400" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="2122.0" y="437.0" font-size="16" fill="#d35400" text-anchor="middle">⚡</text>
+<text x="2122.0" y="423.0" font-size="10" fill="#d35400" text-anchor="middle">[342]</text>
+<text x="2122.0" y="522.0" font-size="9.5" fill="#d35400" text-anchor="middle">exit</text>
+<text x="2122.0" y="533.0" font-size="9.5" fill="#d35400" text-anchor="middle">by 17</text>
+<path d="M2122.0,441.0 C2147.0,441.0 2124.0,202.0 2142.0,202.0" fill="none" stroke="#d35400" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="446.5" y1="277.0" x2="446.5" y2="311.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="446.5" y="335.0" font-size="9" fill="#8e44ad" text-anchor="middle">f15</text>
+<line x1="608.5" y1="277.0" x2="608.5" y2="311.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="608.5" y="335.0" font-size="9" fill="#8e44ad" text-anchor="middle">f16</text>
+<line x1="905.5" y1="185.0" x2="905.5" y2="219.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="905.5" y="243.0" font-size="9" fill="#8e44ad" text-anchor="middle">f17</text>
+<line x1="959.5" y1="369.0" x2="959.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="959.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f18</text>
+<line x1="986.5" y1="369.0" x2="986.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="986.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f19</text>
+<line x1="1040.5" y1="369.0" x2="1040.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1040.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f20</text>
+<line x1="1094.5" y1="369.0" x2="1094.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1094.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f21</text>
+<line x1="1148.5" y1="369.0" x2="1148.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1148.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f22</text>
+<line x1="1175.5" y1="369.0" x2="1175.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1175.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f23</text>
+<line x1="1256.5" y1="369.0" x2="1256.5" y2="403.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1256.5" y="427.0" font-size="9" fill="#8e44ad" text-anchor="middle">f24</text>
+<line x1="1364.5" y1="461.0" x2="1364.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1364.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f25</text>
+<line x1="1391.5" y1="461.0" x2="1391.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1391.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f26</text>
+<line x1="1445.5" y1="461.0" x2="1445.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1445.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f27</text>
+<line x1="1499.5" y1="461.0" x2="1499.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1499.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f28</text>
+<line x1="1526.5" y1="461.0" x2="1526.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1526.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f29</text>
+<line x1="1607.5" y1="461.0" x2="1607.5" y2="495.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1607.5" y="519.0" font-size="9" fill="#8e44ad" text-anchor="middle">f30</text>
+<line x1="1811.5" y1="185.0" x2="1811.5" y2="219.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1811.5" y="243.0" font-size="9" fill="#8e44ad" text-anchor="middle">f144</text>
+<line x1="1946.5" y1="185.0" x2="1946.5" y2="219.0" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="2,2"/>
+<text x="1946.5" y="243.0" font-size="9" fill="#8e44ad" text-anchor="middle">f145</text>
+<text x="40.0" y="555.0" font-size="13" fill="#333" text-anchor="start">◆ 换入（新进程或换了 CPU）　○ again-in（同一 CPU 再选中同一任务）　红色 [n] = 换出：↻ 被抢占（slice 用完，从定时器 IRQ yield）　z 睡眠　× exit　⚡ 唤醒（橙箭头指向被唤醒任务的下一次换入）　灰箭头 = 被抢占后在哪个 CPU 继续　紫虚线 fN = 父进程 fork 出 pid N</text>
+<text x="40.0" y="577.0" font-size="13" fill="#333" text-anchor="start">颜色：蓝 init(14)　橙 wifi(15)　绿 login/sh(16)　紫 forktest 父(17)　灰 forktest 子(18…145)。注意 pid 15 和 16 用同一个 kstack VA …e2000（wifi 退出后槽位复用），每个 forktest 子进程则各占一个新槽。</text>
+<rect x="20" y="615.0" width="2360" height="1669.2800000000002" rx="8" fill="#fbfbfd" stroke="#d8dbe3"/>
+<text x="40.0" y="645.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">8 次切换的栈与 context：每次换到不同进程时，swtch 两侧的栈长什么样、p-&gt;context 里每个寄存器指向哪里（全部来自 log8 的实时记录；红线 = context.sp / x29 指向栈上的位置）</text>
+<text x="50.0" y="695.0" font-size="15" fill="#3b6fd6" text-anchor="start" font-weight="bold">① [28] init 被抢占（CPU2 换出）</text>
+<text x="50.0" y="714.0" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe4000–e5000  PA 06f9d000  proc 0x…fa4900</text>
+<text x="50.0" y="733.0" font-size="11.5" fill="#333" text-anchor="start">sdsector 忙等时定时器 IRQ 打在 init 自己的内核栈上，el1irq 存现场后 yield → sched → </text>
+<text x="50.0" y="749.0" font-size="11.5" fill="#333" text-anchor="start">swtch。</text>
+<rect x="140.0" y="779.0" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="255.0" y="819.7" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="134.0" y="783.0" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…5000</text>
+<text x="134.0" y="856.4" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4ef0</text>
+<rect x="140.0" y="1193.7" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="255.0" y="1204.2" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="134.0" y="1210.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…49d0</text>
+<rect x="140.0" y="1111.6" width="230" height="82.1" fill="#fff1e0" stroke="#9fb0d0"/>
+<text x="255.0" y="1156.7" font-size="11" fill="#223" text-anchor="middle">yield 帧 + el1irq 存的中断现场（0x130）</text>
+<text x="134.0" y="1197.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4a00</text>
+<rect x="140.0" y="1107.3" width="230" height="4.3" fill="#fff1e0" stroke="#9fb0d0"/>
+<rect x="140.0" y="1077.1" width="230" height="30.2" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="255.0" y="1096.2" font-size="11" fill="#223" text-anchor="middle">sdsector</text>
+<text x="134.0" y="1111.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4b40</text>
+<rect x="140.0" y="1059.8" width="230" height="17.3" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="255.0" y="1072.4" font-size="11" fill="#223" text-anchor="middle">mmc_rw</text>
+<text x="134.0" y="1081.1" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4bb0</text>
+<rect x="140.0" y="1046.8" width="230" height="13.0" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="255.0" y="1057.3" font-size="10" fill="#223" text-anchor="middle">blk_rw</text>
+<text x="134.0" y="1063.8" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4bf0</text>
+<rect x="140.0" y="1033.9" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="255.0" y="1044.4" font-size="10" fill="#223" text-anchor="middle">bread</text>
+<text x="134.0" y="1050.8" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4c20</text>
+<rect x="140.0" y="1016.6" width="230" height="17.3" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="255.0" y="1029.2" font-size="11" fill="#223" text-anchor="middle">e2_rsector</text>
+<text x="134.0" y="1037.9" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4c50</text>
+<rect x="140.0" y="995.0" width="230" height="21.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="255.0" y="1009.8" font-size="11" fill="#223" text-anchor="middle">diskbytes</text>
+<text x="134.0" y="1020.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4c90</text>
+<rect x="140.0" y="969.1" width="230" height="25.9" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="255.0" y="986.0" font-size="11" fill="#223" text-anchor="middle">read_locked</text>
+<text x="134.0" y="999.0" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4ce0</text>
+<rect x="140.0" y="925.9" width="230" height="43.2" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="255.0" y="951.5" font-size="11" fill="#223" text-anchor="middle">ext2readino</text>
+<text x="134.0" y="973.1" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4d40</text>
+<rect x="140.0" y="852.4" width="230" height="73.4" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="255.0" y="893.2" font-size="11" fill="#223" text-anchor="middle">e2_file_read_at … ← usertrap（回溯上限 12 帧）</text>
+<text x="134.0" y="929.9" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…4de0</text>
+<line x1="90.0" y1="1206.7" x2="395.0" y2="1206.7" stroke="#111" stroke-width="2"/>
+<text x="399.0" y="1210.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="399.0" y="1224.7" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="140.0" y="1212.7" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="255.0" y="1231.7" font-size="10" fill="#999" text-anchor="middle">空闲 2512 字节（未画）  base …4000</text>
+<rect x="50.0" y="1260.68" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="60.0" y="1278.7" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa49b8）</text>
+<text x="60.0" y="1293.7" font-size="10.5" fill="#8a7a50" text-anchor="start">[28] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="53.0" y="1300.68" width="544.0" height="18" fill="#fde8e8"/>
+<text x="60.0" y="1313.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="108.0" y="1313.7" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe49d0</text>
+<text x="238.0" y="1313.7" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M53.0,1309.7 C36.0,1309.7 36.0,1206.7 82.0,1206.7" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="60.0" y="1331.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="108.0" y="1331.7" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1331.7" font-size="10.5" fill="#999" text-anchor="start">0</text>
+<text x="60.0" y="1349.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="108.0" y="1349.7" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="238.0" y="1349.7" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="60.0" y="1367.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="108.0" y="1367.7" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="238.0" y="1367.7" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="60.0" y="1385.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="108.0" y="1385.7" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4900</text>
+<text x="238.0" y="1385.7" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 14 的 struct proc）</text>
+<text x="60.0" y="1403.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="108.0" y="1403.7" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1403.7" font-size="10.5" fill="#b45309" text-anchor="start">intena=0：从定时器 IRQ 里 yield（中断已关）</text>
+<text x="60.0" y="1421.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="108.0" y="1421.7" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="238.0" y="1421.7" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 1）</text>
+<text x="60.0" y="1439.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="108.0" y="1439.7" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000f29c8</text>
+<text x="238.0" y="1439.7" font-size="10.5" fill="#7c3aed" text-anchor="start">&amp;sd_rca：sdsector 用的 SD 卡相对地址变量</text>
+<text x="60.0" y="1457.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="108.0" y="1457.7" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff803f20203c</text>
+<text x="238.0" y="1457.7" font-size="10.5" fill="#7c3aed" text-anchor="start">SD host MMIO 0x3f20203c：正在轮询的寄存器</text>
+<text x="60.0" y="1475.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="108.0" y="1475.7" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1475.7" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="60.0" y="1493.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="108.0" y="1493.7" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff803f202050</text>
+<text x="238.0" y="1493.7" font-size="10.5" fill="#7c3aed" text-anchor="start">SD host MMIO 0x3f202050：正在轮询的寄存器</text>
+<text x="60.0" y="1511.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="108.0" y="1511.7" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="238.0" y="1511.7" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 1）</text>
+<rect x="53.0" y="1516.68" width="544.0" height="18" fill="#fde8e8"/>
+<text x="60.0" y="1529.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="108.0" y="1529.7" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe49d0</text>
+<text x="238.0" y="1529.7" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M53.0,1525.7 C27.0,1525.7 27.0,1206.7 82.0,1209.7" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="60.0" y="1547.7" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="108.0" y="1547.7" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="238.0" y="1547.7" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="630.0" y="695.0" font-size="15" fill="#e08a1e" text-anchor="start" font-weight="bold">② [42] wifi exit（CPU0 换出）</text>
+<text x="630.0" y="714.0" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe2000–e3000  PA 06ee5000  proc 0x…fa4780</text>
+<text x="630.0" y="733.0" font-size="11.5" fill="#333" text-anchor="start">exit → sched，永不再换入。栈很浅：只有系统调用链。</text>
+<rect x="720.0" y="763.0" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="835.0" y="803.7" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="714.0" y="767.0" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…3000</text>
+<text x="714.0" y="840.4" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ef0</text>
+<rect x="720.0" y="879.6" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="835.0" y="890.1" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="714.0" y="896.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e20</text>
+<rect x="720.0" y="862.4" width="230" height="17.3" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="835.0" y="875.0" font-size="11" fill="#223" text-anchor="middle">exit</text>
+<text x="714.0" y="883.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e50</text>
+<rect x="720.0" y="853.7" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="714.0" y="866.4" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e90</text>
+<rect x="720.0" y="845.1" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="714.0" y="857.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2eb0</text>
+<rect x="720.0" y="836.4" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="714.0" y="849.1" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ed0</text>
+<line x1="670.0" y1="892.6" x2="975.0" y2="892.6" stroke="#111" stroke-width="2"/>
+<text x="979.0" y="896.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="979.0" y="910.6" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="720.0" y="898.6" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="835.0" y="917.6" font-size="10" fill="#999" text-anchor="middle">空闲 3616 字节（未画）  base …2000</text>
+<rect x="630.0" y="946.6" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="640.0" y="964.6" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4838）</text>
+<text x="640.0" y="979.6" font-size="10.5" fill="#8a7a50" text-anchor="start">[42] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="633.0" y="986.6" width="544.0" height="18" fill="#fde8e8"/>
+<text x="640.0" y="999.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="688.0" y="999.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2e20</text>
+<text x="818.0" y="999.6" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M633.0,995.6 C616.0,995.6 616.0,892.6 662.0,892.6" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="640.0" y="1017.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="688.0" y="1017.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="818.0" y="1017.6" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="640.0" y="1035.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="688.0" y="1035.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="818.0" y="1035.6" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="640.0" y="1053.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="688.0" y="1053.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="818.0" y="1053.6" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="640.0" y="1071.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="688.0" y="1071.6" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4780</text>
+<text x="818.0" y="1071.6" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 15 的 struct proc）</text>
+<text x="640.0" y="1089.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="688.0" y="1089.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="818.0" y="1089.6" font-size="10.5" fill="#b45309" text-anchor="start">intena=1：从 sleep/exit 系统调用路径进来</text>
+<text x="640.0" y="1107.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="688.0" y="1107.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="818.0" y="1107.6" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="640.0" y="1125.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="688.0" y="1125.6" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cdad8</text>
+<text x="818.0" y="1125.6" font-size="10.5" fill="#7c3aed" text-anchor="start">&amp;wait_lock：exit/wait 用的锁</text>
+<text x="640.0" y="1143.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="688.0" y="1143.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000440</text>
+<text x="818.0" y="1143.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x25：用户态的值，这条路径没用到</text>
+<text x="640.0" y="1161.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="688.0" y="1161.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="818.0" y="1161.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x26：用户态的值，这条路径没用到</text>
+<text x="640.0" y="1179.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="688.0" y="1179.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000003feffffbb8</text>
+<text x="818.0" y="1179.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x27：用户态的值，这条路径没用到</text>
+<text x="640.0" y="1197.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="688.0" y="1197.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008b58</text>
+<text x="818.0" y="1197.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x28：用户态的值，这条路径没用到</text>
+<rect x="633.0" y="1202.6" width="544.0" height="18" fill="#fde8e8"/>
+<text x="640.0" y="1215.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="688.0" y="1215.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2e20</text>
+<text x="818.0" y="1215.6" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M633.0,1211.6 C607.0,1211.6 607.0,892.6 662.0,895.6" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="640.0" y="1233.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="688.0" y="1233.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="818.0" y="1233.6" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="1210.0" y="695.0" font-size="15" fill="#2e9d5b" text-anchor="start" font-weight="bold">③ [45] login 睡眠（CPU3 换出）</text>
+<text x="1210.0" y="714.0" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe2000–e3000  PA 06ee5000  proc 0x…fa4780</text>
+<text x="1210.0" y="733.0" font-size="11.5" fill="#333" text-anchor="start">read(0) → consoleread → sleep(&amp;cons.r)。[46] 键盘 IRQ 唤醒，[47] 同 CPU again-in</text>
+<text x="1210.0" y="749.0" font-size="11.5" fill="#333" text-anchor="start">。</text>
+<rect x="1300.0" y="779.0" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="1415.0" y="819.7" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="1294.0" y="783.0" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…3000</text>
+<text x="1294.0" y="856.4" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ef0</text>
+<rect x="1300.0" y="921.6" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1415.0" y="932.0" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="1294.0" y="938.5" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2dc0</text>
+<rect x="1300.0" y="908.6" width="230" height="13.0" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1415.0" y="919.1" font-size="10" fill="#223" text-anchor="middle">sleep</text>
+<text x="1294.0" y="925.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2df0</text>
+<rect x="1300.0" y="882.7" width="230" height="25.9" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1415.0" y="899.6" font-size="11" fill="#223" text-anchor="middle">consoleread</text>
+<text x="1294.0" y="912.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e20</text>
+<rect x="1300.0" y="869.7" width="230" height="13.0" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1415.0" y="880.2" font-size="10" fill="#223" text-anchor="middle">sys_read</text>
+<text x="1294.0" y="886.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e80</text>
+<rect x="1300.0" y="861.1" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1294.0" y="873.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2eb0</text>
+<rect x="1300.0" y="852.4" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1294.0" y="865.1" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ed0</text>
+<line x1="1250.0" y1="934.5" x2="1555.0" y2="934.5" stroke="#111" stroke-width="2"/>
+<text x="1559.0" y="938.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="1559.0" y="952.5" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="1300.0" y="940.5" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="1415.0" y="959.5" font-size="10" fill="#999" text-anchor="middle">空闲 3520 字节（未画）  base …2000</text>
+<rect x="1210.0" y="988.52" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="1220.0" y="1006.5" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4838）</text>
+<text x="1220.0" y="1021.5" font-size="10.5" fill="#8a7a50" text-anchor="start">[45] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="1213.0" y="1028.52" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1220.0" y="1041.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="1268.0" y="1041.5" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2dc0</text>
+<text x="1398.0" y="1041.5" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M1213.0,1037.5 C1196.0,1037.5 1196.0,934.5 1242.0,934.5" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="1220.0" y="1059.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="1268.0" y="1059.5" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="1398.0" y="1059.5" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="1220.0" y="1077.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="1268.0" y="1077.5" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="1398.0" y="1077.5" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="1220.0" y="1095.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="1268.0" y="1095.5" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="1398.0" y="1095.5" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="1220.0" y="1113.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="1268.0" y="1113.5" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4780</text>
+<text x="1398.0" y="1113.5" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 16 的 struct proc）</text>
+<text x="1220.0" y="1131.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="1268.0" y="1131.5" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="1398.0" y="1131.5" font-size="10.5" fill="#b45309" text-anchor="start">intena=1：从 sleep/exit 系统调用路径进来</text>
+<text x="1220.0" y="1149.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="1268.0" y="1149.5" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000020</text>
+<text x="1398.0" y="1149.5" font-size="10.5" fill="#b45309" text-anchor="start">consoleread 的 n = 32（read 请求字节数）</text>
+<text x="1220.0" y="1167.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="1268.0" y="1167.5" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="1398.0" y="1167.5" font-size="10.5" fill="#b45309" text-anchor="start">user_dst = 1（拷到用户地址）</text>
+<text x="1220.0" y="1185.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="1268.0" y="1185.5" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000117bc8</text>
+<text x="1398.0" y="1185.5" font-size="10.5" fill="#7c3aed" text-anchor="start">&amp;cons+0x98：= sleep 的 chan（cons.r）</text>
+<text x="1220.0" y="1203.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="1268.0" y="1203.5" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="1398.0" y="1203.5" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x26：用户态的值，这条路径没用到</text>
+<text x="1220.0" y="1221.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="1268.0" y="1221.5" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000003feffffbb8</text>
+<text x="1398.0" y="1221.5" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x27：用户态的值，这条路径没用到</text>
+<text x="1220.0" y="1239.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="1268.0" y="1239.5" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008b58</text>
+<text x="1398.0" y="1239.5" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x28：用户态的值，这条路径没用到</text>
+<rect x="1213.0" y="1244.52" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1220.0" y="1257.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="1268.0" y="1257.5" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2dc0</text>
+<text x="1398.0" y="1257.5" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M1213.0,1253.5 C1187.0,1253.5 1187.0,934.5 1242.0,937.5" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="1220.0" y="1275.5" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="1268.0" y="1275.5" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="1398.0" y="1275.5" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="1790.0" y="695.0" font-size="15" fill="#1f7a46" text-anchor="start" font-weight="bold">④ [55] sh 在 wait 里睡（CPU0 换出）</text>
+<text x="1790.0" y="714.0" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe2000–e3000  PA 06ee5000  proc 0x…fa4780</text>
+<text x="1790.0" y="733.0" font-size="11.5" fill="#333" text-anchor="start">sh fork 了 17（forktest），wait → sleep(chan = sh 自己的 proc)。[342] 由 17 的 ex</text>
+<text x="1790.0" y="749.0" font-size="11.5" fill="#333" text-anchor="start">it 唤醒。</text>
+<rect x="1880.0" y="779.0" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="1995.0" y="819.7" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="1874.0" y="783.0" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…3000</text>
+<text x="1874.0" y="856.4" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ef0</text>
+<rect x="1880.0" y="908.6" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1995.0" y="919.1" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="1874.0" y="925.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2df0</text>
+<rect x="1880.0" y="895.6" width="230" height="13.0" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1995.0" y="906.1" font-size="10" fill="#223" text-anchor="middle">sleep</text>
+<text x="1874.0" y="912.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e20</text>
+<rect x="1880.0" y="878.4" width="230" height="17.3" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1995.0" y="891.0" font-size="11" fill="#223" text-anchor="middle">wait</text>
+<text x="1874.0" y="899.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e50</text>
+<rect x="1880.0" y="869.7" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1874.0" y="882.4" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e90</text>
+<rect x="1880.0" y="861.1" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1874.0" y="873.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2eb0</text>
+<rect x="1880.0" y="852.4" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1874.0" y="865.1" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ed0</text>
+<line x1="1830.0" y1="921.6" x2="2135.0" y2="921.6" stroke="#111" stroke-width="2"/>
+<text x="2139.0" y="925.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="2139.0" y="939.6" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="1880.0" y="927.6" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="1995.0" y="946.6" font-size="10" fill="#999" text-anchor="middle">空闲 3568 字节（未画）  base …2000</text>
+<rect x="1790.0" y="975.56" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="1800.0" y="993.6" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4838）</text>
+<text x="1800.0" y="1008.6" font-size="10.5" fill="#8a7a50" text-anchor="start">[55] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="1793.0" y="1015.56" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1800.0" y="1028.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="1848.0" y="1028.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2df0</text>
+<text x="1978.0" y="1028.6" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M1793.0,1024.6 C1776.0,1024.6 1776.0,921.6 1822.0,921.6" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="1800.0" y="1046.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="1848.0" y="1046.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009ac0</text>
+<text x="1978.0" y="1046.6" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="1800.0" y="1064.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="1848.0" y="1064.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="1978.0" y="1064.6" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="1800.0" y="1082.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="1848.0" y="1082.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="1978.0" y="1082.6" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="1800.0" y="1100.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="1848.0" y="1100.6" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4780</text>
+<text x="1978.0" y="1100.6" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 16 的 struct proc）</text>
+<text x="1800.0" y="1118.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="1848.0" y="1118.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="1978.0" y="1118.6" font-size="10.5" fill="#b45309" text-anchor="start">intena=1：从 sleep/exit 系统调用路径进来</text>
+<text x="1800.0" y="1136.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="1848.0" y="1136.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1978.0" y="1136.6" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="1800.0" y="1154.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="1848.0" y="1154.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x000000000000001e</text>
+<text x="1978.0" y="1154.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x24：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="1172.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="1848.0" y="1172.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000008d0</text>
+<text x="1978.0" y="1172.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x25：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="1190.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="1848.0" y="1190.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009ac0</text>
+<text x="1978.0" y="1190.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x26：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="1208.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="1848.0" y="1208.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000003feffffbb8</text>
+<text x="1978.0" y="1208.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x27：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="1226.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="1848.0" y="1226.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009b48</text>
+<text x="1978.0" y="1226.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x28：用户态的值，这条路径没用到</text>
+<rect x="1793.0" y="1231.56" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1800.0" y="1244.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="1848.0" y="1244.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2df0</text>
+<text x="1978.0" y="1244.6" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M1793.0,1240.6 C1767.0,1240.6 1767.0,921.6 1822.0,924.6" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="1800.0" y="1262.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="1848.0" y="1262.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="1978.0" y="1262.6" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="50.0" y="1612.7" font-size="15" fill="#7f8c8d" text-anchor="start" font-weight="bold">⑤ [56] forktest 子 18 首次换入（CPU3）</text>
+<text x="50.0" y="1631.7" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffde000–df000  PA 06ec4000  proc 0x…fa4480</text>
+<text x="50.0" y="1650.7" font-size="11.5" fill="#333" text-anchor="start">新 context：fork 时只设 sp 和 x30，其余全 0。swtch 装入后 ret 到 forkret → 回用户态。</text>
+<rect x="140.0" y="1680.7" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="255.0" y="1721.4" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="134.0" y="1684.7" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…f000</text>
+<text x="134.0" y="1758.1" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…eef0</text>
+<line x1="90.0" y1="1754.1" x2="395.0" y2="1754.1" stroke="#111" stroke-width="2"/>
+<text x="399.0" y="1758.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="399.0" y="1772.1" font-size="10" fill="#555" text-anchor="start">首次换入时 sp 从这里开始</text>
+<rect x="140.0" y="1760.1" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="255.0" y="1779.1" font-size="10" fill="#999" text-anchor="middle">空闲 3824 字节（未画）  base …e000</text>
+<rect x="50.0" y="1808.1200000000001" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="60.0" y="1826.1" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4538）</text>
+<text x="60.0" y="1841.1" font-size="10.5" fill="#8a7a50" text-anchor="start">[56] 换入前，swtch 要装入的 13 个值 + sp</text>
+<rect x="53.0" y="1848.1200000000001" width="544.0" height="18" fill="#fde8e8"/>
+<text x="60.0" y="1861.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="108.0" y="1861.1" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffdeef0</text>
+<text x="238.0" y="1861.1" font-size="10.5" fill="#c0392b" text-anchor="start">= trapframe 地址：首次换入后栈从这里开始</text>
+<path d="M53.0,1857.1 C36.0,1857.1 36.0,1754.1 82.0,1754.1" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="60.0" y="1879.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="108.0" y="1879.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1879.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1897.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="108.0" y="1897.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1897.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1915.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="108.0" y="1915.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1915.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1933.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="108.0" y="1933.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1933.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1951.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="108.0" y="1951.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1951.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1969.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="108.0" y="1969.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1969.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="1987.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="108.0" y="1987.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="1987.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="2005.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="108.0" y="2005.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="2005.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="2023.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="108.0" y="2023.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="2023.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="2041.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="108.0" y="2041.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="2041.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="2059.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="108.0" y="2059.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="2059.1" font-size="10.5" fill="#999" text-anchor="start">0（新 context 不需要）</text>
+<text x="60.0" y="2077.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="108.0" y="2077.1" font-size="10" fill="#999" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="238.0" y="2077.1" font-size="10.5" fill="#999" text-anchor="start">0：帧链从空开始</text>
+<text x="60.0" y="2095.1" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="108.0" y="2095.1" font-size="10" fill="#1d4ed8" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083078</text>
+<text x="238.0" y="2095.1" font-size="10.5" fill="#1d4ed8" text-anchor="start">forkret：ret 到 forkret → usertrapret → eret</text>
+<text x="630.0" y="1612.7" font-size="15" fill="#7f8c8d" text-anchor="start" font-weight="bold">⑥ [58] 子 18 exit（CPU3 换出）</text>
+<text x="630.0" y="1631.7" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffde000–df000  PA 06ec4000  proc 0x…fa4480</text>
+<text x="630.0" y="1650.7" font-size="11.5" fill="#333" text-anchor="start">fork 返回 0 → 立刻 exit → sched。和②wifi 的 exit 栈形状完全一样，只是换了一块栈。</text>
+<rect x="720.0" y="1680.7" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="835.0" y="1721.4" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="714.0" y="1684.7" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…f000</text>
+<text x="714.0" y="1758.1" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…eef0</text>
+<rect x="720.0" y="1797.3" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="835.0" y="1807.8" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="714.0" y="1814.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…ee20</text>
+<rect x="720.0" y="1780.0" width="230" height="17.3" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="835.0" y="1792.7" font-size="11" fill="#223" text-anchor="middle">exit</text>
+<text x="714.0" y="1801.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…ee50</text>
+<rect x="720.0" y="1771.4" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="714.0" y="1784.0" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…ee90</text>
+<rect x="720.0" y="1762.8" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="714.0" y="1775.4" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…eeb0</text>
+<rect x="720.0" y="1754.1" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="714.0" y="1766.8" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…eed0</text>
+<line x1="670.0" y1="1810.3" x2="975.0" y2="1810.3" stroke="#111" stroke-width="2"/>
+<text x="979.0" y="1814.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="979.0" y="1828.3" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="720.0" y="1816.3" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="835.0" y="1835.3" font-size="10" fill="#999" text-anchor="middle">空闲 3616 字节（未画）  base …e000</text>
+<rect x="630.0" y="1864.2800000000002" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="640.0" y="1882.3" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4538）</text>
+<text x="640.0" y="1897.3" font-size="10.5" fill="#8a7a50" text-anchor="start">[58] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="633.0" y="1904.2800000000002" width="544.0" height="18" fill="#fde8e8"/>
+<text x="640.0" y="1917.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="688.0" y="1917.3" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffdee20</text>
+<text x="818.0" y="1917.3" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M633.0,1913.3 C616.0,1913.3 616.0,1810.3 662.0,1810.3" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="640.0" y="1935.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="688.0" y="1935.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="818.0" y="1935.3" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="640.0" y="1953.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="688.0" y="1953.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="818.0" y="1953.3" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="640.0" y="1971.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="688.0" y="1971.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="818.0" y="1971.3" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="640.0" y="1989.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="688.0" y="1989.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4480</text>
+<text x="818.0" y="1989.3" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 18 的 struct proc）</text>
+<text x="640.0" y="2007.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="688.0" y="2007.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000001</text>
+<text x="818.0" y="2007.3" font-size="10.5" fill="#b45309" text-anchor="start">intena=1：从 sleep/exit 系统调用路径进来</text>
+<text x="640.0" y="2025.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="688.0" y="2025.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="818.0" y="2025.3" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="640.0" y="2043.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="688.0" y="2043.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cdad8</text>
+<text x="818.0" y="2043.3" font-size="10.5" fill="#7c3aed" text-anchor="start">&amp;wait_lock：exit/wait 用的锁</text>
+<text x="640.0" y="2061.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="688.0" y="2061.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000358</text>
+<text x="818.0" y="2061.3" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x25：用户态的值，这条路径没用到</text>
+<text x="640.0" y="2079.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="688.0" y="2079.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="818.0" y="2079.3" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x26：用户态的值，这条路径没用到</text>
+<text x="640.0" y="2097.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="688.0" y="2097.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000003feffffbb8</text>
+<text x="818.0" y="2097.3" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x27：用户态的值，这条路径没用到</text>
+<text x="640.0" y="2115.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="688.0" y="2115.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008b58</text>
+<text x="818.0" y="2115.3" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x28：用户态的值，这条路径没用到</text>
+<rect x="633.0" y="2120.28" width="544.0" height="18" fill="#fde8e8"/>
+<text x="640.0" y="2133.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="688.0" y="2133.3" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffdee20</text>
+<text x="818.0" y="2133.3" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M633.0,2129.3 C607.0,2129.3 607.0,1810.3 662.0,1813.3" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="640.0" y="2151.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="688.0" y="2151.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="818.0" y="2151.3" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="1210.0" y="1612.7" font-size="15" fill="#8e44ad" text-anchor="start" font-weight="bold">⑦ [68] forktest 父 17 在 fork 中被抢占（CPU2）</text>
+<text x="1210.0" y="1631.7" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe0000–e1000  PA 06ed0000  proc 0x…fa4600</text>
+<text x="1210.0" y="1650.7" font-size="11.5" fill="#333" text-anchor="start">do_clone 复制到一半来了定时器 IRQ，yield 换出；[70] 在 CPU3 换入接着复制。</text>
+<rect x="1300.0" y="1680.7" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="1415.0" y="1721.4" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="1294.0" y="1684.7" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…1000</text>
+<text x="1294.0" y="1758.1" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0ef0</text>
+<rect x="1300.0" y="1905.3" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1415.0" y="1915.8" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="1294.0" y="1922.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0c90</text>
+<rect x="1300.0" y="1823.2" width="230" height="82.1" fill="#fff1e0" stroke="#9fb0d0"/>
+<text x="1415.0" y="1868.3" font-size="11" fill="#223" text-anchor="middle">yield 帧 + el1irq 存的中断现场（0x130）</text>
+<text x="1294.0" y="1909.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0cc0</text>
+<rect x="1300.0" y="1814.6" width="230" height="8.6" fill="#fff1e0" stroke="#9fb0d0"/>
+<text x="1294.0" y="1827.2" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0df0</text>
+<rect x="1300.0" y="1775.7" width="230" height="38.9" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1415.0" y="1799.2" font-size="11" fill="#223" text-anchor="middle">do_clone</text>
+<text x="1294.0" y="1818.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0e10</text>
+<rect x="1300.0" y="1771.4" width="230" height="4.3" fill="#f7f9fd" stroke="#9fb0d0"/>
+<rect x="1300.0" y="1762.8" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1294.0" y="1775.4" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0eb0</text>
+<rect x="1300.0" y="1754.1" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1294.0" y="1766.8" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…0ed0</text>
+<line x1="1250.0" y1="1918.3" x2="1555.0" y2="1918.3" stroke="#111" stroke-width="2"/>
+<text x="1559.0" y="1922.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="1559.0" y="1936.3" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="1300.0" y="1924.3" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="1415.0" y="1943.3" font-size="10" fill="#999" text-anchor="middle">空闲 3216 字节（未画）  base …0000</text>
+<rect x="1210.0" y="1972.2800000000002" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="1220.0" y="1990.3" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa46b8）</text>
+<text x="1220.0" y="2005.3" font-size="10.5" fill="#8a7a50" text-anchor="start">[68] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="1213.0" y="2012.2800000000002" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1220.0" y="2025.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="1268.0" y="2025.3" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe0c90</text>
+<text x="1398.0" y="2025.3" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M1213.0,2021.3 C1196.0,2021.3 1196.0,1918.3 1242.0,1918.3" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="1220.0" y="2043.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="1268.0" y="2043.3" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000008ad0</text>
+<text x="1398.0" y="2043.3" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="1220.0" y="2061.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="1268.0" y="2061.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="1398.0" y="2061.3" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="1220.0" y="2079.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="1268.0" y="2079.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="1398.0" y="2079.3" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="1220.0" y="2097.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="1268.0" y="2097.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4600</text>
+<text x="1398.0" y="2097.3" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 17 的 struct proc）</text>
+<text x="1220.0" y="2115.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="1268.0" y="2115.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1398.0" y="2115.3" font-size="10.5" fill="#b45309" text-anchor="start">intena=0：从定时器 IRQ 里 yield（中断已关）</text>
+<text x="1220.0" y="2133.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="1268.0" y="2133.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1398.0" y="2133.3" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="1220.0" y="2151.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="1268.0" y="2151.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006ff9460</text>
+<text x="1398.0" y="2151.3" font-size="10.5" fill="#7c3aed" text-anchor="start">files 结构：do_clone 正在给新子进程（pid 25）复制</text>
+<text x="1220.0" y="2169.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="1268.0" y="2169.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006ff82c0</text>
+<text x="1398.0" y="2169.3" font-size="10.5" fill="#7c3aed" text-anchor="start">fs 结构：do_clone 正在给新子进程（pid 25）复制</text>
+<text x="1220.0" y="2187.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="1268.0" y="2187.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1398.0" y="2187.3" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="1220.0" y="2205.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="1268.0" y="2205.3" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006ffb5e8</text>
+<text x="1398.0" y="2205.3" font-size="10.5" fill="#7c3aed" text-anchor="start">pid 17 的 vm 结构 +0x48</text>
+<text x="1220.0" y="2223.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="1268.0" y="2223.3" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1398.0" y="2223.3" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<rect x="1213.0" y="2228.28" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1220.0" y="2241.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="1268.0" y="2241.3" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe0c90</text>
+<text x="1398.0" y="2241.3" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M1213.0,2237.3 C1187.0,2237.3 1187.0,1918.3 1242.0,1921.3" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="1220.0" y="2259.3" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="1268.0" y="2259.3" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="1398.0" y="2259.3" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="1790.0" y="1612.7" font-size="15" fill="#1f7a46" text-anchor="start" font-weight="bold">⑧ [345] sh 在 sleep 里被抢占（CPU0）</text>
+<text x="1790.0" y="1631.7" font-size="10.5" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">kstack VA 0x…ffe2000–e3000  PA 06ee5000  proc 0x…fa4780</text>
+<text x="1790.0" y="1650.7" font-size="11.5" fill="#333" text-anchor="start">[342] 被唤醒、[343] 换入后，刚从 sleep 出来还没返回就被 IRQ yield；[346] 换到 CPU2。</text>
+<rect x="1880.0" y="1680.7" width="230" height="73.4" fill="#fde2e2" stroke="#c0392b"/>
+<text x="1995.0" y="1721.4" font-size="10.5" fill="#c0392b" text-anchor="middle">trapframe（用户寄存器 0x110）</text>
+<text x="1874.0" y="1684.7" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…3000</text>
+<text x="1874.0" y="1758.1" font-size="10" fill="#555" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ef0</text>
+<rect x="1880.0" y="1896.7" width="230" height="13.0" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1995.0" y="1907.2" font-size="10" fill="#223" text-anchor="middle">sched</text>
+<text x="1874.0" y="1913.6" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2cb0</text>
+<rect x="1880.0" y="1814.6" width="230" height="82.1" fill="#fff1e0" stroke="#9fb0d0"/>
+<text x="1995.0" y="1859.6" font-size="11" fill="#223" text-anchor="middle">yield 帧 + el1irq 存的中断现场（0x130）</text>
+<text x="1874.0" y="1900.7" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ce0</text>
+<rect x="1880.0" y="1810.3" width="230" height="4.3" fill="#fff1e0" stroke="#9fb0d0"/>
+<rect x="1880.0" y="1797.3" width="230" height="13.0" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1995.0" y="1807.8" font-size="10" fill="#223" text-anchor="middle">sleep</text>
+<text x="1874.0" y="1814.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e20</text>
+<rect x="1880.0" y="1780.0" width="230" height="17.3" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1995.0" y="1792.7" font-size="11" fill="#223" text-anchor="middle">wait</text>
+<text x="1874.0" y="1801.3" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e50</text>
+<rect x="1880.0" y="1771.4" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1874.0" y="1784.0" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2e90</text>
+<rect x="1880.0" y="1762.8" width="230" height="8.6" fill="#f7f9fd" stroke="#9fb0d0"/>
+<text x="1874.0" y="1775.4" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2eb0</text>
+<rect x="1880.0" y="1754.1" width="230" height="8.6" fill="#eef2fb" stroke="#9fb0d0"/>
+<text x="1874.0" y="1766.8" font-size="9.5" fill="#888" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace">…2ed0</text>
+<line x1="1830.0" y1="1909.6" x2="2135.0" y2="1909.6" stroke="#111" stroke-width="2"/>
+<text x="2139.0" y="1913.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold">← p-&gt;context.sp</text>
+<text x="2139.0" y="1927.6" font-size="10" fill="#555" text-anchor="start">swtch 在这里离开 / 回来</text>
+<rect x="1880.0" y="1915.6" width="230" height="30" fill="#fff" stroke="#ccc" stroke-dasharray="4,3"/>
+<text x="1995.0" y="1934.6" font-size="10" fill="#999" text-anchor="middle">空闲 3248 字节（未画）  base …2000</text>
+<rect x="1790.0" y="1963.64" width="550.0" height="298" rx="6" fill="#fffdf6" stroke="#c9a227" stroke-width="1.4"/>
+<text x="1800.0" y="1981.6" font-size="12.5" fill="#7a5b14" text-anchor="start" font-weight="bold">p-&gt;context（struct proc +0xb8 = 0x…fa4838）</text>
+<text x="1800.0" y="1996.6" font-size="10.5" fill="#8a7a50" text-anchor="start">[345] 换出时 swtch 存进去的 13 个值 + sp</text>
+<rect x="1793.0" y="2003.64" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1800.0" y="2016.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<text x="1848.0" y="2016.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2cb0</text>
+<text x="1978.0" y="2016.6" font-size="10.5" fill="#c0392b" text-anchor="start">→ 栈上 sched 的帧（swtch 换回时 mov sp 到这里）</text>
+<path d="M1793.0,2012.6 C1776.0,2012.6 1776.0,1909.6 1822.0,1909.6" fill="none" stroke="#c0392b" stroke-width="1.8" marker-end="url(#spa)"/>
+<text x="1800.0" y="2034.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<text x="1848.0" y="2034.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009ac0</text>
+<text x="1978.0" y="2034.6" font-size="10.5" fill="#047857" text-anchor="start">平台寄存器，内核不用：= 用户态 x18</text>
+<text x="1800.0" y="2052.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<text x="1848.0" y="2052.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff80000cd768</text>
+<text x="1978.0" y="2052.6" font-size="10.5" fill="#555" text-anchor="start">&amp;cpus[0]：sched 里 mycpu() 的基址</text>
+<text x="1800.0" y="2070.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<text x="1848.0" y="2070.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000000a0</text>
+<text x="1978.0" y="2070.6" font-size="10.5" fill="#555" text-anchor="start">0xa0 = sizeof(struct cpu)</text>
+<text x="1800.0" y="2088.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<text x="1848.0" y="2088.6" font-size="10" fill="#7c3aed" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8006fa4780</text>
+<text x="1978.0" y="2088.6" font-size="10.5" fill="#7c3aed" text-anchor="start">p 自己（pid 16 的 struct proc）</text>
+<text x="1800.0" y="2106.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<text x="1848.0" y="2106.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1978.0" y="2106.6" font-size="10.5" fill="#b45309" text-anchor="start">intena=0：从定时器 IRQ 里 yield（中断已关）</text>
+<text x="1800.0" y="2124.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<text x="1848.0" y="2124.6" font-size="10" fill="#b45309" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000000000</text>
+<text x="1978.0" y="2124.6" font-size="10.5" fill="#b45309" text-anchor="start">调用链局部变量（= 0）</text>
+<text x="1800.0" y="2142.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<text x="1848.0" y="2142.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x000000000000001e</text>
+<text x="1978.0" y="2142.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x24：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="2160.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<text x="1848.0" y="2160.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x00000000000008d0</text>
+<text x="1978.0" y="2160.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x25：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="2178.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<text x="1848.0" y="2178.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009ac0</text>
+<text x="1978.0" y="2178.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x26：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="2196.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<text x="1848.0" y="2196.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000003feffffbb8</text>
+<text x="1978.0" y="2196.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x27：用户态的值，这条路径没用到</text>
+<text x="1800.0" y="2214.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<text x="1848.0" y="2214.6" font-size="10" fill="#047857" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0x0000000000009b48</text>
+<text x="1978.0" y="2214.6" font-size="10.5" fill="#047857" text-anchor="start">= trapframe.x28：用户态的值，这条路径没用到</text>
+<rect x="1793.0" y="2219.6400000000003" width="544.0" height="18" fill="#fde8e8"/>
+<text x="1800.0" y="2232.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<text x="1848.0" y="2232.6" font-size="10" fill="#c0392b" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffffbffffe2cb0</text>
+<text x="1978.0" y="2232.6" font-size="10.5" fill="#c0392b" text-anchor="start">= sp：sched 帧记录 {调用者 fp, lr}，回溯起点</text>
+<path d="M1793.0,2228.6 C1767.0,2228.6 1767.0,1909.6 1822.0,1912.6" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#spa)"/>
+<text x="1800.0" y="2250.6" font-size="11" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<text x="1848.0" y="2250.6" font-size="10" fill="#555" text-anchor="start" font-family="'DejaVu Sans Mono',Menlo,monospace">0xffffff8000083ac0</text>
+<text x="1978.0" y="2250.6" font-size="10.5" fill="#555" text-anchor="start">sched+0xb4：bl swtch 的下一条，换入后 ret 到这里</text>
+<text x="40.0" y="2324.3" font-size="19" fill="#111" text-anchor="start" font-weight="bold">context 横向对比：同一个寄存器在不同进程/不同换出原因下的值</text>
+<text x="40.0" y="2346.3" font-size="13" fill="#555" text-anchor="start">颜色 = 含义类别：灰 = 所有 live context 都一样　红 = 指向自己的内核栈　紫 = 自己的 proc / 内核数据　橙 = 由换出路径决定　绿 = 原样带着的用户态值　浅灰 = 新 context 里的 0</text>
+<rect x="40" y="2364.28" width="2320" height="41.6" fill="#f1f2f6"/>
+<text x="48.0" y="2390.3" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">寄存器</text>
+<text x="262.8" y="2381.3" font-size="12" fill="#3b6fd6" text-anchor="middle" font-weight="bold">[28] 14 init</text>
+<text x="262.8" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">被抢占 · el1irq</text>
+<text x="498.4" y="2381.3" font-size="12" fill="#e08a1e" text-anchor="middle" font-weight="bold">[42] 15 wifi</text>
+<text x="498.4" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">exit · sys_exit</text>
+<text x="734.1" y="2381.3" font-size="12" fill="#2e9d5b" text-anchor="middle" font-weight="bold">[45] 16 login</text>
+<text x="734.1" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">sleep · consoleread</text>
+<text x="969.7" y="2381.3" font-size="12" fill="#1f7a46" text-anchor="middle" font-weight="bold">[55] 16 sh</text>
+<text x="969.7" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">sleep · wait</text>
+<text x="1205.3" y="2381.3" font-size="12" fill="#7f8c8d" text-anchor="middle" font-weight="bold">[56] 18 forktest</text>
+<text x="1205.3" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">首次换入 · 新 context</text>
+<text x="1440.9" y="2381.3" font-size="12" fill="#7f8c8d" text-anchor="middle" font-weight="bold">[58] 18 forktest</text>
+<text x="1440.9" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">exit · sys_exit</text>
+<text x="1676.6" y="2381.3" font-size="12" fill="#8e44ad" text-anchor="middle" font-weight="bold">[68] 17 forktest</text>
+<text x="1676.6" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">被抢占 · el1irq</text>
+<text x="1912.2" y="2381.3" font-size="12" fill="#1f7a46" text-anchor="middle" font-weight="bold">[345] 16 sh</text>
+<text x="1912.2" y="2398.3" font-size="10.5" fill="#666" text-anchor="middle">被抢占 · el1irq</text>
+<text x="2038.0" y="2390.3" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">规律</text>
+<rect x="40" y="2405.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2422.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">sp</text>
+<rect x="147.0" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="262.8" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe49d0</text>
+<rect x="382.625" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="498.4" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2e20</text>
+<rect x="618.25" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="734.1" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2dc0</text>
+<rect x="853.875" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="969.7" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2df0</text>
+<rect x="1089.5" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1205.3" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffdeef0</text>
+<rect x="1325.125" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1440.9" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffdee20</text>
+<rect x="1560.75" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1676.6" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe0c90</text>
+<rect x="1796.375" y="2407.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1912.2" y="2422.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2cb0</text>
+<text x="2038.0" y="2422.9" font-size="11" fill="#333" text-anchor="start">每个进程指向自己 kstack 里 sched 的帧；深浅取决于调用链</text>
+<rect x="40" y="2431.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2448.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x18</text>
+<rect x="147.0" y="2433.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="262.8" y="2448.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="382.625" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="498.4" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="618.25" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="734.1" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="853.875" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9ac0</text>
+<rect x="1089.5" y="2433.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2448.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1440.9" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="1560.75" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1676.6" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="1796.375" y="2433.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2448.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9ac0</text>
+<text x="2038.0" y="2448.9" font-size="11" fill="#333" text-anchor="start">内核不用：live 时带着用户态 x18，新 context 为 0</text>
+<rect x="40" y="2457.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2474.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x19</text>
+<rect x="147.0" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="262.8" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="382.625" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="498.4" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="618.25" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="734.1" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="853.875" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="969.7" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="1089.5" y="2459.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2474.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1440.9" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="1560.75" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1676.6" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<rect x="1796.375" y="2459.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1912.2" y="2474.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cpus</text>
+<text x="2038.0" y="2474.9" font-size="11" fill="#333" text-anchor="start">live 一律 &amp;cpus[0]（sched 用来算 mycpu）</text>
+<rect x="40" y="2483.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2500.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x20</text>
+<rect x="147.0" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="262.8" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="382.625" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="498.4" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="618.25" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="734.1" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="853.875" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="969.7" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="1089.5" y="2485.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2500.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1440.9" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="1560.75" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1676.6" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<rect x="1796.375" y="2485.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1912.2" y="2500.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0xa0</text>
+<text x="2038.0" y="2500.9" font-size="11" fill="#333" text-anchor="start">live 一律 0xa0 = sizeof(struct cpu)</text>
+<rect x="40" y="2509.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2526.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x21</text>
+<rect x="147.0" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="262.8" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4900</text>
+<rect x="382.625" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="498.4" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4780</text>
+<rect x="618.25" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="734.1" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4780</text>
+<rect x="853.875" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="969.7" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4780</text>
+<rect x="1089.5" y="2511.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2526.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1440.9" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4480</text>
+<rect x="1560.75" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1676.6" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4600</text>
+<rect x="1796.375" y="2511.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1912.2" y="2526.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06fa4780</text>
+<text x="2038.0" y="2526.9" font-size="11" fill="#333" text-anchor="start">live 一律 = p 自己：每列不同，等于各自 proc 地址</text>
+<rect x="40" y="2535.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2552.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x22</text>
+<rect x="147.0" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="262.8" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="382.625" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="498.4" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="618.25" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="734.1" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="853.875" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="969.7" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="1089.5" y="2537.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2552.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1440.9" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="1560.75" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1676.6" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1796.375" y="2537.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1912.2" y="2552.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<text x="2038.0" y="2552.9" font-size="11" fill="#333" text-anchor="start">intena：IRQ 抢占进来 = 0，sleep/exit 进来 = 1</text>
+<rect x="40" y="2561.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2578.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x23</text>
+<rect x="147.0" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="262.8" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="382.625" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="498.4" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="618.25" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="734.1" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x20</text>
+<rect x="853.875" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="969.7" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1089.5" y="2563.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2578.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1440.9" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1560.75" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1676.6" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1796.375" y="2563.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1912.2" y="2578.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<text x="2038.0" y="2578.9" font-size="11" fill="#333" text-anchor="start">调用链里的局部变量（consoleread 的 n 等）</text>
+<rect x="40" y="2587.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2604.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x24</text>
+<rect x="147.0" y="2589.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="262.8" y="2604.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sd_rca</text>
+<rect x="382.625" y="2589.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="498.4" y="2604.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">wait_lock</text>
+<rect x="618.25" y="2589.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="734.1" y="2604.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="853.875" y="2589.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2604.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x1e</text>
+<rect x="1089.5" y="2589.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2604.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2589.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1440.9" y="2604.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">wait_lock</text>
+<rect x="1560.75" y="2589.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1676.6" y="2604.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06ff9460</text>
+<rect x="1796.375" y="2589.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2604.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x1e</text>
+<text x="2038.0" y="2604.9" font-size="11" fill="#333" text-anchor="start">路径决定：&amp;sd_rca / &amp;wait_lock / user_dst / 新子进程的 files…</text>
+<rect x="40" y="2613.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2630.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x25</text>
+<rect x="147.0" y="2615.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="262.8" y="2630.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…3f20203c</text>
+<rect x="382.625" y="2615.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="498.4" y="2630.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x440</text>
+<rect x="618.25" y="2615.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="734.1" y="2630.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">cons+0x98</text>
+<rect x="853.875" y="2615.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2630.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8d0</text>
+<rect x="1089.5" y="2615.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2630.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2615.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1440.9" y="2630.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x358</text>
+<rect x="1560.75" y="2615.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1676.6" y="2630.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06ff82c0</text>
+<rect x="1796.375" y="2615.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2630.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8d0</text>
+<text x="2038.0" y="2630.9" font-size="11" fill="#333" text-anchor="start">路径决定：SD MMIO / &amp;cons.r / fs 结构；没用到时是用户值</text>
+<rect x="40" y="2639.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2656.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x26</text>
+<rect x="147.0" y="2641.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="262.8" y="2656.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="382.625" y="2641.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="498.4" y="2656.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="618.25" y="2641.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="734.1" y="2656.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="853.875" y="2641.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2656.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9ac0</text>
+<rect x="1089.5" y="2641.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2656.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2641.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1440.9" y="2656.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8ad0</text>
+<rect x="1560.75" y="2641.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1676.6" y="2656.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1796.375" y="2641.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2656.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9ac0</text>
+<text x="2038.0" y="2656.9" font-size="11" fill="#333" text-anchor="start">大多是用户态 x26 原样带下来（callee-saved 没人改）</text>
+<rect x="40" y="2665.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2682.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x27</text>
+<rect x="147.0" y="2667.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="262.8" y="2682.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…3f202050</text>
+<rect x="382.625" y="2667.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="498.4" y="2682.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x3feffffbb8</text>
+<rect x="618.25" y="2667.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="734.1" y="2682.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x3feffffbb8</text>
+<rect x="853.875" y="2667.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2682.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x3feffffbb8</text>
+<rect x="1089.5" y="2667.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2682.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2667.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1440.9" y="2682.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x3feffffbb8</text>
+<rect x="1560.75" y="2667.88" width="231.625" height="22" rx="3" fill="#efe6fa"/>
+<text x="1676.6" y="2682.9" font-size="10.5" fill="#7c3aed" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…06ffb5e8</text>
+<rect x="1796.375" y="2667.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2682.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x3feffffbb8</text>
+<text x="2038.0" y="2682.9" font-size="11" fill="#333" text-anchor="start">同上；init 读盘时是 SD MMIO，fork 时是父 vm 结构</text>
+<rect x="40" y="2691.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2708.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x28</text>
+<rect x="147.0" y="2693.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="262.8" y="2708.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">1</text>
+<rect x="382.625" y="2693.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="498.4" y="2708.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8b58</text>
+<rect x="618.25" y="2693.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="734.1" y="2708.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8b58</text>
+<rect x="853.875" y="2693.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="969.7" y="2708.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9b48</text>
+<rect x="1089.5" y="2693.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2708.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2693.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1440.9" y="2708.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x8b58</text>
+<rect x="1560.75" y="2693.88" width="231.625" height="22" rx="3" fill="#fdf0dc"/>
+<text x="1676.6" y="2708.9" font-size="10.5" fill="#b45309" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1796.375" y="2693.88" width="231.625" height="22" rx="3" fill="#e1f4ea"/>
+<text x="1912.2" y="2708.9" font-size="10.5" fill="#047857" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0x9b48</text>
+<text x="2038.0" y="2708.9" font-size="11" fill="#333" text-anchor="start">同上</text>
+<rect x="40" y="2717.88" width="2320" height="26" fill="#fafbfc" stroke="#eee"/>
+<text x="48.0" y="2734.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x29 fp</text>
+<rect x="147.0" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="262.8" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe49d0</text>
+<rect x="382.625" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="498.4" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2e20</text>
+<rect x="618.25" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="734.1" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2dc0</text>
+<rect x="853.875" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="969.7" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2df0</text>
+<rect x="1089.5" y="2719.88" width="231.625" height="22" rx="3" fill="#f7f7f7"/>
+<text x="1205.3" y="2734.9" font-size="10.5" fill="#999" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">0</text>
+<rect x="1325.125" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1440.9" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffdee20</text>
+<rect x="1560.75" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1676.6" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe0c90</text>
+<rect x="1796.375" y="2719.88" width="231.625" height="22" rx="3" fill="#fde8e8"/>
+<text x="1912.2" y="2734.9" font-size="10.5" fill="#c0392b" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">…fffe2cb0</text>
+<text x="2038.0" y="2734.9" font-size="11" fill="#333" text-anchor="start">= sp：sched 帧记录的地址，回溯起点</text>
+<rect x="40" y="2743.88" width="2320" height="26" fill="#fff" stroke="#eee"/>
+<text x="48.0" y="2760.9" font-size="12" fill="#111" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans Mono',Menlo,monospace">x30 lr</text>
+<rect x="147.0" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="262.8" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="382.625" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="498.4" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="618.25" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="734.1" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="853.875" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="969.7" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="1089.5" y="2745.88" width="231.625" height="22" rx="3" fill="#e3ebfd"/>
+<text x="1205.3" y="2760.9" font-size="10.5" fill="#1d4ed8" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">forkret</text>
+<rect x="1325.125" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1440.9" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="1560.75" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1676.6" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<rect x="1796.375" y="2745.88" width="231.625" height="22" rx="3" fill="#eceff3"/>
+<text x="1912.2" y="2760.9" font-size="10.5" fill="#555" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace">sched+0xb4</text>
+<text x="2038.0" y="2760.9" font-size="11" fill="#333" text-anchor="start">live 一律 sched+0xb4；新 context = forkret</text>
+<text x="40.0" y="2799.9" font-size="14" fill="#111" text-anchor="start" font-weight="bold">结论</text>
+<text x="40.0" y="2821.9" font-size="13" fill="#333" text-anchor="start">1. 同一时刻每个 CPU 只有一个 context 在用：换出时 swtch 把 x19–x30、sp 存进 p-&gt;context，再从 c-&gt;context 装回调度器；换入反过来。所以 8 列里“灰色”那几行（x19/x20/x30）永远一样 —— 它们是 sched() 自己的寄存器，不属于进程。</text>
+<text x="40.0" y="2843.9" font-size="13" fill="#333" text-anchor="start">2. 真正区分进程的是 sp/x29（指向各自 kstack 上 sched 的帧）和 x21（= 自己的 proc）。wifi 和 login/sh 的 sp 都在 …e2xxx，是同一个 VA 槽先后给了 pid 15 和 16；forktest 的子进程每个占一个新槽（…de000、…dc000 …）。</text>
+<text x="40.0" y="2865.9" font-size="13" fill="#333" text-anchor="start">3. x22 告诉你“为什么换出”：0 = 从定时器 IRQ yield（init 读盘、父 17 fork 到一半、sh 刚出 sleep），1 = 自己走 sleep/exit。x23–x28 是换出路径上的 callee-saved 寄存器，路径没用到的就原样保留用户态的值（绿色）。</text>
+<text x="40.0" y="2887.9" font-size="13" fill="#333" text-anchor="start">4. 新进程（⑤）的 context 只有 sp=trapframe 和 x30=forkret，其余全 0：第一次换入不经过 sched，直接 ret 到 forkret 回用户态。它 exit（⑥）时的栈形状与 wifi exit（②）完全相同。</text>
+<text x="40.0" y="2909.9" font-size="13" fill="#333" text-anchor="start">5. 被抢占的三列（①⑦⑧）栈里都有一块 el1irq 中断现场：中断压在当时正在跑的进程自己的内核栈上，下次在别的 CPU 换入（[29]/[70]/[346]）时从这里 eret 回去，所以“换 CPU 继续”不需要搬栈。</text></svg>

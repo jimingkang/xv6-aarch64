@@ -224,22 +224,22 @@ dispatch=file_operations        普通文件、目录和 /dev 设备
 
 ### `fileinit()`、fd 表与全局打开文件对象
 
-`fileinit()` 不读取文件系统，也不初始化 inode 的 `iop/i_fop`。它在启动时初始化全局
-`ftable.lock`，并调用 `epollinit()`；`ftable.file[NFILE]` 位于 BSS，启动时 `ref` 已经全为
-0。以后 `filealloc()` 在该数组中寻找 `ref==0` 的槽，清空并初始化一个 `struct file`，
-`fdalloc()` 再把指针放进当前进程的 `p->ofile[fd]`：
+`fileinit()` 不读取文件系统，也不初始化 inode 的 `iop/i_fop`。它初始化全局
+`ftable.lock`、`struct file` 的 `kmem_cache`，并调用 `epollinit()` 和 `pipeinit()`。
+以后 `filealloc()` 从 slab cache 动态取得一个已经清零的 `struct file`，初始化引用计数
+和文件位置锁；`fd_install()` 再把指针放进当前进程的 `files_struct.fd[fd]`：
 
 ```text
-每进程 p->ofile[fd] -> 全局 ftable.file[slot] -> inode cache 中的 struct inode
-       私有编号              一次打开实例                 文件本体
+每任务 files_struct.fd[fd] -> slab 中的 struct file -> inode cache 中的 struct inode
+          私有编号                一次打开实例                 文件本体
 ```
 
-`fd` 不是 `ftable` 下标。两个进程分别 `open()` 同一路径，可以都得到 fd 3，但会占用两个
-不同的全局 `struct file`，各有独立 `off/flags/private_data`，并共同引用同一个 inode。
+`fd` 不是任何全局数组的下标。两个进程分别 `open()` 同一路径，可以都得到 fd 3，但会
+动态分配两个不同的 `struct file`，各有独立 `off/flags/private_data`，并共同引用同一个 inode。
 `fork()` 继承或 `dup()` 复制 fd 时才通过 `filedup()` 共享同一个 `struct file`，因而共享
 文件偏移。Linux 的分层语义相同：`task->files->fdtable.fd[fd]` 指向动态从全局 slab cache
 分配的 `struct file`；两次独立 `open()` 分配两个 file 对象，`fork/dup` 增加同一个 file
-对象的引用。区别只是 Linux 没有固定的全局 `file[NFILE]` 数组。
+对象的引用。当前实现也不再有固定的全局 `file[NFILE]` 数组；对象数量由可用内存限制。
 
 ### 从 MBR、superblock、根 inode 到文件读写的完整链路
 

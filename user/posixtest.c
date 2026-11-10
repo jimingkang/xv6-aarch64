@@ -40,7 +40,7 @@ main(void)
   int child, child_status, pipes[2];
   char cwd[128], pipe_byte = 0;
   char formatted[32];
-  char *dynamic;
+  char *dynamic, *large;
   struct sockaddr_in address;
 
   fd = open("posix.tmp", O_CREAT | O_TRUNC | O_RDWR, 0644);
@@ -66,6 +66,24 @@ main(void)
     exit(1);
   }
   free(dynamic);
+
+  // The libc allocator keeps small objects in its reusable brk arena, but a
+  // large miss follows ptmalloc's policy and gets an anonymous mmap VMA.
+  // mmap() allocations live in the high user window on this port.
+  large = calloc(1, 256 * 1024);
+  if(large == 0 || (unsigned long)large < 0x0000001000000000UL ||
+     large[0] != 0 || large[256 * 1024 - 1] != 0){
+    printf("posixtest: large calloc mmap policy failed\n");
+    exit(1);
+  }
+  large[0] = 'L';
+  large[256 * 1024 - 1] = 'R';
+  large = realloc(large, 512 * 1024);
+  if(large == 0 || large[0] != 'L' || large[256 * 1024 - 1] != 'R'){
+    printf("posixtest: large realloc failed\n");
+    exit(1);
+  }
+  free(large);
 
   if(pipe(pipes) < 0 || dup2(pipes[1], 10) != 10 || close(pipes[1]) < 0 ||
      write(10, "D", 1) != 1 || close(10) < 0 ||

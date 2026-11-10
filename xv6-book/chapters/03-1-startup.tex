@@ -85,9 +85,7 @@ AArch64 有四个异常级别：EL0 运行用户程序，EL1 运行操作系统�
 
 \paragraph{异常级别只能靠异常来改变.} 没有更高特权软件的参与，程序无法提升自己的级别——否则隔离就形同虚设。级别只在异常发生和返回时改变。发生异常（非法访存、\code{svc} 指令、硬件中断等）并由 EL$n$ 处理时，硬件依次做三件事：把返回地址存入 \reg{ELR\_ELn}，把当时的处理器状态存入 \reg{SPSR\_ELn}，跳到异常向量；处理程序结束时执行 \code{eret}，硬件再从这两个寄存器恢复状态和地址。关键在于这两个寄存器都是可写的，处理程序不一定要“回到原处”。启动时降级正是利用这一点。
 
-调试启动代码时，一个简单而有用的手段是读出 \reg{CurrentEL}：当前级别保存在它的第 [3:2] 位，右移 2 位即得 0～3。用不同的固件或 \code{config.txt} 启动时，读到的值可能是 3 或 2，下面的代码对两者都要处理：
-
-\file{kernel/arch/arm64/entry.S} 的第一件事就是读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进入，都降到 EL1：
+当前级别可以从 \reg{CurrentEL} 读出：它保存在第 [3:2] 位，右移 2 位即得 0～3。用不同的固件或 \code{config.txt} 启动时，读到的值可能是 3 或 2，所以 \file{kernel/arch/arm64/entry.S} 的第一件事就是读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进入，都降到 EL1：
 
 \begin{asmcode}
 _entry:
@@ -221,3 +219,5 @@ early_mini_uart:
 正常启动时串口先打出 \code{E}，然后是 \code{BPH0abdefc1234}，接着才是 \code{printf} 的第一行 “xv6 kernel is booting”。第~\ref{chap:mmu} 章会讲到一次停在 \code{BPH0abde} 的故障：它说明第一次 \code{kfree()} 已经完成 \code{memset}，却没能拿到 \code{kmem.lock}。
 
 MMU 打开之后，物理地址 \code{0x3f215000} 不再可用。\code{boot\_uart\_mark()} 改用高地址 \code{KERNBASE + 0x3f215000}，所以启动页表里专门为 Mini UART 所在的 2\,MiB 块加了一个设备映射。
+
+到这里，主核已经处在 EL1、关着 MMU，并且有了一个能报告进度的串口；副核在 \code{secondary\_wait} 中等待。接下来的 \code{entry} 要清 BSS、建启动页表、打开 MMU，这些步骤与页表的关系更紧密，放到第~\ref{chap:mmu} 章讲。下一节先看另一件同样要在 \code{main()} 之前想清楚的事：异常和中断怎样进入内核。

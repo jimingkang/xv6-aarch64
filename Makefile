@@ -71,6 +71,7 @@ CORE_OBJS = \
 
 MM_OBJS = \
   $K/mm/kalloc.o \
+  $K/mm/slab.o \
   $K/mm/vm.o \
   $K/mm/mmap.o
 
@@ -204,6 +205,49 @@ CFLAGS += -DVFS_TRACE=$(VFS_TRACE)
 # trapframe snapshot whenever a user image is created or replaced.
 VM_TRACE ?= 0
 CFLAGS += -DVM_TRACE=$(VM_TRACE)
+
+# Process/context/trapframe scheduling trace.  This is separate from
+# VM_TRACE because a full page-table walk is not useful on every switch.
+# Example:
+#   make PROC_SCHED_TRACE=1 PROC_SCHED_TRACE_LIMIT=256 PROC_SCHED_TRACE_PID=-1
+# PID 0 means all tasks, -1 means initproc and all of its user descendants
+# (kernel threads excluded), and a positive value is an exact PID.  LIMIT 0
+# means unlimited (very noisy).
+PROC_SCHED_TRACE ?= 0
+# ALL=1: full record for every dispatch and every switch-out of every task,
+# kernel threads included; LIMIT then defaults to 0 (unlimited).
+PROC_SCHED_TRACE_ALL ?= 0
+ifeq ($(PROC_SCHED_TRACE_ALL),1)
+PROC_SCHED_TRACE_LIMIT ?= 0
+endif
+PROC_SCHED_TRACE_LIMIT ?= 256
+PROC_SCHED_TRACE_PID ?= -1
+# One-line quiet events (hidden repeats, run ends, fork); 0 = unlimited.
+PROC_SCHED_QUIET_LIMIT ?= 512
+# One-line kthread-in/out events in PID=-1 mode (0 = off) and their budget.
+PROC_SCHED_TRACE_KTHREAD ?= 1
+PROC_SCHED_KTHREAD_LIMIT ?= 256
+CFLAGS += -DPROC_SCHED_TRACE=$(PROC_SCHED_TRACE)
+CFLAGS += -DPROC_SCHED_TRACE_LIMIT=$(PROC_SCHED_TRACE_LIMIT)
+CFLAGS += -DPROC_SCHED_TRACE_PID=$(PROC_SCHED_TRACE_PID)
+CFLAGS += -DPROC_SCHED_QUIET_LIMIT=$(PROC_SCHED_QUIET_LIMIT)
+CFLAGS += -DPROC_SCHED_TRACE_KTHREAD=$(PROC_SCHED_TRACE_KTHREAD)
+CFLAGS += -DPROC_SCHED_KTHREAD_LIMIT=$(PROC_SCHED_KTHREAD_LIMIT)
+CFLAGS += -DPROC_SCHED_TRACE_ALL=$(PROC_SCHED_TRACE_ALL)
+
+# Make normally does not notice command-line variable changes.  Keep the
+# effective scheduling-trace tuple in a stamp file so switching TRACE/PID/LIMIT
+# automatically recompiles proc.o instead of silently reusing stale flags.
+PROC_SCHED_TRACE_CONFIG = $K/.proc_sched_trace.config
+.PHONY: FORCE_PROC_SCHED_TRACE_CONFIG
+FORCE_PROC_SCHED_TRACE_CONFIG:
+
+$(PROC_SCHED_TRACE_CONFIG): FORCE_PROC_SCHED_TRACE_CONFIG
+	@cfg='$(PROC_SCHED_TRACE) $(PROC_SCHED_TRACE_LIMIT) $(PROC_SCHED_TRACE_PID) $(PROC_SCHED_QUIET_LIMIT) $(PROC_SCHED_TRACE_KTHREAD) $(PROC_SCHED_KTHREAD_LIMIT) $(PROC_SCHED_TRACE_ALL)'; \
+	old=$$(test -f $@ && cat $@ || true); \
+	if test "$$old" != "$$cfg"; then printf '%s\n' "$$cfg" > $@; fi
+
+$K/core/proc.o: $(PROC_SCHED_TRACE_CONFIG)
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
@@ -574,6 +618,7 @@ UPROGS=\
 	$U/_ps\
 	$U/_syncdemo\
 	$U/_prodcons\
+	$U/_pcsched\
 	$U/_nettest\
 	$U/_netdns\
 	$U/_tftpclient\
@@ -674,6 +719,7 @@ clean: clean-t113
 	*/*.o */*.d */*.asm */*.sym \
 	$U/initcode $U/initcode.out $K/kernel $(KERNEL_IMAGE) $K/kernel8.img \
 	$K/buildinfo.c \
+	$(PROC_SCHED_TRACE_CONFIG) \
 	$K/armstub.o $K/armstub.elf $K/armstub-xv6.bin fs.img $(EXT2_IMAGE) ext2root.debugfs \
 	$(QEMU_SD_IMAGE) \
 	$(MODULES) $(MODULES:.ko=.mod.o) $(MODULES:%=%.raw) \

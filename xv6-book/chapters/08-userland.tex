@@ -5,19 +5,21 @@
   \item 用户程序的形态与系统调用网关
   \item 从 \code{init} 到 shell
   \item 用户程序一览
-  \item 用户线程：\code{clone}、\code{texit}、\code{tjoin}
+  \item 用户线程：\code{clone}、\code{texit}、\code{tjoin}；Linux 风格 \code{clone(flags)} 与 \code{vfork}
   \item libc 与 POSIX 源码兼容层
   \item 在 xv6 里编译 C 程序
   \item 一个大型用户程序：\code{sshd}
 \end{introduction}
 
+前面几章一直站在内核这边：第~\ref{chap:process} 章造出第一个进程，第~\ref{chap:fs} 章给它挂上根文件系统，第~\ref{chap:drivers} 章把终端、网络和摄像头做成了设备文件。本章换到用户态这一边来看：程序怎样进入内核、\code{init} 怎样把系统带到登录提示符、线程和 libc 怎样建立在 \code{clone} 和 \code{mmap} 之上，最后用 \code{sshd} 这个最大的用户程序把各层串起来。
+
 \section{用户程序的形态}
 
 \subsection{为什么需要系统调用}
 
-进程隔离的第一步，是把所有用户程序放到特权最低的 EL0：在这一级，程序不能修改页表基址、不能屏蔽中断、不能访问没有映射给它的内存，也就无法改写内核为隔离所做的任何设置。否则，其他一切隔离手段都没有意义。
+进程隔离的第一个条件，是把所有用户程序放到特权最低的 EL0：在这一级，程序不能修改页表基址、不能屏蔽中断、不能访问没有映射给它的内存，也就无法改写内核为隔离所做的任何设置。否则，其他一切隔离手段都没有意义。
 
-可是用户程序总要打印字符、读文件、发网络包，而这些都需要直接操作设备。我们不能让每个程序直接去写 UART 寄存器，而是由内核提供一组受控的入口——系统调用。它不能是普通的函数调用，因为每次调用都要把执行级别从 EL0 提升到 EL1，而提升级别只有一条路：产生异常。所以每个系统调用本质上都是一次\emph{同步异常}：用户程序准备好参数，执行 \code{svc} 指令；硬件把它带到 EL1 的异常向量；内核检查参数、完成请求，然后执行普通的异常返回，从 \code{svc} 的下一条指令继续。进程隔离的第三个方面——每个进程有自己独立的内存视图——由页表完成（第~\ref{chap:mmu} 章）。
+可是用户程序总要打印字符、读文件、发网络包，而这些都需要直接操作设备。我们不能让每个程序直接去写 UART 寄存器，而是由内核提供一组受控的入口——系统调用。它不能是普通的函数调用，因为每次调用都要把执行级别从 EL0 提升到 EL1，而提升级别只有一条路：产生异常。所以每个系统调用本质上都是一次\emph{同步异常}：用户程序准备好参数，执行 \code{svc} 指令；硬件把它带到 EL1 的异常向量；内核检查参数、完成请求，然后执行普通的异常返回，从 \code{svc} 的下一条指令继续。受控入口是隔离的第二个条件；第三个条件——每个进程有自己独立的内存视图——由页表完成（第~\ref{chap:mmu} 章）。
 
 
 \subsection{链接与装载}
@@ -131,10 +133,9 @@ EL0 和 EL1 各有自己的栈指针。从用户态陷入时，硬件立刻把 \
 第一个用户进程 \code{initcode} 执行 \code{exec("/init")}（第~\ref{chap:process} 章）。\file{user/init.c} 做的事情相当于一个嵌入式 Linux 的启动脚本：
 
 \begin{enumerate}
-  \item 创建 \code{/dev}，用 \code{mknod} 建立 \code{console}、\code{tty}、\code{ttyS0}、\code{input/event0}、\code{video0} 设备节点；以 \code{/dev/ttyS0} 打开 fd 0，复制为 fd 1、2；
-  \item 创建 \code{/proc}、\code{/boot}、\code{/mnt/ext2}、\code{/etc}、\code{/root}、\code{/bin} 等目录，为根目录下的程序在 \code{/bin} 中建立硬链接；
-  \item 首次启动时生成 \code{/etc/hostname}、\code{/etc/fstab}、\code{/etc/passwd}（默认账号 \code{root}，密码 \code{xv6}）、\code{/etc/rc}；
-  \item 按 \code{/etc/fstab} 逐行调用 \code{mount()}；
+  \item 打开 \code{/dev/ttyS0} 作为 fd 0，复制为 fd 1、2。\code{/dev} 是内核在 \code{prepare\_namespace()} 里挂好的 devtmpfs，每个驱动注册时都已在其中建好节点（\ref{sec:ns-stage3} 节）；只有在旧内核或根上没有 \code{/dev} 的情况下，\code{init} 才退回去用 \code{mknod} 在根盘上建静态节点；
+  \item 目录骨架（\code{/proc}、\code{/sys}、\code{/boot}、\code{/etc}、\code{/bin} 等）在构建根镜像时就由工具建好，\code{init} 不改动持久的目录布局，只在文件缺失时生成 \code{/etc/hostname}、\code{/etc/passwd}（默认账号 \code{root}）、\code{/etc/rc}、\code{/etc/fstab} 和 \code{/etc/wifi.conf}；
+  \item 按 \code{/etc/fstab} 逐行调用 \code{mount()}：默认是 \code{/proc}（procfs）、\code{/sys}（sysfs）、\code{/boot}（FAT32）和 \code{/mnt/net}（netfs）；
   \item 如果存在 \code{/etc/wifi.conf}，先运行 \code{/bin/wifi} 连接无线网络；
   \item 在一个循环里 fork 并 exec \code{/bin/login}；\code{login} 退出后回收它，再启动一个新的登录提示；同时回收所有过继来的孤儿进程。
 \end{enumerate}
@@ -142,6 +143,8 @@ EL0 和 EL1 各有自己的栈指针。从用户态陷入时，硬件立刻把 \
 \code{login} 校验密码后调用 \code{tty\_attach()} 建立会话，切到 passwd 中指定的家目录，exec 指定的 shell。\code{sh} 在 xv6 原版基础上增加了：读取 \code{/etc/rc}、\code{PATH} 搜索（找不到时再回退到根目录，作为存储异常时的恢复路径）、\code{export}、\code{exit}/\code{logout} 内建命令，以及把外部命令设为前台进程组的作业控制。
 
 \section{用户程序一览}
+
+登录之后能用的命令都编译进了 \code{UPROGS}（表~\ref{tab:uprogs}），构建时装进根镜像的 \code{/bin}。
 
 \begin{table}[htbp]
   \centering
@@ -177,7 +180,7 @@ chrt -f -p 60 6           # 修改 PID 6（某个 kworker）的策略
 
 \subsection{设计}
 
-原来的模型是“一个 \code{struct proc} 对应一个独立的地址空间”。加入线程时，项目没有引入新的“线程控制块”，而是让每个线程仍然是一个完整的 \code{struct proc}——有自己的内核栈、trapframe、调度属性、TID 和 CPU 亲和性——只是同一线程组的成员共享同一个引用计数的 \code{struct vmspace}（图~\ref{fig:threads}）。
+原来的模型是“一个 \code{struct proc} 对应一个独立的地址空间”。加入线程时，项目没有引入新的“线程控制块”，而是让每个线程仍然是一个完整的 \code{struct proc}——有自己的内核栈、trapframe、调度属性、TID 和 CPU 亲和性——只是同一线程组的成员共享同一个引用计数的 \code{struct vmspace}（图~\ref{fig:threads}），以及描述符表 \code{files\_struct} 和当前目录 \code{fs\_struct}（第~\ref{sec:clone-flags} 节）。所以和 pthread 一样，一个线程打开的文件其他线程可以直接用，一个线程 \code{close(fd)} 后其他线程也看不到这个 fd 了。
 
 \begin{figure}[htbp]
   \centering
@@ -185,7 +188,7 @@ chrt -f -p 60 6           # 修改 PID 6（某个 kworker）的策略
     \node[box, text width=30mm] (p) {leader\\TID $=$ TGID};
     \node[box, below=of p, text width=30mm] (t1) {线程 1\\独立内核栈/trapframe};
     \node[box, below=of t1, text width=30mm] (t2) {线程 2\\独立内核栈/trapframe};
-    \node[hbox, right=of t1, text width=36mm] (vm) {\code{struct vmspace}\\TTBR0 页表、sz\\refcount $=3$};
+    \node[hbox, right=of t1, text width=36mm] (vm) {\code{struct vmspace}\\TTBR0 页表、sz\\refcount $=$ users $=3$};
     \draw[arr] (p.east) -- (vm); \draw[arr] (t1) -- (vm); \draw[arr] (t2.east) -- (vm);
   \end{tikzpicture}
   \caption{线程组共享 \code{vmspace}}
@@ -204,7 +207,9 @@ chrt -f -p 60 6           # 修改 PID 6（某个 kworker）的策略
     \toprule
     调用 & 作用 \\
     \midrule
-    \code{clone(entry, arg, stack\_top)} & 创建共享地址空间的新调度实体：\code{x0}=arg，\code{SP}=stack\_top，\code{ELR}=entry \\
+    \code{clone(entry, arg, stack\_top)} & 线程库专用（\code{SYS\_clone}，libc 里叫 \code{thread\_clone()}）：创建同一线程组的新调度实体，共享地址空间、fd 表和 cwd；\code{x0}=arg，\code{SP}=stack\_top，\code{ELR}=entry \\
+    \code{clone(fn, stack, flags, arg, ...)} & glibc 形式（\code{SYS\_clone\_flags}），标志取 Linux 的值，见第~\ref{sec:clone-flags} 节 \\
+    \code{vfork()} & \code{CLONE\_VM|CLONE\_VFORK|SIGCHLD}：父进程睡到子进程 exec 或退出 \\
     \code{texit(status)} & 只退出调用线程；leader 调用时等同于整个进程退出 \\
     \code{tjoin(tid, \&status)} & 等待并回收同组中的指定线程（0 表示任意） \\
     \code{gettid()} / \code{getpid()} & 返回线程 ID / 线程组 ID \\
@@ -227,7 +232,7 @@ int thread_create(thread_t *thread, void (*fn)(void *), void *arg) {
   struct thread_start *start = malloc(sizeof(*start));
   start->fn = fn;  start->arg = arg;
   uint64 top = ((uint64)thread->stack + THREAD_STACK_SIZE + 16) & ~15ULL;
-  thread->tid = clone(thread_boot, start, (void *)top);
+  thread->tid = thread_clone(thread_boot, start, (void *)top);
   ...
 }
 \end{ccode}
@@ -243,11 +248,14 @@ xv6-aarch64 的 \code{clone(entry, arg, stack\_top)} 换了一种更简单的语
 \begin{ccode}
 int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 {
-  ...
-  if(entry == 0 || stack_top < 16 || (stack_top & 15) != 0)
-    return -1;                          // 栈必须 16 字节对齐
-  ...
-  vm->refcount++;                       // 共享同一个地址空间
+  if(entry == 0 || stack_top == 0)
+    return -1;
+  return do_clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+                  CLONE_THREAD, stack_top, 0, 0, entry, arg);
+}
+
+// do_clone() 里与线程有关的部分
+  vm->refcount++; vm->users++;          // 共享同一个地址空间
   vmspace_put(np->vm);
   np->vm = vm;
   np->is_thread = 1;
@@ -255,16 +263,14 @@ int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 
   *(np->trapframe) = *(p->trapframe);
   np->trapframe->elr = entry;           // eret 之后从这里开始
-  np->trapframe->sp  = stack_top;       // 新的用户栈
   np->trapframe->x0  = arg;             // 第一个参数
   np->trapframe->x30 = 0;               // 不允许“返回”
-  ...
-  make_runnable(np, 0);
-  return tid;
-}
+  np->trapframe->sp  = stack_top;       // 新的用户栈，必须 16 字节对齐
 \end{ccode}
 
 \code{x30} 被清零，线程函数如果直接 \code{ret} 就会跳到地址 0 出错，所以用户库的 \code{thread\_boot()} 包了一层，保证函数返回后调用 \code{texit()}。线程退出后变成 ZOMBIE，等 \code{tjoin()} 回收——与进程的 \code{exit}/\code{wait} 是同一种约定：先保留“尸体”，让等待者能取到退出状态，再由等待者释放资源。
+
+glibc 形式的 \code{clone(fn, stack, flags, arg, ...)} 走另一条系统调用 \code{SYS\_clone\_flags}，内核语义与 Linux 相同（子进程从系统调用返回 0），所以它需要上面说的汇编包装：\file{usys.pl} 生成的 \code{\_\_clone} 把 \code{fn} 和 \code{arg} 放在 \code{x9}/\code{x10} 里穿过 \code{svc}——子进程的 trapframe 是父进程的拷贝，这两个寄存器原样带过去——返回 0 时调用 \code{fn(arg)}，再以返回值 \code{exit}。\code{vfork()} 则是一段直接发 \code{SYS\_clone\_flags} 的汇编，\code{x0 = 0x4111}，\code{stack = 0} 表示子进程借用父进程的栈。
 
 \subsection{多核下的细节}
 
@@ -293,6 +299,8 @@ int threadclone(uint64 entry, uint64 arg, uint64 stack_top)
 
 \section{libc 与 POSIX 源码兼容层}
 \label{sec:posix}
+
+用户程序不直接写 \code{svc}，而是通过 libc。本节按演进顺序介绍它的几种形态：最早的静态库 \code{libc.a}；由内核装载的 \code{libc.so}，以及曾经在内核里做的代码页共享；当前源码树使用的用户态解释器 \file{ld-xv6.so}；还有实验分支上用 \code{mmap} 装库的 \file{ld.so}。最后是让 Linux 程序可以直接编译的 POSIX 层。
 
 \subsection{\code{libc.a}}
 
@@ -365,7 +373,7 @@ exec: dynamic /bin/sh, libc.so base=0x0000000000003000
 
 这里的 \code{base} 就是上文的 \code{libbase}：\code{login} 主镜像最大到 \code{0x1a20}，页对齐后落在第 2 页 \code{0x2000}；\code{sh} 更大，跨到第 3 页 \code{0x3000}。若某个程序没有打印 \code{exec: dynamic} 却能运行，说明它是静态 \code{ET\_EXEC} 回退路径。
 
-\paragraph{收敛与限制.} 这是一个刻意为之的最小 \textbf{xv6 原生}装载 ABI，而不是完整的 \code{ld.so}：只支持 RELA（无 \code{DT\_REL}）；只认上面四种动态重定位，带 GOT 数据重定位（\code{ADR\_GOT\_PAGE}/\code{LD64\_GOT\_LO12\_NC}）的二进制会失败；只允许受信任的单个 \file{/lib/libc.so}，libc 自身不得再有依赖；没有 \code{PT\_INTERP}、\code{dlopen/dlsym}、延迟 PLT 绑定、\code{IFUNC}、TLS、符号 interposition 与 ASLR；\code{libc.so} 每次 \code{exec} 都重新读盘并复制进本进程地址空间，进程间不共享只读物理页。于是它消除了每个程序静态携带 libc 的磁盘冗余，却还没省下运行时的物理内存。可插拔 \code{.ko} 模块的装载器与它共用 \file{kernel/elf.h} 里的数据结构，却是两套独立逻辑：模块装载器处理 \code{ET\_REL}、做的是指令位域修补，而这里处理 \code{ET\_DYN}、做的是把基址与符号值写回 64 位槽。
+\paragraph{收敛与限制.} 这是一个刻意为之的最小 \textbf{xv6 原生}装载 ABI，而不是完整的 \code{ld.so}：只支持 RELA（无 \code{DT\_REL}）；只认上面四种动态重定位，带 GOT 数据重定位（\code{ADR\_GOT\_PAGE}/\code{LD64\_GOT\_LO12\_NC}）的二进制会失败；只允许受信任的单个 \file{/lib/libc.so}，libc 自身不得再有依赖；没有 \code{PT\_INTERP}、\code{dlopen/dlsym}、延迟 PLT 绑定、\code{IFUNC}、TLS、符号 interposition 与 ASLR；\code{libc.so} 每次 \code{exec} 都重新读盘并复制进本进程地址空间，进程间不共享只读物理页。于是它消除了每个程序静态携带 libc 的磁盘冗余，却还没省下运行时的物理内存。可插拔 \code{.ko} 模块的装载器与它共用 \file{include/kernel/elf.h} 里的数据结构，却是两套独立逻辑：模块装载器处理 \code{ET\_REL}、做的是指令位域修补，而这里处理 \code{ET\_DYN}、做的是把基址与符号值写回 64 位槽。
 
 \subsection{一次库函数调用：PLT 与 GOT}
 \label{sec:plt-got}
@@ -739,3 +747,5 @@ hello from xv6 C
 \begin{remark}
   从 \code{\_entry} 的第一条 \code{mrs} 指令，到一个可以通过 Wi-Fi 被 SSH 登录、能在多核上运行实时任务、能用 \code{tcc} 编译程序的系统，中间经过的每一层——串口、页表、进程、文件系统、驱动、协议栈、libc——都写在这本书里了。它们都还很简单，但每一层都在真机上跑过、出过错、被修好过。这也许就是“从裸机到操作系统”最有价值的部分。
 \end{remark}
+
+到这里，从上电到 SSH 登录的主线已经走完。后面两章是建立在主线上的专题：第~\ref{chap:hotplug} 章让 USB 设备可以在运行中插拔、驱动按需从 \file{.ko} 装载；第~\ref{chap:optional} 章深入 ext2 驱动本身，看它怎样在没有掉电保护的 SD 卡上做到写入可恢复。

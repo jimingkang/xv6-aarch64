@@ -107,7 +107,9 @@ struct vmspace {
   int users;                  // live tasks running on it (Linux mm_users)
   int execing;
   pagetable_t pagetable;
-  uint64 sz;                  // [0, sz): image, heap and stack
+  uint64 sz;                  // high end of the low image/stack/heap region
+  uint64 start_brk;           // first byte the process heap may use
+  uint64 brk;                 // current heap break; pages are faulted lazily
   struct rw_semaphore mmap_lock;
   struct vm_area_struct *mmap; // mmap() regions, sorted by address
   int camera_mapped;          // number of /dev/video0 DMA mappings

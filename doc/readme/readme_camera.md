@@ -569,11 +569,13 @@ munmap(dma, CAM_MMAP_BYTES);
 传入恰好 40 字节缓冲的 `read()` 是 dequeue：只复制帧头，`reserved` 给出 0/1 槽号，像素直接从
 映射读取。用户持有的槽标记为 `CAM_BUF_USER`，下一次 read 或 close 才归还。
 
-用户映射固定在 `CAM_MMAP_BASE`，权限为只读、不可执行、`Normal-NC`，与内核 CAMDMA alias 的
+用户映射由 `cammmap()` 调 `remap_pfn_range()` 建立，地址由内核在 mmap 区选定（早期版本固定在 `CAM_MMAP_BASE`，现在以 `mmap()` 的返回值为准），权限为只读、不可执行、`Normal-NC`，与内核 CAMDMA alias 的
 内存属性完全一致。这里有意不采用“内核 cacheable、用户 non-cacheable”的混合属性；Arm 明确不
 保证同一物理页的不同内存属性 alias 正确。零拷贝已经去掉 384 KB/frame 的 CPU copy，而 NC 映射
 让 Unicam 写入后无需逐 cache line invalidate。`fork()` 会复制这段特殊映射但不复制物理页，
-`exec()`/退出只回收页表，绝不会把预留 DMA 物理页交给 `kfree()`。
+`exec()`/退出只回收页表，绝不会把预留 DMA 物理页交给 `kfree()`。这段 VMA 带 `VM_PFNMAP`，
+PTE 带 `PTE_SPECIAL`；`VM_NOFILEREF` 让映射不持有 `struct file`，最后一个 fd 关闭时照旧停流；
+`vm_ops` 的 open/close 维护 `camera_mapped` 计数。通用 mmap 的实现见 `readme_mmap.md`。
 
 ### 六项并发与性能改进
 

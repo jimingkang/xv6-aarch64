@@ -3,7 +3,7 @@
 #include <uapi/limits.h>
 
 #define NOFILE       16  // open files per process
-#define NFILE       100  // open files per system
+#define NFILE       100  // filesystem-side open/orphan tracking slots
 #define NDEV         10  // maximum major device number
 #define USTACKPAGES   4  // mapped user stack pages, excluding guard page
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log

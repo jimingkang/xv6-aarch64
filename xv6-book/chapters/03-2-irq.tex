@@ -19,7 +19,7 @@
     \toprule
     类型 & 性质 & 在 xv6-aarch64 中 \\
     \midrule
-    同步异常 & 由当前指令引起 & 用户态 \code{svc \#0} 即系统调用；用户态访存错误时打印诊断并杀死进程；内核态同步异常直接 \code{panic} \\
+    同步异常 & 由当前指令引起 & 用户态 \code{svc \#0} 即系统调用；用户态缺页先交给 \code{handle\_mm\_fault()}（\ref{sec:mmap} 节），处理不了才打印诊断并杀死进程；内核态同步异常直接 \code{panic} \\
     IRQ & 外部硬件产生，与当前指令无关 & 通用定时器、Mini UART、DWC2 USB、Arasan SDIO、Unicam CSI、核间中断（IPI） \\
     FIQ & 高优先级的“快速中断” & 不使用 \\
     SError & 外部产生的系统错误 & 不处理，进入即停机 \\
@@ -128,19 +128,7 @@ ARMv8 有四个异常级别，本系统实际只常驻其中两个（表~\ref{ta
   \end{tabularx}
 \end{table}
 
-\file{entry.S} 一开始读 \reg{CurrentEL}，不论从 EL3 还是 EL2 进来，都用 \code{eret} 降到 EL1：先伪造一个“异常返回现场”，再返回过去。
-
-\begin{asmcode}
-        mov x0, #(1 << 31)       // HCR_EL2.RW = 1：EL1 运行 AArch64
-        msr hcr_el2, x0
-        mov x0, #0x3c5           // M = 0b0101 = EL1h，D/A/I/F 全屏蔽
-        msr spsr_el2, x0         // 从 EL3 来则写 spsr_el3，另设 SCR_EL3 = 0x431
-        adr x0, 3f
-        msr elr_el2, x0
-        eret                     // “返回”到 EL1 的标号 3
-\end{asmcode}
-
-此后 EL2、EL3 不再使用，也没有安装 \reg{VBAR\_EL2}、\reg{VBAR\_EL3}。进入 EL0 用的是同一个技巧：\code{trapframe->spsr = 0}（\code{M = 0b0000}，即 EL0t，\code{DAIF} 全清），然后 \code{urestorereg; eret}。
+\ref{sec:xv6-el} 节已经看到，\file{entry.S} 用伪造的异常返回（\reg{SPSR} $=$ \code{0x3c5}，即 EL1h、DAIF 全屏蔽）把 CPU 从 EL3 或 EL2 降到 EL1。此后 EL2、EL3 不再使用，也没有安装 \reg{VBAR\_EL2}、\reg{VBAR\_EL3}。进入 EL0 用的是同一个技巧：\code{trapframe->spsr = 0}（\code{M = 0b0000}，即 EL0t，\code{DAIF} 全清），然后 \code{urestorereg; eret}。
 
 每个异常级别都有自己的栈指针寄存器 \reg{SP\_EL0}～\reg{SP\_EL3}，指令里的 \code{sp} 指哪一个由 \code{PSTATE.M}（其中的 SPSel 位）决定，见表~\ref{tab:spsel}。
 
@@ -193,7 +181,8 @@ ARMv8 有四个异常级别，本系统实际只常驻其中两个（表~\ref{ta
     用户态时钟中断 & \code{0x480} \code{el0irq} & 时间片用完则 \code{yield}；\reg{ELR\_EL1} 指向被打断的那条，返回后重新执行它 \\
     系统调用中来了中断 & \code{0x280} \code{el1irq} & 在当前内核栈上再压 272 字节内核现场 \\
     内核访存出错、坏指令 & \code{0x200} \code{el1sync} & \code{kerneltrap()} 打印后 \code{panic} \\
-    用户空指针、野指针、用户栈溢出 & \code{0x400} & EC \code{0x24}（Data Abort），\reg{FAR\_EL1} 为出错地址；进程被杀 \\
+    用户访问 mmap 区里还没装入的页 & \code{0x400} & EC \code{0x24}，\code{handle\_mm\_fault()} 装好 PTE 后返回，重新执行那条指令（\ref{sec:mmap} 节） \\
+    用户空指针、野指针、用户栈溢出 & \code{0x400} & EC \code{0x24}（Data Abort），\reg{FAR\_EL1} 为出错地址；不在任何 VMA 里，进程被杀 \\
     用户跳到未映射地址 & \code{0x400} & EC \code{0x20}（Instruction Abort）；进程被杀 \\
     用户执行未定义指令 & \code{0x400} & EC \code{0x00}；进程被杀 \\
     用户执行浮点/SIMD 指令 & \code{0x400} & EC \code{0x07}（\reg{CPACR\_EL1} 未开放 FP）；进程被杀 \\
@@ -445,7 +434,7 @@ void send_resched_ipi(int cpu)              // 让 cpu 尽快重新调度
 
 \subsection{通用 IRQ 处理程序}
 
-所有 IRQ 都进入同一个入口，按来源分为两条路径：
+所有 IRQ 按来源分为两条路径：来自用户态的走前面已经看过的 \code{el0irq}（\code{usavereg} 后调用 \code{userirq()}），来自内核的走 \code{el1irq}，它用 \code{savereg}/\code{restorereg} 把现场压在当前内核栈上：
 
 \begin{asmcode}
 el1irq:                    // 内核执行时来的 IRQ
@@ -453,14 +442,6 @@ el1irq:                    // 内核执行时来的 IRQ
         mov x0, sp
         bl kernelirq
         restorereg
-        eret
-
-el0irq:                    // 用户执行时来的 IRQ
-        usavereg
-        mov x0, sp
-        bl userirq
-trapret:
-        urestorereg
         eret
 \end{asmcode}
 
@@ -565,6 +546,8 @@ void usertrap(void)
     intr_on();
     syscall();
     if(resched_pending()) yield();
+  } else if((ec == 0x24 || ec == 0x20) && user_page_fault(p, esr)){
+    // 缺页落在某个 mmap() VMA 里，已经装好 PTE（4.7 节）
   } else {
     printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
     printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
@@ -577,7 +560,7 @@ void usertrap(void)
 }
 \end{ccode}
 
-硬件保存在 \reg{ELR\_EL1} 中的已经是 \code{svc} 的下一条指令地址，所以不需要像 RISC-V 那样手工给 PC 加 4。
+硬件保存在 \reg{ELR\_EL1} 中的已经是 \code{svc} 的下一条指令地址，所以不需要像 RISC-V 那样手工给 PC 加 4。缺页则相反：\reg{ELR\_EL1} 指向出错的那条指令本身，\code{user\_page\_fault()} 装好页表项后直接返回，\code{eret} 会重新执行它。
 
 \begin{note}
   早期版本的 \code{usertrap()} 先读出 EC 再清零 \reg{ESR\_EL1}，打印错误信息时又重新读一次寄存器，结果永远显示 \code{ec=0}。现在的代码先把完整的 ESR 存进局部变量 \code{esr}。调试信息本身的正确性，同样需要检查。
@@ -701,3 +684,5 @@ scheduler();       // intr_on()：第一次真正接收中断
 \end{itemize}
 
 调试中断问题时，可以在启动阶段打印 \reg{CurrentEL}、\reg{VBAR\_EL1}、\reg{DAIF}、\reg{CNTFRQ\_EL0} 和 \reg{CNTV\_CTL\_EL0}；对未知中断打印 \code{IRQ\_PENDING\_1/2} 和 \code{CORE\_IRQ\_SOURCE}。但不要在定时器中断里持续 \code{printf}：串口远比中断慢，会改变调度时序，甚至带来新的锁问题。
+
+到这里，异常和中断的通路已经齐备，但 \code{main()} 能走到 \code{trapinithart()}，前提是 MMU 已经打开、内核已经跳到高地址运行。下一章回到 \file{entry.S}，看启动页表和多核启动。

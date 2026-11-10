@@ -17,11 +17,12 @@
 #include <kernel/epoll.h>
 #include <kernel/fcntl.h>
 #include <kernel/fs_trace.h>
+#include <kernel/slab.h>
 
 struct {
   struct spinlock lock;
-  struct file file[NFILE];
 } ftable;
+static struct kmem_cache file_cache;
 
 // Trace only the first operations after boot.  This diagnostic counter is
 // deliberately approximate on SMP: a race may print one extra line, but it
@@ -69,27 +70,23 @@ void
 fileinit(void)
 {
   initlock(&ftable.lock, "ftable");
+  if(kmem_cache_init(&file_cache, "file_cache", sizeof(struct file), 16) < 0)
+    panic("file slab cache");
   epollinit();
+  pipeinit();
 }
 
 // Allocate a file structure.
 struct file*
 filealloc(void)
 {
-  struct file *f;
+  struct file *f = kmem_cache_alloc(&file_cache);
 
-  acquire(&ftable.lock);
-  for(f = ftable.file; f < ftable.file + NFILE; f++){
-    if(f->ref == 0){
-      memset(f, 0, sizeof(*f));
-      f->ref = 1;
-      mutex_init(&f->pos_lock, "file-position");
-      release(&ftable.lock);
-      return f;
-    }
-  }
-  release(&ftable.lock);
-  return 0;
+  if(f == 0)
+    return 0;
+  f->ref = 1;
+  mutex_init(&f->pos_lock, "file-position");
+  return f;
 }
 
 // Increment ref count for file f.
@@ -137,6 +134,7 @@ fileclose(struct file *f)
     iput(ff.ip);
     end_op();
   }
+  kmem_cache_free(&file_cache, f);
 }
 
 // Get metadata about file f.

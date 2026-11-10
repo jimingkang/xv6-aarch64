@@ -269,3 +269,5 @@ error; rearming}。也就是说 full-speed 复合设备在共享 ch6、经 TT �
 \code{usbmouse\_probe()} 各返回前打印失败的 control 请求，并把 ch6 错误路径的
 \reg{HCSPLT}/\reg{HCTSIZ}/\reg{HCCHAR} 一并 dump，以区分是 SET\_PROTOCOL 被 STALL、还是
 interrupt-IN 的 CSPLIT 窗口错过。
+
+热插拔让设备和驱动可以在运行中来去，而 \file{.ko} 能被按需装载，前提是根文件系统上的 \file{/lib/modules} 可靠可读——上面日志里的 \code{getsb} panic 正是这一点出了问题。下一章就深入这块根文件系统背后的 ext2 驱动，看它怎样读写磁盘、怎样在断电后恢复一致。

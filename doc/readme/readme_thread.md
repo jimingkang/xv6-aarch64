@@ -1,6 +1,6 @@
 # xv6-aarch64 用户线程实现
 
-当前版本在原有“一个 `struct proc` 对应一个独立地址空间”的基础上加入了真正可调度的用户线程。线程仍各有一个独立的 `struct proc`，因此每个线程都有独立内核栈、异常现场、调度状态、TID 和 CPU 亲和性；同一线程组通过引用计数 `struct vmspace` 共用 TTBR0 页表和进程地址空间大小。
+当前版本在原有“一个 `struct proc` 对应一个独立地址空间”的基础上加入了真正可调度的用户线程。线程仍各有一个独立的 `struct proc`，因此每个线程都有独立内核栈、异常现场、调度状态、TID 和 CPU 亲和性；同一线程组通过引用计数 `struct vmspace` 共用 TTBR0 页表、进程地址空间大小和 mmap 区域，并且像 pthread 一样共享描述符表 `files_struct` 和当前目录 `fs_struct`（见 `readme_clone_vfork.md`）。
 
 进程表已经不再是静态的 `proc[64]`，内核也不再在启动时为 64 个槽位预分配内核栈。用户进程、用户线程和内核线程均按需扩展动态进程表，并在创建、回收时分配和释放内核栈物理页。因此这里的“无数量限制”是指没有 `NPROC` 这种编译期固定上限；实际可创建数量仍受可用物理内存和内核虚拟地址空间限制。
 
@@ -8,12 +8,15 @@
 
 ```mermaid
 flowchart LR
-    P[进程 leader\nTID = TGID] --> V[vmspace\nTTBR0 page table + sz + refcount]
+    P[进程 leader\nTID = TGID] --> V[vmspace\nTTBR0 page table + sz + VMA\nrefcount + users]
     T1[线程 1\n独立 proc / trapframe / kernel stack] --> V
     T2[线程 2\n独立 proc / trapframe / kernel stack] --> V
-    P --> F1[独立 fd table\n共享 open-file 引用]
-    T1 --> F2[独立 fd table\n共享 open-file 引用]
-    T2 --> F3[独立 fd table\n共享 open-file 引用]
+    P --> F[files_struct\n共享 fd 表 + count]
+    T1 --> F
+    T2 --> F
+    P --> S[fs_struct\n共享 cwd + users]
+    T1 --> S
+    T2 --> S
 ```
 
 `switchuvm()` 从当前线程的 `p->vm->pagetable` 写入 `TTBR0_EL1`。因为同组线程指向同一个 `vmspace`，它们能直接看到相同的代码、全局变量、堆和各线程栈；但各自的内核栈和 `trapframe` 不共享，所以能在多个 Cortex-A53 核上并行运行。
@@ -34,7 +37,7 @@ proc[64]
 flowchart TD
     A[allocproc / kthread_create / clone / fork] --> B{proc_head 中有 UNUSED 节点?}
     B -- 有 --> C[为该节点按需 kalloc 内核栈页]
-    B -- 无 --> D[kalloc 新 struct proc 节点]
+    B -- 无 --> D[从 proc_cache 分配新 struct proc 节点]
     D --> E[分配稳定的 KSTACK slot]
     E --> C
     C --> F[映射到全局 TTBR1 内核页表\nPTE_NORMAL + PTE_XN]
@@ -61,7 +64,9 @@ flowchart TD
 
 | 调用 | 作用 |
 |---|---|
-| `clone(entry, arg, stack_top)` | 建立共享地址空间的新调度实体，令 `x0=arg`、`SP=stack_top`、`ELR=entry` |
+| `clone(entry, arg, stack_top)` | 线程库专用（libc 里叫 `thread_clone()`）：建立同一线程组的新调度实体，共享地址空间、fd 表和 cwd，令 `x0=arg`、`SP=stack_top`、`ELR=entry` |
+| `clone(fn, stack, flags, arg, ...)` | glibc 形式，走 `SYS_clone_flags`，标志取 Linux 的值，见 `readme_clone_vfork.md` |
+| `vfork()` | `CLONE_VM\|CLONE_VFORK\|SIGCHLD`，父进程睡到子进程 exec 或退出 |
 | `texit(status)` | 只退出调用线程；leader 调用时仍执行进程整体退出 |
 | `tjoin(tid, &status)` | 等待并回收同一线程组中的指定线程；`tid=0` 表示任意线程 |
 | `gettid()` | 返回当前调度实体的 TID |
@@ -109,7 +114,9 @@ isb
 
 ## 文件描述符语义
 
-当前 `clone()` 会像 `fork()` 一样复制文件描述符引用：底层 `struct file`（包括文件偏移）共享，但每个线程的描述符数组及 `cwd` 引用独立。也就是说，一个线程 `close(fd)` 不会自动清空其他线程同编号的 fd；这与 Linux `CLONE_FILES | CLONE_FS` 的完全共享语义不同。后续若要做到 pthread 级兼容，应把 `ofile[]` 与 `cwd` 再抽成独立引用计数对象。
+线程创建现在等价于 Linux 的 `CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD`：描述符表和当前目录已经抽成带引用计数的 `files_struct`、`fs_struct`，同组线程共享同一张表。一个线程打开的 fd 其他线程可以直接使用，一个线程 `close(fd)` 后其他线程也看不到这个 fd；一个线程 `chdir()` 会改变整个线程组的当前目录。这与 pthread 的语义一致，但和旧版本“每个线程一张 fd 表”不同。
+
+共享表带来的一个细节：系统调用正在使用的 `struct file` 可能被另一个线程 `close()`。`fdget()` 在表被共享时额外持有一个引用，钉在 `p->fpin[]` 里，系统调用返回时由 `fdput_all()` 释放。
 
 ## 验证
 

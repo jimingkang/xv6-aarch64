@@ -321,7 +321,7 @@ exec(char *path, char **argv)
     goto bad;
   if(unshare_files() < 0){
     if(newvm)
-      kfree(newvm);
+      vmspace_discard(newvm);
     newvm = 0;
     goto bad;
   }
@@ -350,6 +350,8 @@ exec(char *path, char **argv)
     oldsz = vm->sz;
     vm->pagetable = pagetable;
     vm->sz = sz;
+    vm->start_brk = sz;
+    vm->brk = sz;
     vm->execing = 0;
     release(&vm->lock);
   }

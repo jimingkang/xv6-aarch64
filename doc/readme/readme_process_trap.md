@@ -18,7 +18,7 @@
 | | 存什么 | 放在哪里 | 谁写 | 谁读 |
 |---|---|---|---|---|
 | `struct trapframe`（272 B） | 用户态全部寄存器：x0–x30、elr、spsr、sp_el0 | 内核栈最顶端 272 字节 | `usavereg`（从 EL0 陷入时） | `urestorereg`（`eret` 回 EL0 前） |
-| `struct context`（14 个字） | 内核线程的 sp 和 x18–x30 | `struct proc` 里的一个字段（`proc` 本身是单独 kalloc 的一页） | `swtch` 前半段 | `swtch` 后半段 |
+| `struct context`（14 个字） | 内核线程的 sp 和 x18–x30 | `struct proc` 里的一个字段（`proc` 从固定尺寸 slab cache 分配） | `swtch` 前半段 | `swtch` 后半段 |
 
 - trapframe 回答"**用户程序**从哪继续"：`eret` 时 elr 成为 PC，sp 成为 SP_EL0，spsr 决定回到 EL0t、开中断。
 - context 回答"**内核线程**从哪继续"：`swtch` 的最后两条是 `mov sp, x10` 和 `ret`，`ret` 跳到 x30。
@@ -347,6 +347,214 @@ EL0  svc 的下一条指令，x0 = 子进程 pid
   - 时间片：定时器 IRQ → `sched_tick` 把 slice 减到 0 → need_resched → userirq/kernelirq 里 yield；
   - `sleep`；
   - `exit`。
+
+### 7.1 `userinit` 创建的对象如何进入第一次调度
+
+`userinit()` 不是直接跳进用户态，而是先构造一个“尚未运行、但看起来刚从
+`swtch()` 恢复”的进程：
+
+```text
+userinit
+  -> allocproc
+       -> 动态分配 struct proc 和一页内核栈
+       -> trapframe = kstack_top - sizeof(struct trapframe)
+       -> vmspace_alloc：空 TTBR0 L1 页表
+       -> context.sp  = trapframe
+       -> context.x30 = forkret
+  -> uvminit：把 initcode 映射到用户 VA 0
+  -> trapframe.elr=0, sp=0x1000, spsr=0
+  -> state=RUNNABLE
+  -> scheduler -> swtch -> forkret -> usertrapret -> eret
+```
+
+三类对象各管不同层次：
+
+| 对象 | 存放/指向 | 调度时的作用 |
+|---|---|---|
+| `struct proc` | 内核动态页；`cpu->proc` 指向当前任务 | 生命周期、状态、调度参数及对 vm/files/fs 的引用 |
+| `p->context` | 嵌在 `struct proc` 内，不在内核栈上 | `swtch` 保存/恢复内核执行现场；`context.sp` 才指向内核栈 |
+| `p->trapframe` | `p->kstack + PGSIZE - 272` | 保存 EL0 的完整现场，供 `usertrapret/eret` 返回用户态 |
+
+`context.sp` 与 `trapframe->sp` 完全不同：前者是 EL1 内核栈指针，后者是
+`SP_EL0`，即用户虚拟地址空间里的用户栈指针。`context.x30` 是内核恢复入口；
+`trapframe->elr` 是用户态恢复 PC。
+
+### 7.2 调度进出跟踪开关
+
+编译时可打开一个与 `VM_TRACE` 分离的轻量跟踪：
+
+```sh
+make PROC_SCHED_TRACE=1 PROC_SCHED_TRACE_LIMIT=256 PROC_SCHED_TRACE_PID=-1
+```
+
+- `PROC_SCHED_TRACE_PID=0` 表示打印所有任务，正数表示精确 PID；`-1` 跟踪
+  `initproc` 以及经 `fork/clone` 创建的全部用户进程和用户线程，同时排除
+  `kthread_fn != 0` 的 workqueue/驱动内核线程。本工程在 `userinit()` 之前会创建多个
+  内核线程，所以不能用固定的 pid 1 代表 initproc；
+- `PROC_SCHED_TRACE_LIMIT=256` 是默认事件上限；设为 0 会无限打印，串口输出会非常大；
+- 它不遍历页表；需要页表叶项时另开 `VM_TRACE=1`。
+
+跟踪只在当前 CPU 选中的“可见任务”发生变化时输出：
+
+```text
+scheduler:first-dispatch 第一个用户任务即将装入 CPU
+    ...用户任务 A 运行后换出，context 已由 swtch 保存...
+scheduler:switch-out     输出 A 保存后的 proc/context/trapframe
+scheduler:switch-in      输出即将由 swtch 装入的用户任务 B
+```
+
+如果 A 因 `sleep/yield` 进入调度器，随后仍选中 A，则不打印；如果执行链是
+`A -> kworker -> A`，因为内核线程对 `PID=-1` 不可见，也不打印；只有
+`A -> kworker -> B` 才折叠成一组 `A -> B`。`userinit:runnable` 另外记录
+initproc 刚构造完成的状态。第一次运行时
+`context.sp == p->trapframe` 且 `context.x30 == forkret`；经历一次
+`sleep/yield` 后，`context.sp` 会变成 `sched()` 调用 `swtch()` 时更低的实时内核
+栈地址，`x30` 则是 `swtch` 后一条指令。
+
+输出字段含义如下：
+
+| 输出组 | 字段含义 |
+|---|---|
+| `proc` | `state/chan` 描述运行或睡眠状态；`pid/tgid/is_thread` 描述任务与线程组；`parent` 是父任务对象；`killed/xstate/signals` 是退出和信号状态 |
+| `sched` | 策略、实时优先级、nice、CPU mask、剩余时间片、入队次序、上次 CPU 和累计运行 tick |
+| `refs` | `vm/pagetable/sz` 指向共享地址空间；`files` 是 fd 表；`fs` 是 cwd 上下文；`kthread_fn/arg` 只对内核线程有效 |
+| `kstack` | 内核栈虚拟区间、物理页与槽号；`current-sp` 会注明当前 CPU 是否正在这个进程栈上 |
+| `context` | `sp` 与 `x18..x30`。`x29` 是内核帧指针，`x30` 是内核返回地址；其余为跨函数调用必须保留的寄存器 |
+| `trapframe` | `x0..x30` 是 EL0 寄存器；`elr` 是用户返回 PC；`spsr` 是返回后的 PSTATE；`sp_el0` 是用户栈。内核线程虽沿用 `allocproc()` 分到这块空间，但不消费它 |
+
+`scheduler:switch-out` 在选择 B 时延迟打印 A：此时 A 先前执行的
+`swtch(&p->context, &cpu->context)` 已完成，因而看到的是换出后保存的 context；
+`scheduler:switch-in` 则是 B 即将装载的 context。两条日志都由调度器栈输出，
+所以其中的 `current-sp` 属于调度器，而不是 A 或 B 的进程内核栈。
+
+QEMU 验证时还发现，`kalloc()` 会用 `0x05` 填充回收页；旧代码只设置了 initcode
+trapframe 的 `elr/spsr/sp`，其余用户寄存器会带着 `0x050505...` 进入 EL0。现在
+`allocproc()` 在确定 trapframe 位置后先将 272 字节整体清零，再由 `userinit()` 或
+`do_clone()` 填入真正现场。这样既不会向用户态暴露内核栈残留，也使第一次调度日志可读。
+
+### 7.3 实例：log8 中的一次完整调度（init → wifi → login → sh → forktest）
+
+`PROC_SCHED_TRACE_PID=-1` 默认看不到内核线程。要把**每一次**调度都记下来，再加
+`PROC_SCHED_TRACE_ALL=1`：此时内核线程和用户进程的换入、换出都会打印（ALL 模式下
+`PROC_SCHED_TRACE_LIMIT` 默认为 0，不设上限），`make_runnable()` 还会额外打一行
+`sched-wake`，说明是谁、从哪个函数把睡眠的进程唤醒的：
+
+```sh
+make PROC_SCHED_TRACE=1 PROC_SCHED_TRACE_ALL=1 qemu 2>&1 | tee log8
+python3 tools/sched_bt_sym.py kernel/kernel.sym < log8 > log8.sym   # 把 lr=/chan= 换成符号
+```
+
+```text
+sched-wake[46] cpu=0 wake pid=16 name=login chan=… <cons+0x98> by pid=-1 name=-
+               caller.lr=… <wakeup+0x60> from.lr=… <consoleintr+0xbc>
+```
+
+所有记录（`sched-trace[n]` 和 `sched-wake[n]`）共用一个全局编号，打印时持有同一把锁，
+所以编号顺序就是事件的发生顺序。log8 一共 348 条记录，其中用户进程约 320 条；下图只画用户进程，
+内核线程的记录隐藏了，所以图中的编号不连续。
+
+![log8：调度时间线、8 次切换的栈与 context、寄存器对比](images/fig-ao-sched-log8-stack-ctx.png)
+
+（矢量图：`svg/fig-ao-sched-log8-stack-ctx.svg`。生成脚本：`tools/parse_log8.py` + `tools/gen_ao_log8.py`。）
+
+#### 7.3.1 时间线逐段解读
+
+| 阶段 | 记录 | 发生了什么 |
+|---|---|---|
+| ① init 读盘 | [26]–[35] | init(14) 在 `sdsector` 里忙等 SD 卡。每过 10 个 tick 时间片用完，就被定时器 IRQ 从 `sdsector` 里 `yield` 出去，然后在 CPU2 → CPU3 → CPU1 → CPU2 → CPU1 之间漂移 |
+| ② fork wifi | [35]–[39] | init 读完盘后 `fork`。[36] 子进程 15 刚被设成 RUNNABLE，空闲的 CPU0 就把它换了进来（首次换入，`x30=forkret`）；这时 init 还在 `do_clone` 里，[37] 被抢占，[38] 在 CPU2 上把 fork 做完，[39] 进入 `wait` 睡眠 |
+| ③ wifi 退出 | [40]–[44] | [40] wifi 在 `exit` 里调用 `wakeup(p->parent)` 唤醒 init，[41] init 在 CPU1 again-in，[42] wifi 才真正换出。init 回收 wifi 后 fork 出 16（复用了 kstack 槽 …e2000），[43] 16 在 CPU3 首次换入，exec 成 login，[44] init 再次进入 `wait` |
+| ④ 登录 | [45]–[53] | login/sh(16) 在 `consoleread` 里睡在 `&cons.r` 上。[46][49][52] 是三次键盘中断，打在空闲的 CPU0 上，由 `consoleintr` 唤醒它；之后分别由 CPU3、CPU1、CPU0 把它换入 |
+| ⑤ forktest | [54]–[341] | sh fork 出 17，17 exec 成 forktest，[55] sh 在 `wait` 里睡（chan = sh 自己的 proc）。17 连续 fork 了 128 个子进程（pid 18…145）：每个子进程在某个空闲 CPU 上首次换入后立刻 `exit`；每个子进程都分到一个新的 kstack 槽（VA 每次 −0x2000，…de000 → …ee0000）。17 自己多次在 `do_clone` 和 `wait` 里被定时器抢占（[68]、[333]、[340]） |
+| ⑥ 回到 shell | [342]–[347] | [342] 17 退出时唤醒 sh；[343] sh 在 CPU0 换入，刚从 `sleep` 出来就被 IRQ 抢占（[345]），[346] 换到 CPU2 继续执行，[347] 又在 `consoleread` 里睡下，等下一行命令 |
+
+#### 7.3.2 fork 与 wait 的时序：两个进程什么时候真正并行
+
+`user/init.c` 在 `AUTO_START_WIFI` 下先 `fork` wifi，再 `wait(0)`；wait 返回后才进入
+`for(;;)` 去 fork login。日志里能看到三个细节：
+
+1. **子进程可能比父进程的 fork 先跑起来。** `sched-q#0 fork 14 -> 15` 打印在 [36] **之后**：
+   `do_clone` 把子进程设成 RUNNABLE 的那一刻，空闲的 CPU0 就把它换了进去，父进程这边还没打印完。
+2. **两个进程真正并行，只在 [36]–[39] 这一小段**：wifi 在 CPU0 上走 forkret → 用户态 → exec；
+   init 先后在 CPU1、CPU2 上把 fork 收尾（[37] 的回溯是 `yield ← el1irq ← do_clone+0x380 ← sys_fork`），
+   然后进入 wait。[39] 之后 init 在睡，不占 CPU。
+3. **wakeup 不等于马上能回收。** [40] 的 wakeup 在 `exit()` 里执行，此时 wifi 还没被标记为 ZOMBIE，
+   并且还持有 `wait_lock`。init 在 [41] 换入后，`wait()` 里的 `acquire(&np->lock)` 要等 wifi 在 [42]
+   通过 `sched()` 换出、调度器释放它的 `p->lock` 之后才能拿到（源码注释："make sure the child isn't still in exit() or swtch()"）。
+   因此 `sched-q#1 fork 14 -> 16` 出现在 [42] 之后，16 也正好复用了 wifi 刚释放的 kstack 槽。
+
+#### 7.3.3 时间片抢占与空闲 CPU
+
+init 每次被换出时，`run_ticks` 依次是 20、30、40、50，正好每隔 10 个 tick 换出一次。
+SCHED_OTHER、nice 0 时，`timeslice()` = (20−0)/2 = 10 个 tick。机制如下：
+
+- `sched_tick()` 每个 tick 执行 `--p->slice`，减到 0 时设置 `c->need_resched`；
+- `kernelirq()` 中断返回前，如果 `resched_pending()` 为真就调用 `yield()`。因为这里内核代码也能被抢占，
+  init 虽然还在 `sdsector`/`do_clone` 里，照样会被换出；
+- `yield()` 会把 slice 重新装满。所以 [37] 的记录里，slice 显示的已经是 10。
+
+`pick_next()` 不考虑 `last_cpu`。[37] 中 CPU1 把 init 换出以后，init 要等 CPU1 的调度器从 `swtch` 返回、
+释放 `p->lock` 后，才能被其他 CPU 选中；这时同样空闲的 CPU2 先抢到了（[38]）。CPU1 再扫描时已经没有
+RUNNABLE 的进程（wifi 在 CPU0 上，init 在 CPU2 上），于是在 `scheduler()` 里空转，直到 [41]。
+这段时间 CPU1 上连内核线程的记录都没有。
+
+#### 7.3.4 中断用的是哪块栈
+
+中断用哪块栈，取决于中断到来的那一刻 CPU 上正在执行什么：
+
+| 中断时 CPU 在做什么 | 入口 | 压在哪块栈上 | 例子 |
+|---|---|---|---|
+| 在**内核态**运行某个进程 | `el1irq` | 该进程内核栈的当前 sp 下方（多出约 0x130 字节的中断现场） | [28]（init 在 sdsector）、[37]、[68]（17 在 do_clone）、[345]（sh 在 sleep） |
+| 在**用户态**运行某个进程 | `el0irq` | 切到 SP_EL1 = 该进程内核栈顶，先存 trapframe，再 `usertrap → yield` | 用户态时间片抢占 |
+| CPU **空闲**（`c->proc == 0`） | `el1irq` | 该 CPU 的调度器栈 stack0（0xffffff80000c8000 + cpu×0x1000） | [46][49][52] 键盘 IRQ，记录里显示 `by pid=-1` |
+
+[40] 不属于上面任何一种：它是 wifi 在 `exit` 系统调用里同步调用的 `wakeup`，跑在 wifi 自己的内核栈上，
+没有中断帧。
+
+#### 7.3.5 wakeup 与中断不是一回事
+
+图里的 ⚡ 标的是“有人调用了 `wakeup`”，↻ 标的是“被中断抢占”。两者不在同一个层次：
+
+- **`wakeup(chan)` 是一个普通的内核函数**：它只把睡在 chan 上的进程从 SLEEPING 改成 RUNNABLE，
+  不切换任何东西。被唤醒的进程什么时候运行、在哪个 CPU 上运行，由之后的 `scheduler()` 决定。
+  它的调用者可以是进程上下文（[40] `exit`、[342] `exit`；管道的 `piperead`/`pipewrite`），
+  也可以是中断上下文（[46] `uartintr → consoleintr`）。
+- **中断是硬件事件**：它会立即打断**本 CPU** 正在执行的东西。处理函数可能调用 wakeup（键盘），
+  也可能根本不调用（定时器 → `sched_tick` → 时间片用完 → `yield`）。
+- `by pid=` 表示调用 wakeup 时本 CPU 上的当前进程。中断打在空闲 CPU 上时显示 −1；
+  如果中断打在某个正在运行的进程上，这里会显示那个被打断的、与这次唤醒毫无关系的进程。
+
+[46] 把两者串了起来：键盘中断到来 → `wakeup` 把 login 设成 RUNNABLE → 中断返回，CPU0 继续空转 →
+CPU3 在 [47] 把 login 换入。
+
+#### 7.3.6 换到不同进程时 context 的对比
+
+下表取 8 次切换，每次都是换到不同的进程或不同的换出原因（值取自 log8；`…` 表示省略了高位）：
+
+| 寄存器 | [28] init 抢占 | [42] wifi exit | [45] login 睡 | [55] sh wait | [56] 子 18 首次换入 | [58] 子 18 exit | [68] 17 fork 中抢占 | [345] sh sleep 中抢占 | 规律 |
+|---|---|---|---|---|---|---|---|---|---|
+| sp | …fffe49d0 | …fffe2e20 | …fffe2dc0 | …fffe2df0 | …fffdeef0 | …fffdee20 | …fffe0c90 | …fffe2cb0 | 指向自己 kstack 上 sched 的帧；新进程指向 trapframe |
+| x18 | 0 | 0x8ad0 | 0x8ad0 | 0x9ac0 | 0 | 0x8ad0 | 0x8ad0 | 0x9ac0 | 内核不用，带着用户态的 x18 |
+| x19 | cpus | cpus | cpus | cpus | 0 | cpus | cpus | cpus | sched 用来算 `mycpu()` |
+| x20 | 0xa0 | 0xa0 | 0xa0 | 0xa0 | 0 | 0xa0 | 0xa0 | 0xa0 | sizeof(struct cpu) |
+| x21 | proc 14 | proc 15 | proc 16 | proc 16 | 0 | proc 18 | proc 17 | proc 16 | p 自己 |
+| x22 | 0 | 1 | 1 | 1 | 0 | 1 | 0 | 0 | intena：IRQ 抢占为 0，sleep/exit 为 1 |
+| x23–x28 | &sd_rca、SD MMIO… | &wait_lock + 用户值 | n=32、user_dst、&cons.r | 用户值 | 0 | &wait_lock + 用户值 | 新子进程 25 的 files/fs、17 的 vm | 用户值 | 由换出路径决定；路径没用到的保留用户态值 |
+| x29 | = sp | = sp | = sp | = sp | 0 | = sp | = sp | = sp | sched 的帧记录，回溯从这里开始 |
+| x30 | sched+0xb4 | sched+0xb4 | sched+0xb4 | sched+0xb4 | **forkret** | sched+0xb4 | sched+0xb4 | sched+0xb4 | `bl swtch` 的下一条指令 |
+
+结论：
+
+1. 所有已经运行过的进程（live context）里，x19、x20、x30 都一样，它们是 `sched()` 自己的寄存器，不属于进程。
+2. 能区分进程的是 sp/x29（指向各自内核栈上 sched 的帧）和 x21（自己的 `struct proc`）。
+   wifi 和 login/sh 的 sp 都在 …e2xxx：同一个 VA 槽先后给了 pid 15 和 16，物理页不同。
+3. x22 说明了换出的原因：0 表示从 IRQ 里 `yield`，1 表示自己走 sleep 或 exit。
+   x23–x28 是换出路径上保存的 callee-saved 寄存器：init 读盘时是 SD 控制器寄存器地址；
+   17 在 fork 中被抢占时，是新子进程 25 正在复制的 files/fs 结构。
+4. 新进程（[56]）的 context 只有 sp=trapframe 和 x30=forkret 两个值，其余全 0。它第一次换入时不经过 sched，
+   `ret` 直接进入 forkret 回到用户态。它 exit（[58]）时的栈形状和 wifi exit（[42]）完全一样，只是用的是另一块栈。
+5. 被抢占的三列（[28]、[68]、[345]）在栈里都有一块 `el1irq` 中断现场。下次在别的 CPU 上换入时
+   （[29]、[70]、[346]），就从这里 `eret` 回去，所以换一个 CPU 继续执行并不需要搬动栈。
 
 ---
 

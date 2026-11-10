@@ -10,9 +10,13 @@
   \item 两阶段的物理内存初始化
   \item 最终内核页表与用户页表
   \item 第一个进程、\code{fork} 与地址空间切换；TLB；缺页与按需分配
+  \item \code{mmap()}：VMA、按需调页、共享页与设备映射
   \item MMIO、总线地址与 DMA
   \item 三个缓存与 TLB 故障
+  \item 实验分支：引用计数与写时复制
 \end{introduction}
+
+第~\ref{chap:boot} 章结束时，CPU 已经处在 EL1，但 MMU 还关着。本章先讲 AArch64 怎样翻译地址，再沿着启动顺序看页表怎样一步步建起来：\file{entry.S} 的启动页表、副核唤醒、物理页分配器、\code{main()} 里的最终内核页表，然后是每个进程的用户页表和 \code{mmap()}。最后几节转向页表的另一面——它不只决定地址，还决定 CPU 怎样访问一块内存：设备寄存器、DMA 缓冲区，以及三个只在真机上出现的缓存与 TLB 故障。
 
 \section{AArch64 的地址翻译}
 
@@ -155,50 +159,40 @@ entry:
 
 把需要清零的数据单独放在 \code{.bss} 段，是为了节省镜像空间：ELF 只记录这个段的大小，不存它的内容。代价是装载之后必须由启动代码自己清零，所以链接脚本要导出段的起止位置，并让起点按 8 字节对齐。对齐在这里不只是为了效率：MMU 关闭时所有数据访问都按 Device 内存处理，非对齐访问会直接触发对齐异常，因此一次写 8 字节的 \code{str xzr} 要求地址必须是 8 的倍数。
 
-栈也是同样的道理：C 代码需要一个可用的栈指针。最简单的做法是把 \code{sp} 设到内核镜像上方一个“足够远”的固定地址（例如内核装在 0 时设为 4\,MiB），栈向下增长也碰不到内核。本项目要支持四个核同时运行，所以在 BSS 中定义了 \code{stack0[4096 * NCPU]}，每个核按核号取其中一页（见 \ref{sec:mmu-on} 节末尾的 \code{\_start}）。
+栈也是同样的道理：C 代码需要一个可用的栈指针。最简单的做法是把 \code{sp} 设到内核镜像上方一个“足够远”的固定地址（例如内核装在 0 时设为 4\,MiB），栈向下增长也碰不到内核。本项目要支持四个核同时运行，所以在 BSS 中定义了 \code{stack0[4096 * NCPU]}，每个核按核号取其中一页（见 \ref{sec:mmu-on} 节末尾的 \code{\_start}）。清完 BSS 以后，主核先临时把 \code{sp} 设成 \code{stack0 + 4096}（这时还是物理地址），因为下一步建启动页表要调用一个 C 函数。
 
 \subsection{两棵临时页表}
 
 
-\file{entry.S} 在 MMU 打开前用汇编构建两棵只有两级的小页表，四张页表页（\code{l1entrypgt}、\code{l2entrypgt}、\code{l1kpgt}、\code{l2kpgt}）静态定义在 \file{start.c} 中、按页对齐。
+MMU 打开前要先建两棵只有两级的小页表，四张页表页（\code{l1entrypgt}、\code{l2entrypgt}、\code{l1kpgt}、\code{l2kpgt}）静态定义在 \file{start.c} 中、按页对齐。
 
 \begin{figure}[htbp]
   \centering
-  \begin{tikzpicture}[node distance=4mm and 10mm]
-    \node[box, text width=36mm] (lo) {低地址 VA\\\code{0x0}～\code{end}};
-    \node[box, text width=36mm, below=8mm of lo] (hi) {高地址 VA\\\code{KERNBASE}～\code{KERNBASE+end}};
-    \node[box, text width=36mm, below=4mm of hi] (hu) {\code{KERNBASE+0x3f200000}};
-    \node[hbox, right=22mm of lo, yshift=-7mm, text width=34mm] (pa) {物理内存\\\code{0x0}～\code{end}（2\,MiB 块）};
-    \node[gbox, right=22mm of hu, text width=34mm] (mmio) {GPIO/Mini UART\\\code{0x3f200000} 2\,MiB 块};
-    \draw[arr] (lo) -- node[lab, above, sloped]{TTBR0 恒等} (pa);
-    \draw[arr] (hi) -- node[lab, below, sloped]{TTBR1} (pa);
-    \draw[arr] (hu) -- node[lab, above]{Device} (mmio);
-  \end{tikzpicture}
-  \caption{启动页表：同一段物理内存同时映射到低地址和高地址}
+  \includegraphics[width=\linewidth]{boot-el1-memory.png}
+  \caption{启动页表：同一段物理内存同时映射到低地址和高地址。TTBR0\_EL1 恒等映射 VA $=$ PA，只在开 MMU 的过渡期使用；TTBR1\_EL1 映射 VA $=$ \code{KERNBASE} $+$ PA。图中按通用写法标的高地址 \code{0xffff0000\_\ldots}，在 xv6 里一律读作 \code{KERNBASE} $=$ \code{0xffffff80\_00000000} 加物理地址，例如物理 \code{0x80000} 对应 \code{0xffffff80\_00080000}，外设 \code{0x3f000000} 对应 \code{0xffffff80\_3f000000}}
   \label{fig:bootpgt}
 \end{figure}
 
-如图~\ref{fig:bootpgt}，恒等映射保证“打开 MMU 的那条指令之后还能取到下一条指令”，高地址映射保证“跳到链接地址之后一切照常”。两者都用 2\,MiB 块描述符，所以每棵树只要一张 L1 和一张 L2：
+如图~\ref{fig:bootpgt}，恒等映射保证“打开 MMU 的那条指令之后还能取到下一条指令”，高地址映射保证“跳到链接地址之后一切照常”。两者都用 2\,MiB 块描述符，所以每棵树只要一张 L1 和一张 L2。早期版本在 \file{entry.S} 里用汇编循环填表；现在 \file{entry.S} 只把四张表的物理地址和 \code{EARLYTOP} 放进 \code{x0}～\code{x4}，调用 \file{start.c} 里的 C 函数 \code{entrypgtinit()}。MMU 没开时 C 代码同样运行在物理地址上，只要它不访问全局变量的绝对地址，就和汇编没有区别：
 
-\begin{asmcode}
-        adrp x0, l2entrypgt
-        mov  x1, #0                       // 起始 PA
-        ldr  x2, =V2P_WO(end)-1           // 结束 PA
-        lsr  x3, x1, #PXSHIFT(2)
-        and  x3, x3, #PXMASK              // 起始 L2 索引
-        lsr  x4, x2, #PXSHIFT(2)
-        and  x4, x4, #PXMASK              // 结束 L2 索引
-        mov  x5, #(PTE_AF | PTE_NORMAL | PTE_VALID)
-        orr  x6, x1, x5                   // 第一个块描述符
-l2epgt_loop:
-        str  x6, [x0, x3, lsl #3]         // l2entrypgt[idx] = 块描述符
-        add  x3, x3, #1
-        add  x6, x6, #0x200000            // 下一个 2 MiB
-        cmp  x3, x4
-        b.ls l2epgt_loop
-\end{asmcode}
+\begin{ccode}
+void entrypgtinit(pte_t *l1entry, pte_t *l2entry, pte_t *l1kernel, pte_t *l2kernel,
+                  uint64 pa_end)                    // pa_end = EARLYTOP
+{
+  const uint64 l2block = 1UL << PXSHIFT(2);         // 2 MiB
+  for(uint64 pa = 0; pa < pa_end; pa += l2block)    // 恒等映射
+    l2entry[PX(2, pa)] = PA2PTE(pa) | PTE_AF | PTE_NORMAL | PTE_VALID;
+  l1entry[PX(1, 0)] = PA2PTE((uint64)l2entry) | PTE_TABLE | PTE_VALID;
 
-启动页表只覆盖内核镜像所在的前 2\,MiB（\code{EARLYTOP}$=$\code{0x200000}）。\code{main()} 一开始就检查内核镜像连同 BSS 没有越过这个边界——否则后面的分配器会把内核自己的内存当成空闲页发出去：
+  for(uint64 pa = 0; pa < pa_end; pa += l2block)    // KERNBASE + PA
+    l2kernel[PX(2, KERNBASE + pa)] = PA2PTE(pa) | PTE_AF | PTE_NORMAL | PTE_VALID;
+  uint64 uart_pa = 0x3f200000UL;                    // Mini UART 所在的 2 MiB
+  l2kernel[PX(2, KERNBASE + uart_pa)] = PA2PTE(uart_pa) | PTE_AF | PTE_DEVICE | PTE_VALID;
+  l1kernel[PX(1, KERNBASE)] = PA2PTE((uint64)l2kernel) | PTE_TABLE | PTE_VALID;
+}
+\end{ccode}
+
+启动页表覆盖物理内存的前 4\,MiB（\code{EARLYTOP}$=$\code{0x400000}，两个 2\,MiB 块），外加 Mini UART 所在的一个设备块，供 \code{boot\_uart\_mark()} 在开 MMU 之后继续输出标记。\code{EARLYTOP} 原来是 2\,MiB，只盖住内核镜像；后来内核的 BSS 变大，\code{kinit1()} 在 \code{[end, 2\,MiB)} 里只剩 65 页，而 \code{kvminit()} 逐页映射 112\,MiB 内存需要约 70 个页表页，启动时就 \code{panic: kvmmap}，所以改成 4\,MiB。\code{main()} 一开始仍检查内核镜像连同 BSS 没有越过这个边界——否则后面的分配器会把内核自己的内存当成空闲页发出去：
 
 \begin{ccode}
 if(V2P(end) > EARLYTOP){
@@ -326,10 +320,10 @@ hart 1 starting
 建立最终页表需要分配页表页，分配页表页又需要物理页分配器——这是一个“先有鸡还是先有蛋”的问题。xv6 的解决办法是把分配器分两次喂：
 
 \begin{ccode}
-kinit1(end, P2V(EARLYTOP));          // 阶段一：内核末尾到 2 MiB，启动页表已覆盖
+kinit1(end, P2V(EARLYTOP));          // 阶段一：内核末尾到 4 MiB，启动页表已覆盖
 kvminit();                           // 用这些页建最终内核页表
 kvminithart();                       // 切换 TTBR1，作废 TLB
-kinit2(P2V(EARLYTOP), P2V(PHYSTOP)); // 阶段二：2 MiB 到 112 MiB，最终页表已覆盖
+kinit2(P2V(EARLYTOP), P2V(PHYSTOP)); // 阶段二：4 MiB 到 112 MiB，最终页表已覆盖
 \end{ccode}
 
 分配器本身就是 xv6 的空闲链表：每个空闲页的前 8 字节存放下一页的地址，\code{kalloc()} 从表头取，\code{kfree()} 往表头放，全程由 \code{kmem.lock} 保护。为了尽早暴露“使用已释放内存”的错误，\code{kfree()} 把页填成 \code{0x01}，\code{kalloc()} 把页填成 \code{0x05}——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。
@@ -350,6 +344,8 @@ pagetable_t kvmmake(void) {
   kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE, PTE_NORMAL | PTE_XN);
   // 摄像头 DMA：不可缓存的普通内存
   kvmmap(kpgtbl, CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
+  // 可装载模块区：.ko 的代码拷进来后要执行，所以这里不加 PTE_XN
+  kvmmap(kpgtbl, MODAREA, MODAREA_PA, MODAREA_SIZE, PTE_NORMAL);
   // 物理第 0 页：spin-table 槽 0xe0..0xf0，唤醒副核时要写
   kvmmap(kpgtbl, KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
   // 内核代码：只读、可执行
@@ -361,7 +357,7 @@ pagetable_t kvmmake(void) {
 }
 \end{ccode}
 
-代码段只读可执行，数据段可写不可执行（W\^{}X），这样即使内核出现缓冲区溢出，也很难把数据当指令执行。
+代码段只读可执行，数据段可写不可执行（W\^{}X），这样即使内核出现缓冲区溢出，也很难把数据当指令执行。唯一的例外是模块区 \code{MODAREA}（物理 \code{0x07400000} 起）：模块装载器把 \code{.ko} 的代码拷进来再执行，它只能可写又可执行（第~\ref{chap:hotplug} 章）。
 
 \subsection{\code{walk()} 与 \code{mappages()}}
 \label{sec:walk-mappages}
@@ -441,7 +437,7 @@ void switchuvm(struct proc *p) {
 
 \subsection{\code{exec()} 之后的布局}
 
-\code{exec()} 建立的用户地址空间从虚拟地址 0 开始（图~\ref{fig:uas}）：先是 ELF 的代码和数据，然后是一页不可访问的保护页和 4 页（16\,KiB）用户栈，栈之上是 \code{sbrk()} 扩展的堆。用户页面的属性是 \code{PTE\_NORMAL | PTE\_U}，代码页可执行。动态链接的程序在主镜像之后还有一页多的 \file{/lib/ld.so}；\code{mmap()} 的区域则远在其上，从 \code{MMAP\_BASE} $=$ \code{0x10\_0000\_0000}（64\,GiB）开始，\code{libc.so} 就被 \code{ld.so} 映射在那里（第~\ref{sec:pcache-mmap} 节）。
+\code{exec()} 建立的用户地址空间从虚拟地址 0 开始（图~\ref{fig:uas}）：先是 ELF 的代码和数据，然后是一页不可访问的保护页和 4 页（16\,KiB）用户栈，栈之上是 \code{sbrk()} 扩展的堆。用户页面的属性是 \code{PTE\_NORMAL | PTE\_U}，代码页可执行。动态链接的程序在主镜像之后还有一页多的 \file{/lib/ld.so}；\code{mmap()} 的区域则远在其上：\code{[MMAP\_MIN, MMAP\_TOP)}，从 64\,GiB（\code{0x10\_0000\_0000}）到 256\,GiB$-$256\,MiB，自顶向下分配，只登记 VMA、按需调页（第~\ref{sec:mmap} 节）。
 
 \begin{figure}[htbp]
   \centering
@@ -478,30 +474,29 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz) {
 
 \code{userinit()} 再把 \code{trapframe} 的 \code{elr} 设为 0、\code{sp} 设为 \code{PGSIZE}：进程第一次“返回”用户态时，从虚拟地址 0 取第一条指令，栈从这一页的顶部向下长。同一个物理页此时有两个虚拟地址：内核通过 \code{KERNBASE+PA} 写它，用户通过 VA 0 执行它。拷贝时用的是前者，所以内核根本不需要先切换到这个进程的页表。
 
-\subsection{\code{fork} 时共享地址空间}
+\subsection{\code{fork} 时复制地址空间}
 
-\code{fork()} 要给子进程一份与父进程内容相同、但互不影响的内存。最直接的做法是逐页复制：为每个已映射的页分配新物理页、经内核直接映射 \code{P2V(pa)} 拷贝内容、以相同属性映射进子进程。早期的 \code{uvmcopy()} 正是这样做的，代价是 fork 一个 8\,MiB 的进程就要复制 8\,MiB——而 shell 的子进程往往紧接着 \code{exec()}，复制的内容立刻被丢弃。
-
-现在 \code{uvmcopy\_range()} 什么也不复制，只\emph{共享}：
+\code{fork()} 要给子进程一份与父进程内容相同、但互不影响的内存。当前源码树的 \code{uvmcopy()} 采用最直接的做法：对 \code{[0, sz)} 里的每一页分配新物理页，经内核直接映射 \code{P2V(pa)} 拷贝内容，再以相同属性映射进子进程：
 
 \begin{ccode}
-acquire(&pte_lock);
-for(va = start; va < end; va += PGSIZE){
-  pte = walk(old, va, 0);
+for(i = 0; i < sz; i += PGSIZE){
+  pte = walk(old, i, 0);
   pa = PTE2PA(*pte);
-  if((*pte & PTE_U) && (*pte & PTE_RO) == 0){     // 用户可写的页
-    *pte = (*pte & ~PTE_AP(3)) | PTE_URO | PTE_COW; // 父进程也改成只读 + COW
-    changed = 1;
+  flags = PTE_FLAGS(*pte);
+  if(*pte & PTE_SHARED){            // 只读的共享库代码：子进程映射同一页
+    mappages(new, i, PGSIZE, pa, flags | PTE_SHARED);
+    continue;
   }
-  mappages(new, va, PGSIZE, pa, PTE_FLAGS(*pte) | (*pte & PTE_COW));
-  kref_inc(pa);                                    // 子进程这一份映射的引用
+  mem = kalloc();
+  memmove(mem, (char*)P2V(pa), PGSIZE);
+  mappages(new, i, PGSIZE, V2P(mem), flags);
 }
-release(&pte_lock);
-if(changed)
-  flush_tlb();      // 其他 CPU 上同一地址空间的线程可能缓存着可写翻译
+uvmsync_icache(new, sz);            // 复制的页里有代码，同步 I-cache
 \end{ccode}
 
-父子两张页表指向同一组物理页，可写页在\emph{两边}都变成只读并打上软件位 \code{PTE\_COW}；只读页（共享库代码）原样共享。谁先写，谁就在写保护异常里得到自己的一份，见第~\ref{sec:cow} 节。fork 一个 8\,MiB 的进程实测只用了 52\,KiB：新进程的 \code{struct proc}、内核栈和几张页表页。失败时 \code{uvmunmap()} 撤销子进程已建立的映射，只减引用计数，父进程不受影响。
+失败时 \code{uvmunmap(new, 0, i/PGSIZE, 1)} 撤销子进程已建立的映射。\code{[0, sz)} 之外的 mmap 区由紧接着的 \code{dup\_mmap()} 按 VMA 复制：私有页拷贝，共享页只增加 \code{mapcount}，设备帧照抄 PTE（第~\ref{sec:mmap} 节）。带 \code{CLONE\_VM} 的线程和 vfork 子进程根本不走这条路，直接共享父进程的 \code{vmspace}（第~\ref{sec:clone-flags} 节）。
+
+代价是 fork 一个 8\,MiB 的进程就要复制 8\,MiB，而 shell 的子进程往往紧接着 \code{exec()}，复制的内容立刻被丢弃。常见的两种对策都已有设计：用 vfork 让子进程在 \code{exec} 之前借用父进程的内存（已实现，第~\ref{sec:clone-flags} 节）；或者写时复制，只共享、谁写谁复制（实验分支，第~\ref{sec:cow} 节）。
 
 \subsection{TLB 与地址空间切换}
 
@@ -521,13 +516,22 @@ void switchuvm(struct proc *p) {
 
 \subsection{缺页与按需分配}
 
-如果用户进程访问了一个没有映射的地址，页表遍历在某一级遇到无效项，CPU 产生同步异常进入 \code{usertrap()}。此时 \reg{ESR\_EL1} 的 EC 字段是 \code{0x24}（来自 EL0 的数据中止）或 \code{0x20}（来自 EL0 的指令中止）；ISS 的低 6 位 DFSC 说明原因，\code{0b0001xx} 是第 \code{xx} 级的翻译错误，\code{0b0011xx} 是权限错误；出错的虚拟地址在 \reg{FAR\_EL1} 里。
+如果用户进程访问了一个没有映射的地址，页表遍历在某一级遇到无效项，CPU 产生同步异常进入 \code{usertrap()}。此时 \reg{ESR\_EL1} 的 EC 字段是 \code{0x24}（来自 EL0 的数据中止）或 \code{0x20}（来自 EL0 的指令中止）；ISS 的低 6 位 DFSC 说明原因，\code{0b0001xx} 是第 \code{xx} 级的翻译错误，\code{0b0011xx} 是权限错误；bit 6（WnR）表示是写；出错的虚拟地址在 \reg{FAR\_EL1} 里。
 
-很多内核利用这个异常实现\emph{按需分配}（demand paging）：\code{sbrk} 只增大进程的 \code{sz}，并不真正分配物理页；进程第一次碰到新页时触发翻译错误，内核检查 \reg{FAR\_EL1} 落在 \code{[0, sz)} 之内，就当场 \code{kalloc()} 一页、\code{mappages()} 映射上去，然后 \code{eret} 重新执行那条出错的指令。进程看到的只是一条稍微慢一点的 \code{ldr}。
+很多内核利用这个异常实现\emph{按需分配}（demand paging）：进程第一次碰到某页时触发翻译错误，内核检查 \reg{FAR\_EL1} 落在合法区间里，就当场分配、映射，然后 \code{eret} 重新执行那条出错的指令。进程看到的只是一条稍微慢一点的 \code{ldr}。
 
-xv6-aarch64 目前走的是另一条路：\code{growproc()} 调用 \code{uvmalloc()} 立即分配并清零所有新页，\code{mmap()} 也在调用时就映射好全部页，所以合法的访问永远不会遇到\emph{翻译}错误。唯一被内核“修好再重试”的是写时复制：EC $=$ \code{0x24}、WnR $=1$ 且 DFSC 为权限错误时交给 \code{uvm\_cowfault()}（第~\ref{sec:cow} 节）。\code{usertrap()} 处理 EC $=21$（\code{svc}）和这种写时复制，其余异常一律打印 \code{esr}、\code{elr}、\code{far}，调用 \code{uvmdump()} 打印这个进程的整张页表，然后杀掉进程：
+xv6-aarch64 对两段地址采用不同的策略：
+
+\begin{itemize}
+  \item \code{[0, sz)}：\code{exec()} 和 \code{growproc()} 调用 \code{uvmalloc()} 立即分配并清零所有页，合法访问永远不会缺页；
+  \item mmap 区：\code{mmap()} 只登记 VMA，第一次访问时由 \code{user\_page\_fault()} $\to$ \code{handle\_mm\_fault()} 按 VMA 分配或读入（第~\ref{sec:mmap} 节）。共享文件页的第一次写也走这里，借权限错误标记脏页。
+\end{itemize}
+
+其余异常——访问 \code{[0, sz)} 之外又不在任何 VMA 里的地址、写只读页、执行不可执行页——一律打印 \code{esr}、\code{elr}、\code{far}，调用 \code{uvmdump()} 打印这个进程的整张页表（mmap 区里的错误只打印一行 SIGSEGV/SIGBUS），然后杀掉进程：
 
 \begin{ccode}
+} else if((ec == 0x24 || ec == 0x20) && user_page_fault(p, esr)){
+  // mmap 区的缺页已处理，或已打印 SIGSEGV/SIGBUS 并设 killed
 } else {
   printf("usertrap(): unexpected esr=%p ec=%p pid=%d\n", esr, ec, p->pid);
   printf("            elr=%p far=%p\n", r_elr_el1(), r_far_el1());
@@ -536,123 +540,150 @@ xv6-aarch64 目前走的是另一条路：\code{growproc()} 调用 \code{uvmallo
 }
 \end{ccode}
 
-这份输出正是 \ref{sec:caches} 节分析真机故障时用的线索。若要加上按需分配，只需在这个分支里先判断 \code{ec == 0x24 \&\& (esr \& 0x3c) == 0x04 \&\& r\_far\_el1() < p->vm->sz}，然后分配、映射，再像故障三那样广播作废 TLB 后返回；\code{growproc()} 则改为只增大 \code{sz}。
+这份输出正是 \ref{sec:caches} 节分析真机故障时用的线索。
 
-\section{共享物理页：引用计数、写时复制、页缓存与 \code{mmap}}
-\label{sec:sharedpages}
-
-前面的用户地址空间里，每个物理页只属于一张页表：\code{uvmunmap()} 取消映射时顺手 \code{kfree()}，从不担心别人还在用。一旦想让多个地址空间共用物理页——fork 后的父子进程、所有进程里的 \code{libc.so} 代码、同一文件的多个 \code{mmap}——就需要先回答“这一页还有谁在用”。本节的四个机制依次建立在前一个之上。
-
-\subsection{物理页引用计数}
-
-\file{kalloc.c} 为它能分配的每一页维护一个 16 位计数，以物理页号为下标，受 \code{kmem.lock} 保护：
-
-\begin{ccode}
-static uint16 pageref[PHYSTOP / PGSIZE];
-
-void *kalloc(void)      // 取出空闲页时置为 1
-void  kref_inc(uint64 pa)   // 再多一个映射（COW、页缓存、共享库）
-int   kref_get(uint64 pa)
-void  kfree(void *va)   // 减一；减到 0 才真正放回空闲链表
-\end{ccode}
-
-于是“释放”的含义变成了“放弃我这一份”：\code{uvmunmap()}、\code{growproc()} 缩小内存、进程退出，一律调用 \code{kfree()}，共享页只会在最后一个使用者离开时回到空闲链表。不归 \code{kalloc} 管的物理页（相机 DMA 缓冲、模块区）不计数，也不允许传给这些函数。
-
-这一步也修正了第一版共享 libc 时的隐患：那时共享页用软件位 \code{PTE\_SHARED} 标记、各处“见到就别释放”，结果 \code{sbrk(-sz)} 走的是 \code{growproc()} 自己的释放循环，绕过了检查，把所有进程共用的 libc 代码页还给了空闲链表。usertests 的 \code{sbrkbugs} 正是这样暴露问题的：子进程释放全部内存后，父进程、\code{sh}、\code{init} 相继在 libc 的同一地址遇到未定义指令（EC $=0$），最终 \code{panic: init exiting}。有了引用计数，这类特判全部消失。
-
-\subsection{写时复制}
-\label{sec:cow}
-
-fork 之后父子共享的可写页在两边都是“只读 + \code{PTE\_COW}”。\code{PTE\_COW} 是 ARMv8 留给软件的描述符位 55（MMU 忽略 \code{[58:55]}），它的意思是“只读只是因为共享，写了就复制”。写这种页会产生权限错误：
-
-\begin{ccode}
-} else if(ec == 0x24 && ((esr >> 6) & 1) && (esr & 0x3c) == 0x0c &&
-          (cow = uvm_cowfault(p->vm->pagetable, r_far_el1())) != -1){
-  if(cow == -2){                       // 没有空闲页可复制
-    printf("pid %d %s: out of memory for a copy-on-write fault at %p\n", ...);
-    p->killed = 1;
-  }
-  // 否则返回用户态，那条 str 重新执行，这次写进自己的页
-}
-\end{ccode}
-
-判断条件逐位对应 \reg{ESR\_EL1}：EC \code{0x24} 是来自 EL0 的数据中止，ISS 的 bit 6（WnR）为 1 表示写，DFSC \code{0b0011xx} 是权限错误。\code{uvm\_cowfault()} 在 \code{pte\_lock} 下处理这一页：
-
-\begin{ccode}
-attrs = (*pte & ~(PA2PTE(~0ULL) | PTE_COW | PTE_AP(3))) | PTE_U;  // EL0 可写
-if(kref_get(pa) == 1){              // 别人都已复制或退出：直接收归己有
-  *pte = PA2PTE(pa) | attrs;
-} else {
-  mem = kalloc();                   // 复制一份
-  memmove(mem, P2V(pa), PGSIZE);
-  if((attrs & PTE_UXN) == 0)        // 可执行页还要同步 I-cache
-    uvmsync_icache_kva(mem);
-  *pte = PA2PTE(V2P(mem)) | attrs;
-  kfree(P2V(pa));                   // 放弃对共享页的那一份引用
-}
-\end{ccode}
-
-改完页表项后 \code{flush\_tlb()} 广播作废，旧的只读翻译从所有 CPU 上消失。真正“只读”的页（共享库代码、\code{PROT\_READ} 映射）没有 \code{PTE\_COW}，写它们仍是致命错误。
-
-\paragraph{\code{copyout()} 也要遵守.} 内核写用户内存走的是自己的直接映射，用户页表项的 AP 位对它不起作用。如果不加检查，子进程 \code{read(fd, buf, n)} 时内核会把数据直接写进仍与父进程共享的物理页，父进程的内存就被改了；同样，\code{read(fd, libc\_text, n)} 能让一个进程改写所有进程共用的 libc 代码。所以 \code{copyout()} 对每一页先在 \code{pte\_lock} 下检查：COW 页先复制，只读页拒绝（返回 $-1$），并且\emph{持锁完成这一页的拷贝}，免得另一个线程的 \code{fork()} 恰好在检查和写入之间把它重新变成共享页。
-
-\paragraph{一把锁.} \code{pte\_lock} 串行化所有“把页变成 COW”和“把 COW 页变回可写”的操作：fork 标记、写保护异常、\code{copyout()}、区间撤销映射。没有它，一个线程可能正把 \code{kref\_get()==1} 的页就地改成可写，而同一地址空间里另一个线程的 \code{fork()} 恰好把同一页共享给了子进程。
-
-\paragraph{效果与代价.} 新增的 \code{cowtest} 实测：8\,MiB 的进程 fork 只用 52\,KiB；子进程写遍 8\,MiB 后才真正复制 8\,MiB；连续 fork 50 次空闲内存不变。代价是内存从“fork 时不够就失败”变成“写的时候不够才失败”：usertests 的 \code{countfree()} 子进程先用 \code{sbrk} 吃光内存，再写一个仍与父进程共享的数据页，于是在写保护异常里因没有空闲页而被杀——这正是 Linux OOM 的行为。另一个副作用是 fork 太便宜，进程数不再被内存限制住；动态增长的进程表和线性扫描的调度器经不起几万个进程，因此 \file{param.h} 加了 \code{NPROC\_MAX} $=1024$ 的上限，作用相当于 Linux 的 \code{threads-max}。
-
-\subsection{页缓存}
-
-要让不同进程共享同一个\emph{文件}的页（典型是 \code{libc.so} 的代码），内核需要一个以“文件 + 页号”为键的缓存。\file{kernel/pcache.c} 是一个很小的版本：
-
-\begin{ccode}
-struct pcfile {
-  struct inode *ip;     // 持有 inode 引用，像 Linux 的 address_space
-  uint64 *pa;           // 一页数组：文件第 n 页 -> 物理页
-  uint64 lastuse;
-};
-uint64 pcache_getpage(struct inode *ip, uint64 pgidx);  // 返回 pa，并为调用者 kref_inc
-void   pcache_invalidate(struct inode *ip);             // 文件变了：丢弃缓存页
-\end{ccode}
-
-\begin{itemize}
-  \item 缓存页是普通的 \code{kalloc()} 页，缓存自己持有一份引用，每个映射再各持一份；文件末尾之后的字节读作 0。读入后统一做一次 I-cache 同步，因为它可能被映射成可执行的库代码。
-  \item 缓存最多 8 个文件（\code{NINODE} 只有 50），每个文件最多 512 页（2\,MiB）；满了就按最近使用淘汰。被淘汰文件的 inode 引用不能在持锁时释放，先放进待释放列表，由 \code{pcache\_reap()} 在锁外、自开日志事务再 \code{iput()}。
-  \item 一致性：\code{filewrite}、\code{ftruncate} 和 \code{open(O\_TRUNC)} 之后调用 \code{pcache\_invalidate()}。已有的映射保留它们拿到的页，相当于一份 \code{MAP\_PRIVATE} 快照；新的 \code{mmap} 看到新内容。
-  \item 加锁顺序固定为“先 \code{ilock(ip)}，再页缓存的睡眠锁”；\code{pcache\_invalidate()} 在 inode 解锁之后调用。
-\end{itemize}
-
-\subsection{\code{mmap()} 与 VMA}
+\section{\code{mmap()}：VMA、按需调页与设备映射}
+\label{sec:mmap}
 \label{sec:pcache-mmap}
 
-用户地址空间在 \code{sz} 之上多了一块区域 \code{[MMAP\_BASE, MMAP\_TOP)}，即 64\,GiB 到相机窗口下方。每个 \code{struct vmspace} 有一张 32 项的 VMA 表记录这里的区间：
+前面的用户地址空间 \code{[0, sz)} 由 \code{exec()} 和 \code{sbrk()} 一次性建好，页表里有什么，进程就有什么。\code{mmap()} 换了一种思路，仿照 Linux：先用一个 \code{vm\_area\_struct}（VMA）\emph{描述}一段地址\emph{应该}装着什么——哪个文件的哪一段、是否与别的进程共享、是否是设备的物理帧——页表只记录已经碰过的页。第一次访问某页时 MMU 报缺页，内核按 VMA 的描述把这一页“变出来”，再让那条指令重新执行。图~\ref{fig:mmap-structs} 是数据结构，图~\ref{fig:mmap-paths} 是三条主要路径。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-y-mmap-structs.pdf}
+  \caption{mmap 的数据结构：地址空间布局、\code{vmspace}/\code{vm\_area\_struct}、四类物理页的归属与 PTE 位}
+  \label{fig:mmap-structs}
+\end{figure}
+
+\subsection{\code{vm\_area\_struct} 与地址布局}
+
+\code{struct vmspace}（相当于 Linux 的 \code{mm\_struct}）多了两个成员：按地址排序的 VMA 链表 \code{mmap}，以及一把可睡眠的读写信号量 \code{mmap\_lock}。缺页处理拿读锁，\code{mmap}/\code{munmap} 拿写锁；改页表本身仍由自旋锁 \code{vm->lock} 保护。VMA 定义在 \file{include/kernel/mm.h}，字段是 Linux 的一个子集，\code{vm\_flags} 的位值也照抄 Linux：
 
 \begin{ccode}
-struct vma { uint64 start, end; int prot, flags; };   // start == end 表示空闲
+struct vm_area_struct {
+  uint64 vm_start, vm_end;    // [start, end)，页对齐
+  uint64 vm_flags;            // VM_READ/WRITE/EXEC/SHARED/MAYWRITE/PFNMAP/IO...
+  uint64 vm_page_prot;        // 内存类型：PTE_NORMAL / PTE_NORMAL_NC / PTE_DEVICE
+  uint64 vm_pgoff;            // 文件偏移（或物理帧号），以页为单位
+  struct file *vm_file;       // 后备文件，匿名映射为 0
+  const struct vm_operations_struct *vm_ops;   // open/close/fault
+  void *vm_private_data;
+  uint64 vm_shmkey;           // 共享匿名内存的页缓存键
+  struct vmspace *vm_mm;
+  struct vm_area_struct *vm_next;
+};
 \end{ccode}
 
-\file{kernel/mmap.c} 在调用时就把整段映射好（没有按需调页），所以 VMA 只需记录区间：
+mmap 区在 \code{[MMAP\_MIN, MMAP\_TOP)}，即 64\,GiB 到 256\,GiB$-$256\,MiB，不带 \code{MAP\_FIXED} 时 \code{get\_unmapped\_area()} 自顶向下找空洞；\code{growproc()} 不允许堆长进最低的 VMA。\code{do\_mmap()} 检查参数、分配 VMA，然后分两种情况：普通文件和匿名映射到此为止，一页都不分配；字符设备则调用驱动的 \code{f\_op->mmap(f, vma)}，签名与 Linux 相同。
+
+\subsection{按需调页：\code{handle\_mm\_fault()}}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-z-mmap-paths.pdf}
+  \caption{mmap 的三条路径：(a) 缺页，(b) \code{munmap}/\code{msync} 回写，(c) 设备 mmap}
+  \label{fig:mmap-paths}
+\end{figure}
+
+\code{usertrap()} 遇到 EC $=$ \code{0x24}（数据中止）或 \code{0x20}（指令中止）时先交给 \code{user\_page\_fault()}。地址低于最低 VMA 的缺页仍走原来的详细报告；否则打开中断（读文件可能睡眠）调用 \code{handle\_mm\_fault()}：
+
+\begin{ccode}
+if(fsc < 0x04 || fsc > 0x0f || far < mmap_lowest(p->vm))
+  return 0;                                   // 不是 mmap 区：保留原来的崩溃报告
+if(ec == 0x20)                     flags |= FAULT_FLAG_INSTR;
+else if((iss & (1<<6)) && !(iss & (1<<8))) flags |= FAULT_FLAG_WRITE;  // WnR
+intr_on();
+r = handle_mm_fault(p->vm, far, flags);       // 失败：打印 SIGSEGV/SIGBUS 并杀进程
+\end{ccode}
+
+\code{handle\_mm\_fault()} 在 \code{mmap\_lock} 读锁下找到 VMA，检查权限（不在任何 VMA 里、写只读区、执行不可执行区都是 SIGSEGV），然后按四种情况产生物理页：
+
+\begin{enumerate}
+  \item \textbf{PTE 已存在}：只可能是“写一个干净的共享文件页”，把 AP 改成可写即可（见下文的脏页跟踪）；
+  \item \textbf{\code{VM\_PFNMAP}}（设备）：由 \code{vm\_ops->fault} 给出物理帧号；
+  \item \textbf{\code{VM\_SHARED}}：到共享页缓存里找或建这一页；
+  \item \textbf{私有}：\code{kalloc()} 一页，文件映射用 \code{f\_op->read\_at} 读入（整页都在文件末尾之后则 SIGBUS，尾部补 0），匿名映射清零。
+\end{enumerate}
+
+最后在 \code{vm->lock} 下 \code{walk()} 并写入 PTE。如果另一个线程抢先装好了同一页，就把自己的页退回；然后返回，\code{eret} 重新执行那条 \code{ldr}/\code{str}。
+
+\subsection{共享页：\code{pcache\_page} 与 \code{shm\_object}}
+
+\code{MAP\_SHARED} 要求所有映射同一文件同一页的 PTE 指向同一个物理页，内核因此需要一个以“对象 $+$ 页号”为键的表：
+
+\begin{ccode}
+struct pcache_page {
+  struct pcache_page *next;   // 64 桶哈希链
+  uint64 key;                 // inode* 或 shm_object*
+  uint64 index;               // 页号
+  uint64 pa;
+  int mapcount;               // 有多少个 PTE 指向它
+};
+\end{ccode}
+
+文件页的键是 inode 指针，所以两个进程各自 \code{open()} 同一文件再 \code{mmap}，也会共享同一页；\code{mapcount} 降到 0 时页被释放。共享匿名内存（\code{MAP\_SHARED|MAP\_ANONYMOUS} 和 \code{/dev/zero}）没有后备文件，键是一个按 VMA 计数的 \code{shm\_object}，页要活到最后一个 VMA 消失——否则 fork 出的子进程先写、随后退出，那一页就跟着丢了（\code{mmaptest} 抓到过这个错误）。
+
+\paragraph{脏页跟踪.} Cortex-A53 是 ARMv8.0，没有硬件脏位（DBM 是 ARMv8.1 的特性）。所以共享文件页第一次总是装成\emph{只读}；第一次写触发权限错误，\code{handle\_mm\_fault()} 的情况 1 把 AP 改成可写并刷 TLB。于是“共享文件 VMA 里可写的 PTE”就等于“脏页”。
+
+\paragraph{回写.} \code{munmap()}、进程退出和 \code{exec()} 都经过 \code{zap\_range()}：先对可写 PTE 指向的页调用 \code{file\_write\_at()} 写回文件（只写到 \code{i\_size}，不扩展文件），这一步会睡眠，所以不持 \code{vm->lock}；然后在 \code{vm->lock} 下每批 32 个 PTE 清零、\code{flush\_tlb()}，最后才释放物理页。\code{msync(MS\_SYNC)} 顺序相反：先把脏 PTE 改回只读并刷 TLB，再写回——写回期间的并发写会重新缺页、重新变脏，不会丢。
+
+\subsection{设备 mmap：\code{f\_op->mmap} 与 \code{remap\_pfn\_range()}}
+
+设备没有页缓存，驱动知道的是物理地址。驱动的 \code{mmap} 回调检查偏移和长度后调用 \code{remap\_pfn\_range()} 立即装好整段 PTE，例如帧缓冲：
+
+\begin{ccode}
+static int fb_mmap(struct file *f, struct vm_area_struct *vma) {
+  uint64 size = vma->vm_end - vma->vm_start, len = PGROUNDUP(fb.size);
+  if(!fb.ready || vma->vm_pgoff > len / PGSIZE ||
+     size > len - vma->vm_pgoff * PGSIZE || (vma->vm_flags & VM_EXEC))
+    return -1;
+  return remap_pfn_range(vma, vma->vm_start,
+                         (fb.base >> PGSHIFT) + vma->vm_pgoff, size, PTE_NORMAL_NC);
+}
+\end{ccode}
+
+\code{remap\_pfn\_range()} 给 VMA 加上 \code{VM\_IO|VM\_PFNMAP}，并在每个 PTE 上打软件位 \code{PTE\_SPECIAL}（bit 56）：这一页不归 \code{kalloc} 管，\code{munmap} 只清 PTE、不释放，fork 照抄 PTE。内存类型由驱动决定：MMIO 必须是 Device-nGnRnE，帧缓冲和 DMA 缓冲用 Normal-NC（写合并，并与内核对同一物理页的别名属性一致）。
 
 \begin{table}[htbp]
   \centering
-  \caption{\code{mmap()} 支持的形式}
-  \label{tab:mmap}
+  \caption{支持 \code{mmap} 的设备}
+  \label{tab:dev-mmap}
   \small
-  \begin{tabularx}{\linewidth}{@{}lX@{}}
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
     \toprule
-    形式 & 实现 \\
+    设备 & 主/次 & 行为 \\
     \midrule
-    \code{MAP\_ANONYMOUS} & 新分配的清零页，\code{PROT\_WRITE} 时可写 \\
-    文件 + \code{MAP\_PRIVATE} & 页缓存页；只读映射直接共享，可写映射以“只读 + \code{PTE\_COW}”共享，写时复制，缓存中的原页不变 \\
-    文件 + \code{MAP\_SHARED} & 只允许只读（没有回写） \\
-    \code{MAP\_FIXED} & 先撤销该区间原有的映射，再映射到指定地址 \\
-    \code{munmap()} & 可以只撤销区间的一部分，必要时把一个 VMA 切成两个 \\
+    \code{/dev/mem} & 8/1 & 偏移即物理地址；拒绝 PA $<$ \code{PHYSTOP}（相当于 \code{STRICT\_DEVMEM}）；MMIO 用 Device-nGnRnE，其余 Normal-NC \\
+    \code{/dev/zero} & 8/5 & 变成匿名映射；\code{MAP\_SHARED} 即共享匿名内存 \\
+    \code{/dev/fb0} & 9/0 & \file{bcm2708\_fb.c}：首次 open 用一条多 tag 的 mailbox 消息分配 640$\times$480$\times$32 帧缓冲；支持 \code{FBIOGET\_VSCREENINFO}/\code{FSCREENINFO} \\
+    \code{/dev/video0} & 5 & Unicam DMA 缓冲；地址由内核选；\code{VM\_NOFILEREF} 让映射不持有 file，最后一个 fd 关闭即停流；\code{vm\_ops} 的 open/close 维护 \code{camera\_mapped} 计数 \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
-\code{PROT\_EXEC} 决定 UXN 位；内核永远不执行用户页（PXN）；\code{PROT\_NONE} 映射成 AP $=00$，EL0 无法访问。fork 时 \code{vma\_copy()} 对每个区间调用 \code{uvmcopy\_range()}，因此 mmap 区域同样写时复制；进程退出和 \code{exec()} 替换镜像时 \code{vma\_unmap\_all()} 撤销全部区间。\code{sbrk} 不允许越过 \code{MMAP\_BASE}；相机的 \code{/dev/video0} 仍由驱动自己提供页，\code{sys\_mmap()} 遇到字符设备就交给 \code{chrdev\_mmap()}。
+\subsection{内核替用户访问 mmap 区}
 
-新增的 \code{mmaptest} 覆盖了这些路径：只读映射的内容与文件一致；私有可写映射被写后，另一个映射和文件本身都不变；写 \code{PROT\_READ} 映射的子进程被杀；fork 后子进程的写入不影响父进程；匿名页为零；\code{munmap} 掉中间一页后访问它会出错；\code{MAP\_FIXED} 覆盖已有映射；文件被改写后新的映射能看到新内容。下一章的用户态动态链接器 \code{ld.so} 正是用这套接口装载 \code{libc.so} 的（第~\ref{sec:ldso} 节）。
+\code{copyin}/\code{copyout} 现在可能碰到还没缺页进来的地址。规则有三条：
+
+\begin{itemize}
+  \item \code{read}/\code{write}/\code{pread}/\code{pwrite} 在拿 inode 锁\emph{之前}先 \code{fault\_in\_user\_range()}，把整块用户缓冲区缺页进来；
+  \item \code{copyout} 仍遇到缺页时调用 \code{uva2ka\_fault()}：若当前持有自旋锁（例如 \code{pipewrite}、\code{consoleread} 持锁拷贝）直接失败，不睡眠；否则以 \code{FAULT\_FLAG\_KERNEL} 调 \code{handle\_mm\_fault()}，只 \code{down\_read\_trylock(mmap\_lock)}，避免与正在回写的 \code{munmap} 形成 ABBA 死锁；
+  \item \code{PTE\_SPECIAL} 且不在内核直接映射范围内的页（帧缓冲、MMIO）一律返回 \code{EFAULT}，内核不去碰没有映射的物理地址。
+\end{itemize}
+
+\code{fetchaddr()} 也不再要求地址在 \code{[0, sz)}，只要在 256\,GiB 用户空间内，这样 \code{argv} 可以放在 mmap 区里。
+
+\subsection{fork、vfork、exit 与 \code{exec}}
+
+\code{fork()} 在 \code{allocproc()} 之前拿 \code{mmap\_lock} 读锁，复制完 \code{[0, sz)} 后调用 \code{dup\_mmap()}：每个 VMA 复制一份（\code{filedup}、\code{shm\_get}、\code{vm\_ops->open}），私有页拷贝一份，共享页 \code{mapcount++}、PTE 照抄，设备帧照抄 PTE；中途失败用不睡眠的 \code{mmap\_abort()} 回滚。带 \code{CLONE\_VM} 的线程和 vfork 子进程直接共享 \code{vmspace}，不复制。
+
+共享 \code{vmspace} 带来一个问题：vfork 子进程退出时不能把父进程的映射拆掉。所以 \code{vmspace} 有两个计数（第~\ref{sec:clone-flags} 节）：\code{refcount} 记录还有谁持有页表，\code{users} 记录还有几个活着的任务在用。\code{exit()}、线程退出和 vfork 子进程的 \code{exec()} 都调用 \code{vmspace\_leave()}，只有 \code{users} 减到 0 时才 \code{exit\_mmap()}。\code{exec()} 对私有 \code{vmspace} 在提交新镜像前 \code{exit\_mmap()}；vfork 子进程则换到 \code{vmspace\_wrap()} 新建的私有 \code{vmspace}，旧的 VMA 原样留给父进程。
+
+\subsection{测试与限制}
+
+\file{user/mmaptest.c} 在 QEMU raspi3b 上 49 项全部通过，连续运行 \file{/proc/meminfo} 的 MemFree 不变。它覆盖：匿名零页、\code{munmap} 中间一页拆分 VMA、访问空洞或只读页被杀、\code{MAP\_FIXED}、fork 后的共享与私有语义、子进程先写的共享页、vfork 子进程写父进程的映射并退出、\code{MAP\_PRIVATE} 文件（关闭 fd 后仍可用、尾部补零、写不回文件）、\code{MAP\_SHARED} 文件（\code{msync}、\code{munmap} 回写、文件大小不变、两个进程各自 open 后共享页）、\code{read()} 写进未触碰的映射、超出 EOF 的 SIGBUS、\code{/dev/zero}、用 \code{/dev/mem} 读系统定时器、\code{/dev/mem} 拒绝内核 RAM、\code{/dev/fb0} 画彩条。
+
+已知限制：没有写时复制，fork 复制所有已触碰的私有页；\code{pcache\_page} 只在页被映射期间存在，不是统一的页缓存，\code{write()} 不会更新已映射的共享页；没有 \code{mprotect}、\code{mremap}、\code{madvise} 和页回收。
 
 \section{MMIO、总线地址与 DMA}
 
@@ -836,3 +867,120 @@ void uvmsync_icache(pagetable_t pagetable, uint64 sz) {
 \begin{note}
   经验：在 AArch64 上，改了“将要执行的内存”要做 D/I-cache 同步，改了“页表”要做 TLB 失效，两者不能互相替代。QEMU 两件事都不检查，所以必须上真机验证。
 \end{note}
+
+\section{实验分支：引用计数、写时复制与页缓存}
+\label{sec:sharedpages}
+
+前面各节描述的都是当前源码树。本节换一个角度，记录实验分支 \code{wip-cow-mmap-ldso} 的设计，它\emph{尚未}合入当前源码树：当前的 \code{uvmcopy()} 仍逐页复制（只读的共享库代码页带 \code{PTE\_SHARED} 时共享），\code{mmap} 的实现见第~\ref{sec:mmap} 节。下面的设计是让多个地址空间共用物理页——fork 后的父子进程、所有进程里的 \code{libc.so} 代码、同一文件的多个 \code{mmap}——所需的基础，前提是先回答“这一页还有谁在用”。
+
+\subsection{物理页引用计数}
+
+\file{kalloc.c} 为它能分配的每一页维护一个 16 位计数，以物理页号为下标，受 \code{kmem.lock} 保护：
+
+\begin{ccode}
+static uint16 pageref[PHYSTOP / PGSIZE];
+
+void *kalloc(void)      // 取出空闲页时置为 1
+void  kref_inc(uint64 pa)   // 再多一个映射（COW、页缓存、共享库）
+int   kref_get(uint64 pa)
+void  kfree(void *va)   // 减一；减到 0 才真正放回空闲链表
+\end{ccode}
+
+于是“释放”的含义变成了“放弃我这一份”：\code{uvmunmap()}、\code{growproc()} 缩小内存、进程退出，一律调用 \code{kfree()}，共享页只会在最后一个使用者离开时回到空闲链表。不归 \code{kalloc} 管的物理页（相机 DMA 缓冲、模块区）不计数，也不允许传给这些函数。
+
+这一步也修正了第一版共享 libc 时的隐患：那时共享页用软件位 \code{PTE\_SHARED} 标记、各处“见到就别释放”，结果 \code{sbrk(-sz)} 走的是 \code{growproc()} 自己的释放循环，绕过了检查，把所有进程共用的 libc 代码页还给了空闲链表。usertests 的 \code{sbrkbugs} 正是这样暴露问题的：子进程释放全部内存后，父进程、\code{sh}、\code{init} 相继在 libc 的同一地址遇到未定义指令（EC $=0$），最终 \code{panic: init exiting}。有了引用计数，这类特判全部消失。
+
+\subsection{写时复制}
+\label{sec:cow}
+
+fork 之后父子共享的可写页在两边都是“只读 + \code{PTE\_COW}”。\code{PTE\_COW} 是 ARMv8 留给软件的描述符位 55（MMU 忽略 \code{[58:55]}），它的意思是“只读只是因为共享，写了就复制”。写这种页会产生权限错误：
+
+\begin{ccode}
+} else if(ec == 0x24 && ((esr >> 6) & 1) && (esr & 0x3c) == 0x0c &&
+          (cow = uvm_cowfault(p->vm->pagetable, r_far_el1())) != -1){
+  if(cow == -2){                       // 没有空闲页可复制
+    printf("pid %d %s: out of memory for a copy-on-write fault at %p\n", ...);
+    p->killed = 1;
+  }
+  // 否则返回用户态，那条 str 重新执行，这次写进自己的页
+}
+\end{ccode}
+
+判断条件逐位对应 \reg{ESR\_EL1}：EC \code{0x24} 是来自 EL0 的数据中止，ISS 的 bit 6（WnR）为 1 表示写，DFSC \code{0b0011xx} 是权限错误。\code{uvm\_cowfault()} 在 \code{pte\_lock} 下处理这一页：
+
+\begin{ccode}
+attrs = (*pte & ~(PA2PTE(~0ULL) | PTE_COW | PTE_AP(3))) | PTE_U;  // EL0 可写
+if(kref_get(pa) == 1){              // 别人都已复制或退出：直接收归己有
+  *pte = PA2PTE(pa) | attrs;
+} else {
+  mem = kalloc();                   // 复制一份
+  memmove(mem, P2V(pa), PGSIZE);
+  if((attrs & PTE_UXN) == 0)        // 可执行页还要同步 I-cache
+    uvmsync_icache_kva(mem);
+  *pte = PA2PTE(V2P(mem)) | attrs;
+  kfree(P2V(pa));                   // 放弃对共享页的那一份引用
+}
+\end{ccode}
+
+改完页表项后 \code{flush\_tlb()} 广播作废，旧的只读翻译从所有 CPU 上消失。真正“只读”的页（共享库代码、\code{PROT\_READ} 映射）没有 \code{PTE\_COW}，写它们仍是致命错误。
+
+\paragraph{\code{copyout()} 也要遵守.} 内核写用户内存走的是自己的直接映射，用户页表项的 AP 位对它不起作用。如果不加检查，子进程 \code{read(fd, buf, n)} 时内核会把数据直接写进仍与父进程共享的物理页，父进程的内存就被改了；同样，\code{read(fd, libc\_text, n)} 能让一个进程改写所有进程共用的 libc 代码。所以 \code{copyout()} 对每一页先在 \code{pte\_lock} 下检查：COW 页先复制，只读页拒绝（返回 $-1$），并且\emph{持锁完成这一页的拷贝}，免得另一个线程的 \code{fork()} 恰好在检查和写入之间把它重新变成共享页。
+
+\paragraph{一把锁.} \code{pte\_lock} 串行化所有“把页变成 COW”和“把 COW 页变回可写”的操作：fork 标记、写保护异常、\code{copyout()}、区间撤销映射。没有它，一个线程可能正把 \code{kref\_get()==1} 的页就地改成可写，而同一地址空间里另一个线程的 \code{fork()} 恰好把同一页共享给了子进程。
+
+\paragraph{效果与代价.} 新增的 \code{cowtest} 实测：8\,MiB 的进程 fork 只用 52\,KiB；子进程写遍 8\,MiB 后才真正复制 8\,MiB；连续 fork 50 次空闲内存不变。代价是内存从“fork 时不够就失败”变成“写的时候不够才失败”：usertests 的 \code{countfree()} 子进程先用 \code{sbrk} 吃光内存，再写一个仍与父进程共享的数据页，于是在写保护异常里因没有空闲页而被杀——这正是 Linux OOM 的行为。另一个副作用是 fork 太便宜，进程数不再被内存限制住；动态增长的进程表和线性扫描的调度器经不起几万个进程，因此 \file{param.h} 加了 \code{NPROC\_MAX} $=1024$ 的上限，作用相当于 Linux 的 \code{threads-max}。
+
+\subsection{页缓存}
+
+要让不同进程共享同一个\emph{文件}的页（典型是 \code{libc.so} 的代码），内核需要一个以“文件 + 页号”为键的缓存。\file{kernel/pcache.c} 是一个很小的版本：
+
+\begin{ccode}
+struct pcfile {
+  struct inode *ip;     // 持有 inode 引用，像 Linux 的 address_space
+  uint64 *pa;           // 一页数组：文件第 n 页 -> 物理页
+  uint64 lastuse;
+};
+uint64 pcache_getpage(struct inode *ip, uint64 pgidx);  // 返回 pa，并为调用者 kref_inc
+void   pcache_invalidate(struct inode *ip);             // 文件变了：丢弃缓存页
+\end{ccode}
+
+\begin{itemize}
+  \item 缓存页是普通的 \code{kalloc()} 页，缓存自己持有一份引用，每个映射再各持一份；文件末尾之后的字节读作 0。读入后统一做一次 I-cache 同步，因为它可能被映射成可执行的库代码。
+  \item 缓存最多 8 个文件（\code{NINODE} 只有 50），每个文件最多 512 页（2\,MiB）；满了就按最近使用淘汰。被淘汰文件的 inode 引用不能在持锁时释放，先放进待释放列表，由 \code{pcache\_reap()} 在锁外、自开日志事务再 \code{iput()}。
+  \item 一致性：\code{filewrite}、\code{ftruncate} 和 \code{open(O\_TRUNC)} 之后调用 \code{pcache\_invalidate()}。已有的映射保留它们拿到的页，相当于一份 \code{MAP\_PRIVATE} 快照；新的 \code{mmap} 看到新内容。
+  \item 加锁顺序固定为“先 \code{ilock(ip)}，再页缓存的睡眠锁”；\code{pcache\_invalidate()} 在 inode 解锁之后调用。
+\end{itemize}
+
+\subsection{实验分支里的 \code{mmap()}}
+
+用户地址空间在 \code{sz} 之上多了一块区域 \code{[MMAP\_BASE, MMAP\_TOP)}，即 64\,GiB 到相机窗口下方。每个 \code{struct vmspace} 有一张 32 项的 VMA 表记录这里的区间：
+
+\begin{ccode}
+struct vma { uint64 start, end; int prot, flags; };   // start == end 表示空闲
+\end{ccode}
+
+\file{kernel/mmap.c} 在调用时就把整段映射好（没有按需调页），所以 VMA 只需记录区间：
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{mmap()} 支持的形式}
+  \label{tab:mmap}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    形式 & 实现 \\
+    \midrule
+    \code{MAP\_ANONYMOUS} & 新分配的清零页，\code{PROT\_WRITE} 时可写 \\
+    文件 + \code{MAP\_PRIVATE} & 页缓存页；只读映射直接共享，可写映射以“只读 + \code{PTE\_COW}”共享，写时复制，缓存中的原页不变 \\
+    文件 + \code{MAP\_SHARED} & 只允许只读（没有回写） \\
+    \code{MAP\_FIXED} & 先撤销该区间原有的映射，再映射到指定地址 \\
+    \code{munmap()} & 可以只撤销区间的一部分，必要时把一个 VMA 切成两个 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{PROT\_EXEC} 决定 UXN 位；内核永远不执行用户页（PXN）；\code{PROT\_NONE} 映射成 AP $=00$，EL0 无法访问。fork 时 \code{vma\_copy()} 对每个区间调用 \code{uvmcopy\_range()}，因此 mmap 区域同样写时复制；进程退出和 \code{exec()} 替换镜像时 \code{vma\_unmap\_all()} 撤销全部区间。\code{sbrk} 不允许越过 \code{MMAP\_BASE}；相机的 \code{/dev/video0} 仍由驱动自己提供页，\code{sys\_mmap()} 遇到字符设备就交给 \code{chrdev\_mmap()}。
+
+实验分支的 \code{mmaptest} 覆盖了这些路径：只读映射的内容与文件一致；私有可写映射被写后，另一个映射和文件本身都不变；写 \code{PROT\_READ} 映射的子进程被杀；fork 后子进程的写入不影响父进程；匿名页为零；\code{munmap} 掉中间一页后访问它会出错；\code{MAP\_FIXED} 覆盖已有映射；文件被改写后新的映射能看到新内容。下一章的用户态动态链接器 \code{ld.so} 正是用这套接口装载 \code{libc.so} 的（第~\ref{sec:ldso} 节）。
+
+有了页表和物理页分配器，内核就可以为每个进程准备一个独立的地址空间。下一章看进程本身：\code{struct proc} 里有什么，第一个进程怎样造出来，\code{fork()}、\code{exec()} 和调度器怎样使用本章的这些函数。

@@ -3,6 +3,7 @@
 #include <kernel/defs.h>
 #include <kernel/device.h>
 #include <kernel/usb.h>
+#include <kernel/slab.h>
 
 #define USB_CONTAINER(ptr, type, member) \
   ((type *)((char *)(ptr) - __builtin_offsetof(type, member)))
@@ -99,10 +100,13 @@ static struct bus_type usb_bus = {
   .remove = usb_remove,
   .modalias = usb_modalias,
 };
+static struct kmem_cache urb_cache;
 
 void
 usb_bus_init(void)
 {
+  if(kmem_cache_init(&urb_cache, "urb_cache", sizeof(struct urb), 16) < 0)
+    panic("urb slab cache");
   bus_register(&usb_bus);
 }
 
@@ -145,10 +149,9 @@ usb_unregister_driver(struct usb_driver *driver)
 struct urb *
 usb_alloc_urb(void)
 {
-  struct urb *urb = kalloc();
+  struct urb *urb = kmem_cache_alloc(&urb_cache);
   if(urb == 0)
     return 0;
-  memset(urb, 0, sizeof(*urb));
   initlock(&urb->lock, "usb-urb");
   urb->state = URB_IDLE;
   return urb;
@@ -160,7 +163,7 @@ usb_free_urb(struct urb *urb)
   if(urb == 0)
     return;
   usb_kill_urb(urb);
-  kfree(urb);
+  kmem_cache_free(&urb_cache, urb);
 }
 
 void

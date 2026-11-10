@@ -9,6 +9,7 @@
 
 #include <uapi/types.h>
 #include <uapi/elf.h>
+#include <uapi/mman.h>
 #include <uapi/syscall.h>
 
 #define PGSIZE 4096UL
@@ -77,7 +78,10 @@ static int xopen(const char *p) { return sc(SYS_open, (long)p, 0, 0, 0); }
 static int xclose(int fd) { return sc(SYS_close, fd, 0, 0, 0); }
 static int xpread(int fd, void *p, int n, uint64 off)
 { return sc(SYS_pread, fd, (long)p, n, off); }
-static char *xsbrk(int n) { return (char *)sc(SYS_sbrk, n, 0, 0, 0); }
+static void *xmmap(uint64 len, int prot, int flags, int fd, uint64 off)
+{
+  return (void *)__syscall(SYS_mmap, 0, len, prot, flags, fd, off);
+}
 static void xwrite(const char *s, int n)
 { sc(SYS_write, 2, (long)s, n, 0); }
 static void xexit(int status)
@@ -295,7 +299,15 @@ static int load_libc(struct image *img)
   for(uint i = 0; i < eh.phnum; i++)
     if(ph[i].type == ELF_PROG_LOAD && ph[i].vaddr + ph[i].memsz > maxend)
       maxend = ph[i].vaddr + ph[i].memsz;
-  char *base = xsbrk(PGROUNDUP(maxend));
+  // A brk heap is data and must remain non-executable.  Load the DSO into a
+  // dedicated VMA instead: this also keeps ld.so independent of malloc's
+  // small-object arena and lets lazy-brk pages retain RW+NX permissions.
+  // This small loader has no mprotect(2) yet, so the bootstrap mapping is
+  // RWX while relocations are applied.  Segment-specific permissions can be
+  // tightened once mprotect is added.
+  char *base = xmmap(PGROUNDUP(maxend),
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if(base == (char *)-1)
     return -1;
   zero(img, sizeof(*img));

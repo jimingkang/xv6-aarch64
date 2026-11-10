@@ -5,8 +5,9 @@
 // what xv6 needs for mmap(2).
 //
 //   struct vmspace (mm_struct)
-//     pagetable, sz            [0, sz): text/data/heap/stack, managed by
-//                              exec/sbrk exactly as before
+//     pagetable, sz            low text/data/stack plus a lazy brk heap
+//     start_brk, brk           valid heap range; physical pages are created
+//                              by the common user-fault path on first access
 //     mmap -> vma -> vma ...   one vm_area_struct per mmap() region, sorted
 //                              by address, all above MMAP_MIN
 //
@@ -95,6 +96,7 @@ uint64 do_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
 int    do_munmap(struct vmspace *vm, uint64 addr, uint64 len);
 int    do_msync(struct vmspace *vm, uint64 addr, uint64 len, int flags);
 int    handle_mm_fault(struct vmspace *vm, uint64 va, int flags);
+int    handle_user_mm_fault(struct vmspace *vm, uint64 va, int flags);
 int    dup_mmap(struct vmspace *old, struct vmspace *new);
 void   exit_mmap(struct vmspace *vm);
 void   mmap_abort(struct vmspace *vm);

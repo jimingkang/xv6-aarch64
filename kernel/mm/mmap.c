@@ -37,54 +37,11 @@
 #include <kernel/device.h>
 #include <kernel/mman.h>
 #include <kernel/mm.h>
+#include <kernel/slab.h>
 
 #define MAXUVA (1ULL << 38)     // TTBR0 covers [0, 256 GiB)
 
-// ---------------------------------------------------------------------------
-// Small object caches.  kalloc() hands out whole pages; a VMA or a page-cache
-// entry is ~100 bytes, so carve pages into objects (a minimal kmem_cache).
-// Pages are never returned to kalloc, as in a slab with no shrinker.
-// ---------------------------------------------------------------------------
-struct objcache {
-  struct spinlock lock;
-  void *free;                   // first word of a free object links the list
-  uint size;
-};
-
-static void*
-obj_alloc(struct objcache *c)
-{
-  void *o;
-
-  acquire(&c->lock);
-  if(c->free == 0){
-    char *page = kalloc();
-    if(page == 0){
-      release(&c->lock);
-      return 0;
-    }
-    for(uint i = 0; i + c->size <= PGSIZE; i += c->size){
-      *(void**)(page + i) = c->free;
-      c->free = page + i;
-    }
-  }
-  o = c->free;
-  c->free = *(void**)o;
-  release(&c->lock);
-  memset(o, 0, c->size);
-  return o;
-}
-
-static void
-obj_free(struct objcache *c, void *o)
-{
-  acquire(&c->lock);
-  *(void**)o = c->free;
-  c->free = o;
-  release(&c->lock);
-}
-
-static struct objcache vma_cache;
+static struct kmem_cache vma_cache;
 
 // ---------------------------------------------------------------------------
 // Shared page cache.  A page shared by MAP_SHARED mappings is identified by
@@ -114,8 +71,8 @@ struct shm_object {
 static struct {
   struct spinlock lock;         // also protects shm_object.ref
   struct pcache_page *hash[PCACHE_HASH];
-  struct objcache objs;
-  struct objcache shm_objs;
+  struct kmem_cache page_cache;
+  struct kmem_cache shm_cache;
 } pcache;
 
 static struct pcache_page**
@@ -166,14 +123,14 @@ pcache_put(uint64 key, uint64 index, int keep)
   release(&pcache.lock);
   if(pa){
     kfree(P2V(pa));
-    obj_free(&pcache.objs, p);
+    kmem_cache_free(&pcache.page_cache, p);
   }
 }
 
 static uint64
 shm_create(void)
 {
-  struct shm_object *o = obj_alloc(&pcache.shm_objs);
+  struct shm_object *o = kmem_cache_alloc(&pcache.shm_cache);
 
   if(o)
     o->ref = 1;
@@ -211,11 +168,11 @@ shm_put(uint64 key)
         panic("shm_put: page still mapped");
       *pp = p->next;
       kfree(P2V(p->pa));
-      obj_free(&pcache.objs, p);
+      kmem_cache_free(&pcache.page_cache, p);
     }
   }
   release(&pcache.lock);
-  obj_free(&pcache.shm_objs, o);
+  kmem_cache_free(&pcache.shm_cache, o);
 }
 
 // ---------------------------------------------------------------------------
@@ -224,13 +181,14 @@ shm_put(uint64 key)
 void
 mmap_init(void)
 {
-  initlock(&vma_cache.lock, "vma_cache");
-  vma_cache.size = sizeof(struct vm_area_struct);
+  if(kmem_cache_init(&vma_cache, "vma_cache",
+                     sizeof(struct vm_area_struct), 16) < 0 ||
+     kmem_cache_init(&pcache.page_cache, "pcache_page",
+                     sizeof(struct pcache_page), 16) < 0 ||
+     kmem_cache_init(&pcache.shm_cache, "shm_object",
+                     sizeof(struct shm_object), 16) < 0)
+    panic("mmap slab caches");
   initlock(&pcache.lock, "pcache");
-  initlock(&pcache.objs.lock, "pcache_obj");
-  pcache.objs.size = sizeof(struct pcache_page);
-  initlock(&pcache.shm_objs.lock, "shm_obj");
-  pcache.shm_objs.size = sizeof(struct shm_object);
 }
 
 static int
@@ -327,7 +285,7 @@ vma_free(struct vm_area_struct *vma)
     fileclose(vma->vm_file);
   if(vma->vm_shmkey)
     shm_put(vma->vm_shmkey);
-  obj_free(&vma_cache, vma);
+  kmem_cache_free(&vma_cache, vma);
 }
 
 // Top-down search of [max(MMAP_MIN, heap), MMAP_TOP) for len free bytes.
@@ -458,7 +416,7 @@ shared_page_get(struct vm_area_struct *vma, uint64 index, uint64 *pa)
   } else
     memset(mem, 0, PGSIZE);
 
-  struct pcache_page *np = obj_alloc(&pcache.objs);
+  struct pcache_page *np = kmem_cache_alloc(&pcache.page_cache);
   acquire(&pcache.lock);
   if((p = pcache_lookup(key, index)) != 0){
     p->mapcount++;
@@ -466,7 +424,7 @@ shared_page_get(struct vm_area_struct *vma, uint64 index, uint64 *pa)
     release(&pcache.lock);
     kfree(mem);
     if(np)
-      obj_free(&pcache.objs, np);
+      kmem_cache_free(&pcache.page_cache, np);
     return VM_FAULT_OK;
   }
   if(np == 0){
@@ -571,6 +529,47 @@ __handle_mm_fault(struct vmspace *vm, uint64 va, int flags)
   return VM_FAULT_OK;
 }
 
+// Resolve a page in the traditional brk heap.  mmap_lock is held for reading
+// by the caller, so start_brk/brk cannot move while the page is prepared.
+// vm->lock protects the page-table race between two threads faulting the same
+// page.  Heap pages are anonymous, private, read/write and never executable.
+static int
+__handle_brk_fault(struct vmspace *vm, uint64 va, int flags)
+{
+  char *mem;
+  pte_t *pte;
+  uint64 page;
+
+  if((flags & FAULT_FLAG_INSTR) || va < vm->start_brk || va >= vm->brk)
+    return VM_FAULT_SIGSEGV;
+  page = PGROUNDDOWN(va);
+
+  acquire(&vm->lock);
+  pte = walk(vm->pagetable, page, 0);
+  if(pte && (*pte & PTE_AF)){
+    release(&vm->lock);
+    return VM_FAULT_OK;
+  }
+  release(&vm->lock);
+
+  if((mem = kalloc()) == 0)
+    return VM_FAULT_OOM;
+  memset(mem, 0, PGSIZE);
+
+  acquire(&vm->lock);
+  pte = walk(vm->pagetable, page, 1);
+  if(pte == 0 || (*pte & PTE_AF)){
+    release(&vm->lock);
+    kfree(mem);
+    return pte ? VM_FAULT_OK : VM_FAULT_OOM;
+  }
+  *pte = PA2PTE(V2P(mem)) | PTE_NORMAL | PTE_PXN | PTE_UXN |
+         PTE_U | PTE_AF | PTE_V;
+  flush_tlb();
+  release(&vm->lock);
+  return VM_FAULT_OK;
+}
+
 // Resolve a fault at user address va.  Called from usertrap() for EL0
 // aborts, and from copyin()/copyout() with FAULT_FLAG_KERNEL: there the
 // kernel may already hold an inode lock, so only try the mmap_lock and let
@@ -592,23 +591,56 @@ handle_mm_fault(struct vmspace *vm, uint64 va, int flags)
   return r;
 }
 
-// Populate the mapped pages of a user buffer before a system call starts
-// taking filesystem locks (Linux fault_in_pages_*): read(fd, map, n) then
-// finds its destination present and writable.  Pages outside any VMA are
-// left to copyin()/copyout() to reject.
+// Common EL0/copyin/copyout fault entry.  malloc's small allocations belong
+// to [start_brk, brk); mmap allocations and file/device mappings are described
+// by vm_area_struct.  The allocation policy stays in libc--the kernel routes
+// solely by the faulting address.
+int
+handle_user_mm_fault(struct vmspace *vm, uint64 va, int flags)
+{
+  int r;
+
+  if(va >= MAXUVA)
+    return VM_FAULT_SIGSEGV;
+  if(flags & FAULT_FLAG_KERNEL){
+    if(!down_read_trylock(&vm->mmap_lock))
+      return VM_FAULT_SIGSEGV;
+  } else
+    down_read(&vm->mmap_lock);
+
+  if(va >= vm->start_brk && va < vm->brk)
+    r = __handle_brk_fault(vm, va, flags);
+  else
+    r = __handle_mm_fault(vm, va, flags);
+  up_read(&vm->mmap_lock);
+  return r;
+}
+
+// Populate lazy brk or mmap pages of a user buffer before a system call starts
+// taking filesystem locks (Linux fault_in_pages_*).  Ordinary image/stack
+// pages are already present and are accepted without entering the VMA path.
 int
 fault_in_user_range(uint64 va, uint64 len, int write)
 {
   struct vmspace *vm = myproc()->vm;
   uint64 a, end;
 
-  if(len == 0 || vm->mmap == 0 || va + len < va)
+  if(len == 0)
     return 0;
+  if(va >= MAXUVA || va + len < va || va + len > MAXUVA)
+    return -1;
   end = PGROUNDUP(va + len);
   for(a = PGROUNDDOWN(va); a < end; a += PGSIZE){
-    if(a < mmap_lowest(vm))
+    int present;
+    acquire(&vm->lock);
+    pte_t *pte = walk(vm->pagetable, a, 0);
+    present = pte && (*pte & PTE_AF) && (*pte & PTE_U) &&
+              (!write || (*pte & PTE_RO) == 0);
+    release(&vm->lock);
+    if(present)
       continue;
-    if(handle_mm_fault(vm, a, write ? FAULT_FLAG_WRITE : 0) != VM_FAULT_OK)
+    if(handle_user_mm_fault(vm, a, write ? FAULT_FLAG_WRITE : 0) !=
+       VM_FAULT_OK)
       return -1;
   }
   return 0;
@@ -722,7 +754,7 @@ __do_munmap(struct vmspace *vm, uint64 start, uint64 end)
   for(vma = find_vma(vm, start); vma && vma->vm_start < end; vma = next){
     next = vma->vm_next;
     if(vma->vm_start < start && vma->vm_end > end){
-      struct vm_area_struct *tail = obj_alloc(&vma_cache);
+      struct vm_area_struct *tail = kmem_cache_alloc(&vma_cache);
       if(tail == 0)
         return -1;
       *tail = *vma;
@@ -829,7 +861,7 @@ do_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
       goto bad;
   }
 
-  if((vma = obj_alloc(&vma_cache)) == 0)
+  if((vma = kmem_cache_alloc(&vma_cache)) == 0)
     goto bad;
   vma->vm_start = addr;
   vma->vm_end = addr + len;
@@ -841,7 +873,7 @@ do_mmap(struct file *f, uint64 addr, uint64 len, int prot, int flags,
     vma->vm_file = filedup(f);
   if(f && f->f_op->mmap && f->f_op->mmap(f, vma) < 0){
     fileclose(vma->vm_file);
-    obj_free(&vma_cache, vma);
+    kmem_cache_free(&vma_cache, vma);
     goto bad;
   }
   if((vma->vm_flags & VM_NOFILEREF) && vma->vm_file){
@@ -931,7 +963,7 @@ dup_mmap(struct vmspace *old, struct vmspace *new)
   for(struct vm_area_struct *v = old->mmap; v; v = v->vm_next){
     if(v->vm_flags & VM_DONTCOPY)
       continue;
-    struct vm_area_struct *n = obj_alloc(&vma_cache);
+    struct vm_area_struct *n = kmem_cache_alloc(&vma_cache);
     if(n == 0)
       return -1;
     *n = *v;

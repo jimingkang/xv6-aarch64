@@ -20,9 +20,10 @@
 #include <kernel/device.h>
 #include <kernel/input.h>
 #include <kernel/module.h>
+#include <kernel/slab.h>
 #include <uapi/poll.h>
 
-// Both live in a single kalloc() page.
+// Slab objects must fit within one backing page.
 _Static_assert(sizeof(struct input_dev) <= PGSIZE, "input_dev too large");
 _Static_assert(sizeof(struct evdev_client) <= PGSIZE, "evdev_client too large");
 _Static_assert((EVDEV_BUFFER & (EVDEV_BUFFER - 1)) == 0,
@@ -31,6 +32,8 @@ _Static_assert((EVDEV_BUFFER & (EVDEV_BUFFER - 1)) == 0,
 // Lock order: input_devices_lock, then input_dev.lock.
 static struct spinlock input_devices_lock;
 static struct input_dev *devices[INPUT_MAX_DEVICES];
+static struct kmem_cache input_dev_cache;
+static struct kmem_cache evdev_client_cache;
 
 static void
 input_put_device(struct input_dev *dev)
@@ -43,7 +46,7 @@ input_put_device(struct input_dev *dev)
   last = --dev->refs == 0;
   release(&dev->lock);
   if(last)
-    kfree(dev);
+    kmem_cache_free(&input_dev_cache, dev);
 }
 
 // Caller holds dev->lock.
@@ -94,17 +97,16 @@ evdev_open(struct file *f)
   struct evdev_client *client;
   struct input_dev *dev;
 
-  client = kalloc();
+  client = kmem_cache_alloc(&evdev_client_cache);
   if(client == 0)
     return -1;
-  memset(client, 0, sizeof(*client));
 
   acquire(&input_devices_lock);
   int minor = f->ip ? f->ip->minor : -1;
   dev = minor >= 0 && minor < INPUT_MAX_DEVICES ? devices[minor] : 0;
   if(dev == 0){
     release(&input_devices_lock);
-    kfree(client);
+    kmem_cache_free(&evdev_client_cache, client);
     return -1;              // no keyboard attached (Linux: -ENODEV)
   }
   acquire(&dev->lock);
@@ -136,7 +138,7 @@ evdev_release(struct file *f)
       break;
     }
   release(&dev->lock);
-  kfree(client);
+  kmem_cache_free(&evdev_client_cache, client);
   input_put_device(dev);
 }
 
@@ -199,6 +201,11 @@ input_init(void)
     .poll = evdev_poll,
   };
 
+  if(kmem_cache_init(&input_dev_cache, "input_dev_cache",
+                     sizeof(struct input_dev), 16) < 0 ||
+     kmem_cache_init(&evdev_client_cache, "evdev_client_cache",
+                     sizeof(struct evdev_client), 16) < 0)
+    panic("input slab caches");
   initlock(&input_devices_lock, "input-devices");
   memset(devices, 0, sizeof(devices));
   if(register_chrdev(INPUT, "input/event0", &evdev_fops) < 0)
@@ -212,10 +219,9 @@ subsys_initcall("input", input_init);
 struct input_dev *
 input_allocate_device(void)
 {
-  struct input_dev *dev = kalloc();
+  struct input_dev *dev = kmem_cache_alloc(&input_dev_cache);
   if(dev == 0)
     return 0;
-  memset(dev, 0, sizeof(*dev));
   initlock(&dev->lock, "input-device");
   dev->refs = 1;            // the driver's reference
   dev->event_number = -1;

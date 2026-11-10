@@ -11,6 +11,7 @@
 #include <kernel/camera.h>
 #include <kernel/defs.h>
 #include <kernel/mm.h>
+#include <kernel/slab.h>
 #include <uapi/sched.h>
 
 struct cpu cpus[NCPU];
@@ -18,6 +19,8 @@ struct proc *proc_head;
 static struct spinlock proc_table_lock;
 static struct spinlock kernel_stack_lock;
 static uint64 next_kstack_slot;
+static struct kmem_cache proc_cache;
+static struct kmem_cache vmspace_cache;
 
 struct proc *initproc;
 
@@ -28,6 +31,407 @@ extern void forkret(void);
 static void freeproc(struct proc *p);
 static void threadexit(int status) __attribute__((noreturn));
 static void reparent(struct proc *p);
+
+#if PROC_SCHED_TRACE
+static uint proc_sched_trace_seq;
+static struct proc *proc_sched_last_task[NCPU];
+static int proc_sched_last_pid[NCPU];
+static struct context proc_sched_last_context[NCPU];
+static struct trapframe proc_sched_last_trapframe[NCPU];
+static int proc_sched_last_has_trapframe[NCPU];
+#define PROC_SCHED_BT_MAX 12
+static uint64 proc_sched_last_bt_fp[NCPU][PROC_SCHED_BT_MAX];
+static uint64 proc_sched_last_bt_lr[NCPU][PROC_SCHED_BT_MAX];
+static int proc_sched_last_nbt[NCPU];
+// One-line "quiet" events: what the full trace hides.  A task re-picked by
+// the CPU whose last visible task it already was prints nothing above; these
+// lines show every such run, why each run ended, and every fork.
+#ifndef PROC_SCHED_QUIET_LIMIT
+#define PROC_SCHED_QUIET_LIMIT 512
+#endif
+static uint proc_sched_quiet_seq;
+static int proc_sched_repeat[NCPU];
+// Kernel threads (kthread_fn != 0) stay transparent to the full trace in
+// PID=-1 mode, but with PROC_SCHED_TRACE_KTHREAD they get their own one-line
+// kthread-in / kthread-out events, numbered in the same sched-q sequence so
+// they interleave with the user-task lines.  Separate budget, because a busy
+// worker must not starve the user-task lines.
+#ifndef PROC_SCHED_TRACE_KTHREAD
+#define PROC_SCHED_TRACE_KTHREAD 1
+#endif
+#ifndef PROC_SCHED_KTHREAD_LIMIT
+#define PROC_SCHED_KTHREAD_LIMIT 256
+#endif
+static uint proc_sched_kthread_seq;
+// PROC_SCHED_TRACE_ALL: every dispatch and every switch-out of every task
+// (user processes and kernel threads alike) prints a full record.  The
+// switch-out record is taken right after swtch() returns, so its context and
+// backtrace are the live values, not a per-CPU snapshot.  All trace output is
+// serialized by proc_sched_print_lock, so records from different CPUs no
+// longer interleave line by line.
+#ifndef PROC_SCHED_TRACE_ALL
+#define PROC_SCHED_TRACE_ALL 0
+#endif
+static struct spinlock proc_sched_print_lock;
+#define PROC_SCHED_PRINTF(...) do { \
+    acquire(&proc_sched_print_lock); printf(__VA_ARGS__); \
+    release(&proc_sched_print_lock); } while(0)
+
+// Walk the AArch64 frame records {saved x29, saved x30} that the kernel's
+// -fno-omit-frame-pointer prologues leave on p's kernel stack, starting at
+// the fp saved in p->context (sched()'s own frame).  Only records strictly
+// inside the stack page and below the trapframe are followed, so the walk
+// stops at usertrap()/userirq(), whose caller is the EL0 trap entry.
+static int
+proc_sched_backtrace(struct proc *p, uint64 fp, uint64 *fps, uint64 *lrs)
+{
+  uint64 lo = p->kstack, hi = p->kstack + PGSIZE;
+  int n = 0;
+
+  if(p->kstack == 0 || p->kstack_pa == 0)
+    return 0;
+  if(p->trapframe && (uint64)p->trapframe > lo && (uint64)p->trapframe <= hi)
+    hi = (uint64)p->trapframe;
+  while(n < PROC_SCHED_BT_MAX && fp >= lo && fp + 16 <= hi && (fp & 0xf) == 0){
+    uint64 *rec = (uint64 *)fp;
+    fps[n] = fp;
+    lrs[n++] = rec[1];
+    if(rec[0] <= fp)
+      break;
+    fp = rec[0];
+  }
+  return n;
+}
+
+static uint
+proc_sched_atomic_inc(uint *addr)
+{
+  uint old, next, failed;
+
+  // The freestanding kernel does not link libgcc's out-of-line atomics.
+  // Use the same AArch64 exclusive-monitor pattern as the spinlock code.
+  asm volatile(
+    "1: ldaxr %w0, [%3]\n"
+    "   add %w1, %w0, #1\n"
+    "   stlxr %w2, %w1, [%3]\n"
+    "   cbnz %w2, 1b\n"
+    : "=&r" (old), "=&r" (next), "=&r" (failed)
+    : "r" (addr)
+    : "memory");
+  return old;
+}
+
+static uint
+proc_sched_trace_next(void)
+{
+  return proc_sched_atomic_inc(&proc_sched_trace_seq);
+}
+
+// Returns -1 when the quiet budget is used up.
+static int
+proc_sched_quiet_next(void)
+{
+  uint seq = proc_sched_atomic_inc(&proc_sched_quiet_seq);
+
+  if(PROC_SCHED_QUIET_LIMIT != 0 && seq >= PROC_SCHED_QUIET_LIMIT)
+    return -1;
+  return (int)seq;
+}
+
+// sched-q number for a kernel-thread event, or -1 when off / over budget.
+static int
+proc_sched_kthread_next(void)
+{
+  if(PROC_SCHED_TRACE_ALL || !PROC_SCHED_TRACE_KTHREAD ||
+     PROC_SCHED_TRACE_PID >= 0)
+    return -1;
+  if(PROC_SCHED_KTHREAD_LIMIT != 0 &&
+     proc_sched_atomic_inc(&proc_sched_kthread_seq) >= PROC_SCHED_KTHREAD_LIMIT)
+    return -1;
+  return proc_sched_quiet_next();
+}
+
+static const char*
+procstate_name(enum procstate state)
+{
+  switch(state){
+  case UNUSED:   return "UNUSED";
+  case USED:     return "USED";
+  case SLEEPING: return "SLEEPING";
+  case RUNNABLE: return "RUNNABLE";
+  case RUNNING:  return "RUNNING";
+  case ZOMBIE:   return "ZOMBIE";
+  }
+  return "?";
+}
+
+static int
+proc_sched_trace_selected(struct proc *p)
+{
+  if(p == 0)
+    return 0;
+  if(PROC_SCHED_TRACE_ALL)
+    return 1;
+  if(PROC_SCHED_TRACE_PID > 0)
+    return p->pid == PROC_SCHED_TRACE_PID;
+  if(PROC_SCHED_TRACE_PID < 0)
+    return p->kthread_fn == 0;
+  return 1;
+}
+
+// Print the objects that participate in one scheduling transition, without
+// walking the process page table.  At scheduler:saved-out, p->context has just
+// been written by swtch().  At scheduler:dispatch-load it is about to be
+// loaded.  At sched:restored-in those values are live in the CPU again.
+static void
+proc_sched_trace(struct cpu *c, struct proc *p, char *event, char *context_role,
+                 struct context *saved_ctx, struct trapframe *saved_tf)
+{
+  struct context *ctx;
+  struct trapframe *tf;
+  uint seq;
+  uint64 current_sp;
+
+  if(!proc_sched_trace_selected(p))
+    return;
+  // Take the print lock before numbering, so record numbers appear in order.
+  acquire(&proc_sched_print_lock);
+  seq = proc_sched_trace_next();
+  if(PROC_SCHED_TRACE_LIMIT != 0 && seq >= PROC_SCHED_TRACE_LIMIT){
+    release(&proc_sched_print_lock);
+    return;
+  }
+
+  ctx = saved_ctx ? saved_ctx : &p->context;
+  tf = saved_tf ? saved_tf : p->trapframe;
+  asm volatile("mov %0, sp" : "=r" (current_sp));
+
+  printf("\n--- sched-trace[%d] cpu=%d %s (%s) ---\n",
+         seq, (int)(c - cpus), event, context_role);
+  printf("proc=%p pid=%d tgid=%d name=%s state=%s(%d) parent=%p\n",
+         (uint64)p, p->pid, p->tgid, p->name, procstate_name(p->state),
+         p->state, (uint64)p->parent);
+  printf(" task: thread=%d chan=%p killed=%d xstate=%d signals=%p"
+         " sid=%d pgid=%d ctty=%d\n",
+         p->is_thread, (uint64)p->chan, p->killed, p->xstate,
+         (uint64)p->signals_pending, p->sid, p->pgid, p->ctty);
+  printf(" sched: policy=%d rtprio=%d nice=%d cpumask=%p slice=%d"
+         " rq_seq=%p last_cpu=%d run_ticks=%p\n",
+         p->policy, p->rt_priority, p->nice, (uint64)p->cpumask, p->slice,
+         p->rq_seq, p->last_cpu, p->run_ticks);
+  printf(" refs: vm=%p pagetable=%p sz=%p files=%p fs=%p"
+         " kthread_fn=%p arg=%p\n",
+         (uint64)p->vm,
+         p->vm ? (uint64)p->vm->pagetable : 0,
+         p->vm ? p->vm->sz : 0,
+         (uint64)p->files, (uint64)p->fs,
+         (uint64)p->kthread_fn, (uint64)p->kthread_arg);
+  printf(" kstack: base=%p top=%p pa=%p slot=%p current-sp=%p %s\n",
+         p->kstack, p->kstack + PGSIZE, p->kstack_pa, p->kstack_slot,
+         current_sp,
+         current_sp >= p->kstack && current_sp < p->kstack + PGSIZE ?
+           "(on this process stack)" : "(on scheduler/other stack)");
+
+  printf(" context=%p: sp=%p x18=%p x19=%p x20=%p x21=%p x22=%p x23=%p\n",
+         (uint64)ctx, ctx->sp, ctx->x18, ctx->x19, ctx->x20,
+         ctx->x21, ctx->x22, ctx->x23);
+  printf("              x24=%p x25=%p x26=%p x27=%p x28=%p"
+         " x29(fp)=%p x30(lr)=%p\n",
+         ctx->x24, ctx->x25, ctx->x26, ctx->x27, ctx->x28,
+         ctx->x29, ctx->x30);
+  // The lines above are wider than an 80-column serial console; repeat the
+  // frame pointer and return address on a short line of their own.
+  printf(" ctx: x29(fp)=%p x30(lr)=%p\n", ctx->x29, ctx->x30);
+  {
+    uint64 bt_fp[PROC_SCHED_BT_MAX], bt_lr[PROC_SCHED_BT_MAX];
+    uint64 *fps = bt_fp, *lrs = bt_lr;
+    int nbt;
+
+    if(saved_ctx){
+      int cpu = (int)(c - cpus);
+      fps = proc_sched_last_bt_fp[cpu];
+      lrs = proc_sched_last_bt_lr[cpu];
+      nbt = proc_sched_last_nbt[cpu];
+    } else {
+      nbt = proc_sched_backtrace(p, ctx->x29, bt_fp, bt_lr);
+    }
+    for(int i = 0; i < nbt; i++)
+      printf("  bt#%d fp=%p lr=%p\n", i, fps[i], lrs[i]);
+  }
+
+  printf(" trapframe=%p", (uint64)tf);
+  if(tf == 0){
+    printf(" (kernel thread: no EL0 return frame)\n");
+  } else {
+    printf("%s: elr(user-pc)=%p spsr=%p sp_el0=%p"
+           " x29(fp)=%p x30(lr)=%p\n",
+           p->kthread_fn ? " (allocated but unused by kernel thread)" : "",
+           tf->elr, tf->spsr, tf->sp, tf->x29, tf->x30);
+    printf("  x0=%p x1=%p x2=%p x3=%p x4=%p x5=%p x6=%p x7=%p\n",
+           tf->x0, tf->x1, tf->x2, tf->x3,
+           tf->x4, tf->x5, tf->x6, tf->x7);
+    printf("  x8=%p x9=%p x10=%p x11=%p x12=%p x13=%p x14=%p x15=%p\n",
+           tf->x8, tf->x9, tf->x10, tf->x11,
+           tf->x12, tf->x13, tf->x14, tf->x15);
+    printf("  x16=%p x17=%p x18=%p x19=%p x20=%p x21=%p x22=%p x23=%p\n",
+           tf->x16, tf->x17, tf->x18, tf->x19,
+           tf->x20, tf->x21, tf->x22, tf->x23);
+    printf("  x24=%p x25=%p x26=%p x27=%p x28=%p\n",
+           tf->x24, tf->x25, tf->x26, tf->x27, tf->x28);
+  }
+  printf("--- end sched-trace[%d] ---\n", seq);
+  release(&proc_sched_print_lock);
+}
+
+// Report only a real transition between two different visible tasks.  With
+// PID=-1, kernel threads are deliberately transparent: user A -> kworker ->
+// user A is not reported, while user A -> kworker -> user B is one A -> B
+// transition.  proc nodes are permanent; the saved pid prevents a recycled
+// slot from being mistaken for the old task.
+static void
+proc_sched_trace_dispatch(struct cpu *c, struct proc *next)
+{
+  int cpu = (int)(c - cpus);
+  struct proc *prev;
+  int prev_pid;
+
+  if(PROC_SCHED_TRACE_ALL){
+    char *ev;
+    prev = proc_sched_last_task[cpu];
+    prev_pid = proc_sched_last_pid[cpu];
+    ev = prev == 0 ? "scheduler:first-dispatch" :
+         (prev == next && prev_pid == next->pid) ?
+           "scheduler:again-in" : "scheduler:switch-in";
+    proc_sched_last_task[cpu] = next;
+    proc_sched_last_pid[cpu] = next->pid;
+    proc_sched_trace(c, next, ev, next->kthread_fn ?
+                     "kernel thread context will be loaded by swtch" :
+                     "user task context will be loaded by swtch", 0, 0);
+    return;
+  }
+
+  // In user-tree mode kernel workers neither print a full record nor replace
+  // last_task; they only get a one-line kthread-in event.
+  if(PROC_SCHED_TRACE_PID < 0 && next->kthread_fn != 0){
+    int q = proc_sched_kthread_next();
+    if(q >= 0)
+      PROC_SCHED_PRINTF("sched-q#%d cpu=%d kthread-in pid=%d name=%s slice=%d"
+             " sp=%p (cpu's last user task pid=%d)\n", q, cpu, next->pid,
+             next->name, next->slice, next->context.sp,
+             proc_sched_last_pid[cpu]);
+    return;
+  }
+
+  prev = proc_sched_last_task[cpu];
+  prev_pid = proc_sched_last_pid[cpu];
+  if(prev == next && prev_pid == next->pid){
+    int q;
+    proc_sched_repeat[cpu]++;
+    if(proc_sched_trace_selected(next) && (q = proc_sched_quiet_next()) >= 0)
+      PROC_SCHED_PRINTF("sched-q#%d cpu=%d again pid=%d name=%s repeat=%d slice=%d"
+             " sp=%p\n", q, cpu, next->pid, next->name,
+             proc_sched_repeat[cpu], next->slice, next->context.sp);
+    return;
+  }
+  if(prev){
+    int q;
+    if(proc_sched_trace_selected(next) && (q = proc_sched_quiet_next()) >= 0)
+      PROC_SCHED_PRINTF("sched-q#%d cpu=%d visible-change pid=%d -> pid=%d after"
+             " %d hidden repeat(s) (before sched-trace[%d])\n", q, cpu,
+             prev_pid, next->pid, proc_sched_repeat[cpu],
+             proc_sched_trace_seq);
+  }
+  proc_sched_repeat[cpu] = 0;
+
+  proc_sched_last_task[cpu] = next;
+  proc_sched_last_pid[cpu] = next->pid;
+
+  if(prev && prev->pid == prev_pid)
+    proc_sched_trace(c, prev, "scheduler:switch-out",
+                     "saved context of previous visible task",
+                     &proc_sched_last_context[cpu],
+                     proc_sched_last_has_trapframe[cpu] ?
+                       &proc_sched_last_trapframe[cpu] : 0);
+  proc_sched_trace(c, next,
+                   prev ? "scheduler:switch-in" : "scheduler:first-dispatch",
+                   "context will be loaded by swtch", 0, 0);
+}
+
+// Called immediately after swtch() has returned to scheduler(), while p->lock
+// is still held.  Keep the exact saved context/trapframe so a migration to
+// another CPU cannot change the values before the next visible dispatch.
+static void
+proc_sched_trace_save_outgoing(struct cpu *c, struct proc *p)
+{
+  int cpu = (int)(c - cpus);
+
+  int q;
+
+  if(PROC_SCHED_TRACE_ALL){
+    // Live: swtch() has just written p->context and p's stack is intact.
+    (void)cpu; (void)q;
+    proc_sched_trace(c, p, "scheduler:switch-out",
+                     p->state == RUNNABLE ? "live context, preempted/yield" :
+                     p->state == SLEEPING ? "live context, went to sleep" :
+                     p->state == ZOMBIE ? "live context, exited" :
+                     "live context", 0, 0);
+    return;
+  }
+
+  if(PROC_SCHED_TRACE_PID < 0 && p->kthread_fn != 0){
+    if((q = proc_sched_kthread_next()) >= 0){
+      // Three callers above sched(): e.g. sleep <- worker loop <- kthread
+      // entry, so the line says where the worker parked.
+      uint64 fps[PROC_SCHED_BT_MAX], lrs[PROC_SCHED_BT_MAX];
+      int n = proc_sched_backtrace(p, p->context.x29, fps, lrs);
+      PROC_SCHED_PRINTF("sched-q#%d cpu=%d kthread-out pid=%d name=%s -> %s chan=%p"
+             " slice=%d via0.lr=%p via1.lr=%p via2.lr=%p\n", q, cpu,
+             p->pid, p->name, procstate_name(p->state), p->chan, p->slice,
+             n > 0 ? lrs[0] : 0, n > 1 ? lrs[1] : 0, n > 2 ? lrs[2] : 0);
+    }
+    return;
+  }
+  if(proc_sched_trace_selected(p) && (q = proc_sched_quiet_next()) >= 0)
+    PROC_SCHED_PRINTF("sched-q#%d cpu=%d out pid=%d name=%s -> %s chan=%p slice=%d"
+           " sp=%p lr=%p\n", q, cpu, p->pid, p->name,
+           procstate_name(p->state), p->chan, p->slice, p->context.sp,
+           p->context.x30);
+  if(proc_sched_last_task[cpu] != p || proc_sched_last_pid[cpu] != p->pid)
+    return;
+  proc_sched_last_context[cpu] = p->context;
+  proc_sched_last_has_trapframe[cpu] = p->trapframe != 0;
+  if(p->trapframe)
+    proc_sched_last_trapframe[cpu] = *p->trapframe;
+  // Walk now: once p runs again (possibly on another CPU) its stack changes.
+  proc_sched_last_nbt[cpu] =
+    proc_sched_backtrace(p, p->context.x29, proc_sched_last_bt_fp[cpu],
+                         proc_sched_last_bt_lr[cpu]);
+}
+
+// SLEEPING -> RUNNABLE: who woke p, on which CPU, from where.  Numbered in
+// the same sequence as the full records, so it sorts between them.  The
+// waker is the process current on this CPU (-1 = none: an interrupt that hit
+// the idle scheduler loop).  Interrupts are always masked here (p->lock is
+// held), so the from.lr frame tells task context from interrupt context.
+static void
+proc_sched_trace_wake(struct proc *p, uint64 lr0, uint64 lr1)
+{
+  struct cpu *c = mycpu();
+  struct proc *w = c->proc;
+  uint seq;
+
+  if(!(PROC_SCHED_TRACE_ALL || proc_sched_trace_selected(p)))
+    return;
+  acquire(&proc_sched_print_lock);
+  seq = proc_sched_trace_next();
+  if(PROC_SCHED_TRACE_LIMIT == 0 || seq < PROC_SCHED_TRACE_LIMIT)
+    printf("sched-wake[%d] cpu=%d wake pid=%d name=%s chan=%p"
+           " by pid=%d name=%s caller.lr=%p from.lr=%p\n",
+           seq, (int)(c - cpus), p->pid, p->name, (uint64)p->chan,
+           w ? w->pid : -1, w ? w->name : "-", lr0, lr1);
+  release(&proc_sched_print_lock);
+}
+#endif
 
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
@@ -40,15 +444,14 @@ extern pagetable_t kernel_pagetable;
 static struct vmspace*
 vmspace_alloc(void)
 {
-  struct vmspace *vm = kalloc();
+  struct vmspace *vm = kmem_cache_alloc(&vmspace_cache);
   if(vm == 0)
     return 0;
-  memset(vm, 0, sizeof(*vm));
   initlock(&vm->lock, "vmspace");
   init_rwsem(&vm->mmap_lock, "mmap_lock");
   vm->pagetable = uvmcreate();
   if(vm->pagetable == 0){
-    kfree(vm);
+    kmem_cache_free(&vmspace_cache, vm);
     return 0;
   }
   vm->refcount = 1;
@@ -62,17 +465,28 @@ vmspace_alloc(void)
 struct vmspace*
 vmspace_wrap(pagetable_t pagetable, uint64 sz)
 {
-  struct vmspace *vm = kalloc();
+  struct vmspace *vm = kmem_cache_alloc(&vmspace_cache);
   if(vm == 0)
     return 0;
-  memset(vm, 0, sizeof(*vm));
   initlock(&vm->lock, "vmspace");
   init_rwsem(&vm->mmap_lock, "mmap_lock");
   vm->pagetable = pagetable;
   vm->sz = sz;
+  vm->start_brk = sz;
+  vm->brk = sz;
   vm->refcount = 1;
   vm->users = 1;
   return vm;
+}
+
+// Drop a wrapper that exec() prepared but did not install.  Its page table is
+// still owned by exec's error path, so this deliberately frees only the
+// small vmspace object.
+void
+vmspace_discard(struct vmspace *vm)
+{
+  if(vm)
+    kmem_cache_free(&vmspace_cache, vm);
 }
 
 // A task stops running on vm (exit, thread exit, or exec of a vfork
@@ -111,11 +525,13 @@ vmspace_put(struct vmspace *vm)
     sz = vm->sz;
     vm->pagetable = 0;
     vm->sz = 0;
+    vm->start_brk = 0;
+    vm->brk = 0;
   }
   release(&vm->lock);
   if(last){
     uvmfree(pagetable, sz);
-    kfree(vm);
+    kmem_cache_free(&vmspace_cache, vm);
   }
 }
 
@@ -238,9 +654,24 @@ resched_hint(struct proc *p)
 // Put p on the run queue (caller holds p->lock).  at_head keeps its old
 // position among equal priorities: used when it was preempted rather than
 // having used up its slice, as Linux does for SCHED_FIFO/SCHED_RR.
+#if PROC_SCHED_TRACE
+static void proc_sched_trace_wake(struct proc *p, uint64 lr0, uint64 lr1);
+// Not inlined while tracing, so __builtin_return_address(0) is the real
+// caller (wakeup / kill / fork / ...) and (1) is the one above it.
+__attribute__((noinline))
+#endif
 static void
 make_runnable(struct proc *p, int at_head)
 {
+#if PROC_SCHED_TRACE
+  if(p->state == SLEEPING){
+    // AArch64 frame records {fp, lr}: ours gives the caller, the caller's
+    // record gives the function above it.
+    uint64 *fr = (uint64 *)__builtin_frame_address(0);
+    uint64 *up = (uint64 *)fr[0];
+    proc_sched_trace_wake(p, fr[1], up ? up[1] : 0);
+  }
+#endif
   p->state = RUNNABLE;
   if(!at_head || p->rq_seq == 0)
     p->rq_seq = next_rq_seq();
@@ -311,10 +742,17 @@ resched_pending(void)
 void
 procinit(void)
 {
+  if(kmem_cache_init(&proc_cache, "proc_cache", sizeof(struct proc), 16) < 0 ||
+     kmem_cache_init(&vmspace_cache, "vmspace_cache",
+                     sizeof(struct vmspace), 16) < 0)
+    panic("proc slab caches");
   initlock(&proc_table_lock, "proc_table");
   initlock(&kernel_stack_lock, "kernel_stack");
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+#if PROC_SCHED_TRACE
+  initlock(&proc_sched_print_lock, "sched_trace");
+#endif
   initlock(&rq_counter_lock, "rq_counter");
   proc_head = 0;
   next_kstack_slot = 0;
@@ -400,14 +838,13 @@ free_kstack(struct proc *p)
 static struct proc*
 newprocslot(void)
 {
-  struct proc *p = kalloc();
+  struct proc *p = kmem_cache_alloc(&proc_cache);
   uint64 slot, va;
 
   if(p == 0)
     return 0;
   if(sizeof(*p) > PGSIZE)
     panic("struct proc too large");
-  memset(p, 0, PGSIZE);
   initlock(&p->lock, "proc");
 
   slot = next_kstack_slot++;
@@ -415,13 +852,13 @@ newprocslot(void)
   // Keep dynamically growing stacks in the high sparse KSTACK region and
   // never let an arithmetic wrap collide with the kernel direct map.
   if(va < KERNBASE + (1ULL << 37)){
-    kfree(p);
+    kmem_cache_free(&proc_cache, p);
     return 0;
   }
   p->kstack = va;
   p->kstack_slot = slot;
   if(alloc_kstack(p) < 0){
-    kfree(p);
+    kmem_cache_free(&proc_cache, p);
     return 0;
   }
 
@@ -477,6 +914,9 @@ found:
   // Allocate a trapframe page.
   sp -= sizeof(*p->trapframe);
   p->trapframe = (struct trapframe*)sp;
+  // kalloc() poisons free pages with 0x05.  A fresh user task must not return
+  // to EL0 with those bytes in registers that userinit() does not overwrite.
+  memset(p->trapframe, 0, sizeof(*p->trapframe));
 
   // An empty user address space. clone() replaces this reference with its
   // caller's vmspace; fork() keeps it and copies pages into it.
@@ -598,6 +1038,8 @@ userinit(void)
   // and data into it.
   uvminit(p->vm->pagetable, initcode, sizeof(initcode));
   p->vm->sz = PGSIZE;
+  p->vm->start_brk = PGSIZE;
+  p->vm->brk = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->elr = 0;      // user program counter
@@ -609,45 +1051,68 @@ userinit(void)
 
   make_runnable(p, 0);
 
+#if PROC_SCHED_TRACE
+  proc_sched_trace(mycpu(), p, "userinit:runnable",
+                   "new context: sp=trapframe, x30=forkret", 0, 0);
+#endif
+
   release(&p->lock);
 }
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
 int
-growproc(int n)
+growproc(int n, uint64 *oldbrk)
 {
-  uint64 sz;
+  uint64 old, new, first, end;
   struct proc *p = myproc();
   struct vmspace *vm = p->vm;
 
+  // Linux serializes brk changes against page faults and mmap/munmap with
+  // mmap_lock.  This also makes sbrk's returned old break atomic for threads
+  // sharing one vmspace.
+  down_write(&vm->mmap_lock);
   acquire(&vm->lock);
-  sz = vm->sz;
+  old = vm->brk;
+  if(oldbrk)
+    *oldbrk = old;
   if(n > 0){
-    // The heap may not grow into the lowest mmap() region.
-    if(sz + n < sz || PGROUNDUP(sz + n) > mmap_lowest(vm) ||
-       (sz = uvmalloc(vm->pagetable, sz, sz + n)) == 0) {
+    new = old + (uint64)n;
+    // Reserve only virtual space.  The first read/write of each page enters
+    // handle_user_mm_fault(), which allocates and zeroes the physical page.
+    if(new < old || PGROUNDUP(new) < new ||
+       PGROUNDUP(new) > mmap_lowest(vm)){
       release(&vm->lock);
+      up_write(&vm->mmap_lock);
       return -1;
     }
+    vm->brk = vm->sz = new;
+    // A CPU may have cached a negative translation for a page that just
+    // became part of the heap.
+    flush_tlb();
   } else if(n < 0){
-    if((uint64)(-(long)n) > sz){
+    uint64 shrink = (uint64)(-(long)n);
+    if(shrink > old - vm->start_brk){
       release(&vm->lock);
+      up_write(&vm->mmap_lock);
       return -1;
     }
-    uint64 newsz = sz + n;
-    uint64 first = PGROUNDUP(newsz);
-    uint64 end = PGROUNDUP(sz);
+    new = old - shrink;
+    first = PGROUNDUP(new);
+    end = PGROUNDUP(old);
 
     // A shared page table can be active on another Cortex-A53.  Clear PTEs,
-    // broadcast the invalidation, and only then recycle their physical pages.
+    // broadcast the invalidation, and only then recycle physical pages.  A
+    // lazy heap legitimately contains holes, so absent PTEs are skipped.
     while(first < end){
       uint64 pa[64];
       int count = 0;
       while(first < end && count < (int)NELEM(pa)){
         pte_t *pte = walk(vm->pagetable, first, 0);
-        if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_AF) == 0)
-          panic("growproc dealloc");
+        if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_AF) == 0){
+          first += PGSIZE;
+          continue;
+        }
         // Shared libc.so text belongs to exec's cache: unmap, never free.
         if((*pte & PTE_SHARED) == 0)
           pa[count++] = PTE2PA(*pte);
@@ -659,13 +1124,12 @@ growproc(int n)
       for(int i = 0; i < count; i++)
         kfree((void *)P2V(pa[i]));
     }
-    sz = newsz;
+    vm->brk = vm->sz = new;
+  } else {
+    new = old;
   }
-  vm->sz = sz;
-
-  // Also remove negative translations cached before a heap growth.
-  flush_tlb();
   release(&vm->lock);
+  up_write(&vm->mmap_lock);
   return 0;
 }
 
@@ -728,6 +1192,13 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
     return -1;
   }
 
+  // A malloc-backed thread stack may be in an untouched lazy-brk page (or
+  // in a large anonymous mmap).  Materialize its top page before validating
+  // it; swtch cannot recover from discovering the missing user stack later.
+  if((flags & CLONE_VM) && stack != 0 &&
+     fault_in_user_range(stack - 1, 1, 1) < 0)
+    goto bad;
+
   // fork copies the VMAs: keep mmap/munmap out until the copy is done.  The
   // sleepable lock must be taken before allocproc() returns np->lock held.
   if(!(flags & CLONE_VM))
@@ -741,10 +1212,12 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
   if(flags & CLONE_VM){
     acquire(&vm->lock);
     if(vm->execing ||
-       (entry != 0 && (entry >= vm->sz ||
-                       walkaddr(vm->pagetable, entry) == 0)) ||
-       (stack != 0 && (stack > vm->sz ||
-                       walkaddr(vm->pagetable, stack - 1) == 0))){
+       // ld.so maps libc in the mmap window, so a pthread entry is not
+       // necessarily below vm->sz.  Its code was populated by the loader;
+       // validate the actual user mapping instead of the legacy low-image
+       // bound.
+       (entry != 0 && walkaddr(vm->pagetable, entry) == 0) ||
+       (stack != 0 && walkaddr(vm->pagetable, stack - 1) == 0)){
       release(&vm->lock);
       freeproc(np);
       release(&np->lock);
@@ -768,6 +1241,8 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
       goto bad;
     }
     np->vm->sz = vm->sz;
+    np->vm->start_brk = vm->start_brk;
+    np->vm->brk = vm->brk;
     if(dup_mmap(vm, np->vm) < 0){
       release(&vm->lock);
       up_read(&vm->mmap_lock);
@@ -837,6 +1312,15 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
   acquire(&np->lock);
   make_runnable(np, 0);
   release(&np->lock);
+#if PROC_SCHED_TRACE
+  {
+    int q;
+    if(proc_sched_trace_selected(p) && (q = proc_sched_quiet_next()) >= 0)
+      PROC_SCHED_PRINTF("sched-q#%d cpu=%d fork parent pid=%d name=%s -> child pid=%d"
+             " proc=%p kstack=%p flags=%p\n", q, cpuid(), p->pid, p->name,
+             np->pid, np, np->kstack, flags);
+  }
+#endif
 
   // vfork: sleep until vfork_done() reports the child's exec or exit.  The
   // proc slot cannot be recycled meanwhile: only this parent reaps it.
@@ -1258,10 +1742,16 @@ scheduler(void)
       c->proc = p;
       c->cur_prio = effective_prio(p, c);
       c->need_resched = 0;
+#if PROC_SCHED_TRACE
+      proc_sched_trace_dispatch(c, p);
+#endif
       switchuvm(p);
       swtch(&c->context, &p->context);
 
       switchkvm();
+#if PROC_SCHED_TRACE
+      proc_sched_trace_save_outgoing(c, p);
+#endif
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.

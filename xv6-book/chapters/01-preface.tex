@@ -24,11 +24,11 @@
 
 \section{这个项目走过的路}
 
-项目的提交记录大致反映了“从裸机到操作系统”的顺序（表~\ref{tab:history}）。最早的一个月只做了一件事：把 QEMU \code{virt} 上的 xv6 搬到 \code{raspi3b}；此后两周里，几乎每天都在真机上解决一个新问题。
+项目的提交记录大致反映了“从裸机到操作系统”的顺序（表~\ref{tab:history}）。起点是 QEMU \code{virt} 上的 xv6；转到树莓派以后的两周里，几乎每天都在真机上解决一个新问题，先让串口、SD 卡、网络和 Wi-Fi 跑起来；此后的三周转向“像 Linux 一样组织”：initcall、内核模块与热插拔、ext2 根文件系统和统一的 VFS、可睡眠锁、mmap 与 clone。
 
 \begin{table}[htbp]
   \centering
-  \caption{主要里程碑（取自 git 提交记录）}
+  \caption{主要里程碑（取自 \code{rpi3-lock} 分支的 git 提交记录，2026 年）}
   \label{tab:history}
   \small
   \begin{tabularx}{\linewidth}{@{}lX@{}}
@@ -37,34 +37,44 @@
     \midrule
     05-27 & 初始提交：QEMU \code{virt} 上的 xv6-aarch64 \\
     09-23 & 从 \code{virt} 转到 Raspberry Pi 3；SD 卡与 FAT32 分区 \\
-    09-24 & 真机串口与内存属性问题；D/I-cache 一致性；SD 命令超时重试 \\
-    09-27 & 进程间同步原语（mutex、semaphore、event）；网络协议栈与 \code{ping} \\
-    09-28 & TTY 中间层；Linux 风格的总线/设备/驱动模型；SDIO Wi-Fi \\
+    09-24 & 真机串口与内存属性问题；D/I-cache 一致性；SD 命令出错重试 \\
+    09-27 & 进程间同步原语与生产者/消费者；网络协议栈与 \code{ping} \\
+    09-28～09-29 & TTY 中间层；Linux 风格的总线/设备/驱动层；SDIO 板载 Wi-Fi \\
     09-30 & \code{sshd} 远程登录；SDIO 中断；workqueue 下半部 \\
-    10-01 & 每设备私有 work、delayed work、NAPI；FAT32 启动分区挂载到 \code{/boot}；epoll；TFTP；信号；USB 键盘 \\
-    10-02 & USB URB 接口；input 子系统与 evdev \\
-    10-03 & 多核软实时调度；用户线程 \\
-    10-04 & POSIX 源码兼容层 \\
-    10-05 & CSI-2 摄像头（OV5647 + Unicam） \\
+    10-01 & 每设备私有 work、delayed work、NAPI；FAT32 启动分区挂载到 \code{/boot}；非阻塞 epoll；TFTP 客户端；信号；USB 键盘（轮询到中断） \\
+    10-02 & USB URB 接口；从键盘驱动分离出 input 子系统 \\
+    10-03 & 软实时调度；类 pthread 的用户线程 \\
+    10-04 & 用户 API 改为 POSIX 风格 \\
+    10-05 & CSI-2 摄像头（OV5647 + Unicam）；TFTP 服务器；本书初稿 \\
+    10-06 & 可读写的 ext2（p3 分区）；netfs；\code{exec} 走 VFS，\code{cwd} 改为路径 \\
+    10-07 & 摄像头中断与 DMA 双缓冲、MJPEG 推流三级流水线；仿嵌入式 Linux 的根文件系统加载（rootfs、\code{root=}）；inode 层改为 VFS 兼容 \\
+    10-09～10-11 & USB 键盘热插拔；\code{module\_init} 与 initcall；可装载的 \code{.ko} 模块与 \code{request\_module} \\
+    10-12 & 摄像头上电问题；WPA2 在线重新握手后未装新密钥的修复 \\
+    10-13～10-14 & 合入 kobject/sysfs；\code{libc.so} 动态加载与 \code{ld.so} \\
+    10-21～10-23 & 目录重组；VFS 分层向 Linux 靠近；qemu-gdb 调试；FIFO mutex、rw\_semaphore 与 inode 读写锁 \\
+    10-25 & \code{register\_filesystem}；Linux 式 clone 标志（\code{files\_struct}、\code{fs\_struct}、\code{CLONE\_VFORK}） \\
+    10-26 & 普通文件与设备文件的 \code{mmap}；合入 clone/vfork 分支 \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
-这些功能都附有一篇专题文档（\file{readme/} 目录），记录了实现思路和调试过程。本书就是把这些文档按依赖顺序重新组织、补全前因后果之后得到的。
+这些功能都附有一篇专题文档（\file{doc/readme/} 目录），记录了实现思路和调试过程。本书就是把这些文档按依赖顺序重新组织、补全前因后果之后得到的。
 
 \section{本书的结构}
 
 \begin{itemize}
   \item \textbf{第 2 章 项目组织}：目录结构、构建流程、镜像如何生成，以及内核初始化顺序。这一章是全书的地图。
-  \item \textbf{第 3 章 基于汇编的启动代码}：固件把控制权交给内核之后，\file{entry.S} 如何统一异常级别、点亮早期串口、建立临时页表、打开 MMU，并唤醒其余三个核；异常向量表和中断控制器也在这一章。
-  \item \textbf{第 4 章 MMU}：39 位虚拟地址、三级页表、内存属性；内核页表与用户页表；MMIO 与 DMA 地址；以及三个与缓存和 TLB 有关的真机故障。
-  \item \textbf{第 5 章 进程创建}：\code{struct proc}、第一个用户进程、\code{fork()} 的每一步、上下文切换和调度器，以及在此基础上加入的同步原语和软实时调度。
-  \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，SD 卡驱动，根文件系统的存放方式，VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
-  \item \textbf{第 7 章 驱动架构}：设备模型与上下半部；控制台、UART 与 TTY；USB 与输入子系统；I2C；SDIO 与 USB 两种无线网卡；CSI-2 摄像头。
-  \item \textbf{第 8 章 用户进程、线程与 libc}：系统调用桩、\code{init} 与 shell、用户线程、POSIX 兼容层和一个能在 xv6 里运行的小型 C 编译器。
+  \item \textbf{第 3 章 基于汇编的裸机代码}：固件把控制权交给内核之后，\file{entry.S} 如何统一异常级别、点亮早期串口、建立临时页表、打开 MMU，并唤醒其余三个核；异常向量表和中断控制器也在这一章。
+  \item \textbf{第 4 章 MMU}：39 位虚拟地址、三级页表、内存属性；启动页表、多核启动与最终内核页表；用户地址空间与 \code{mmap()}；MMIO 与 DMA 地址；以及三个与缓存和 TLB 有关的真机故障。
+  \item \textbf{第 5 章 进程与调度}：\code{struct proc}、第一个用户进程、\code{fork()} 的每一步、clone 标志与 \code{vfork}、上下文切换和调度器，以及在此基础上加入的同步原语和软实时调度。
+  \item \textbf{第 6 章 文件系统}：xv6 日志文件系统的分层，块设备与 SD 卡，仿嵌入式 Linux 的根文件系统加载（rootfs、devtmpfs、ext2 根），VFS 中间层（procfs、ext2、FAT32），以及如何把系统烧录到 SD 卡。
+  \item \textbf{第 7 章 驱动架构}：设备模型与上下半部；控制台、UART 与 TTY；USB 与输入子系统；I2C；网络协议栈；SDIO 与 USB 两种无线网卡；CSI-2 摄像头。
+  \item \textbf{第 8 章 用户进程、线程与 libc}：系统调用桩、\code{init} 与 shell、用户线程、libc 与 POSIX 兼容层、一个能在 xv6 里运行的小型 C 编译器，以及最大的用户程序 \code{sshd}。
   \item \textbf{第 9 章 热插拔与驱动自动装载}：Hub 中断驱动的 USB 热插拔，拔出时拆除整棵设备子树；匹配不到驱动时由 MODALIAS 经 \code{request\_module()} 从 \file{/lib/modules} 装载 \file{.ko}，并用一份复合 HID 接收器的真机日志串起全过程。
-  \item \textbf{第 10 章 可选工作}：主线之外的扩展。目前收录可读写的 ext2、\code{sdflush()} 写屏障和外置事务日志 xjournal，以及用 WAL 程序做的断电测试。
+  \item \textbf{第 10 章 可选工作}：ext2 驱动本身的实现细节：可读写的 ext2、\code{sdflush()} 写屏障和外置事务日志 xjournal，以及用 WAL 程序做的断电测试。第 6 章讲 ext2 怎样成为根文件系统，这一章讲它怎样读写磁盘。
 \end{itemize}
+
+第 2 章之后的各章大体按启动顺序排列：第 3、4 章是 \code{main()} 之前和刚进入 \code{main()} 时的事，第 5 章造出第一个进程，第 6 章在第一个进程里挂上根文件系统，第 7 章是挂在各条总线上的设备，第 8 章回到用户态。第 9、10 章是在前面基础上的专题，可以按需选读。
 
 \section{阅读方法与约定}
 

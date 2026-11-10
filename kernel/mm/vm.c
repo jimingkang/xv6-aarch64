@@ -449,8 +449,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, uint64 perm)
   return 0;
 }
 
-// Remove npages of mappings starting from va. va must be
-// page-aligned. The mappings must exist.
+// Remove npages of mappings starting from va. va must be page-aligned.
+// Lazy brk makes unmapped holes normal, so absent leaves are skipped.
 // Optionally free the physical memory.
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
@@ -463,11 +463,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) != PTE_V)
-      panic("uvmunmap: not mapped");
+      continue;
     if((*pte & PTE_AF) == 0)
-      panic("uvmunmap: not a leaf");
+      continue;
     // A shared page belongs to its cache, not to this address space.
     if(do_free && (*pte & PTE_SHARED) == 0){
       uint64 pa = PTE2PA(*pte);
@@ -618,9 +618,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;
     if((*pte & PTE_AF) == 0)
-      panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if(*pte & PTE_SHARED){
@@ -678,25 +678,23 @@ uva2ka_writable(pagetable_t pagetable, uint64 va)
   return (uint64)P2V(PTE2PA(*pte));
 }
 
-// copyin()/copyout() found va absent or read-only.  If it lies in an mmap()
-// region of the current process, page it in (or mark a clean shared page
-// dirty) like a user access would, and retry.  Not while a spinlock is held
-// (pipewrite() copies under pi->lock): demand paging may sleep.  System
-// calls prefault their buffers with fault_in_user_range() for that case.
+// copyin()/copyout() found va absent or read-only.  If it lies in the lazy
+// brk heap or an mmap() region, page it in (or mark a clean shared page dirty)
+// like a user access would, and retry.  Not while a spinlock is held:
+// demand paging may sleep, so syscall paths prefault such buffers.
 static uint64
 uva2ka_fault(pagetable_t pagetable, uint64 va, int write)
 {
   struct proc *p = myproc();
   int locked;
 
-  if(p == 0 || p->vm == 0 || p->vm->pagetable != pagetable ||
-     va < mmap_lowest(p->vm))
+  if(p == 0 || p->vm == 0 || p->vm->pagetable != pagetable)
     return 0;
   push_off();
   locked = mycpu()->noff > 1;
   pop_off();
-  if(locked || handle_mm_fault(p->vm, va, FAULT_FLAG_KERNEL |
-                               (write ? FAULT_FLAG_WRITE : 0)) != 0)
+  if(locked || handle_user_mm_fault(p->vm, va, FAULT_FLAG_KERNEL |
+                                    (write ? FAULT_FLAG_WRITE : 0)) != 0)
     return 0;
   return write ? uva2ka_writable(pagetable, va) : uva2ka(pagetable, va);
 }

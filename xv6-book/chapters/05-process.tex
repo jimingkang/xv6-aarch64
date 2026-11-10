@@ -1,4 +1,4 @@
-\chapter{进程调度}
+\chapter{进程与调度}
 \label{chap:process}
 
 \begin{introduction}[本章内容]
@@ -6,11 +6,14 @@
   \item 动态进程表与按需分配的内核栈
   \item 第一个用户进程
   \item \code{fork()} 逐行解析
+  \item clone 标志与 \code{vfork}
   \item 上下文切换与调度器
   \item \code{exec}、\code{exit} 与 \code{wait}
   \item 睡眠、唤醒与同步原语
   \item 多核软实时调度
 \end{introduction}
+
+上一章结束时，内核已经有了页表和物理页分配器，但还只有 \code{main()} 这一条执行流。本章造出第一个进程，再沿着 \code{fork()}、\code{exec()}、\code{exit()}/\code{wait()} 看进程怎样繁衍和消亡；中间穿插调度器怎样在多个进程之间切换，最后是建立在调度器之上的睡眠、同步原语和软实时调度。
 
 \section{进程由什么组成}
 
@@ -19,7 +22,7 @@
 \begin{figure}[htbp]
   \centering
   \begin{tikzpicture}[node distance=5mm and 10mm]
-    \node[hbox, text width=30mm, minimum height=34mm] (p) {\code{struct proc}\\[1mm]\footnotesize state、pid、tgid\\chan、killed\\policy、cpumask\\context\\ofile[]、cwd};
+    \node[hbox, text width=30mm, minimum height=34mm] (p) {\code{struct proc}\\[1mm]\footnotesize state、pid、tgid\\chan、killed\\policy、cpumask\\context\\files、fs};
     \node[box, right=of p, yshift=12mm, text width=34mm] (vm) {\code{struct vmspace}\\\footnotesize TTBR0 页表、sz、引用计数};
     \node[box, right=of p, yshift=-2mm, text width=34mm] (ks) {内核栈（一页）\\\footnotesize 顶部放 trapframe};
     \node[box, right=of p, yshift=-15mm, text width=34mm] (f) {\code{struct file}…\\\footnotesize 管道、inode、设备、socket};
@@ -51,19 +54,22 @@ struct proc {
   int slice; uint64 rq_seq;    // 时间片、入队序号
   // 以下字段需持有 wait_lock
   struct proc *parent;
+  int vfork_pending;           // CLONE_VFORK 父进程等子进程 exec/exit
   // 以下字段只由进程自己访问
   uint64 kstack, kstack_pa, kstack_slot;
   struct proc *next;           // 动态进程表链表
-  struct vmspace *vm;          // 用户地址空间（线程间共享）
+  struct vmspace *vm;          // 用户地址空间，CLONE_VM 共享
   struct trapframe *trapframe; // 用户态现场，位于内核栈顶
   struct context context;      // 内核态现场，swtch() 用
-  struct file *ofile[NOFILE];
-  struct inode *cwd;
+  struct files_struct *files;  // 描述符表，CLONE_FILES 共享
+  struct fs_struct *fs;        // cwd 与 cwdpath，CLONE_FS 共享
+  struct file *fpin[NFPIN];    // 本次系统调用钉住的 file 引用
+  int nfpin;
   char name[16];
 };
 \end{ccode}
 
-字段按“谁在什么锁下访问”分组，这是 xv6 的一贯风格。与原版相比，这里多了会话和进程组（TTY 作业控制要用）、调度属性（软实时调度）、线程组 id，并且用户地址空间被抽成了可共享的 \code{struct vmspace}，为第~\ref{chap:user} 章的用户线程做准备。
+字段按“谁在什么锁下访问”分组，这是 xv6 的一贯风格。与原版相比，这里多了会话和进程组（TTY 作业控制要用）、调度属性（软实时调度）、线程组 id，并且用户地址空间、描述符表和当前目录都被抽成了可共享、带引用计数的对象（\code{struct vmspace}、\code{files\_struct}、\code{fs\_struct}），由 \code{clone} 标志决定共享还是复制（第~\ref{sec:clone-flags} 节）。
 
 \subsection{两种现场}
 
@@ -133,7 +139,7 @@ void userinit(void) {
   p->trapframe->spsr = 0;          // M[3:0]=0：EL0t
   p->trapframe->sp   = PGSIZE;     // 用户栈顶
   safestrcpy(p->name, "initcode", sizeof(p->name));
-  p->cwd = 0;                      // 由 forkret 中的 prepare_namespace() 设置
+  // p->fs->cwd 由 forkret 中的 prepare_namespace() 设置
   make_runnable(p, 0);
   release(&p->lock);
 }
@@ -167,7 +173,7 @@ void userinit(void) {
   \item \code{eret} 进入 \file{/init} 的 \code{main(1, \{"/init"\})}。initcode 那一页随旧页表一起释放；进程还是 pid 1，\code{initproc} 不变，只是换了镜像。
 \end{enumerate}
 
-如果第 4 步失败，例如根文件系统里没有 \file{/init}，\code{svc} 返回 $-1$，执行落到 \code{0x10} 的 \code{exit} 循环。\code{exit()} 发现 \code{p == initproc}，于是 \code{panic("init exiting")}。把根文件系统换成 ext2（第~\ref{chap:optional} 章）时，如果镜像里漏装了 \file{/init}，看到的就是这个 panic。
+如果第 4 步失败，例如根文件系统里没有 \file{/init}，\code{svc} 返回 $-1$，执行落到 \code{0x10} 的 \code{exit} 循环。\code{exit()} 发现 \code{p == initproc}，于是 \code{panic("init exiting")}。如果 ext2 根镜像里漏装了 \file{/init}（\ref{sec:ext2-root} 节），看到的就是这个 panic。
 
 \subsection{为什么需要 initcode}
 
@@ -222,54 +228,63 @@ usertrapret(tf);
 
 \section{\code{fork()} 逐行解析}
 
+\code{fork()} 现在只是一行：\code{return do\_clone(SIGCHLD, 0, 0, 0, 0, 0);}。\code{do\_clone()} 仿照 Linux 的 \code{copy\_process()}，是 fork、线程库的 \code{clone} 和 Linux 风格 \code{clone(flags, ...)} 的共同实现；\code{flags} 决定地址空间、描述符表和当前目录是共享还是复制（第~\ref{sec:clone-flags} 节）。不带任何共享标志时，它走的就是 fork 的路径：
+
 \begin{ccode}
-int fork(void) {
-  struct proc *np, *p = myproc();
-  if((np = allocproc()) == 0)                               // (1)
-    return -1;
+int do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
+             uint64 entry, uint64 arg) {
+  ...                                                       // 检查 flags 组合
+  files = (flags & CLONE_FILES) ? files_get(p->files) : files_dup(p->files);  // (1)
+  fs    = (flags & CLONE_FS)    ? fs_get(p->fs)       : fs_copy(p->fs);
+  if(!(flags & CLONE_VM))
+    down_read(&vm->mmap_lock);                              // (2)
+  if((np = allocproc()) == 0) goto bad;                     // (3)
 
-  acquire(&p->vm->lock);                                    // (2)
-  if(uvmcopy(p->vm->pagetable, np->vm->pagetable, p->vm->sz) < 0){
-    release(&p->vm->lock);
-    freeproc(np); release(&np->lock);
-    return -1;
+  if(flags & CLONE_VM){                                     // 线程、vfork：共享 vmspace
+    vm->refcount++; vm->users++;
+    vmspace_put(np->vm); np->vm = vm;
+  } else {                                                  // (4) fork：复制
+    acquire(&vm->lock);
+    uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz);
+    np->vm->sz = vm->sz;
+    dup_mmap(vm, np->vm);                                   // mmap 区按 VMA 复制
+    release(&vm->lock);
+    up_read(&vm->mmap_lock);
   }
-  np->vm->sz = p->vm->sz;
-  release(&p->vm->lock);
+  np->tgid = (flags & CLONE_THREAD) ? p->tgid : np->pid;
 
-  *(np->trapframe) = *(p->trapframe);                       // (3)
-  np->trapframe->x0 = 0;                                    // (4)
+  *np->trapframe = *p->trapframe;                           // (5)
+  np->trapframe->x0 = 0;                                    // (6)
+  if(stack) np->trapframe->sp = stack;
 
-  for(int i = 0; i < NOFILE; i++)                           // (5)
-    if(p->ofile[i]) np->ofile[i] = filedup(p->ofile[i]);
-  np->cwd = idup(p->cwd);
+  np->files = files;  np->fs = fs;                          // (7)
   np->sid = p->sid;  np->pgid = p->pgid;  np->ctty = p->ctty;
-  safestrcpy(np->name, p->name, sizeof(p->name));
+  np->policy = p->policy; ... np->slice = timeslice(np);    // (8)
 
-  acquire(&p->lock);                                        // (6)
-  np->policy = p->policy;  np->rt_priority = p->rt_priority;
-  np->nice = p->nice;      np->cpumask = p->cpumask;
-  release(&p->lock);
-  np->slice = timeslice(np);
-
-  int pid = np->pid;
-  release(&np->lock);
-  acquire(&wait_lock);  np->parent = p;  release(&wait_lock);   // (7)
-  acquire(&np->lock);   make_runnable(np, 0);  release(&np->lock); // (8)
-  return pid;                                               // (9)
+  acquire(&wait_lock);                                      // (9)
+  np->parent = p;
+  np->vfork_pending = (flags & CLONE_VFORK) != 0;
+  release(&wait_lock);
+  acquire(&np->lock); make_runnable(np, 0); release(&np->lock);  // (10)
+  if(flags & CLONE_VFORK)                                   // (11)
+    while(np->vfork_pending && !p->killed)
+      sleep(&np->vfork_pending, &wait_lock);
+  return np->pid;
 }
 \end{ccode}
 
 \begin{enumerate}
+  \item fork 复制描述符表（\code{files\_dup()}）和当前目录（\code{fs\_copy()}）。复制的是 \code{struct file} 的\emph{引用}，父子共享同一个文件偏移，这正是 \code{sh} 实现重定向和管道的基础；
+  \item \code{dup\_mmap()} 要遍历父进程的 VMA，复制期间不能有 \code{mmap}/\code{munmap} 插进来。\code{mmap\_lock} 是可睡眠的读写信号量，必须在 \code{allocproc()} 之前拿——\code{allocproc()} 返回时已经持有 \code{np->lock} 这把自旋锁；
   \item 分配进程描述符、内核栈和空的地址空间，context 设为“从 \code{forkret} 开始”；
-  \item 共享父进程的用户内存：不复制，子进程页表指向同一组物理页，可写页在父子两边都改成只读并打上 \code{PTE\_COW}，每页的引用计数加一；以后谁先写某一页，谁就在写保护异常里得到自己的副本（写时复制，见第~\ref{sec:cow} 节）。\code{mmap()} 的区域由紧接着的 \code{vma\_copy()} 同样处理；
+  \item 复制父进程的用户内存：\code{uvmcopy()} 逐页复制 \code{[0, sz)}（只读共享库页共享），\code{dup\_mmap()} 复制 mmap 区：私有页拷贝，共享页 \code{mapcount++}，设备帧照抄 PTE（第~\ref{sec:mmap} 节）；
   \item 复制整个 trapframe——子进程回到用户态时，PC、栈指针、全部寄存器都和父进程在 \code{svc} 之后一模一样；
   \item 唯一的区别：子进程的 \code{x0}（系统调用返回值）改成 0；
-  \item 复制文件描述符表。注意复制的是 \code{struct file} 的\emph{引用}，父子共享同一个文件偏移，这正是 \code{sh} 实现重定向和管道的基础；
+  \item 换上第 (1) 步准备好的描述符表和 \code{fs\_struct}，继承会话、进程组和控制终端；
   \item 像 Linux 一样，子进程继承调度策略、优先级、nice 和 CPU 亲和性；
   \item 设置父进程指针，受 \code{wait\_lock} 保护，与 \code{wait()}、\code{exit()} 同步；
   \item 把子进程放入运行队列，从这一刻起别的 CPU 就可能开始运行它；
-  \item 父进程返回子进程的 pid。
+  \item 只有 vfork 才在这里睡眠，等子进程 \code{exec} 或退出；fork 直接返回子进程的 pid。
 \end{enumerate}
 
 图~\ref{fig:fork} 对比了父子两条返回路径。
@@ -322,6 +337,25 @@ void forkret(void)
 
 context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、跳到 \code{forkret}；\code{usertrapret} 用 trapframe 恢复用户寄存器并 \code{eret}。context 自己不参与返回用户态，它也不在栈上，而是 \code{struct proc} 的一个字段，\code{context.sp} 只是一个指向内核栈的数值。
 
+\subsection{回到用户态：\code{trapret} 中的中断竞争}
+
+\code{forkret()} 的最后一步是调用 \code{usertrapret()}，经 \code{trapret} 返回用户态。每个新 fork 出的子进程第一次运行都走这条路，而这里藏着一个早就存在的竞争，引入块设备层后时序变化才在 QEMU 上暴露出来。
+
+\code{trapret} 先用 \code{urestorereg} 装载 \reg{ELR\_EL1}/\reg{SPSR\_EL1}，再 \code{eret}。\code{forkret()} 开头的 \code{release(\&p->lock)} 会经 \code{pop\_off()} 按调度器当时的状态重新开中断，于是 \code{trapret} 是在开中断的情况下运行的。IRQ 若恰好落在 \code{msr} 与 \code{eret} 之间，就会把这两个寄存器改写成它自己的 EL1 返回现场，\code{eret} 回到的是 EL1 的 \code{trapret+0x14}，此时 \code{sp} 已等于内核栈顶，下一条 \code{ldp} 读到栈上方未映射的保护页。跑 \code{usertests forkfork}/\code{concreate} 时看到的正是 \code{elr=trapret+0x14}，\code{far} 正好是内核栈顶。修复是在 \code{urestorereg} 前无条件屏蔽中断：
+
+\begin{asmcode}
+trapret:
+    msr daifset, #0xf    // 屏蔽：ELR/SPSR 加载到 eret 之间不能有 EL1 IRQ
+    urestorereg
+    eret
+\end{asmcode}
+
+\begin{note}
+  \code{daifset} 只影响 EL1 当前的 PSTATE；\code{eret} 会从 \reg{SPSR\_EL1} 恢复 DAIF，回到用户态后的中断状态由 SPSR 决定，不受这条指令影响。
+\end{note}
+
+% -----------------------------------------------------------------------
+
 \subsection{实例：fork 快照中的虚拟地址与物理页}
 \label{sec:fork-snapshot}
 
@@ -364,7 +398,7 @@ context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、
 
 从这张图还能读出以下几点：
 \begin{itemize}
-  \item 这几页并不相邻：它们大多是 pid 16 exec sh 时刚释放、又被 kalloc 发出来的页，见本节后面的图~\ref{fig:fork-phys}。
+  \item 这几页并不相邻：它们大多是 pid 16 exec sh 时刚释放、又被 kalloc 发出来的页，见本节后面的“两个进程：物理页的复用”。
   \item trapframe 里的值都能对上。\code{elr = 0xe5bc} 和 \code{x17 = 0xe59c} 是 sh 的 libc 基址 \code{0xa000} 加 \code{0x459c}（\code{\_\_syscall}），\code{elr} 指向其中 \code{svc \#0} 的下一条指令；\code{x16 = 0x143e0} 是 libc 的 GOT 起点；\code{x0 = 0} 是子进程中 \code{fork()} 的返回值。
   \item 用户地址要查 L3 叶子再加页内偏移：\code{sp 0x9830} 经 L3[9] 得到物理地址 \code{0x6ea9830}，\code{elr 0xe5bc} 经 L3[14] 得到 \code{0x6ea45bc}。sh 比 init 大，所以 ld-xv6 装在 \code{0x3000}，libc 从 \code{0xa000} 开始。
   \item VA \code{0x5000} 是保护页。exec 为它分配了物理页，但清掉了 \code{PTE\_U}，而 dump 只打印用户可访问的页；按页号空缺推测是 \code{0x6ec7000}。
@@ -378,16 +412,7 @@ context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、
 \end{itemize}
 不睡眠的系统调用（如 \code{getpid}）全程不会改变 \code{context.sp}。
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth]{phys-pages.pdf}
-  \caption{物理内存逐页：同一批物理页在 pid 16（t1）与 pid 17（t2）两次快照中的用途}
-  \label{fig:fork-phys}
-\end{figure}
-
-\paragraph{两个进程：物理页的复用.} 图~\ref{fig:fork-phys} 把物理地址 \code{0x6e9e000}--\code{0x6ed3fff} 共 54 页按行列出：中间是物理地址，左格是 pid 16 快照时（t1）的用途，右格是 pid 17 快照时（t2）的用途，外侧箭头是两个进程的指针，绿色虚线弧是页表遍历。
-
-两份快照的页表根都是 \code{0x6eb8000}，但这\emph{不是}共享页表。在两次快照之间，pid 16 exec 了 sh，旧的 init 映像被释放；sh 再 fork 出 pid 17 时，kalloc 后进先出，最先发出的正是这些刚释放的页：
+\paragraph{两个进程：物理页的复用.} 两份快照的页表根都是 \code{0x6eb8000}，但这\emph{不是}共享页表。在两次快照之间，pid 16 exec 了 sh，旧的 init 映像被释放；sh 再 fork 出 pid 17 时，kalloc 后进先出，最先发出的正是这些刚释放的页：
 \begin{itemize}
   \item \code{0x6eb8000}：pid 16 的页表根 $\to$ pid 17 的页表根；
   \item \code{0x6eb5000}：pid 16 的 L2 页表 $\to$ pid 17 的 vmspace；
@@ -438,6 +463,59 @@ context 和 trapframe 在这里各管一段：\code{swtch} 用 context 换栈、
 \end{itemize}
 
 \paragraph{内核对象在哪个地址空间.} 物理条带里，用户页和 struct proc 挨在一起，只说明它们来自同一个页池，并不表示 proc 在用户空间。\code{p = 0xffffff8006eb7000}、\code{p->vm = 0xffffff8006eb5000} 和页表页都位于直接映射区（VA = KERNBASE + PA），由 \reg{TTBR1\_EL1} 翻译，PTE 不给 EL0 权限，用户页表中也没有任何一项指向它们。\code{struct vmspace} 同样是内核数据结构：它用 \code{pagetable} 和 \code{sz} 描述一个用户地址空间，从 proc 中拆出来是为了让线程共享（第~\ref{sec:threadtest-fig} 节）。内核栈则在 KSTACK 槽位（\code{0xffffffbffffe0000}），经内核页表映射到 \code{0x6ec0000}；槽中另一页不映射，作为保护页。同一个物理页可以先后有完全不同的身份，例如 \code{0x6eb7000} 在 pid 16 时是用户页，到 pid 17 时变成了 struct proc。地址翻译的硬件细节见图~\ref{fig:mmu-walk}。
+
+\section{clone 标志与 vfork}
+\label{sec:clone-flags}
+
+Linux 没有“进程”和“线程”两套创建接口，只有一个 \code{clone(flags, ...)}：\code{flags} 逐项说明子任务与父任务共享什么。xv6-aarch64 照此把 \code{struct proc} 里原来内嵌的三样东西拆成三个带引用计数的对象：
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{struct proc} 指向的三个可共享对象}
+  \label{tab:clone-objs}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lllX@{}}
+    \toprule
+    对象 & 标志 & 复制函数 & 内容 \\
+    \midrule
+    \code{struct vmspace} & \code{CLONE\_VM} & \code{uvmcopy} $+$ \code{dup\_mmap} & 页表、\code{sz}、VMA 链表、\code{mmap\_lock}；\code{refcount} 与 \code{users} 两个计数 \\
+    \code{struct files\_struct} & \code{CLONE\_FILES} & \code{files\_dup} & \code{fd[NOFILE]}，原来的 \code{p->ofile[]} \\
+    \code{struct fs\_struct} & \code{CLONE\_FS} & \code{fs\_copy} & \code{cwd} inode 和规范化的 \code{cwdpath} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+标志的取值与 Linux 相同（\file{include/uapi/sched.h}），检查规则也相同：\code{CLONE\_THREAD} 要求 \code{CLONE\_SIGHAND}，\code{CLONE\_SIGHAND} 要求 \code{CLONE\_VM}；共享地址空间又不是 vfork 时必须给出新栈，因为两个同时运行的任务不能用同一个用户栈。三种常用组合见图~\ref{fig:clone-vfork}：
+
+\begin{itemize}
+  \item \code{fork()}：\code{SIGCHLD}，三样都复制；
+  \item \code{thread\_create()}：\code{CLONE\_VM|CLONE\_FS|CLONE\_FILES|CLONE\_SIGHAND|CLONE\_THREAD}，三样都共享。这是一处行为变化：以前线程有各自的 fd 表，现在像 pthread 一样，一个线程 \code{close(fd)}，其他线程也看不到这个 fd 了；
+  \item \code{vfork()}：\code{CLONE\_VM|CLONE\_VFORK|SIGCHLD}（\code{0x4111}），共享地址空间，复制描述符表和当前目录。
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-aa-clone-vfork.pdf}
+  \caption{fork、线程和 vfork 各共享什么，以及 vfork 父进程何时醒来}
+  \label{fig:clone-vfork}
+\end{figure}
+
+\paragraph{用户接口.} 原有 ABI 不变：\code{fork()} 仍走 \code{SYS\_fork}，线程库改调 \code{thread\_clone()}，底下仍是固定参数的 \code{SYS\_clone}。新增的 \code{SYS\_clone\_flags}（95）按 arm64 Linux 的参数顺序接收 \code{(flags, stack, ptid, tls, ctid)}，libc 在其上提供 glibc 形式的 \code{clone(fn, stack, flags, arg, ...)} 和 \code{vfork()}。\code{CLONE\_PARENT\_SETTID}/\code{CLONE\_CHILD\_SETTID} 在子进程运行之前把 TID 写到 \code{ptid}/\code{ctid}；TLS 不支持，\code{tls} 被忽略。
+
+\paragraph{共享描述符表.} \code{files\_struct} 共享之后，一个任务在系统调用里使用的 \code{struct file} 可能被另一个任务 \code{close()} 掉。所以 \code{fdget()} 在表被共享（\code{count > 1}）时给 file 多拿一个引用，钉在 \code{p->fpin[]} 里，系统调用返回时由 \code{fdput\_all()} 放掉；私有表不会被别人改，省掉这一步。\code{open()} 等到 \code{struct file} 完全建好才 \code{fd\_install()}，别的线程不会看到半成品。
+
+\paragraph{vfork.} vfork 子进程借用父进程的全部内存，包括栈：它在父进程的栈上运行，可以直接写父进程的变量和 mmap 区。为了不让两边同时改同一个栈，父进程在 \code{do\_clone()} 末尾睡在 \code{\&np->vfork\_pending} 上，直到子进程调用 \code{vfork\_done()}——在 \code{exec()} 成功换上自己的地址空间之后，或者在 \code{exit()} 一开始。父进程被 kill 时也会醒来。
+
+\paragraph{两个计数.} 共享 \code{vmspace} 的任务退出时，最后一个才能拆 mmap 区；但页表要留到僵尸被 \code{wait()} 回收。Linux 用 \code{mm\_users} 和 \code{mm\_count} 区分这两件事，xv6 对应的是 \code{users} 和 \code{refcount}：
+
+\begin{itemize}
+  \item \code{refcount}：有多少个 \code{struct proc}（包括僵尸）持有它。\code{freeproc()} 调 \code{vmspace\_put()}，减到 0 释放页表；
+  \item \code{users}：有多少个活着的任务在用它。\code{exit()}、线程退出和 vfork 子进程的 \code{exec()} 调 \code{vmspace\_leave()}，减到 0 才 \code{exit\_mmap()}。
+\end{itemize}
+
+分成两个是因为 \code{exit\_mmap()} 要回写脏页、可能睡眠，不能放进只持自旋锁的 \code{freeproc()}；而如果只在 \code{exit()} 里无条件 \code{exit\_mmap()}，vfork 子进程退出时就会把父进程的映射一起拆掉——\code{mmaptest} 的 vfork 测试正是检查这一点。
+
+\paragraph{测试.} \file{user/clonetest.c} 覆盖 24 项：fork 与线程的旧接口、\code{CLONE\_FILES} 下子进程 open/close 对父进程可见、不带它时互不影响、\code{CLONE\_FS} 下 \code{chdir()} 共享、\code{CLONE\_VM} 的写入共享、\code{CLONE\_VFORK} 父进程等待子进程退出或 exec、TID 回写，以及非法标志组合被拒绝。
 
 \section{上下文切换与调度器}
 
@@ -538,6 +616,51 @@ void scheduler(void) {
 
 进程让出 CPU 的唯一入口是 \code{sched()}：调用者必须持有且只持有 \code{p->lock}，并已把状态改成非 RUNNING。锁在两次 \code{swtch()} 之间“传递”——进程持锁切到调度器，调度器在 \code{swtch()} 返回后释放；反方向同理，新进程在 \code{forkret()} 或 \code{sched()} 返回后释放。这保证了“设置状态”和“切换上下文”之间不会有别的 CPU 插进来运行同一个进程。
 
+\subsection{把一次调度切换打印出来}
+
+为了同时观察 \code{proc}、\code{context} 和 \code{trapframe}，构建系统提供了独立于
+\code{VM\_TRACE} 的开关：
+
+\begin{shcode}
+make PROC_SCHED_TRACE=1 PROC_SCHED_TRACE_LIMIT=256 PROC_SCHED_TRACE_PID=-1
+\end{shcode}
+
+PID 为 0 表示所有任务，正数表示精确 PID；$-1$ 表示 \code{initproc} 及其经
+\code{fork/clone} 创建的全部用户后代，并排除 \code{kthread\_fn != 0} 的 workqueue
+和驱动内核线程。本工程在 \code{userinit()} 前已创建多个内核线程，所以不能假定
+initproc 是 pid 1。事件上限默认为 256，设成 0 会无限打印。该跟踪不遍历页表，因而比
+\code{VM\_TRACE} 适合观察频繁的上下文切换。日志只在当前 CPU 选中的可见用户任务
+确实改变时产生：
+
+\begin{txtcode}
+scheduler:first-dispatch 第一个用户任务即将装入 CPU
+  ...用户任务 A 换出，context 已由 swtch 保存...
+scheduler:switch-out     输出 A 保存后的现场
+scheduler:switch-in      输出即将装入 CPU 的用户任务 B
+\end{txtcode}
+
+如果 A 在 \code{sleep/yield} 后仍被选中，便不输出；\code{A -> kworker -> A} 也不输出，
+而 \code{A -> kworker -> B} 会折叠成一组 \code{A -> B}。\code{userinit:runnable}
+仍单独记录 \code{initproc} 刚构造完的状态（它不一定是 pid 1）。第一次调度时
+\code{context.sp} 等于 trapframe 下沿、
+\code{context.x30=forkret}；经历一次 \code{sleep}/\code{yield} 后，二者被实时的 \code{sched}
+栈指针和 \code{swtch} 返回地址覆盖。
+
+输出中的指针必须分层理解：\code{cpu->proc} 指向动态分配的 \code{struct proc}；
+\code{p->context} 是嵌在 proc 内的内核现场，只有其中的 \code{sp} 指向内核栈；
+\code{p->trapframe} 固定指向内核栈顶以下 272 字节；\code{trapframe.sp} 却是用户地址空间的
+\reg{SP\_EL0}。context 的 \code{x29/x30} 是内核帧指针/返回地址，trapframe 的
+\code{x29/x30} 是用户帧指针/链接寄存器，\code{elr} 是用户返回 PC，\code{spsr} 决定
+\code{eret} 后的异常级别和 PSTATE。\code{scheduler:switch-out} 是在下一用户任务被选中时
+延迟打印上一任务已经保存的 context；\code{scheduler:switch-in} 是即将装载的新现场。
+两者都在调度器栈上打印，所以日志中的 \code{current-sp} 不属于两个进程的内核栈。
+
+这次跟踪还暴露了一个初始化遗漏：\code{kalloc()} 用 \code{0x05} 污染空闲页，旧的
+\code{allocproc()} 在内核栈顶划出 trapframe 后没有清零；\code{userinit()} 又只设置
+\code{elr/spsr/sp}，于是其余用户寄存器第一次进入 EL0 时会是 \code{0x050505\ldots}。
+现在划出 trapframe 后立即清零 272 字节，再由 \code{userinit()} 或 \code{do\_clone()}
+写入有效现场，既避免泄露内核栈残留，也让初始现场具有确定值。
+
 \subsection{调度对进程是透明的}
 
 调度的目标是让多个进程分享 CPU 时间，而每个进程都以为自己独占 CPU。能做到这一点，靠的正是上面两份现场：被中断的那一刻，用户寄存器全部存在 trapframe 里；让出 CPU 的那一刻，内核寄存器存在 context 里。从进程自己的角度看，它只是调用了一次 \code{swtch()}，过了一段（也许很长的）时间后函数返回了，期间别的进程运行过这件事它察觉不到。也正因为切换只发生在一次函数调用之内，按调用约定可以被调用者破坏的 \code{x0}～\code{x17} 不需要保存。
@@ -635,6 +758,98 @@ A 的内核栈（高地址在下）            调度器栈（stack0）
 
 这就是“以 A 的身份进入中断、以 B 的身份离开中断”之所以合法的原因：每个进程的中断现场（trapframe 中的 \code{elr}、\code{spsr}）和内核调用链都保存在它自己的内核栈上，\code{eret} 使用的永远是当前进程自己的那一份。与把任务结构放在栈页底部的教学内核相比，xv6 的每个进程在调度器之外还多了一个独立的调度器上下文，切换总是“进程 $\to$ 调度器 $\to$ 进程”两步，而不是进程之间直接切换；代价是多一次 \code{swtch()}，好处是调度器有自己干净的栈，进程退出时也不必在自己的栈上释放自己。
 
+\subsection{实例：log8 中的调度、栈与 context}
+\label{sec:sched-log8}
+
+上一小节讲的是一次轮转的原理。下面用一次真实运行把它对上号：开机后 init 拉起 wifi，再拉起 login，登录进 sh，然后运行 \code{forktest}。默认的 \code{PROC\_SCHED\_TRACE\_PID=-1} 看不到内核线程，要把\emph{每一次}调度都记下来，需要再加 \code{PROC\_SCHED\_TRACE\_ALL=1}。在这个模式下，内核线程和用户进程的换入、换出都会打印，事件上限默认为 0，即不设上限。\code{make\_runnable()} 还会多打一行 \code{sched-wake}，说明是谁、从哪个函数唤醒了睡眠的进程：
+
+\begin{shcode}
+make PROC_SCHED_TRACE=1 PROC_SCHED_TRACE_ALL=1 qemu 2>&1 | tee log8
+python3 tools/sched_bt_sym.py kernel/kernel.sym < log8 > log8.sym
+\end{shcode}
+
+\begin{txtcode}
+sched-wake[46] cpu=0 wake pid=16 name=login chan=... <cons+0x98> by pid=-1 name=-
+               caller.lr=... <wakeup+0x60> from.lr=... <consoleintr+0xbc>
+\end{txtcode}
+
+\code{sched-trace[n]} 和 \code{sched-wake[n]} 共用一个全局编号，而且都在同一把打印锁之内取号，所以编号顺序就是事件发生的顺序。log8 一共 348 条记录，其中约 320 条属于用户进程。图~\ref{fig:sched-log8} 只画了用户进程，内核线程的记录被隐藏，所以图中的编号不连续。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[height=0.93\textheight,width=\linewidth,keepaspectratio]{fig-ao-sched-log8-stack-ctx.pdf}
+  \caption{log8：上部是按 CPU 分道的调度时间线（[81]--[329] 的 forktest 重复段已折叠）；中部是 8 次切换的内核栈和 \code{p->context}，红线表示 \code{context.sp}/\code{x29} 指向栈上的位置；底部是寄存器横向对比}
+  \label{fig:sched-log8}
+\end{figure}
+
+\paragraph{时间线.} 整个过程可以分成六段：
+\begin{enumerate}
+  \item \textbf{init 读盘}，[26]--[35]：init(14) 在 \code{sdsector} 里忙等 SD 卡。时间片一用完，它就被定时器 IRQ \code{yield} 出去，在 CPU2、CPU3、CPU1 之间漂移。
+  \item \textbf{fork wifi}，[35]--[39]：[36] 时子进程 15 刚被设成 RUNNABLE，空闲的 CPU0 就把它换入了（首次换入，\code{x30=forkret}）。这时 init 还在 \code{do\_clone} 里。[37] init 被抢占，[38] 它在 CPU2 上把 fork 做完，[39] 进入 \code{wait} 睡眠。
+  \item \textbf{wifi 退出}，[40]--[44]：[40] wifi 在 \code{exit} 里唤醒 init，[41] init 在 CPU1 上换入，[42] wifi 才真正换出。init 回收 wifi 之后 fork 出 16。16 复用了 wifi 刚释放的内核栈槽 \code{...e2000}，在 [43] 首次换入，随后 exec 成 login。[44] init 再次进入 \code{wait}。
+  \item \textbf{登录}，[45]--[53]：login/sh(16) 在 \code{consoleread} 里睡在 \code{\&cons.r} 上。[46]、[49]、[52] 是三次键盘中断，都打在空闲的 CPU0 上，由 \code{consoleintr} 唤醒它；之后分别由 CPU3、CPU1、CPU0 把它换入。
+  \item \textbf{forktest}，[54]--[341]：sh fork 出 17，17 exec 成 forktest；[55] sh 在 \code{wait} 里睡下，chan 是 sh 自己的 proc。17 连续 fork 出 128 个子进程（pid 18--145）。每个子进程在某个空闲 CPU 上首次换入后立刻 \code{exit}，并且各占一个新的内核栈槽（VA 每次减 \code{0x2000}）。17 自己则多次在 \code{do\_clone} 和 \code{wait} 里被定时器抢占。
+  \item \textbf{回到 shell}，[342]--[347]：17 退出时唤醒 sh。sh 在 CPU0 上换入后，刚从 \code{sleep} 出来就被 IRQ 抢占，换到 CPU2 继续执行，最后又在 \code{consoleread} 里睡下。
+\end{enumerate}
+
+\paragraph{fork 与 wait 的时序.} \file{user/init.c} 先 fork 出 wifi，然后 \code{wait(0)}；wait 返回之后，才进入循环去 fork login。日志里能看到三个细节。
+\begin{itemize}
+  \item 子进程可能比父进程的 fork 先跑起来：\code{sched-q\#0 fork 14 -> 15} 这一行打印在 [36] \emph{之后}。
+  \item 两个进程真正并行的时间只有 [36]--[39] 这一小段。这段时间里 wifi 在 CPU0 上执行，init 先后在 CPU1、CPU2 上把 fork 收尾；[37] 的回溯是 \code{yield <- el1irq <- do\_clone+0x380 <- sys\_fork}。
+  \item wakeup 之后并不能马上回收子进程。[40] 的 \code{wakeup(p->parent)} 在 \code{exit()} 里执行，这时 wifi 还没被标成 ZOMBIE。init 在 [41] 换入后，\code{wait()} 里的 \code{acquire(\&np->lock)} 要一直等到 wifi 在 [42] 换出、调度器释放它的 \code{p->lock} 之后才能拿到。所以 \code{fork 14 -> 16} 出现在 [42] 之后。
+\end{itemize}
+
+\paragraph{时间片与空闲 CPU.} init 每次被换出时，\code{run\_ticks} 依次是 20、30、40、50。SCHED\_OTHER、nice 0 时 \code{timeslice()} 是 $(20-0)/2=10$ 个 tick，正好对上：每次都是时间片用完被换出的。\code{kernelirq()} 允许抢占内核代码，所以 init 即使还在 \code{sdsector} 或 \code{do\_clone} 里，也照样被换出。\code{pick\_next()} 不考虑 \code{last\_cpu}。[37] 时 CPU1 把 init 换出，init 要等 CPU1 的调度器释放 \code{p->lock} 之后才能被别的 CPU 选中，结果同样空闲的 CPU2 先抢到了它（[38]）。CPU1 再扫描时已经没有可运行的进程，就在 \code{scheduler()} 里空转，一直到 [41]。
+
+\paragraph{中断用的是哪块栈.} 这取决于中断到来的那一刻 CPU 上在跑什么，见表~\ref{tab:irq-stack}。[40] 不属于其中任何一种：它是 wifi 在 \code{exit} 系统调用里同步调用 \code{wakeup}，没有中断帧。
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{中断压在哪块栈上}
+  \label{tab:irq-stack}
+  \begin{tabularx}{\linewidth}{@{}p{2.6cm}p{1.4cm}Xp{3.2cm}@{}}
+    \toprule
+    中断时 CPU 在做什么 & 入口 & 压在哪块栈上 & log8 中的例子 \\
+    \midrule
+    内核态运行某进程 & \code{el1irq} & 该进程内核栈当前 sp 的下方，多出约 \code{0x130} 字节的中断现场 & [28] [37] [68] [345] \\
+    用户态运行某进程 & \code{el0irq} & 切换到 \reg{SP\_EL1}（该进程内核栈顶），先存 trapframe，再经 \code{usertrap} 调用 \code{yield} & 用户态时间片抢占 \\
+    CPU 空闲 & \code{el1irq} & 该 CPU 的调度器栈 \code{stack0}，记录中显示 \code{by pid=-1} & [46] [49] [52] 键盘 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{wakeup 与中断.} 图中橙色闪电标的是“有人调用了 \code{wakeup}”，红色循环箭头标的是“被中断抢占”，这两件事不在同一个层次上。\code{wakeup(chan)} 是一个普通函数：它只把睡在 chan 上的进程改成 RUNNABLE，不做任何切换；被唤醒的进程什么时候运行、在哪个 CPU 上运行，由之后的 \code{scheduler()} 决定。它的调用者可以是进程上下文（\code{exit}、\code{piperead}），也可以是中断上下文（\code{uartintr -> consoleintr}）。中断则是硬件事件，会立刻打断\emph{本 CPU} 正在执行的东西；处理函数可能调用 wakeup（键盘中断），也可能根本不调（定时器中断走 \code{sched\_tick -> yield}）。[46] 把两者串在了一起：键盘中断到来，wakeup 把 login 设成 RUNNABLE，中断返回后 CPU0 继续空转，最后由 CPU3 在 [47] 把 login 换入。
+
+\paragraph{context 的对比.} 表~\ref{tab:ctx-log8} 列出图~\ref{fig:sched-log8} 中 8 次切换保存下来的 context。
+\begin{table}[htbp]
+  \centering\small
+  \caption{log8 中 8 次切换的 \code{p->context}（\code{...} 表示省略了高位）}
+  \label{tab:ctx-log8}
+  \begin{tabularx}{\linewidth}{@{}p{2.9cm}p{1.6cm}p{1.0cm}p{0.5cm}Xp{1.4cm}@{}}
+    \toprule
+    切换 & sp / x29 & x21 & x22 & x23--x28 & x30 \\
+    \midrule
+    {[28]} init 读盘被抢占 & \code{...e49d0} & proc 14 & 0 & \code{\&sd\_rca}、SD 控制器 MMIO & sched+0xb4 \\
+    {[42]} wifi exit & \code{...e2e20} & proc 15 & 1 & \code{\&wait\_lock}，其余为用户态值 & sched+0xb4 \\
+    {[45]} login 睡在 consoleread & \code{...e2dc0} & proc 16 & 1 & n=32、user\_dst=1、\code{\&cons.r} & sched+0xb4 \\
+    {[55]} sh 在 wait 里睡 & \code{...e2df0} & proc 16 & 1 & 用户态值 & sched+0xb4 \\
+    {[56]} 子 18 首次换入 & \code{...deef0} / 0 & 0 & 0 & 全 0 & \textbf{forkret} \\
+    {[58]} 子 18 exit & \code{...dee20} & proc 18 & 1 & \code{\&wait\_lock}，其余为用户态值 & sched+0xb4 \\
+    {[68]} 17 在 fork 中被抢占 & \code{...e0c90} & proc 17 & 0 & 新子进程 25 的 files/fs，17 的 vm & sched+0xb4 \\
+    {[345]} sh 在 sleep 中被抢占 & \code{...e2cb0} & proc 16 & 0 & 用户态值 & sched+0xb4 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+从这 8 次切换可以看出几点：
+\begin{enumerate}
+  \item x19（\code{\&cpus[0]}）、x20（\code{0xa0}）、x30（\code{sched+0xb4}）在所有 live context 里都一样。它们是 \code{sched()} 自己的寄存器，不属于进程。
+  \item 能区分进程的是 sp/x29，它们指向各自内核栈上 sched 的帧；还有 x21，它就是进程自己的 \code{struct proc}。wifi 和 login/sh 的 sp 都在 \code{...e2xxx}，因为同一个 VA 槽先后给了 15 和 16，对应的物理页并不相同。
+  \item x22 是 \code{intena}，它说明了换出的原因：0 表示从 IRQ 里 \code{yield}，1 表示自己走 sleep 或 exit。x23--x28 是换出路径上保存的 callee-saved 寄存器，路径上没用到的就保留用户态的值。
+  \item 新进程的 context 只设置了 sp=trapframe 和 x30=forkret，其余全为 0。它第一次换入时不经过 \code{sched()}，直接 \code{ret} 到 forkret，再回到用户态。
+  \item 被抢占的三列（[28]、[68]、[345]）栈里都有一块 \code{el1irq} 中断现场。下次在别的 CPU 上换入时（[29]、[70]、[346]），就从这里 \code{eret} 回去，所以换一个 CPU 继续执行并不需要搬动栈。
+\end{enumerate}
+
 \section{\code{exec}、\code{exit} 与 \code{wait}}
 
 \subsection{\code{exec}}
@@ -653,13 +868,13 @@ sz_top +----------------+  <- sp 初值
 0      +----------------+
 \end{txtcode}
 
-全部就绪后才替换旧的地址空间——任何一步失败，原进程都不受影响。提交时改写 trapframe：\code{elr} 设为 ELF 入口，\code{sp} 设为新栈顶，\code{spsr = 0}，\code{x1} 指向 \code{argv}；返回值 \code{argc} 由 \code{syscall()} 写入 \code{x0}。随后 \code{uvmsync\_icache()}（ARM 的指令缓存与数据缓存不一致，装入代码后必须同步）、\code{switchuvm()} 立即换 \reg{TTBR0\_EL1}，最后释放旧页表。\code{eret} 之后，用户态从 \code{main(argc, argv)} 开始执行。
+全部就绪后才替换旧的地址空间——任何一步失败，原进程都不受影响。提交之前，\code{exec()} 还要像 Linux 的 \code{unshare\_files()} 一样给自己一份私有的描述符表，并拆掉旧地址空间的 mmap 区（\code{exit\_mmap()}）；如果调用者是与父进程共享地址空间的 vfork 子进程，则不动原来的 \code{vmspace}，而是把新页表包进 \code{vmspace\_wrap()} 新建的私有 \code{vmspace}，成功后 \code{vfork\_done()} 唤醒父进程。提交时改写 trapframe：\code{elr} 设为 ELF 入口，\code{sp} 设为新栈顶，\code{spsr = 0}，\code{x1} 指向 \code{argv}；返回值 \code{argc} 由 \code{syscall()} 写入 \code{x0}。随后 \code{uvmsync\_icache()}（ARM 的指令缓存与数据缓存不一致，装入代码后必须同步）、\code{switchuvm()} 立即换 \reg{TTBR0\_EL1}，最后释放旧页表。\code{eret} 之后，用户态从 \code{main(argc, argv)} 开始执行。
 
 \code{exec} 不建新进程，也不碰 context，只把 trapframe 改写成“一个新程序刚开始”的样子；pid、打开的文件、当前目录都保留，shell 的重定向正是建立在这一点上。
 
 \subsection{\code{exit} 与 \code{wait}}
 
-\code{exit()} 关闭所有文件，把子进程过继给 \code{init}，把自己设为 ZOMBIE 并唤醒父进程，然后 \code{sched()}，再也不会回来。有两样东西 \code{exit()} 不能当场释放：内核栈（它正运行在这一页上，直到最后的 \code{swtch} 为止）和退出码 \code{xstate}（父进程还没来取）。所以要由父进程在\emph{自己的}内核栈上调用 \code{wait()} 回收。
+\code{exit()} 先唤醒可能在等它的 vfork 父进程（\code{vfork\_done()}），调用 \code{vmspace\_leave()}——若它是地址空间的最后一个使用者，就拆掉全部 mmap 映射并回写脏页——再放下描述符表和当前目录（\code{files\_put()}、\code{fs\_put()}，最后一个共享者才真正关闭文件），然后把子进程过继给 \code{init}，把自己设为 ZOMBIE 并唤醒父进程，然后 \code{sched()}，再也不会回来。有两样东西 \code{exit()} 不能当场释放：内核栈（它正运行在这一页上，直到最后的 \code{swtch} 为止）和退出码 \code{xstate}（父进程还没来取）。所以要由父进程在\emph{自己的}内核栈上调用 \code{wait()} 回收。
 
 \code{sys\_wait()} 只是一层薄包装：用 \code{argaddr(0, \&p)} 从 trapframe 的 \code{x0} 取出用户传入的 \code{int *status}，再调用 \code{wait(p)}。\code{p} 是用户虚拟地址，内核不能直接解引用，只能通过用户页表 \code{copyout}。
 
@@ -723,7 +938,7 @@ xv6 的阻塞机制只有两个函数。\code{sleep(chan, lk)} 原子地释放�
 
 \subsection{内核 mutex 与 rw semaphore}
 
-\code{rpi3-lock} 在 \code{sleep/wakeup} 上实现了 FIFO、可睡眠的 \code{struct mutex}。内部 spinlock 只保护 owner 和 waiter 链表；锁忙时 waiter 放在当前进程的内核栈中并 \code{sleep()}，解锁时所有权直接交给队首 waiter，避免惊群和后来者插队。旧 \code{sleeplock} 已成为该 mutex 的兼容包装。
+\code{sleep}/\code{wakeup} 唤醒的是同一通道上的所有进程，用它直接做锁会有惊群，也不保证先来先得。所以内核在它之上实现了 FIFO、可睡眠的 \code{struct mutex}。内部 spinlock 只保护 owner 和 waiter 链表；锁忙时 waiter 放在当前进程的内核栈中并 \code{sleep()}，解锁时所有权直接交给队首 waiter，避免惊群和后来者插队。旧 \code{sleeplock} 已成为该 mutex 的兼容包装。
 
 \code{struct rw\_semaphore} 允许连续的一批 reader 同时进入，但队首 writer 必须等 active reader 归零后独占；writer 排队后，后来的 reader 不能越过它。inode 因此使用 \code{i\_rwsem}：只读路径调用 \code{ireadlock()}，修改和首次加载调用 \code{ilock()} 写锁。\code{struct file.pos\_lock} 则保护经 \code{dup/fork} 共享的文件偏移。
 
@@ -770,3 +985,5 @@ initcall 早于第一个用户进程运行，\code{myproc()} 可能为空。mute
 \paragraph{节流.} 为防止失控的 FIFO 任务卡死整个系统，每个 CPU 每秒最多给实时任务 950\,ms；用完后实时任务的有效优先级降到 $-1$，让 shell 和内核工作线程在剩下的 50\,ms 里运行——与 Linux 默认的 \code{sched\_rt\_runtime\_us} 相同。
 
 用户可以用与 Linux 同名的 \code{chrt}、\code{taskset}、\code{nice}、\code{renice} 命令设置这些属性，用 \code{rtlat} 测量唤醒延迟（第~\ref{chap:user} 章）。
+
+到这里，进程可以被创建、调度、睡眠和回收，但第一个进程在 \code{forkret()} 里调用的 \code{prepare\_namespace()} 还没有展开：它要读的根文件系统在 SD 卡上，要经过块缓存、日志、inode 和 VFS 几层。下一章从磁盘开始，自底向上讲文件系统。

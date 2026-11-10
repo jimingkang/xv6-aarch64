@@ -74,6 +74,7 @@ main()
     printf("kernel image built: %s (%s)\n", kernel_build_time, kernel_build_rev);
     printf("\n");
     buddy_selftest(); // mem_map + free_area[] are live: split/merge check
+    fdtable_init();   // files_struct/fs_struct caches precede kthreads
     procinit();      // process table
     mmap_init();     // VMA and shared page caches for mmap()
     workqueue_init(); // schedulable bottom halves run on kworker

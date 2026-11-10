@@ -14,12 +14,14 @@
   \item CSI-2 摄像头 OV5647：D-PHY、CSI-2 包、Unicam FIFO、DMA 双缓冲与帧通知，HTTP MJPEG 推流及其流水线提速
 \end{introduction}
 
+第~\ref{chap:fs} 章的块设备只是众多设备中的一种。本章先搭两副“骨架”：设备模型回答设备、驱动和总线怎样互相找到，上下半部回答中断里来不及做的工作交给谁。然后按依赖关系依次看几类驱动：最早需要的串口控制台与 TTY；协议层次最多的 USB 键盘；只用来配置传感器的 I2C；网络协议栈和挂在它下面的两块无线网卡（一块走 SDIO，一块走 USB）；最后是把 I2C、DMA、中断和用户态图像处理串在一起的 CSI-2 摄像头。
+
 \section{设备模型}
 \label{sec:devmodel}
 
 \subsection{为什么不再只用 \code{devsw[]}}
 
-原版 xv6 只有一张字符设备函数表：\code{inode.major} 直接索引 \code{devsw[major].read/write}。它够用来驱动一个控制台，但表达不了“硬件设备”“驱动程序”“总线”以及“二者何时绑定”。随着驱动从一个变成十几个，项目引入了 Linux 2.6 设备模型的最小子集（\file{kernel/device.h}）：
+原版 xv6 只有一张字符设备函数表：\code{inode.major} 直接索引 \code{devsw[major].read/write}。它够用来驱动一个控制台，但表达不了“硬件设备”“驱动程序”“总线”以及“二者何时绑定”。随着驱动从一个变成十几个，项目引入了 Linux 2.6 设备模型的最小子集（\file{include/kernel/device.h}）：
 
 \begin{ccode}
 struct bus_type {
@@ -175,7 +177,7 @@ static DEVICE_ATTR_RW(test_pattern);  // ov5647.c：测试图样，可写
 
 \section{上半部与下半部}
 
-中断处理程序运行时，本 CPU 的中断是关着的，而且它打断的可能是任何代码，所以不能睡眠、不能长时间运行。真正耗时的工作——解析 USB 报告、执行几十次 SDIO 命令、处理一个 TCP 段——要推迟到可以调度、可以睡眠的上下文中去做。项目实现了与 Linux 同名的 workqueue（\file{kernel/workqueue.h}）：
+中断处理程序运行时，本 CPU 的中断是关着的，而且它打断的可能是任何代码，所以不能睡眠、不能长时间运行。真正耗时的工作——解析 USB 报告、执行几十次 SDIO 命令、处理一个 TCP 段——要推迟到可以调度、可以睡眠的上下文中去做。项目实现了与 Linux 同名的 workqueue（\file{include/kernel/workqueue.h}）：
 
 \begin{ccode}
 struct work_struct {
@@ -201,6 +203,8 @@ void cancel_work_sync(struct work_struct *work);
 定时器中断每 10\,ms 推进一次 delayed-work 时钟，TCP 重传、Wi-Fi 连接超时等都用 delayed work 实现，而不是在定时器中断里直接运行协议代码。网络接收还在 workqueue 之上实现了 NAPI 式的预算轮询：中断只调度一次，下半部每轮最多处理 16 个报文，没处理完就重新排队，处理完才重新打开中断。
 
 \section{控制台、UART 与 TTY}
+
+有了设备模型和下半部，就可以看具体驱动了。先从最简单、也是启动后最早用到的一个开始：串口控制台。它只有一根收线和一根发线，却已经涉及中断生产者与进程消费者、行规程和会话，后面各节的套路在这里都能看到雏形。
 
 \subsection{Mini UART}
 
@@ -236,6 +240,137 @@ REGS_AUX->mu_control = 3;              // 打开收发
 \code{login} 调用 \code{tty\_attach()} 成为新会话和进程组的组长，并把 \code{ttyS0} 设为控制终端；之后 fork 出的 shell 和命令继承会话、进程组和控制终端。shell 运行外部命令时把它设为前台进程组，\code{Ctrl-C} 产生的 SIGINT 只发给这个组，所以能终止 \code{ping}、\code{tftp} 或整条管道，而不会杀掉 shell 和 \code{login}。
 
 一个由此暴露的问题是：旧版 \code{ps} 通过系统调用让内核 \code{printf} 直接打印进程表，结果在 SSH 会话里执行 \code{ps}，输出却出现在串口上。内核 \code{printf} 写的是系统控制台，不看调用者的 fd 1。现在 \code{sys\_ps()} 把快照格式化到用户缓冲区，由 \code{ps} 自己 \code{write(1, ...)}。
+
+\subsection{绑定：设备、驱动、设备文件与会话}
+\label{sec:tty-bind}
+
+\file{kernel/drivers/tty/} 下四个文件分工明确：\file{uart.c} 只管 Mini UART 寄存器、32 字节发送环和中断，自身不暴露任何设备文件；\file{console.c} 是终端本体，持有唯一的输入环 \code{cons} 和行规程；\file{tty.c} 是会话层，管理前台进程组和 \code{/dev/tty} 的转发；\file{pty.c} 是 SSH 用的伪终端，自带一个迷你行规程。它们在四个地方绑定起来（图~\ref{fig:tty-bind}）：
+
+\begin{enumerate}
+  \item \textbf{设备 $\leftrightarrow$ 驱动}：\code{consoleinit()} 先 \code{platform\_device\_register(\&uartdev)}，再 \code{platform\_driver\_register(\&uartdrv)}。\code{platform\_match()} 按名字 \code{"bcm2837-mini-uart"} 把两者配上，调用 \code{uart\_probe()}，它执行 \code{uartinit()} 并注册 major 1（\code{/dev/console}）；
+  \item \textbf{设备文件 $\leftrightarrow$ 函数}：\code{ttyinit()} 再注册 major 3（\code{/dev/ttyS0}，与 console 用同一组 \code{consoleread/consolewrite}）和 major 2（\code{/dev/tty}，\code{ttycurrentread/write} 按 \code{p->ctty} 转发）。devtmpfs 为每个设备节点建 \code{T\_DEVICE} inode；\code{open()} 时 \code{chrdev\_open()} 用 inode 的 major 查 \code{chrdevs[]}，把 fops 填进 \code{f->f\_op}；
+  \item \textbf{硬件 $\leftrightarrow$ 中断}：这一侧是写死的——\code{devintr()} 里直接判断 \code{irq == UART0\_IRQ} 再调 \code{uartintr()}，没有走 \code{request\_irq}，\code{uartdev} 的 IRQ 资源只用于展示；
+  \item \textbf{进程 $\leftrightarrow$ 终端}：\code{init} 打开 \code{/dev/ttyS0} 作为 fd 0/1/2；\code{login} 调 \code{tty\_attach()} 设置 \code{sid}/\code{pgid}/\code{ctty}，子进程经 fork 继承；\code{sh} 每执行一条命令都用 \code{tty\_set\_foreground()} 切换前台进程组。
+\end{enumerate}
+
+内核 \code{printf} 不经过这张表：\code{consputc()} 直接调 \code{uartputc\_sync()}。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-w-tty-binding.pdf}
+  \caption{tty、console、uart 的绑定：启动注册、platform 匹配与 probe、\code{chrdevs[]}、devtmpfs 节点、open 分派、会话绑定}
+  \label{fig:tty-bind}
+\end{figure}
+
+\subsection{数据通路与调用链}
+
+输入有两个生产者，最终都进入 \code{consoleintr()}：UART 走 GIC \code{UART0\_IRQ} $\to$ \code{devintr} $\to$ \code{uartintr} $\to$ 逐字节 \code{consoleintr}（中断上下文）；USB 键盘走 \code{DWC2\_IRQ} $\to$ \code{usbkbd\_irq\_complete} $\to$ \code{queue\_work} $\to$ \code{usbkbd\_rx\_work} $\to$ \code{consoleintr}（工作队列，进程上下文）。输出有两条路：\code{write()} 经 \code{consolewrite} 逐字节 \code{uartputc} 进 32 字节发送环，环满就睡；\code{printf} 和回显经 \code{consputc} $\to$ \code{uartputc\_sync}，关中断忙等 FIFO，\emph{绕过}发送环。图~\ref{fig:tty-layers} 是分层，图~\ref{fig:tty-chains} 把 read、串口中断输入、write、printf/回显、\code{Ctrl-C} 五条调用链逐步标出了文件、行号和拿的锁。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-t-tty-layers.pdf}
+  \caption{tty 的分层与三条数据通路}
+  \label{fig:tty-layers}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-x-tty-callchains.pdf}
+  \caption{tty 的五条运行时调用链：read、串口中断输入、write、printf/回显、\code{Ctrl-C}}
+  \label{fig:tty-chains}
+\end{figure}
+
+\clearpage
+\subsection{锁}
+\label{sec:tty-locks}
+
+tty 子系统里全部是自旋锁，没有 mutex；需要等待时一律 \code{sleep(chan, lk)}。\code{acquire()} 先 \code{push\_off()} 关本核中断：\code{consoleintr} 和 \code{uartintr} 在中断里运行，若持锁时同一核再进中断去拿同一把锁就会自锁。
+
+\begin{figure}[!ht]
+  \centering
+  \includegraphics[width=\linewidth]{fig-u-tty-lock-order.pdf}
+  \caption{tty 的锁、嵌套顺序与 sleep/wakeup 通道}
+  \label{fig:tty-lockorder}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \caption{tty 相关的锁}
+  \label{tab:tty-locks}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    锁 & 保护什么 \\
+    \midrule
+    \code{cons.lock} & 128 字节输入环 \code{cons.buf} 与 \code{r/w/e} 下标；中断、工作队列、进程都会拿 \\
+    \code{uart\_tx\_lock} & 32 字节发送环、\code{tx\_w/tx\_r}、\code{mu\_ier} 的发送中断位 \\
+    \code{uart\_hw\_lock} & 把“查 \code{mu\_lsr} 有空位”和“写 \code{mu\_io}”合成一步，防止两个核抢到最后一个 FIFO 槽而丢字节；最内层 \\
+    \code{pr.lock} & 一次 \code{printf} 的字符不与别的 \code{printf} 交错；panic 时不再加锁 \\
+    \code{ttyfg\_lock} & 只保护前台进程组 \code{ttyfg\_pgid}；叶子锁 \\
+    \code{pt->lock} & 一对 PTY 的两条 512 字节队列、编辑行、历史、打开状态 \\
+    \code{kbd->lock} & USB 键盘的 \code{active/disconnected/irq\_urb}；叶子锁 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+嵌套顺序（A $\to$ B 表示持 A 再拿 B）是一张有向无环图（图~\ref{fig:tty-lockorder}），所以不存在 AB-BA 死锁：
+
+\begin{txtcode}
+cons.lock    -> uart_hw_lock            回显 consputc
+cons.lock    -> pr.lock -> uart_hw_lock Ctrl-P procdump
+cons.lock    -> p->lock                 sleep / wakeup
+uart_tx_lock -> uart_hw_lock            uartstart
+uart_tx_lock -> p->lock                 sleep / wakeup
+pt->lock     -> p->lock;  pt->lock -> ep->lock (仅 ptyclose)
+ep->lock     -> p->lock                 epollwait 的 sleep
+\end{txtcode}
+
+有几处是刻意这样写的：\code{consoleintr} 处理 \code{Ctrl-C} 时先放 \code{cons.lock} 再调 \code{ttyintr()}，避免形成 cons $\to$ ttyfg $\to$ 所有 \code{p->lock} 的长链；\code{ttyintr} 读出 pgid 后就放掉 \code{ttyfg\_lock}，再 \code{signal\_pgrp}；\code{usbkbd\_rx\_work} 先放 \code{kbd->lock} 再注入字符；\code{epollwait} 先放 \code{ep->lock} 再调 \code{f\_op->poll}。
+
+\paragraph{为什么 sleep 不丢唤醒.} \code{consoleread} 持 \code{cons.lock} 发现 \code{r == w}，调 \code{sleep(\&cons.r, \&cons.lock)}，它先拿 \code{p->lock} 再放 \code{cons.lock}；另一个核上的 \code{consoleintr} 要 \code{wakeup} 就必须拿到这个 \code{p->lock}，而它要等 \code{sched()} 切走后才由调度器释放。所以“检查条件”和“变成 SLEEPING”对唤醒方是原子的（图~\ref{fig:tty-conc}(a)）。\code{uartputc} 睡在 \code{\&uart\_tx\_r}，PTY 睡在 \code{\&q->nread/\&q->nwrite}，结构相同。
+
+\paragraph{持锁拷贝与 mmap.} \code{consoleread} 和 PTY 的读写在自旋锁下 \code{copyout}/\code{copyin}。有了 mmap 的按需调页之后，目标页可能还没缺页进来；\code{uva2ka\_fault()} 发现调用者持有自旋锁就直接失败而不睡眠（第~\ref{sec:mmap} 节）。\code{sys\_read}/\code{sys\_write} 进入驱动之前已经用 \code{fault\_in\_user\_range()} 把缓冲区缺页进来，所以正常的 \code{read(0, buf, n)} 不受影响。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig-v-tty-concurrency.pdf}
+  \caption{(a) 读一行与 \code{Ctrl-C} 的双核时序；(b) PTY 回显死锁}
+  \label{fig:tty-conc}
+\end{figure}
+
+\subsection{已知问题}
+
+\begin{enumerate}
+  \item \textbf{PTY 回显会让 sshd 等它自己}（图~\ref{fig:tty-conc}(b)）。\code{ptyecho} 把回显写进与从端输出共用的 512 字节 \code{output} 队列，队列满就 \code{sleep}；而 master 一侧唯一的读者正是单线程的 sshd。\code{cat} 大文件把队列写满时用户再敲一个键，sshd 就在 \code{writen(master)} 里永远睡下去。Linux 的 n\_tty 用独立的 \code{echo\_buf}，写不下就留到下次。
+  \item \textbf{PTY 行规程丢掉所有控制字符}：\code{ptyinput} 只接受 \code{ch >= ' '}，所以经 SSH 时 \code{Ctrl-C}、\code{Ctrl-D}、Tab 都不起作用；\code{signal\_pgrp} 也只给 \code{ctty == TTYS0} 的进程发信号。
+  \item \textbf{回显在关中断状态下忙等串口}：115200 波特率每字节约 87\,$\mu$s，\code{Ctrl-U} 删一整行要关中断约 33\,ms。Linux 在中断里只把字节放进 flip buffer，行规程和回显放到 \code{flush\_to\_ldisc} 工作队列里做。
+  \item \textbf{\code{consolewrite} 的写者之间没有互斥}：两个进程同时写时按字节交错；\code{printf} 和回显绕过发送环，可能比之前排队的用户字节先出来。Linux 对应的是 \code{atomic\_write\_lock}。
+  \item \code{ttyattach} 不持 \code{p->lock} 就写 \code{sid/pgid/ctty}；\code{ptyclose} 持 \code{pt->lock} 通知 epoll，是锁图里唯一一条 pt $\to$ ep 边。
+\end{enumerate}
+
+\subsection{与 Linux tty 的对照}
+
+\begin{table}[htbp]
+  \centering
+  \caption{xv6-aarch64 与 Linux 的 tty 锁}
+  \label{tab:tty-linux}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    方面 & xv6-aarch64 & Linux \\
+    \midrule
+    tty 对象 & 全局 \code{cons}，只有一个终端 & 每个终端一个 \code{tty\_struct} $+$ \code{tty\_port}，有引用计数 \\
+    硬件发送 & \code{uart\_tx\_lock} $+$ \code{uart\_hw\_lock} & \code{uart\_port->lock}（\code{spin\_lock\_irqsave}） \\
+    中断收字节 & 直接在中断里跑行规程 & flip buffer $+$ \code{flush\_to\_ldisc} 工作队列 \\
+    读/写 & \code{cons.lock} $+$ \code{sleep}；写无互斥 & \code{atomic\_read\_lock}/\code{atomic\_write\_lock} mutex \\
+    行规程 & 写死在 \file{console.c}/\file{pty.c} & \code{ldisc\_sem} 保护可切换的 ldisc \\
+    前台组/会话 & \code{ttyfg\_pgid} $+$ \code{ttyfg\_lock} & \code{tty->ctrl.lock} 保护 \code{pgrp/session} \\
+    pty & 一个 \code{struct pty} $+$ 一把锁 & 两个互为 link 的 \code{tty\_struct}，各有 ldisc \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+总的来说，xv6 用很少几把自旋锁和 sleep/wakeup 就实现了“中断生产、进程消费”的终端，锁顺序是干净的；和 Linux 相比，缺的主要是把行规程从中断里拆出来，以及进程侧的读写 mutex，上面的问题 1、3、4 都源于这两点。
 
 \section{USB 与 HID 键盘}
 \label{sec:usb}
@@ -1208,7 +1343,7 @@ cancel_delayed_work_sync(&interrupt_rx.retry_work);
 
 一份 8 字节报告到手，\code{usbkbd\_rx\_work()} 要同时喂两个消费者：evdev 要的是“哪个键按下、哪个松开”，控制台要的是“打出了什么字符”。两者的判断都建立在同一个动作上——把新报告和 \code{kbd->previous} 逐槽比较。唯一需要提前特判的是 rollover：按键多到键盘自己无法分辨时，六个键槽会被全部填成错误 usage（1～3），这份报告并不说明任何键的真实状态，驱动必须原样保留上一份。若把它当成“全部松开”，就会先上报一串假松开，下一份报告再把同样的键当作新按下，同一个字符因此重复两遍。
 
-之后的事由输入子系统（\file{kernel/drivers/input/input.c}、\file{kernel/input.h}）完成。类驱动只用到七个接口：
+之后的事由输入子系统（\file{kernel/drivers/input/input.c}、\file{include/kernel/input.h}）完成。类驱动只用到七个接口：
 
 \begin{ccode}
 struct input_dev *input_allocate_device(void);
@@ -1457,6 +1592,8 @@ usbkbd_wq                          进程上下文下半部
 图~\ref{fig:usb-irq-seq} 是同一条链的时间顺序版本，两种结果（NAK 与完整报告）在那里分开画。
 
 \section{I2C}
+
+USB 是高速、复杂的外设总线；I2C 则是板上芯片之间最简单的低速控制总线。本项目只用它配置摄像头传感器，放在这里是为 \ref{sec:camera} 节做准备。
 
 BCM2837 的 I2C 控制器叫 BSC（Broadcom Serial Controller）。项目目前只用到 BSC0，用来配置摄像头传感器。在树莓派 3B+ 上，摄像头排线口的 I2C 走 GPIO44/45 的 ALT1 功能，而不是 40 针排针上的 GPIO0/1。
 
@@ -1746,7 +1883,7 @@ Function 1 是“背板窗口”：设置窗口寄存器后，可以用 CMD52/CM
 
 \subsection{WPA2 四次握手}
 
-这版固件不处理 WPA2 握手，所以主机自己完成四次握手（\file{kernel/wpa\_crypto.c}）：用 PBKDF2 从口令和 SSID 算出 PMK；收到 M1 后生成 SNonce，派生 PTK，计算 MIC，发 M2；收到 M3 后验证 MIC，用 AES key unwrap 解出组密钥 GTK；把成对密钥和组密钥装进芯片，发 M4。握手完成后才放行普通数据帧，随后执行 DHCP。
+这版固件不处理 WPA2 握手，所以主机自己完成四次握手（\file{kernel/drivers/net/wireless/wpa\_crypto.c}）：用 PBKDF2 从口令和 SSID 算出 PMK；收到 M1 后生成 SNonce，派生 PTK，计算 MIC，发 M2；收到 M3 后验证 MIC，用 AES key unwrap 解出组密钥 GTK；把成对密钥和组密钥装进芯片，发 M4。握手完成后才放行普通数据帧，随后执行 DHCP。
 
 \subsection{数据流与并发}
 \label{sec:wifi-flow}
@@ -2416,13 +2553,16 @@ GTK = AES-Key-Unwrap(KEK, M3 的 key data) 中的 GTK KDE               wpa_aes_
 \begin{itemize}
   \item \textbf{没有保活}：长时间空闲会被 AP 清掉，重连后要重新 \code{dhcp}；应定时向 AP 发 null-data 帧；
   \item \textbf{寄存器读偶尔拿到旧值}：装密钥时曾从 0xb000 读回上一次写入 WCID 属性的值，疑为控制传输 IN 的缓冲问题，相关寄存器现在都直接写入，根因待查；
-  \item \textbf{没有热插拔}：集线器端口只在启动时扫描一次，找到 MT7601U 就停下，不再看后面的端口；运行中拔插不会被发现，\code{mt7601u\_remove()} 也不会被调用（\ref{sec:devmodel} 节）；
+  \item \textbf{热插拔刚刚补上}：最初集线器端口只在启动时扫描一次，运行中拔插不会被发现。第~\ref{chap:hotplug} 章的 Hub 中断热插拔加上之后，拔出网卡会调用 \code{mt7601u\_remove()}：先停 NAPI 和 \code{state\_work}，再注销 \code{wlan1}；
   \item \textbf{Wi-Fi 参数写在驱动里}：SSID 和口令写死在 \file{mt7601u.c}，而 \file{/etc/wifi.conf} 经 \code{wifi\_connect()} 只交给板载芯片的 \code{brcmfmac\_connect()}。应改成从配置传入，也避免口令进入代码仓库；
   \item \textbf{只用一个 bulk OUT}：MT7601U 有多个 OUT 端点（Linux 驱动按 AC 队列分开），这里固件、MCU 命令和数据帧都走 EP8，负载高时 MCU 命令会排在数据帧后面；
   \item \textbf{探测期间忙等}：\code{mt7601u\_delay\_ms()} 轮询计数器，固件上传和校准都在 \code{main()} 里同步完成，会拉长启动时间。
 \end{itemize}
 
 \section{CSI-2 摄像头：OV5647}
+\label{sec:camera}
+
+最后一个驱动几乎用上了本章前面所有的东西：mailbox 打开电源和时钟，I2C 配置传感器，Unicam 接收器经 DMA 把帧写进内存，中断通知帧完成，字符设备与 \code{mmap} 把缓冲交给用户态，用户程序再把它编码、推流到网络上。
 
 \subsection{路线选择}
 
@@ -3049,7 +3189,7 @@ release(&cam.lock);
 
 这里有三处防御。第一，IRQ 39 来自设备树，没有在真机上验证过；早期打开它时 CPU0 陷进了清不掉的中断（\ref{sec:cam-bugs} 小节问题 7）。所以 \code{unicam\_irq()} 连续 100 次没有发现 Unicam 状态时就屏蔽这个中断，改为只靠轮询。第二，\code{camera\_wq} 每 10\,ms 运行一次 \code{unicam\_poll\_work()}，调用同一个 \code{unicam\_service(0)} 并唤醒读者；中断没有路由过来的板子靠它取帧，4 秒的截止时间也用不依赖定时器中断的 \reg{CNTVCT\_EL0} 计算。第三，“写槽地址”和“发布 \textsc{next} 状态”在同一个 \code{cam.lock} 临界区里完成，\code{set\_image\_buffer()} 在 MMIO 写之后执行 \code{dsb sy}：另一个 CPU 上的中断处理看到 \textsc{next} 状态时，硬件一定已经收到了对应的地址，不会出现“状态说已排好、寄存器里却还是旧地址”的竞态。
 
-\paragraph{零拷贝 mmap.} 普通的大缓冲 \code{read()} 仍返回“40 字节帧头 + RAW10”，要拷贝 384\,KB。现在字符设备还提供 \code{mmap}：两个槽以只读、不可执行、\code{Normal-NC} 的属性映射到用户地址 \code{CAM\_MMAP\_BASE}。映射之后，传入恰好 40 字节缓冲的 \code{read()} 只复制帧头，帧头的 \code{reserved} 字段给出槽号，像素直接从映射里读：
+\paragraph{零拷贝 mmap.} 普通的大缓冲 \code{read()} 仍返回“40 字节帧头 + RAW10”，要拷贝 384\,KB。现在字符设备还提供 \code{mmap}：驱动的 \code{cammmap()} 用 \code{remap\_pfn\_range()} 把两个槽以只读、不可执行、\code{Normal-NC} 的属性映射到内核选定的 mmap 区地址（第~\ref{sec:mmap} 节；早期版本固定在 \code{CAM\_MMAP\_BASE}，现在由 \code{mmap()} 的返回值给出）。映射之后，传入恰好 40 字节缓冲的 \code{read()} 只复制帧头，帧头的 \code{reserved} 字段给出槽号，像素直接从映射里读：
 
 \begin{ccode}
 uchar *dma = mmap(0, CAM_MMAP_BYTES, PROT_READ, MAP_SHARED, fd, 0);
@@ -3060,7 +3200,7 @@ if(read(fd, &h, sizeof(h)) == sizeof(h)){
 }
 \end{ccode}
 
-被取走的槽处于 \textsc{user} 状态，直到下一次 \code{read()} 或 \code{close()} 才归还，因此 Unicam 不会在用户读像素时覆盖它。\code{fork()} 复制这段映射但不复制物理页；\code{exec()} 和进程退出只拆页表，绝不会把保留的 DMA 物理页交给 \code{kfree()}。
+被取走的槽处于 \textsc{user} 状态，直到下一次 \code{read()} 或 \code{close()} 才归还，因此 Unicam 不会在用户读像素时覆盖它。这段 VMA 带 \code{VM\_PFNMAP} 和 \code{PTE\_SPECIAL}：\code{fork()} 的 \code{dup\_mmap()} 照抄 PTE 而不复制物理页；\code{munmap()}、\code{exec()} 和进程退出只拆页表，绝不会把保留的 DMA 物理页交给 \code{kfree()}。映射带 \code{VM\_NOFILEREF}，不持有 \code{struct file}，所以最后一个 fd 关闭时照旧停流；\code{vm\_ops} 的 open/close 维护 \code{camera\_mapped} 计数。
 
 这一版已经通过完整构建；以 CSI1 中断为主的完成路径还需要烧录后，从真机日志 \code{unicam: frame captured by CSI1 IRQ 39; watchdog remains armed} 来确认。
 
@@ -3528,3 +3668,5 @@ static void raw_push(const struct raw_job *job) {
 \begin{remark}
   摄像头驱动是全书最能体现“分层”价值的例子：mailbox、I2C、时钟、电源域、CSI-2 接收器、DMA、帧状态机、字符设备、用户态图像处理，每一层都可以单独验证。真机调试也正是这样一层层推进的：先看 mailbox 回读，再用 bit-bang 判断 I2C 故障在控制器内外，再用传感器内部彩条（\code{camshot -t 1}）验证 CSI-2 和 DMA，最后才看真实画面。
 \end{remark}
+
+本章的驱动都在内核里，它们最终服务的是用户程序：\code{sh} 从 TTY 读命令，\code{sshd} 经 socket 收发，\code{camserver} 用 \code{mmap} 取帧。下一章回到用户态，看这些程序怎样经系统调用、线程和 libc 用上内核提供的接口。

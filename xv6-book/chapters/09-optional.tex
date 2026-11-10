@@ -13,18 +13,18 @@
   \item 安装到真机，以及一次“旧内核”问题的调试
 \end{introduction}
 
-前面八章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不影响系统运行，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2 移植：让 xv6 能可靠地读写一块 Linux 也认识的分区，并在断电后保持一致；从驱动原理、编译测试，一直到给真卡分区、格式化和上机调试。代码在 \file{kernel/fs/ext2/ext2.c}、\file{kernel/fs/ext2/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{readme/readme\_ext2.md}。
+第 2～8 章是系统的主线：没有它们，内核就启动不了、跑不了程序、用不了网络。本章收录的是主线之外的工作。它们不决定系统能否启动，但能把某个子系统做得更完整，也适合作为读者自己动手的练习。第一项是 ext2 移植：让 xv6 能可靠地读写一块 Linux 也认识的分区（第~\ref{chap:fs} 章讲了它怎样成为根文件系统，本章讲它怎样读写磁盘），并在断电后保持一致；从驱动原理、编译测试，一直到给真卡分区、格式化和上机调试。代码在 \file{kernel/fs/ext2/ext2.c}、\file{kernel/fs/ext2/xjournal.c} 和 \file{user/waltest.c}，说明文档是 \file{doc/readme/readme\_ext2.md}。
 
 \section{ext2 移植}
 \label{sec:ext2}
 
 \subsection{动机与分区布局}
 
-xv6 的根文件系统（第~\ref{chap:fs} 章）只有 xv6 自己认识，开发机上的 macOS 或 Linux 无法直接打开它。要在两边交换文件，需要一种双方都懂的格式。FAT32 启动分区可以，但它只支持根目录、没有权限位，平时也不该频繁写。ext2 是 Linux 最经典的文件系统，结构简单、文档齐全，非常适合在教学内核里实现。
+xv6fs（第~\ref{sec:xv6fs} 节）只有 xv6 自己认识，开发机上的 macOS 或 Linux 无法直接打开它。要在两边交换文件，需要一种双方都懂的格式。FAT32 启动分区可以，但它只支持根目录、没有权限位，平时也不该频繁写。ext2 是 Linux 最经典的文件系统，结构简单、文档齐全，非常适合在教学内核里实现。
 
 第~\ref{sec:vfs} 节介绍 VFS 时，ext2 后端还只能读：只支持直接块和一级间接块，默认按只读挂载。本节把它补成一个可写的后端，并解决可写之后立刻出现的问题：写到一半断电怎么办。
 
-ext2 放在 SD 卡的第三个分区，xv6 根文件系统仍在 p2，二者互不替代（图~\ref{fig:ext2-card}）。ext2 本身没有日志，这里给它配了一个\emph{外置}的事务日志，放在 p2 尾部：p2 有 400\,MiB，xv6 镜像只用前 32\,MiB（\code{FSSIZE} $=$ 32768 块，即 65536 扇区），后面的空间本来就闲着。
+ext2 放在 SD 卡的第三个分区。它最初挂在 \code{/mnt/ext2} 当数据卷，根文件系统仍是 p2 上的 xv6fs；可读写、可恢复之后，它在 10-07 起成为根文件系统（\code{root=/dev/mmcblk0p3}，第~\ref{sec:ext2-root} 节），p2 则保留 xv6fs 镜像（图~\ref{fig:ext2-card}）。ext2 本身没有日志，这里给它配了一个\emph{外置}的事务日志，放在 p2 尾部：p2 有 400\,MiB，xv6fs 镜像只用前 32\,MiB（\code{FSSIZE} $=$ 32768 块，即 65536 扇区），后面的空间本来就闲着。本章后半的安装与调试记录（\ref{sec:ext2-part}～\ref{sec:ext2-install} 节）大多来自数据卷阶段，日志里因此还能看到 \code{/mnt/ext2}。
 
 \begin{figure}[htbp]
   \centering
@@ -33,10 +33,10 @@ ext2 放在 SD 卡的第三个分区，xv6 根文件系统仍在 p2，二者互�
     \node[lab, anchor=east] at (-1,30) {整张卡};
     \node[seg, fill=gray!20, minimum width=10mm] (mbr) at (0,30) {MBR};
     \node[seg, fill=structurecolor!20, minimum width=30mm] (p1) at (mbr.east) {p1 FAT32\\\code{/boot}};
-    \node[seg, fill=orange!15, minimum width=46mm] (p2) at (p1.east) {p2 xv6 原始分区\\\code{/}，LBA 208896 起};
-    \node[seg, fill=green!12, minimum width=40mm] (p3) at (p2.east) {p3 ext2\\\code{/mnt/ext2}，LBA 1030144 起};
+    \node[seg, fill=orange!15, minimum width=46mm] (p2) at (p1.east) {p2 xv6 原始分区\\xv6fs 镜像 + 日志，LBA 208896 起};
+    \node[seg, fill=green!12, minimum width=40mm] (p3) at (p2.east) {p3 ext2\\根 \code{/}，LBA 1030144 起};
     \node[lab, anchor=east] at (-1,8) {p2 内部};
-    \node[seg, fill=orange!25, minimum width=46mm] (img) at (0,8) {xv6 根文件系统\\65536 扇区（32\,MiB）};
+    \node[seg, fill=orange!25, minimum width=46mm] (img) at (0,8) {xv6fs 镜像\\65536 扇区（32\,MiB）};
     \node[seg, fill=structurecolor!30, minimum width=14mm] (desc) at (img.east) {描述符\\9 扇区};
     \node[seg, fill=structurecolor!15, minimum width=34mm] (pay) at (desc.east) {载荷\\$\le$1024 扇区};
     \node[seg, fill=red!15, minimum width=12mm] (cr) at (pay.east) {提交\\记录};
@@ -597,12 +597,12 @@ sudo /opt/homebrew/opt/e2fsprogs/sbin/resize2fs /dev/rdisk4s3
 
 扩展后应有 $248463360 / 8 = 31\,057\,920$ 个块，按每组 32\,768 块计共 948 个块组。另外，\code{fs\_ext2.img} 这个目标只依赖文件名，镜像已经存在时改了 \code{EXT2\_SIZE} 也不会重新生成，要先删掉旧文件。
 
-可启动的 ext2 根必须使用 \code{install-rpi3-ext2root}。它依赖 phony 的 \code{ext2root-image}，每次都会重建镜像并用 \code{debugfs} 安装 \code{/init}、\code{/bin/*}、动态加载器和 libc。两个安装目标共用同一个文件名，所以 \code{install-rpi3-ext2} 有时看似也能启动：那只是碰巧复用了前一次已经填充的镜像；\code{make clean} 后再次执行它就会烧入空卷。空卷仍能通过挂载和块缓存自检，但 initcode 的 \code{exec("/init")} 随后失败，最终显示 \code{panic: init exiting}。
+可启动的 ext2 根必须使用 \code{install-rpi3-ext2root}（第~\ref{sec:burn} 节）。它依赖 phony 的 \code{ext2root-image}，每次都会重建镜像并用 \code{debugfs} 安装 \code{/init}、\code{/bin/*}、动态加载器、libc 和 \file{/lib/modules} 下的 \file{.ko}。这个镜像同样只有 32\,MiB，要用满 p3，写入后照上面的办法 \code{resize2fs} 一次即可。两个安装目标共用同一个文件名，所以 \code{install-rpi3-ext2} 有时看似也能启动：那只是碰巧复用了前一次已经填充的镜像；\code{make clean} 后再次执行它就会烧入空卷。空卷仍能通过挂载和块缓存自检，但 initcode 的 \code{exec("/init")} 随后失败，最终显示 \code{panic: init exiting}。
 
 \subsection{安装与真机调试}
 \label{sec:ext2-install}
 
-内核和根文件系统一起安装：
+下面是 ext2 还作为 \code{/mnt/ext2} 数据卷时的一次真机调试，根文件系统在 p2 上。现在以 ext2 为根时，安装只需一条 \code{make install-rpi3-ext2root}（第~\ref{sec:burn} 节），但“先核对新内核的日志”这条教训同样适用。当时内核和 p2 根文件系统一起安装：
 
 \begin{shcode}
 make

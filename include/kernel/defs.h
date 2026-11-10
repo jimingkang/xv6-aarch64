@@ -49,6 +49,7 @@ int             exec(char*, char**);
 // fdtable.c
 struct files_struct;
 struct fs_struct;
+void            fdtable_init(void);
 struct files_struct* files_alloc(void);
 struct files_struct* files_dup(struct files_struct*);
 void            files_get(struct files_struct*);
@@ -268,6 +269,7 @@ void            begin_op(void);
 void            end_op(void);
 
 // pipe.c
+void            pipeinit(void);
 int             pipealloc(struct file**, struct file**);
 void            pipeclose(struct pipe*, int);
 int             piperead(struct pipe*, uint64, int);
@@ -295,10 +297,11 @@ void            vfork_done(struct proc*);
 int             thread_group_alone(struct proc*);
 struct vmspace;
 struct vmspace* vmspace_wrap(pagetable_t, uint64);
+void            vmspace_discard(struct vmspace*);
 void            vmspace_put(struct vmspace*);
 void            vmspace_leave(struct vmspace*);
 int             threadjoin(int, uint64);
-int             growproc(int);
+int             growproc(int, uint64*);
 int             kill(int);
 void            signal_pgrp(int, int);
 int             kthread_create(void (*)(void*), void*, char*);
