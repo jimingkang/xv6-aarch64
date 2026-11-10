@@ -305,3 +305,11 @@ memblock_dump(void)
   dump_type(&memblock.memory);
   dump_type(&memblock.reserved);
 }
+
+uint64
+memblock_dtb(uint64 *size)
+{
+  if(size)
+    *size = dtb_size_used;
+  return dtb_pa_used;
+}

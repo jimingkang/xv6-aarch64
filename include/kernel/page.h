@@ -20,7 +20,15 @@
 
 #include <kernel/types.h>
 
-#define MAX_ORDER 11            // free_area[0..10]: 4 KiB .. 4 MiB blocks
+#define MAX_ORDER 11
+
+// Fill pages with 0x05 when allocated and 0x01 when freed (and slab objects
+// with 0x01 when freed), so a use of uninitialised or freed memory shows up
+// as 0x0505... / 0x0101... (Linux CONFIG_PAGE_POISONING).  Off by default:
+// it touches every byte of every page twice.  make PAGE_POISONING=1.
+#ifndef PAGE_POISONING
+#define PAGE_POISONING 0
+#endif            // free_area[0..10]: 4 KiB .. 4 MiB blocks
 
 struct list_head {
   struct list_head *next, *prev;

@@ -586,7 +586,7 @@ void *kalloc(void)   { return __get_free_pages(0); }
 void  kfree(void *va);   // kalloc() 的页，或 kmalloc() 的内存
 \end{ccode}
 
-\code{kfree()} 把页填成 \code{0x01}、\code{kalloc()} 把页填成 \code{0x05} 的做法保留了下来（多页分配填满整块）——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。有了描述符，释放路径还能做空闲链表做不到的检查，出错时直接打印物理地址并 \code{panic}：
+\code{kfree()} 把页填成 \code{0x01}、\code{kalloc()} 把页填成 \code{0x05} 的做法现在由编译开关 \code{PAGE\_POISONING} 控制（对应 Linux 的 \code{CONFIG\_PAGE\_POISONING}），slab 对象释放时填 \code{0x01} 也归它管。它默认关闭：每分配、释放一页都要把 4\,KiB 整个写一遍，fork、缺页、管道这些热路径都为此付出代价，而需要清零的地方（用户页、页表页、\code{kmem\_cache\_alloc()} 返回的对象）本来就各自显式 \code{memset}。追查内存错误时用 \code{make PAGE\_POISONING=1} 重新编译——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存，这类线索只有打开开关才会出现。有了描述符，释放路径还能做空闲链表做不到的检查，出错时直接打印物理地址并 \code{panic}：
 
 \begin{itemize}
   \item 释放 \code{PG\_reserved} 页（内核镜像、\code{mem\_map}）；
@@ -747,6 +747,50 @@ kmalloc-32                    0          0        32          128              1
 \end{txtcode}
 
 \code{num\_slabs} 为 0 的行说明 cache 此刻一页都没占：空 slab 已经还给了伙伴系统。启动时的 \code{slab\_selftest()} 分配 300 个 40 字节对象（落在 \code{kmalloc-64}，占 5 页），检查对齐、清零和页描述符，再全部释放，要求除 cache 自愿保留的一页外，空闲页数精确回到测试前的值。
+
+\section{调试视图：\code{/proc/meminfo} 与 \code{/proc/iomem}}
+\label{sec:proc-mem}
+
+物理内存现在由 DTB、memblock、伙伴系统、pcp 和 slab 五层共同管理，出了问题首先要知道“内存都去哪儿了”。两个 procfs 文件按 Linux 的格式回答这个问题。
+
+\code{/proc/meminfo} 给出各层的数量。MemTotal 是交给伙伴系统的页（managed pages），MemFree 是伙伴系统加上各 CPU pcp 里的空闲页，Slab 是所有 \code{kmem\_cache} 占用的页，Reserved 是 memblock 保留区与 RAM 的交集；DirectMap4k/DirectMap2M 遍历内核页表，统计线性映射里分别有多少字节是 4\,KiB 页、多少是 2\,MiB 块，可以直接验证第~\ref{sec:memblock} 节的块映射是否生效：
+
+\begin{txtcode}
+MemTotal:       965332 kB
+MemFree:        963916 kB
+MemAvailable:   963916 kB
+Slab:           40 kB
+PerCPUPages:    192 kB
+Reserved:       17707 kB
+DirectMap4k:    7684 kB
+DirectMap2M:    972800 kB
+CowShared:      76 pages
+...
+MemorySource:   DTB
+\end{txtcode}
+
+\code{/proc/iomem} 给出物理地址空间的布局：先按 memblock 的 memory 表列出 System RAM，再把 reserved 表里落在其中的区间缩进一层列在下面，并认出各自是什么——第 0 页到内核装载地址之间的 spin-table/armstub、内核代码与数据、启动时分配的内核页表、carve-out 窗口里的三块缓冲、DTB 本身、\code{mem\_map}。RAM 之后到外设窗口之间，带 DTB 时是 VideoCore 的那部分内存（帧缓冲 \code{0x3c100000} 就在这里），不带 DTB 时则如实标成“未描述”。最后是各外设控制器的 MMIO 子区间：
+
+\begin{txtcode}
+0x0000000000000000-0x000000003bffffff : System RAM
+  0x0000000000000000-0x000000000007ffff : Reserved (spin-table, armstub)
+  0x0000000000080000-0x00000000000bbfff : Kernel code
+  0x00000000000bc000-0x00000000001c316f : Kernel data/bss
+  0x00000000003ef000-0x00000000003fffff : Kernel page tables
+  0x0000000007000000-0x00000000075fffff : Reserved (carve-out window)
+    0x0000000007000000-0x00000000070fffff : QEMU xv6 ramdisk
+    0x0000000007200000-0x00000000073fffff : camera DMA buffer (non-cacheable)
+    0x0000000007400000-0x00000000074fffff : loadable-module arena (RWX)
+  0x0000000008000000-0x0000000008015d95 : Flattened Device Tree
+  0x000000003b6a0000-0x000000003bffffff : mem_map (struct page[])
+0x000000003c000000-0x000000003effffff : Reserved (VideoCore / GPU memory, ...)
+0x000000003f000000-0x000000003fffffff : BCM2837 peripheral MMIO window
+  0x000000003f003000-0x000000003f003fff : BCM system timer
+  ...
+0x0000000040000000-0x0000000040000fff : BCM2836/7 ARM-local interrupt/timer MMIO
+\end{txtcode}
+
+两者都只读现成的数据结构（memblock 的两张表在启动后保留下来，正像 Linux 保留 \code{memblock} 供 \code{/sys/kernel/debug/memblock} 查看），不额外维护任何状态。
 
 \section{最终内核页表}
 

@@ -257,7 +257,8 @@ alloc_pages(int order)
   pg->order = order;
   if(order > 0)
     pg->flags |= PG_head;
-  memset(page_address(pg), 5, PGSIZE << order); // fill with junk
+  if(PAGE_POISONING)
+    memset(page_address(pg), 5, PGSIZE << order); // fill with junk
   return pg;
 }
 
@@ -298,7 +299,8 @@ free_pages_ok(struct page *pg, int order)
   pg->flags &= ~PG_head;
   pg->refcount = 0;
   // Fill with junk to catch dangling refs.
-  memset(page_address(pg), 1, PGSIZE << order);
+  if(PAGE_POISONING)
+    memset(page_address(pg), 1, PGSIZE << order);
 
   if(order == 0){
     // Linux free_unref_page(): park it on this CPU's list.
@@ -409,7 +411,8 @@ kalloc(void)
     uint64 pa = memblock_alloc(PGSIZE, PGSIZE);
     if(pa == 0)
       return 0;
-    memset(P2V(pa), 5, PGSIZE);
+    if(PAGE_POISONING)
+      memset(P2V(pa), 5, PGSIZE);
     return P2V(pa);
   }
   return __get_free_pages(0);

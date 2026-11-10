@@ -498,6 +498,110 @@ putmap(char *p, char *end, uint64 pa0, uint64 pa1, char *name)
   return p;
 }
 
+static char *
+putkb(char *p, char *end, char *label, uint64 bytes)
+{
+  p = putstr(p, end, label);
+  p = putnum(p, end, bytes / 1024);
+  return putstr(p, end, " kB\n");
+}
+
+static char *
+putmap2(char *p, char *lim, int depth, uint64 pa0, uint64 pa1, char *name)
+{
+  while(depth-- > 0)
+    p = putstr(p, lim, "  ");
+  return putmap(p, lim, pa0, pa1, name);
+}
+
+// One memblock reserved range inside System RAM, split or labelled by what
+// we know lives there (Linux nests "Kernel code", "Reserved" etc. the same way).
+static char *
+iomem_reserved(char *p, char *lim, int depth, uint64 b, uint64 e)
+{
+  uint64 dtbsz, dtb = memblock_dtb(&dtbsz);
+  uint64 mm = V2P(mem_map);
+
+  if(b == 0 && e >= V2P(end) - 1){
+    if(KERNPA > 0)
+      p = putmap2(p, lim, depth, 0, KERNPA - 1, "Reserved (spin-table, armstub)");
+    p = putmap2(p, lim, depth, KERNPA, V2P(etext) - 1, "Kernel code");
+    p = putmap2(p, lim, depth, V2P(etext), V2P(end) - 1, "Kernel data/bss");
+    if(PGROUNDUP(V2P(end)) <= e)        // more than the page round-up
+      p = putmap2(p, lim, depth, PGROUNDUP(V2P(end)), e, "Reserved");
+  } else if(b == CARVEOUT_START){
+    p = putmap2(p, lim, depth, b, e, "Reserved (carve-out window)");
+    p = putmap2(p, lim, depth + 1, RAMDISK_PA, RAMDISK_PA + RAMDISK_SIZE - 1, "QEMU xv6 ramdisk");
+    p = putmap2(p, lim, depth + 1, CAMDMA_PA, CAMDMA_PA + CAMDMA_SIZE - 1, "camera DMA buffer (non-cacheable)");
+    p = putmap2(p, lim, depth + 1, MODAREA_PA, MODAREA_PA + MODAREA_SIZE - 1, "loadable-module arena (RWX)");
+  } else if(dtb && b == dtb){
+    p = putmap2(p, lim, depth, b, e, "Flattened Device Tree");
+  } else if(b <= mm && mm <= e){
+    p = putmap2(p, lim, depth, b, e, "mem_map (struct page[])");
+  } else if(e < EARLYTOP){
+    p = putmap2(p, lim, depth, b, e, "Kernel page tables");
+  } else {
+    p = putmap2(p, lim, depth, b, e, "Reserved");
+  }
+  return p;
+}
+
+// /proc/iomem: System RAM from memblock with the reserved ranges nested
+// inside it, then the firmware-owned gap and the MMIO windows.
+static char *
+iomem_format(char *p, char *limit)
+{
+  uint64 ramtop = 0;
+
+  for(int i = 0; i < memblock.memory.cnt; i++){
+    uint64 rb = memblock.memory.regions[i].base;
+    uint64 re = rb + memblock.memory.regions[i].size - 1;
+    p = putmap(p, limit, rb, re, "System RAM");
+    for(int j = 0; j < memblock.reserved.cnt; j++){
+      uint64 b = memblock.reserved.regions[j].base;
+      uint64 e = b + memblock.reserved.regions[j].size - 1;
+      if(e < rb || b > re)
+        continue;
+      p = iomem_reserved(p, limit, 1, b < rb ? rb : b, e > re ? re : e);
+    }
+    ramtop = re + 1;
+  }
+  // Between the end of RAM and the peripherals: with a DTB this is the
+  // VideoCore's share of the 1 GiB; with the built-in layout it is simply
+  // not described.  The carve-out window may sit here when RAM is small.
+  {
+    char *gap = memblock_overlaps_memory(PERIPHERAL_BASE_PA - 1, 1) ? 0 :
+                (strncmp(memblock_source, "DTB", 4) == 0 ?
+                 "Reserved (VideoCore / GPU memory, not System RAM)" :
+                 "Not described (built-in layout, no DTB)");
+    uint64 b = ramtop;
+    if(!memblock_overlaps_memory(CARVEOUT_START, CARVEOUT_END - CARVEOUT_START) &&
+       CARVEOUT_START >= ramtop){
+      if(CARVEOUT_START > b)
+        p = putmap(p, limit, b, CARVEOUT_START - 1, gap);
+      p = iomem_reserved(p, limit, 0, CARVEOUT_START, CARVEOUT_END - 1);
+      b = CARVEOUT_END;
+    }
+    if(gap && b < PERIPHERAL_BASE_PA)
+      p = putmap(p, limit, b, PERIPHERAL_BASE_PA - 1, gap);
+  }
+  p = putmap(p, limit, 0x3f000000, 0x3fffffff,
+             "BCM2837 peripheral MMIO window");
+  p = putmap2(p, limit, 1, 0x3f003000, 0x3f003fff, "BCM system timer");
+  p = putmap2(p, limit, 1, 0x3f00b000, 0x3f00b3ff,
+             "legacy interrupt controller");
+  p = putmap2(p, limit, 1, 0x3f00b880, 0x3f00b8bf, "property mailbox");
+  p = putmap2(p, limit, 1, 0x3f200000, 0x3f2000ff, "GPIO controller");
+  p = putmap2(p, limit, 1, 0x3f201000, 0x3f201fff, "PL011 UART0 (unused)");
+  p = putmap2(p, limit, 1, 0x3f215000, 0x3f215fff,
+             "AUX block / Mini UART");
+  p = putmap2(p, limit, 1, 0x3f300000, 0x3f3000ff, "Arasan EMMC/SD");
+  p = putmap2(p, limit, 1, 0x3f980000, 0x3f9fffff, "DWC2 USB host");
+  p = putmap(p, limit, 0x40000000, 0x40000fff,
+             "BCM2836/7 ARM-local interrupt/timer MMIO");
+  return p;
+}
+
 static int
 proc_memread(int iomem, uint64 off, void *dst, int n)
 {
@@ -510,65 +614,38 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
   limit = buf + PGSIZE;
 
   if(!iomem){
-    p = putstr(p, limit, "MemTotal:       ");
-    p = putnum(p, limit, kmanagedpages() * PGSIZE / 1024);
-    p = putstr(p, limit, " kB\nMemFree:        ");
-    p = putnum(p, limit, kfreepages() * PGSIZE / 1024);
-    p = putstr(p, limit, " kB\nPerCPUPages:    ");
-    p = putnum(p, limit, kpcppages() * PGSIZE / 1024);
-    p = putstr(p, limit, " kB\nCowShared:      ");
+    uint64 d4k, d2m, rsv = 0;
+    for(int i = 0; i < memblock.reserved.cnt; i++)   // reserved inside RAM
+      for(int j = 0; j < memblock.memory.cnt; j++){
+        uint64 b = memblock.reserved.regions[i].base;
+        uint64 e = b + memblock.reserved.regions[i].size;
+        uint64 mb = memblock.memory.regions[j].base;
+        uint64 me = mb + memblock.memory.regions[j].size;
+        if(b < mb) b = mb;
+        if(e > me) e = me;
+        if(b < e)
+          rsv += e - b;
+      }
+    kvm_directmap(&d4k, &d2m);
+    p = putkb(p, limit, "MemTotal:       ", kmanagedpages() * PGSIZE);
+    p = putkb(p, limit, "MemFree:        ", kfreepages() * PGSIZE);
+    p = putkb(p, limit, "MemAvailable:   ", kfreepages() * PGSIZE);
+    p = putkb(p, limit, "Slab:           ", slab_pages() * PGSIZE);
+    p = putkb(p, limit, "PerCPUPages:    ", kpcppages() * PGSIZE);
+    p = putkb(p, limit, "Reserved:       ", rsv);
+    p = putkb(p, limit, "DirectMap4k:    ", d4k * PGSIZE);
+    p = putkb(p, limit, "DirectMap2M:    ", d2m * (2UL << 20));
+    p = putstr(p, limit, "CowShared:      ");
     p = putnum(p, limit, cow_stat.shared);
     p = putstr(p, limit, " pages\nCowCopied:      ");
     p = putnum(p, limit, cow_stat.copied);
     p = putstr(p, limit, " pages\nCowReused:      ");
     p = putnum(p, limit, cow_stat.reused);
-    p = putstr(p, limit, " pages\nKernelTextPA:   ");
-    p = puthex(p, limit, KERNPA);
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, V2P(etext) - 1);
-    p = putstr(p, limit, "\nKernelDataPA:   ");
-    p = puthex(p, limit, V2P(etext));
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, V2P(end) - 1);
-    p = putstr(p, limit, "\nRamdiskPA:      ");
-    p = puthex(p, limit, RAMDISK_PA);
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, RAMDISK_PA + RAMDISK_SIZE - 1);
-    p = putstr(p, limit, "\n\nMMIO mappings (PA -> kernel VA):\n");
-    p = putstr(p, limit, "BCM2837 peripherals  ");
-    p = puthex(p, limit, PERIPHERAL_BASE_PA);
-    p = putstr(p, limit, " -> ");
-    p = puthex(p, limit, PERIPHERAL_BASE);
-    p = putstr(p, limit, " size=16MB Device-nGnRnE XN\n");
-    p = putstr(p, limit, "ARM local peripherals ");
-    p = puthex(p, limit, LOCAL_BASE_PA);
-    p = putstr(p, limit, " -> ");
-    p = puthex(p, limit, LOCAL_BASE);
-    p = putstr(p, limit, " size=4KB Device-nGnRnE XN\n");
-    p = putstr(p, limit, "See /proc/iomem for controller subranges.\n");
+    p = putstr(p, limit, " pages\nMemorySource:   ");
+    p = putstr(p, limit, memblock_source);
+    p = putstr(p, limit, "\nSee /proc/iomem for the physical layout, /proc/buddyinfo and /proc/slabinfo for the allocators.\n");
   } else {
-    for(int i = 0; i < memblock.memory.cnt; i++)
-      p = putmap(p, limit, memblock.memory.regions[i].base,
-                 memblock.memory.regions[i].base +
-                 memblock.memory.regions[i].size - 1, "System RAM");
-    p = putmap(p, limit, KERNPA, V2P(etext) - 1, "  Kernel code");
-    p = putmap(p, limit, V2P(etext), V2P(end) - 1, "  Kernel data/bss");
-    p = putmap(p, limit, RAMDISK_PA, RAMDISK_PA + RAMDISK_SIZE - 1,
-               "QEMU xv6 ramdisk");
-    p = putmap(p, limit, 0x3f000000, 0x3fffffff,
-               "BCM2837 peripheral MMIO window");
-    p = putmap(p, limit, 0x3f003000, 0x3f003fff, "  BCM system timer");
-    p = putmap(p, limit, 0x3f00b000, 0x3f00b3ff,
-               "  legacy interrupt controller");
-    p = putmap(p, limit, 0x3f00b880, 0x3f00b8bf, "  property mailbox");
-    p = putmap(p, limit, 0x3f200000, 0x3f2000ff, "  GPIO controller");
-    p = putmap(p, limit, 0x3f201000, 0x3f201fff, "  PL011 UART0 (unused)");
-    p = putmap(p, limit, 0x3f215000, 0x3f215fff,
-               "  AUX block / Mini UART");
-    p = putmap(p, limit, 0x3f300000, 0x3f3000ff, "  Arasan EMMC/SD");
-    p = putmap(p, limit, 0x3f980000, 0x3f9fffff, "  DWC2 USB host");
-    p = putmap(p, limit, 0x40000000, 0x40000fff,
-               "BCM2836/7 ARM-local interrupt/timer MMIO");
+    p = iomem_format(p, limit);
   }
 
   len = p - buf;

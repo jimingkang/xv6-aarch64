@@ -53,5 +53,6 @@ int    memblock_overlaps_memory(uint64 base, uint64 size);
 void   memblock_free_all(void (*give)(uint64 start, uint64 end));
 void   memblock_init(uint64 dtb_pa);
 void   memblock_dump(void);
+uint64 memblock_dtb(uint64 *size);     // DTB pa (0 if none) and its size
 
 #endif

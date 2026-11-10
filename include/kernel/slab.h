@@ -49,5 +49,6 @@ void  kmalloc_init(void);
 // Fill buf with /proc/slabinfo; returns bytes written.
 int   slabinfo(char *buf, int n);
 void  slab_selftest(void);
+uint64 slab_pages(void);
 
 #endif

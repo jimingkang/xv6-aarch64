@@ -481,6 +481,7 @@ int             uartgetc(void);
 uint64          walkaddr(pagetable_t, uint64);
 pte_t*          walk(pagetable_t, uint64, int);
 void            kvminit(void);
+void            kvm_directmap(uint64 *n4k, uint64 *n2m);
 void            kvminithart(void);
 void            kvmdump(void);
 void            uvmdump(pagetable_t, int, char *, char *);

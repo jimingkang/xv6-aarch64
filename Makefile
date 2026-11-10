@@ -197,6 +197,13 @@ USER_CFLAGS = $(CFLAGS) -I$U/include
 FS_TRACE ?= 0
 CFLAGS += -DFS_TRACE=$(FS_TRACE)
 
+# Fill pages with junk on alloc (0x05) and free (0x01), and freed slab objects
+# with 0x01, to expose uninitialised reads and use-after-free (Linux
+# CONFIG_PAGE_POISONING).  Off by default because it costs two full-page
+# writes per page.  Use `make PAGE_POISONING=1` when hunting memory bugs.
+PAGE_POISONING ?= 0
+CFLAGS += -DPAGE_POISONING=$(PAGE_POISONING)
+
 # Filesystem-independent VFS dispatch trace.  This is deliberately separate
 # from FS_TRACE, which follows xv6fs inode/block internals.
 VFS_TRACE ?= 0

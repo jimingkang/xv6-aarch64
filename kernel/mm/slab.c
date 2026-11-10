@@ -153,8 +153,9 @@ kmem_cache_free(struct kmem_cache *cache, void *object)
     panic("kmem_cache_free");
   }
 
-  // Poison the object, preserving the first word for the free-list link.
-  memset(object, 1, cache->object_size);
+  // Poison the object; the first word becomes the free-list link.
+  if(PAGE_POISONING)
+    memset(object, 1, cache->object_size);
   acquire(&cache->lock);
   if(pg->inuse == 0 || cache->inuse == 0)
     panic("kmem_cache_free: underflow");
@@ -236,6 +237,18 @@ putu(char *p, char *limit, uint64 v, int width)
   while(n > 0 && p < limit)
     *p++ = tmp[--n];
   return p;
+}
+
+// Pages owned by all caches (Slab: in /proc/meminfo).
+uint64
+slab_pages(void)
+{
+  uint64 n = 0;
+  acquire(&cache_list_lock);
+  for(struct kmem_cache *c = cache_list; c; c = c->next)
+    n += c->pages;
+  release(&cache_list_lock);
+  return n;
 }
 
 // /proc/slabinfo, in the column order of Linux's slabinfo 2.1.

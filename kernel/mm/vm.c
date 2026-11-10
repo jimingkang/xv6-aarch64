@@ -122,6 +122,38 @@ kvmmake(void)
   return kpgtbl;
 }
 
+// Count how the linear map covers RAM (DirectMap4k / DirectMap2M in
+// /proc/meminfo): walk the kernel page table over every memblock region.
+void
+kvm_directmap(uint64 *n4k, uint64 *n2m)
+{
+  *n4k = *n2m = 0;
+  for(int i = 0; i < memblock.memory.cnt; i++){
+    uint64 pa = memblock.memory.regions[i].base;
+    uint64 stop = pa + memblock.memory.regions[i].size;
+    while(pa < stop){
+      uint64 va = KERNBASE + pa;
+      pte_t l1e = kernel_pagetable[PX(1, va)], l2e, l3e;
+      if((l1e & PTE_VALID) == 0 || (l1e & PTE_TABLE) == 0){
+        pa = (pa + (1UL << 30)) & ~((1UL << 30) - 1);
+        continue;
+      }
+      l2e = ((pagetable_t)P2V(PTE2PA(l1e)))[PX(2, va)];
+      if((l2e & PTE_VALID) && (l2e & PTE_TABLE) == 0){
+        (*n2m)++;
+        pa = (pa + L2BLOCK) & ~(L2BLOCK - 1);
+        continue;
+      }
+      if(l2e & PTE_VALID){
+        l3e = ((pagetable_t)P2V(PTE2PA(l2e)))[PX(3, va)];
+        if(l3e & PTE_VALID)
+          (*n4k)++;
+      }
+      pa += PGSIZE;
+    }
+  }
+}
+
 // Initialize the one kernel_pagetable
 void
 kvminit(void)
