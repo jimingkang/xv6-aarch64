@@ -8,11 +8,13 @@
 #include <kernel/spinlock.h>
 #include <kernel/proc.h>
 #include <kernel/mm.h>
+#include <kernel/page.h>
 
 /*
  * the kernel's page table.
  */
 pagetable_t kernel_pagetable;
+struct cow_stat cow_stat;
 static struct spinlock vm_dump_lock;
 static int kernel_dumped;
 
@@ -469,9 +471,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if((*pte & PTE_AF) == 0)
       continue;
     // A shared page belongs to its cache, not to this address space.
+    // A private page may still be shared copy-on-write with a fork relative:
+    // drop this address space's reference; the last one frees the page.
     if(do_free && (*pte & PTE_SHARED) == 0){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)P2V(pa));
+      put_page(virt_to_page(P2V(pa)));
     }
     *pte = 0;
   }
@@ -602,12 +606,14 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
-// Given a parent process's page table, copy
-// its memory into a child's page table.
-// Copies both the page table and the
-// physical memory.
-// returns 0 on success, -1 on failure.
-// frees any allocated pages on failure.
+// Given a parent process's page table, share its memory with a child's
+// page table copy-on-write.  Every private page is mapped into the child at
+// the same physical address and gains a reference (struct page->refcount);
+// pages the user could write become read-only + PTE_COW in BOTH page tables,
+// so whichever process stores first gets its own copy from cow_break().
+// Read-only private pages (text, rodata, the stack guard) are simply shared.
+// Caller holds the parent's vm->lock and flushes the parent's TLB entries.
+// returns 0 on success, -1 on failure (the child's references are dropped).
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
@@ -629,15 +635,26 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
         goto err;
       continue;
     }
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(new, i, PGSIZE, V2P(mem), flags) != 0){
-      kfree(mem);
-      goto err;
+    if((*pte & PTE_SPECIAL) || pa >= PHYSTOP){
+      // Not a buddy-allocator page: no struct page to count, copy it.
+      if((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char*)P2V(pa), PGSIZE);
+      if(mappages(new, i, PGSIZE, V2P(mem), flags) != 0){
+        kfree(mem);
+        goto err;
+      }
+      continue;
     }
+    if((*pte & PTE_U) && (*pte & PTE_RO) == 0)
+      *pte |= PTE_RO | PTE_COW;           // parent: writable -> COW
+    if(*pte & PTE_COW)
+      flags |= PTE_RO | PTE_COW;
+    if(mappages(new, i, PGSIZE, pa, flags) != 0)
+      goto err;
+    get_page(virt_to_page(P2V(pa)));
+    cow_stat.shared++;
   }
-  uvmsync_icache(new, sz);
   return 0;
 
  err:
@@ -699,24 +716,119 @@ uva2ka_fault(pagetable_t pagetable, uint64 va, int write)
   return write ? uva2ka_writable(pagetable, va) : uva2ka(pagetable, va);
 }
 
+// ---------------------------------------------------------------------------
+// Copy-on-write
+//
+// Resolve a store to the page at va if it is a PTE_COW page (Linux
+// do_wp_page).  With the last reference the page is simply made writable
+// again; otherwise it is copied and the shared page loses one reference.
+// Nothing here sleeps, so copyout() may call it with spinlocks held.
+// lk protects the page table against other threads of the same address
+// space (vm->lock); it is taken unless the caller already holds it.
+// Returns 1 if va is now writable, 0 if va is not a COW page, -1 on OOM.
+int
+cow_break(pagetable_t pagetable, struct spinlock *lk, uint64 va)
+{
+  int locked = 0, r = 1;
+  pte_t *pte;
+  struct page *pg;
+  uint64 pa;
+  char *mem;
+
+  if(va >= MAXVA)
+    return 0;
+  va = PGROUNDDOWN(va);
+  if(lk && !holding(lk)){
+    acquire(lk);
+    locked = 1;
+  }
+  pte = walk(pagetable, va, 0);
+  if(pte == 0 || (*pte & PTE_V) != PTE_V || (*pte & PTE_AF) == 0 ||
+     (*pte & PTE_COW) == 0){
+    r = 0;
+    goto out;
+  }
+  pa = PTE2PA(*pte);
+  pg = virt_to_page(P2V(pa));
+  if(page_count(pg) == 1){
+    // Every other sharer already copied or exited: reuse in place.
+    *pte &= ~(PTE_RO | PTE_COW);
+    flush_tlb();
+    cow_stat.reused++;
+    goto out;
+  }
+  if((mem = kalloc()) == 0){
+    r = -1;
+    goto out;
+  }
+  memmove(mem, P2V(pa), PGSIZE);
+  if((*pte & PTE_UXN) == 0){
+    // Executable copy: make the new bytes visible to instruction fetch.
+    for(uint64 p = (uint64)mem; p < (uint64)mem + PGSIZE; p += 64)
+      asm volatile("dc cvau, %0" :: "r"(p) : "memory");
+    asm volatile("dsb ish\n\tic ialluis\n\tdsb ish\n\tisb" ::: "memory");
+  }
+  *pte = PA2PTE(V2P(mem)) | (*pte & ~(PA2PTE(~0ULL) | PTE_RO | PTE_COW));
+  // Every CPU must stop using the old translation before the reference is
+  // dropped: the other sharer may free the page as soon as it is the last.
+  flush_tlb();
+  put_page(pg);
+  cow_stat.copied++;
+ out:
+  if(locked)
+    release(lk);
+  return r;
+}
+
+// The lock that guards pagetable's PTEs, if it is the current address space.
+static struct spinlock *
+uvm_lock(pagetable_t pagetable)
+{
+  struct proc *p = myproc();
+
+  if(p && p->vm && p->vm->pagetable == pagetable)
+    return &p->vm->lock;
+  return 0;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error (unmapped or read-only destination).
+//
+// For the current address space each page is checked, made private
+// (copy-on-write) and written under vm->lock, so another thread's fork()
+// cannot turn it back into a shared page between the check and the copy.
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  struct spinlock *lk = uvm_lock(pagetable);
+  int faulted = 0;
 
   while(len > 0){
+    int locked = lk && !holding(lk);
     va0 = PGROUNDDOWN(dstva);
-    pa0 = uva2ka_writable(pagetable, va0);
-    if(pa0 == 0 && (pa0 = uva2ka_fault(pagetable, va0, 1)) == 0)
-      return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
-
+    if(locked)
+      acquire(lk);
+    pa0 = uva2ka_writable(pagetable, va0);
+    if(pa0 == 0 && cow_break(pagetable, lk, va0) > 0)
+      pa0 = uva2ka_writable(pagetable, va0);
+    if(pa0)
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+    if(locked)
+      release(lk);
+    if(pa0 == 0){
+      // Absent or clean: demand paging may sleep, so it runs unlocked;
+      // then retry this page once under the lock.
+      if(faulted || uva2ka_fault(pagetable, va0, 1) == 0)
+        return -1;
+      faulted = 1;
+      continue;
+    }
+    faulted = 0;
     len -= n;
     src += n;
     dstva = va0 + PGSIZE;

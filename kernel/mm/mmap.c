@@ -37,6 +37,7 @@
 #include <kernel/device.h>
 #include <kernel/mman.h>
 #include <kernel/mm.h>
+#include <kernel/page.h>
 #include <kernel/slab.h>
 
 #define MAXUVA (1ULL << 38)     // TTBR0 covers [0, 256 GiB)
@@ -467,6 +468,12 @@ __handle_mm_fault(struct vmspace *vm, uint64 va, int flags)
   acquire(&vm->lock);
   pte = walk(vm->pagetable, va, 0);
   if(pte && (*pte & PTE_AF)){
+    if(write && (*pte & PTE_COW)){
+      // Private page still shared with a fork relative.
+      r = cow_break(vm->pagetable, &vm->lock, va);
+      release(&vm->lock);
+      return r < 0 ? VM_FAULT_OOM : VM_FAULT_OK;
+    }
     if(write && (*pte & PTE_RO)){
       *pte = (*pte & ~PTE_AP(3)) | PTE_U;
       flush_tlb();
@@ -608,6 +615,14 @@ handle_user_mm_fault(struct vmspace *vm, uint64 va, int flags)
   } else
     down_read(&vm->mmap_lock);
 
+  // A store to a page fork() left shared: the image, stack and brk heap are
+  // not VMAs, so resolve copy-on-write before routing by address.
+  if((flags & FAULT_FLAG_WRITE) &&
+     (r = cow_break(vm->pagetable, &vm->lock, va)) != 0){
+    up_read(&vm->mmap_lock);
+    return r < 0 ? VM_FAULT_OOM : VM_FAULT_OK;
+  }
+
   if(va >= vm->start_brk && va < vm->brk)
     r = __handle_brk_fault(vm, va, flags);
   else
@@ -739,7 +754,7 @@ zap_range(struct vm_area_struct *vma, uint64 start, uint64 end, int writeback)
       if(vma->vm_flags & VM_SHARED)
         pcache_put(vma_key(vma), batch[i].index, vma->vm_file == 0);
       else
-        kfree(P2V(batch[i].pa));
+        put_page(virt_to_page(P2V(batch[i].pa)));   // may be COW-shared
     }
   }
 }
@@ -952,8 +967,9 @@ do_msync(struct vmspace *vm, uint64 addr, uint64 len, int flags)
 
 // Copy the parent's VMAs and the pages they have so far into the child.
 // Caller holds old->mmap_lock for reading and old->lock; the child is not
-// running yet.  Private pages are copied (this kernel has no copy-on-write),
-// shared and device pages are mapped again.  On failure the caller releases
+// running yet.  Private pages are shared copy-on-write (the parent's PTEs
+// become read-only + PTE_COW too, so the caller must flush the TLB), shared
+// and device pages are mapped again.  On failure the caller releases
 // the partial copy with mmap_abort().
 int
 dup_mmap(struct vmspace *old, struct vmspace *new)
@@ -985,11 +1001,12 @@ dup_mmap(struct vmspace *old, struct vmspace *new)
         pcache_dup(vma_key(v), vma_index(v, a));
         *npte = *pte;
       } else {
-        char *mem = kalloc();
-        if(mem == 0)
-          return -1;
-        memmove(mem, P2V(PTE2PA(*pte)), PGSIZE);
-        *npte = (*pte & ~PA2PTE(~0ULL)) | PA2PTE(V2P(mem));
+        // Private page: share copy-on-write, like uvmcopy().
+        if((*pte & PTE_U) && (*pte & PTE_RO) == 0)
+          *pte |= PTE_RO | PTE_COW;
+        get_page(virt_to_page(P2V(PTE2PA(*pte))));
+        *npte = *pte;
+        cow_stat.shared++;
       }
     }
   }

@@ -7,6 +7,7 @@
 #include <kernel/fs.h>
 #include <kernel/file.h>
 #include <kernel/proc.h>
+#include <kernel/page.h>
 #include <kernel/sched.h>
 #include <kernel/camera.h>
 #include <kernel/defs.h>
@@ -838,10 +839,13 @@ free_kstack(struct proc *p)
 static struct proc*
 newprocslot(void)
 {
-  struct proc *p = kmem_cache_alloc(&proc_cache);
+  struct proc *p;
   uint64 slot, va;
 
-  if(p == 0)
+  // Slots are reused once UNUSED, so this bounds live tasks (EAGAIN).
+  if(next_kstack_slot >= NPROC_MAX)
+    return 0;
+  if((p = kmem_cache_alloc(&proc_cache)) == 0)
     return 0;
   if(sizeof(*p) > PGSIZE)
     panic("struct proc too large");
@@ -1122,7 +1126,7 @@ growproc(int n, uint64 *oldbrk)
       // VMALLE1IS reaches every PE in the inner-shareable domain.
       flush_tlb();
       for(int i = 0; i < count; i++)
-        kfree((void *)P2V(pa[i]));
+        put_page(virt_to_page(P2V(pa[i])));   // may be COW-shared
     }
     vm->brk = vm->sz = new;
   } else {
@@ -1234,6 +1238,7 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
     // fork: retain allocproc's private vmspace and populate it from parent.
     acquire(&vm->lock);
     if(uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz) < 0){
+      flush_tlb();
       release(&vm->lock);
       up_read(&vm->mmap_lock);
       freeproc(np);
@@ -1244,6 +1249,7 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
     np->vm->start_brk = vm->start_brk;
     np->vm->brk = vm->brk;
     if(dup_mmap(vm, np->vm) < 0){
+      flush_tlb();      // parent PTEs may already be read-only + COW
       release(&vm->lock);
       up_read(&vm->mmap_lock);
       mmap_abort(np->vm);
@@ -1251,6 +1257,9 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
       release(&np->lock);
       goto bad;
     }
+    // uvmcopy()/dup_mmap() turned the parent's writable PTEs read-only;
+    // threads of the parent may hold the old translations on other CPUs.
+    flush_tlb();
     release(&vm->lock);
     up_read(&vm->mmap_lock);
   }

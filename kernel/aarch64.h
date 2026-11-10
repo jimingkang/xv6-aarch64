@@ -239,6 +239,11 @@ typedef uint64 *pagetable_t; // 512 PTEs
 // a framebuffer, a DMA buffer): the frame has no owner in this address space,
 // and copyin()/copyout() may use it only if the kernel direct map covers it.
 #define PTE_SPECIAL (1UL << 56)
+// PTE_COW marks a private user page that fork() left shared between parent
+// and child: the PTE was writable, fork made it read-only, and the first store
+// takes a permission fault that cow_break() resolves (copy, or reuse if this
+// is the last reference).  struct page->refcount counts the sharers.
+#define PTE_COW (1UL << 57)
 
 // attribute index
 // index is set by mair_el1

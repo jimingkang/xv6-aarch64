@@ -512,7 +512,13 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
     p = putnum(p, limit, kmanagedpages() * PGSIZE / 1024);
     p = putstr(p, limit, " kB\nMemFree:        ");
     p = putnum(p, limit, kfreepages() * PGSIZE / 1024);
-    p = putstr(p, limit, " kB\nKernelTextPA:   ");
+    p = putstr(p, limit, " kB\nCowShared:      ");
+    p = putnum(p, limit, cow_stat.shared);
+    p = putstr(p, limit, " pages\nCowCopied:      ");
+    p = putnum(p, limit, cow_stat.copied);
+    p = putstr(p, limit, " pages\nCowReused:      ");
+    p = putnum(p, limit, cow_stat.reused);
+    p = putstr(p, limit, " pages\nKernelTextPA:   ");
     p = puthex(p, limit, KERNPA);
     p = putstr(p, limit, "-");
     p = puthex(p, limit, V2P(etext) - 1);

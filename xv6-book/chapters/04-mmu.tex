@@ -513,7 +513,7 @@ void  kfree(void *va){ /* 原有范围检查 */ free_pages(va, 0); }
   \item 释放时 \code{refcount} 仍大于 1。
 \end{itemize}
 
-\code{refcount} 由 \code{get\_page()}/\code{put\_page()}/\code{page\_count()} 维护：分配时置 1，\code{put\_page()} 减到 0 时把页还给伙伴系统。这是第~\ref{sec:sharedpages} 节写时复制所需的那一份“这一页还有谁在用”，现在有了固定的家。计数的加减用 \code{ldaxr}/\code{stlxr} 写成的 LL/SC 循环，而不是 GCC 的 \code{\_\_atomic} 内建函数：新版 aarch64 工具链默认把它们编译成对 \code{\_\_aarch64\_ldadd4\_acq\_rel} 等“外置原子操作”辅助函数的调用，而内核不链接 libgcc，链接时会报未定义符号。
+\code{refcount} 由 \code{get\_page()}/\code{put\_page()}/\code{page\_count()} 维护：分配时置 1，\code{put\_page()} 减到 0 时把页还给伙伴系统。这正是写时复制所需的那一份“这一页还有谁在用”，第~\ref{sec:cow-fork} 节的 COW fork 就建立在它之上。计数的加减用 \code{ldaxr}/\code{stlxr} 写成的 LL/SC 循环，而不是 GCC 的 \code{\_\_atomic} 内建函数：新版 aarch64 工具链默认把它们编译成对 \code{\_\_aarch64\_ldadd4\_acq\_rel} 等“外置原子操作”辅助函数的调用，而内核不链接 libgcc，链接时会报未定义符号。
 
 \code{kfreepages()} 不再遍历链表，改为 $\sum_{o} \text{nr\_free}[o]\cdot 2^{o}$，代价是常数。
 
@@ -706,29 +706,84 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz) {
 
 \code{userinit()} 再把 \code{trapframe} 的 \code{elr} 设为 0、\code{sp} 设为 \code{PGSIZE}：进程第一次“返回”用户态时，从虚拟地址 0 取第一条指令，栈从这一页的顶部向下长。同一个物理页此时有两个虚拟地址：内核通过 \code{KERNBASE+PA} 写它，用户通过 VA 0 执行它。拷贝时用的是前者，所以内核根本不需要先切换到这个进程的页表。
 
-\subsection{\code{fork} 时复制地址空间}
+\subsection{\code{fork}：写时复制}
+\label{sec:cow-fork}
 
-\code{fork()} 要给子进程一份与父进程内容相同、但互不影响的内存。当前源码树的 \code{uvmcopy()} 采用最直接的做法：对 \code{[0, sz)} 里的每一页分配新物理页，经内核直接映射 \code{P2V(pa)} 拷贝内容，再以相同属性映射进子进程：
+\code{fork()} 要给子进程一份与父进程内容相同、但互不影响的内存。最直接的做法是对 \code{[0, sz)} 的每一页 \code{kalloc()} 一页、拷贝、再映射进子进程——早期的 \code{uvmcopy()} 就是这样。代价是 fork 一个 8\,MiB 的进程就要复制 8\,MiB，而 shell 的子进程往往紧接着 \code{exec()}，复制的内容立刻被丢弃。vfork 能解决 fork+exec 的场合（第~\ref{sec:clone-flags} 节），但它要求子进程在 \code{exec} 之前什么都不改。
+
+有了第~\ref{sec:buddy} 节的 \code{struct page} 和它的 \code{refcount}，当前源码树改用写时复制（copy-on-write，COW）：fork 时\textbf{只共享、不复制}，谁先写谁复制。
+
+\paragraph{fork 时：共享并写保护.} \code{uvmcopy()} 把父进程的每个私有页以同一物理地址映射进子进程，并给这一页加一份引用；原来用户可写的页，在\emph{父子两边}都改成“只读 + \code{PTE\_COW}”：
 
 \begin{ccode}
-for(i = 0; i < sz; i += PGSIZE){
-  pte = walk(old, i, 0);
-  pa = PTE2PA(*pte);
-  flags = PTE_FLAGS(*pte);
-  if(*pte & PTE_SHARED){            // 只读的共享库代码：子进程映射同一页
-    mappages(new, i, PGSIZE, pa, flags | PTE_SHARED);
-    continue;
-  }
-  mem = kalloc();
-  memmove(mem, (char*)P2V(pa), PGSIZE);
-  mappages(new, i, PGSIZE, V2P(mem), flags);
+if(*pte & PTE_SHARED){                    // libc.so 代码：归缓存所有，照旧共享
+  mappages(new, i, PGSIZE, pa, flags | PTE_SHARED);
+  continue;
 }
-uvmsync_icache(new, sz);            // 复制的页里有代码，同步 I-cache
+if((*pte & PTE_U) && (*pte & PTE_RO) == 0)
+  *pte |= PTE_RO | PTE_COW;               // 父进程：可写 -> COW
+if(*pte & PTE_COW)
+  flags |= PTE_RO | PTE_COW;
+mappages(new, i, PGSIZE, pa, flags);      // 子进程：同一物理页
+get_page(virt_to_page(P2V(pa)));          // refcount++
 \end{ccode}
 
-失败时 \code{uvmunmap(new, 0, i/PGSIZE, 1)} 撤销子进程已建立的映射。\code{[0, sz)} 之外的 mmap 区由紧接着的 \code{dup\_mmap()} 按 VMA 复制：私有页拷贝，共享页只增加 \code{mapcount}，设备帧照抄 PTE（第~\ref{sec:mmap} 节）。带 \code{CLONE\_VM} 的线程和 vfork 子进程根本不走这条路，直接共享父进程的 \code{vmspace}（第~\ref{sec:clone-flags} 节）。
+\code{PTE\_COW} 是描述符里留给软件的第 57 位（MMU 忽略 \code{[58:55]}，第 55、56 位已被 \code{PTE\_SHARED}、\code{PTE\_SPECIAL} 占用），意思是“只读只是因为共享，写了就复制”。本来就只读的私有页（代码段、只读数据、栈的保护页）不加 \code{PTE\_COW}，只增加引用、两边共享，写它们仍是致命错误。\code{dup\_mmap()} 对 \code{MAP\_PRIVATE} 的 VMA 页做同样的处理，共享映射和设备帧则照旧。复制不再写入新字节，所以原来跟在 \code{uvmcopy()} 后面的 \code{uvmsync\_icache()} 也删掉了。
 
-代价是 fork 一个 8\,MiB 的进程就要复制 8\,MiB，而 shell 的子进程往往紧接着 \code{exec()}，复制的内容立刻被丢弃。常见的两种对策都已有设计：用 vfork 让子进程在 \code{exec} 之前借用父进程的内存（已实现，第~\ref{sec:clone-flags} 节）；或者写时复制，只共享、谁写谁复制（实验分支，第~\ref{sec:cow} 节）。
+整个过程在父进程的 \code{vm->lock} 下进行；结束后一次 \code{flush\_tlb()}（\code{TLBI VMALLE1IS}）广播作废，父进程其他线程在别的 CPU 上缓存的“可写”翻译随之失效。
+
+\paragraph{写的时候：\code{cow\_break()}.} 写一个 COW 页会产生权限错误（\reg{ESR\_EL1} 的 EC $=$ \code{0x24}、WnR $=1$、DFSC $=$ \code{0b0011xx}）。\code{usertrap()} 照常把它交给 \code{handle\_user\_mm\_fault()}，后者在按地址区分 brk 堆和 VMA 之前，先看这是不是一个 COW 页——代码段、数据段和栈不属于任何 VMA，不先判断就会被当成越界：
+
+\begin{ccode}
+pa = PTE2PA(*pte);
+pg = virt_to_page(P2V(pa));
+if(page_count(pg) == 1){                  // 别人都已复制或退出：就地收归己有
+  *pte &= ~(PTE_RO | PTE_COW);
+  flush_tlb();
+  return 1;
+}
+mem = kalloc();                           // 复制一份
+memmove(mem, P2V(pa), PGSIZE);
+if((*pte & PTE_UXN) == 0)                 // 可执行页还要同步 I-cache
+  sync_icache(mem);
+*pte = PA2PTE(V2P(mem)) | (*pte & ~(PA2PTE(~0ULL) | PTE_RO | PTE_COW));
+flush_tlb();                              // 先让所有 CPU 忘掉旧翻译
+put_page(pg);                             // 再放弃对共享页的那一份引用
+\end{ccode}
+
+顺序很重要：必须先广播作废 TLB 再 \code{put\_page()}。另一方可能恰好是最后一个使用者，引用一减到 0，伙伴系统就会把这页发给别人；如果此时某个 CPU 上还留着旧翻译，就会写进别人的内存。
+
+返回用户态后，那条 \code{str} 重新执行，这次写进自己的页。\code{cow\_break()} 不会睡眠（\code{kalloc()} 只用自旋锁），这一点后面会用到。
+
+\paragraph{释放：\code{kfree} 换成 \code{put\_page}.} 有了共享，“释放一页”的含义变成“放弃我这一份”。\code{uvmunmap()}（进程退出、\code{exec} 换镜像）、\code{growproc()} 缩小堆、\code{zap\_range()} 撤销私有 VMA，这几处原来的 \code{kfree()} 都改成 \code{put\_page(virt\_to\_page(...))}，最后一个使用者离开时页才回到伙伴系统。第~\ref{sec:buddy} 节的检查在这里派上了用场：如果哪条路径漏改，仍对共享页调用 \code{kfree()}，会立刻因 “still has 2 references” 而 \code{panic}，而不是悄悄地把别的进程还在用的页放回空闲链表。
+
+\paragraph{\code{copyout()} 也要遵守.} 内核写用户内存走的是自己的直接映射，用户 PTE 的 AP 位对它不起作用。如果不处理，子进程 \code{read(fd, buf, n)} 时内核会把数据直接写进仍与父进程共享的物理页，父进程的内存就被改了。\code{copyout()} 原来就会对只读页调用 \code{uva2ka\_writable()} 拒绝写入，现在在拒绝之前先试 \code{cow\_break()}。而且对当前地址空间，检查、破除 COW 和这一页的 \code{memmove} 都在 \code{vm->lock} 下完成：fork 也持这把锁，于是另一个线程的 \code{fork()} 不可能恰好在检查和写入之间把这一页重新变成共享页。因为 \code{cow\_break()} 不睡眠，持有自旋锁的调用者（比如在锁内回写退出状态的 \code{wait()}）也能正确写入 COW 页；只有需要按需调页的情形才在锁外走 \code{uva2ka\_fault()}，然后在锁内重试这一页。
+
+\paragraph{统计与测试.} \file{/proc/meminfo} 多了三行：\code{CowShared}（fork 时共享出去的页数）、\code{CowCopied}（写时复制的次数）、\code{CowReused}（最后一个使用者就地收回的次数）。新的用户程序 \code{cowtest} 覆盖五种情形：
+
+\begin{itemize}
+  \item \textbf{big}：先 \code{sbrk} 占用三分之二的空闲内存，再 fork——不共享的话需要两倍内存，必然失败；
+  \item \textbf{isolate}：父子写同一批页，各自只看到自己的修改；
+  \item \textbf{three}：两个子进程先后复制并退出，父进程最后写时 \code{refcount} 已是 1，走就地收回的路径；
+  \item \textbf{copyout}：子进程 \code{read()} 一个管道到 COW 页，父进程的页不变；
+  \item \textbf{mmap}：\code{MAP\_PRIVATE|MAP\_ANONYMOUS} 页同样写时复制。
+\end{itemize}
+
+全部测试在一个子进程里运行，子进程退出后检查空闲页数回到原值：
+
+\begin{shcode}
+$ cowtest
+PASS big: sbrk two thirds of free memory
+PASS big: fork succeeds (would need 2x memory without COW)
+PASS big: child reads parent's data
+PASS big: pages were shared
+...
+PASS mmap: parent's MAP_PRIVATE pages unchanged
+MemFree before 110524 kB, after 110524 kB
+cowtest: OK (0 failures)
+\end{shcode}
+
+\paragraph{行为上的变化.} COW 把“内存不够”从 fork 时推迟到了写的时候：fork 几乎总能成功，真正复制时如果没有空闲页，\code{cow\_break()} 返回 OOM，进程被杀（\code{out of memory at va=...}）——这与 Linux 的 OOM 行为一致。另一个可见的变化在 usertests 的 \code{forktest}：本内核没有固定大小的进程表，原来 fork 不到 1000 次就会因内存耗尽而失败，测试据此判定“fork 能正确报告失败”。有了 COW，每个子进程只花几页（内核栈、trapframe、页表页），fork 一直能成功到三千多个子进程，测试反而报错；更糟的是，最终耗尽内存的往往是父进程自己写 COW 页时的那次复制，于是父进程被 OOM 杀掉，几千个 \code{struct proc}、\code{vmspace} 所在的 slab 页也被 \code{kmem\_cache} 永久留作缓存（表~\ref{tab:buddy-vs-linux} 中 slab 一行的“无收缩”）。所以 \file{param.h} 加了任务数上限 \code{NPROC\_MAX}，取 Linux \code{threads-max} 的默认算法“内存页数除以 32”，112\,MiB 对应 896；\code{newprocslot()} 在已经建立 896 个进程描述符时直接返回失败，\code{fork()} 返回 $-1$，相当于 Linux 的 \code{EAGAIN}。描述符在进程回收后会被复用，所以这个上限约束的是同时存在的任务数。
 
 \subsection{TLB 与地址空间切换}
 
@@ -907,7 +962,7 @@ static int fb_mmap(struct file *f, struct vm_area_struct *vma) {
 
 \subsection{fork、vfork、exit 与 \code{exec}}
 
-\code{fork()} 在 \code{allocproc()} 之前拿 \code{mmap\_lock} 读锁，复制完 \code{[0, sz)} 后调用 \code{dup\_mmap()}：每个 VMA 复制一份（\code{filedup}、\code{shm\_get}、\code{vm\_ops->open}），私有页拷贝一份，共享页 \code{mapcount++}、PTE 照抄，设备帧照抄 PTE；中途失败用不睡眠的 \code{mmap\_abort()} 回滚。带 \code{CLONE\_VM} 的线程和 vfork 子进程直接共享 \code{vmspace}，不复制。
+\code{fork()} 在 \code{allocproc()} 之前拿 \code{mmap\_lock} 读锁，复制完 \code{[0, sz)} 后调用 \code{dup\_mmap()}：每个 VMA 复制一份（\code{filedup}、\code{shm\_get}、\code{vm\_ops->open}），私有页按写时复制共享（第~\ref{sec:cow-fork} 节），共享页 \code{mapcount++}、PTE 照抄，设备帧照抄 PTE；中途失败用不睡眠的 \code{mmap\_abort()} 回滚。带 \code{CLONE\_VM} 的线程和 vfork 子进程直接共享 \code{vmspace}，不复制。
 
 共享 \code{vmspace} 带来一个问题：vfork 子进程退出时不能把父进程的映射拆掉。所以 \code{vmspace} 有两个计数（第~\ref{sec:clone-flags} 节）：\code{refcount} 记录还有谁持有页表，\code{users} 记录还有几个活着的任务在用。\code{exit()}、线程退出和 vfork 子进程的 \code{exec()} 都调用 \code{vmspace\_leave()}，只有 \code{users} 减到 0 时才 \code{exit\_mmap()}。\code{exec()} 对私有 \code{vmspace} 在提交新镜像前 \code{exit\_mmap()}；vfork 子进程则换到 \code{vmspace\_wrap()} 新建的私有 \code{vmspace}，旧的 VMA 原样留给父进程。
 
@@ -1103,7 +1158,7 @@ void uvmsync_icache(pagetable_t pagetable, uint64 sz) {
 \section{实验分支：引用计数、写时复制与页缓存}
 \label{sec:sharedpages}
 
-前面各节描述的都是当前源码树。本节换一个角度，记录实验分支 \code{wip-cow-mmap-ldso} 的设计，它\emph{尚未}合入当前源码树：当前的 \code{uvmcopy()} 仍逐页复制（只读的共享库代码页带 \code{PTE\_SHARED} 时共享），\code{mmap} 的实现见第~\ref{sec:mmap} 节。下面的设计是让多个地址空间共用物理页——fork 后的父子进程、所有进程里的 \code{libc.so} 代码、同一文件的多个 \code{mmap}——所需的基础，前提是先回答“这一页还有谁在用”。
+前面各节描述的都是当前源码树。本节换一个角度，记录实验分支 \code{wip-cow-mmap-ldso} 的设计，它没有整体合入当前源码树：其中的写时复制 fork 已经以另一种方式实现在主线里（第~\ref{sec:cow-fork} 节），区别在于主线用 \code{struct page} 的 \code{refcount} 而不是单独的 \code{pageref[]} 数组，\code{PTE\_COW} 用第 57 位（第 55 位已被 \code{PTE\_SHARED} 占用），用每个地址空间的 \code{vm->lock} 而不是全局的 \code{pte\_lock}；页缓存仍只在实验分支里，\code{mmap} 的实现见第~\ref{sec:mmap} 节。下面的设计是让多个地址空间共用物理页——fork 后的父子进程、所有进程里的 \code{libc.so} 代码、同一文件的多个 \code{mmap}——所需的基础，前提是先回答“这一页还有谁在用”。
 
 \subsection{物理页引用计数}
 

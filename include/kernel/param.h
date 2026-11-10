@@ -1,7 +1,12 @@
 // Process descriptors and kernel stacks are allocated on demand; there is no
-// fixed NPROC table.  Available physical memory is the practical limit.
+// fixed NPROC table.  NPROC_MAX caps how many are ever created, like Linux's
+// threads-max (default: RAM pages / 32, i.e. 896 for 112 MiB).  Before
+// copy-on-write fork, memory ran out first; now a child costs only a few
+// pages, and without a cap one runaway fork loop pins all of RAM in slab
+// caches that are never shrunk.
 #include <uapi/limits.h>
 
+#define NPROC_MAX   896  // maximum number of tasks (threads-max)
 #define NOFILE       16  // open files per process
 #define NFILE       100  // filesystem-side open/orphan tracking slots
 #define NDEV         10  // maximum major device number

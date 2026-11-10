@@ -641,6 +641,7 @@ UPROGS=\
 	$U/_usertests\
 	$U/_vmmap\
 	$U/_mmaptest\
+	$U/_cowtest\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
