@@ -254,9 +254,11 @@ int             vfsumount(char*);
 
 // kalloc.c
 void*           kalloc(void);
-void            kfree(void *);
+void            kfree(void *);          // kalloc() page or kmalloc() memory
+void*           kmalloc(uint64);        // slab.c
 uint64          kfreepages(void);
 uint64          kmanagedpages(void);
+uint64          kpcppages(void);
 struct cow_stat { uint64 shared, copied, reused; };
 extern struct cow_stat cow_stat;
 void            buddy_selftest(void);

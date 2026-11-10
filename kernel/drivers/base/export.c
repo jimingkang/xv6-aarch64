@@ -37,6 +37,7 @@ static const struct kexport kernel_exports[] = {
   EXPORT(printf),
   EXPORT(kalloc),
   EXPORT(kfree),
+  EXPORT(kmalloc),
   EXPORT(memset),
   EXPORT(acquire),
   EXPORT(release),

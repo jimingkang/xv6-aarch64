@@ -197,9 +197,8 @@ ptyalloc(struct file **master, struct file **slave)
   *master = *slave = 0;
   if((*master = filealloc()) == 0 || (*slave = filealloc()) == 0)
     goto bad;
-  if((pt = (struct pty *)kalloc()) == 0)
+  if((pt = (struct pty *)kmalloc(sizeof(*pt))) == 0)  // zeroed
     goto bad;
-  memset(pt, 0, sizeof(*pt));
   initlock(&pt->lock, "pty");
   pt->masteropen = pt->slaveopen = 1;
 

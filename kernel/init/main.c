@@ -8,6 +8,7 @@
 #include <kernel/module.h>
 #include <kernel/mm.h>
 #include <kernel/memblock.h>
+#include <kernel/slab.h>
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -54,6 +55,7 @@ main()
     kvminit();       // create kernel page table (pages from memblock)
     kvminithart();   // turn on paging
     page_alloc_init(); // mem_map, then memblock_free_all() -> buddy allocator
+    kmalloc_init();    // kmalloc-32 .. kmalloc-2048 caches
     // The device model and the two bus cores are not modules: consoleinit()
     // below already calls register_chrdev() and platform_device_register(),
     // so they must exist before do_initcalls() runs the driver table.
@@ -73,6 +75,7 @@ main()
     printf("\n");
     memblock_dump();  // the boot memory map, like Linux's memblock=debug
     buddy_selftest(); // mem_map + free_area[] are live: split/merge check
+    slab_selftest();  // kmalloc size classes, slab pages back to buddy
     fdtable_init();   // files_struct/fs_struct caches precede kthreads
     procinit();      // process table
     mmap_init();     // VMA and shared page caches for mmap()

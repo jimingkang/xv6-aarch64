@@ -24,6 +24,7 @@
 #include <kernel/defs.h>
 #include <kernel/page.h>
 #include <kernel/memblock.h>
+#include <kernel/slab.h>
 
 void boot_uart_mark(int c);
 
@@ -37,8 +38,25 @@ static int buddy_ready;         // page_alloc_init() done: kalloc() uses free_ar
 static struct {
   struct spinlock lock;
   struct free_area free_area[MAX_ORDER];
+  uint64 nr_free;               // pages on free_area[] (NR_FREE_PAGES)
   uint64 managed_pages;         // pages ever handed to the buddy allocator
 } zone;
+
+// Per-CPU cache of free order-0 pages (Linux struct per_cpu_pages).  Most
+// kalloc()/kfree() calls only touch the local list; zone.lock is taken once
+// per PCP_BATCH pages.  Each list has its own lock, as in Linux >= 5.19,
+// so drain_all_pages() can empty other CPUs' lists without IPIs; the lock
+// is uncontended except during a drain.  Lock order: pcp.lock, zone.lock.
+#define PCP_HIGH  64            // above this many pages, give a batch back
+#define PCP_BATCH 16            // pages moved per zone.lock round trip
+
+struct per_cpu_pages {
+  struct spinlock lock;
+  int count;
+  struct list_head list;
+} __attribute__((aligned(64)));
+
+static struct per_cpu_pages pcp[NCPU];
 
 // ---------------------------------------------------------------------------
 // struct page <-> address helpers
@@ -70,35 +88,6 @@ page_address(struct page *pg)
 // ---------------------------------------------------------------------------
 // free lists
 
-static void
-list_init(struct list_head *h)
-{
-  h->next = h->prev = h;
-}
-
-static int
-list_empty(struct list_head *h)
-{
-  return h->next == h;
-}
-
-static void
-list_add(struct list_head *n, struct list_head *h)
-{
-  n->next = h->next;
-  n->prev = h;
-  h->next->prev = n;
-  h->next = n;
-}
-
-static void
-list_del(struct list_head *n)
-{
-  n->prev->next = n->next;
-  n->next->prev = n->prev;
-  n->next = n->prev = 0;
-}
-
 #define lru_to_page(l) ((struct page *)(l))   // lru is the first member
 
 static void
@@ -108,6 +97,7 @@ add_to_free_area(struct page *pg, int order)
   pg->order = order;
   list_add(&pg->lru, &zone.free_area[order].free_list);
   zone.free_area[order].nr_free++;
+  zone.nr_free += 1UL << order;
 }
 
 static void
@@ -116,6 +106,7 @@ del_from_free_area(struct page *pg, int order)
   list_del(&pg->lru);
   pg->flags &= ~PG_buddy;
   zone.free_area[order].nr_free--;
+  zone.nr_free -= 1UL << order;
 }
 
 // Put the free block [pfn, pfn + 2^order) back, merging it with its buddy
@@ -143,34 +134,125 @@ __free_one_page(uint64 pfn, int order)
 // ---------------------------------------------------------------------------
 // allocation
 
-// Allocate 2^order physically contiguous pages (Linux alloc_pages).  The
-// block is taken from the smallest non-empty free_area at or above order;
-// the unused upper halves are split off and returned to lower lists.
-struct page *
-alloc_pages(int order)
+// Take a 2^order block from the smallest non-empty free_area at or above
+// order, splitting off and returning the unused upper halves (Linux
+// __rmqueue_smallest + expand).  Caller holds zone.lock.
+static struct page *
+__rmqueue(int order)
 {
-  struct page *pg = 0;
-  int o;
-
-  if(order < 0 || order >= MAX_ORDER)
-    return 0;
-
-  acquire(&zone.lock);
-  for(o = order; o < MAX_ORDER; o++){
+  for(int o = order; o < MAX_ORDER; o++){
+    struct page *pg;
     if(list_empty(&zone.free_area[o].free_list))
       continue;
     pg = lru_to_page(zone.free_area[o].free_list.next);
     del_from_free_area(pg, o);
-    while(o > order){             // expand(): give back the upper halves
+    while(o > order){
       o--;
       add_to_free_area(pg + (1UL << o), o);
     }
-    break;
+    return pg;
+  }
+  return 0;
+}
+
+static struct per_cpu_pages *
+this_pcp_lock(void)
+{
+  struct per_cpu_pages *p;
+
+  push_off();                   // cpuid() is stable only with IRQs off
+  p = &pcp[cpuid()];
+  acquire(&p->lock);
+  pop_off();
+  return p;
+}
+
+// Give count pages from the tail (coldest end) of p back to the buddy
+// allocator (Linux free_pcppages_bulk).  Caller holds p->lock.
+static void
+free_pcppages_bulk(struct per_cpu_pages *p, int count)
+{
+  acquire(&zone.lock);
+  while(count-- > 0 && !list_empty(&p->list)){
+    struct page *pg = lru_to_page(p->list.prev);
+    list_del(&pg->lru);
+    pg->flags &= ~PG_pcp;
+    p->count--;
+    __free_one_page(page_to_pfn(pg), 0);
   }
   release(&zone.lock);
+}
 
-  if(pg == 0)
+// One order-0 page, from this CPU's list; refill it with a batch from the
+// buddy allocator when it runs dry (Linux rmqueue_pcplist).
+static struct page *
+rmqueue_pcplist(void)
+{
+  struct per_cpu_pages *p = this_pcp_lock();
+  struct page *pg = 0;
+
+  if(list_empty(&p->list)){
+    acquire(&zone.lock);
+    for(int i = 0; i < PCP_BATCH; i++){
+      struct page *n = __rmqueue(0);
+      if(n == 0)
+        break;
+      n->flags |= PG_pcp;
+      list_add(&n->lru, p->list.prev);  // keep the batch in address order
+      p->count++;
+    }
+    release(&zone.lock);
+  }
+  if(!list_empty(&p->list)){
+    pg = lru_to_page(p->list.next);     // hottest page first
+    list_del(&pg->lru);
+    pg->flags &= ~PG_pcp;
+    p->count--;
+  }
+  release(&p->lock);
+  return pg;
+}
+
+// Return every per-CPU page to the buddy allocator, e.g. before giving up
+// on an allocation that other CPUs' lists could satisfy.
+void
+drain_all_pages(void)
+{
+  for(int c = 0; c < NCPU; c++){
+    acquire(&pcp[c].lock);
+    free_pcppages_bulk(&pcp[c], pcp[c].count);
+    release(&pcp[c].lock);
+  }
+}
+
+static struct page *
+rmqueue(int order)
+{
+  struct page *pg;
+
+  if(order == 0 && (pg = rmqueue_pcplist()) != 0)
+    return pg;
+  acquire(&zone.lock);
+  pg = __rmqueue(order);
+  release(&zone.lock);
+  return pg;
+}
+
+// Allocate 2^order physically contiguous pages (Linux alloc_pages).
+struct page *
+alloc_pages(int order)
+{
+  struct page *pg;
+
+  if(order < 0 || order >= MAX_ORDER)
     return 0;
+  if((pg = rmqueue(order)) == 0){
+    // Free pages may be parked on other CPUs' lists, and pages there
+    // cannot merge into larger blocks: drain and try once more.
+    drain_all_pages();
+    if((pg = rmqueue(order)) == 0)
+      return 0;
+  }
   pg->refcount = 1;
   pg->order = order;
   if(order > 0)
@@ -190,8 +272,12 @@ free_pages_check(struct page *pg, int order, char *who)
     printf("%s: pa %p is reserved\n", who, pfn << PGSHIFT);
     panic(who);
   }
-  if(pg->flags & PG_buddy){
+  if(pg->flags & (PG_buddy | PG_pcp)){
     printf("%s: double free of pa %p\n", who, pfn << PGSHIFT);
+    panic(who);
+  }
+  if(pg->flags & PG_slab){
+    printf("%s: pa %p is a slab page\n", who, pfn << PGSHIFT);
     panic(who);
   }
   if(order > 0 && ((pg->flags & PG_head) == 0 || pg->order != order)){
@@ -214,6 +300,17 @@ free_pages_ok(struct page *pg, int order)
   // Fill with junk to catch dangling refs.
   memset(page_address(pg), 1, PGSIZE << order);
 
+  if(order == 0){
+    // Linux free_unref_page(): park it on this CPU's list.
+    struct per_cpu_pages *p = this_pcp_lock();
+    pg->flags |= PG_pcp;
+    list_add(&pg->lru, &p->list);
+    p->count++;
+    if(p->count >= PCP_HIGH)
+      free_pcppages_bulk(p, PCP_BATCH);
+    release(&p->lock);
+    return;
+  }
   acquire(&zone.lock);
   __free_one_page(page_to_pfn(pg), order);
   release(&zone.lock);
@@ -318,15 +415,28 @@ kalloc(void)
   return __get_free_pages(0);
 }
 
-// Free the page of physical memory pointed at by va,
-// which normally should have been returned by a
-// call to kalloc().
+// Free memory from kalloc() or kmalloc().  Like Linux kfree(), the page
+// descriptor says who owns it: a slab object goes back to its kmem_cache,
+// the head of a large kmalloc() block frees the whole block, and anything
+// else must be one page from kalloc().
 void
 kfree(void *va)
 {
-  if(!buddy_ready || ((uint64)va % PGSIZE) != 0 || (char*)va < end ||
-     V2P(va) >= (max_pfn << PGSHIFT))
+  struct page *pg;
+
+  if(!buddy_ready || (char*)va < end || V2P(va) >= (max_pfn << PGSHIFT))
     panic("kfree");
+  pg = virt_to_page(va);
+  if(pg->flags & PG_slab){
+    kmem_cache_free(pg->slab_cache, va);
+    return;
+  }
+  if(((uint64)va % PGSIZE) != 0)
+    panic("kfree");
+  if(pg->flags & PG_head){
+    __free_pages(pg, pg->order);
+    return;
+  }
   free_pages(va, 0);
 }
 
@@ -382,11 +492,17 @@ page_alloc_init(void)
   uint64 size, pa;
 
   initlock(&zone.lock, "kmem");
+  for(int c = 0; c < NCPU; c++){
+    initlock(&pcp[c].lock, "pcp");
+    list_init(&pcp[c].list);
+    pcp[c].count = 0;
+  }
   for(int o = 0; o < MAX_ORDER; o++){
     list_init(&zone.free_area[o].free_list);
     zone.free_area[o].nr_free = 0;
   }
   zone.managed_pages = 0;
+  zone.nr_free = 0;
 
   max_pfn = memblock_end_of_DRAM() >> PGSHIFT;
   size = max_pfn * sizeof(struct page);
@@ -406,15 +522,24 @@ page_alloc_init(void)
   boot_uart_mark('c');
 }
 
-// Number of free 4 KiB pages.
+// Number of free 4 KiB pages: the buddy lists plus the per-CPU lists.
+// Counters, not a walk of the lists; a racy snapshot is fine for MemFree.
 uint64
 kfreepages(void)
 {
+  uint64 pages = *(volatile uint64 *)&zone.nr_free;
+  for(int c = 0; c < NCPU; c++)
+    pages += *(volatile int *)&pcp[c].count;
+  return pages;
+}
+
+// Pages currently parked on per-CPU lists (for /proc/meminfo).
+uint64
+kpcppages(void)
+{
   uint64 pages = 0;
-  acquire(&zone.lock);
-  for(int o = 0; o < MAX_ORDER; o++)
-    pages += zone.free_area[o].nr_free << o;
-  release(&zone.lock);
+  for(int c = 0; c < NCPU; c++)
+    pages += *(volatile int *)&pcp[c].count;
   return pages;
 }
 
@@ -472,6 +597,7 @@ buddy_selftest(void)
   struct page *a, *b, *c;
   int o;
 
+  drain_all_pages();
   acquire(&zone.lock);
   for(o = 0; o < MAX_ORDER; o++)
     nr[o] = zone.free_area[o].nr_free;
@@ -494,6 +620,7 @@ buddy_selftest(void)
   free_pages(page_address(c), MAX_ORDER - 1);
   if(kfreepages() != before)
     panic("buddy_selftest: leak");
+  drain_all_pages();            // b went to this CPU's list
   // Every split must have merged back: the free lists look exactly as before.
   acquire(&zone.lock);
   for(o = 0; o < MAX_ORDER; o++)

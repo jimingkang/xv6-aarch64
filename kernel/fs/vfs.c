@@ -23,6 +23,7 @@
 #include <kernel/device.h>
 #include <kernel/kobject.h>
 #include <kernel/module.h>
+#include <kernel/slab.h>
 #include <kernel/page.h>
 #include <kernel/memblock.h>
 #include <kernel/fs_trace.h>
@@ -513,6 +514,8 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
     p = putnum(p, limit, kmanagedpages() * PGSIZE / 1024);
     p = putstr(p, limit, " kB\nMemFree:        ");
     p = putnum(p, limit, kfreepages() * PGSIZE / 1024);
+    p = putstr(p, limit, " kB\nPerCPUPages:    ");
+    p = putnum(p, limit, kpcppages() * PGSIZE / 1024);
     p = putstr(p, limit, " kB\nCowShared:      ");
     p = putnum(p, limit, cow_stat.shared);
     p = putstr(p, limit, " pages\nCowCopied:      ");
@@ -597,10 +600,11 @@ proc_vstat(char *path, struct stat *st)
   if(streq(path, "/meminfo") || streq(path, "/iomem") ||
      streq(path, "/devices") || streq(path, "/mounts") ||
      streq(path, "/cmdline") || streq(path, "/modules") ||
-     streq(path, "/buddyinfo")){
+     streq(path, "/buddyinfo") || streq(path, "/slabinfo")){
     st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 :
               streq(path, "/devices") ? 4 : streq(path, "/mounts") ? 5 :
-              streq(path, "/cmdline") ? 6 : streq(path, "/modules") ? 7 : 8;
+              streq(path, "/cmdline") ? 6 : streq(path, "/modules") ? 7 :
+              streq(path, "/buddyinfo") ? 8 : 9;
     st->type = T_FILE;
     st->size = 2048;
     return 0;
@@ -638,7 +642,7 @@ proc_vread(char *path, uint64 off, void *dst, int n)
     return proc_memread(1, off, dst, n);
   if(streq(path, "/devices") || streq(path, "/mounts") ||
      streq(path, "/cmdline") || streq(path, "/modules") ||
-     streq(path, "/buddyinfo")){
+     streq(path, "/buddyinfo") || streq(path, "/slabinfo")){
     char *page = kalloc();
     int len;
     if(page == 0)
@@ -651,6 +655,8 @@ proc_vread(char *path, uint64 off, void *dst, int n)
       len = module_format(page, PGSIZE);
     else if(streq(path, "/buddyinfo"))
       len = buddyinfo(page, PGSIZE);
+    else if(streq(path, "/slabinfo"))
+      len = slabinfo(page, PGSIZE);
     else {
       safestrcpy(page, cmdline_get_all(), PGSIZE - 1);
       len = strlen(page);
@@ -745,10 +751,17 @@ proc_vreaddir(char *path, int index, void *arg)
       safestrcpy(de->name, "buddyinfo", sizeof(de->name));
       return 1;
     }
+    if(index == 7){
+      de->ino = 9;
+      de->type = T_FILE;
+      de->size = 2048;
+      safestrcpy(de->name, "slabinfo", sizeof(de->name));
+      return 1;
+    }
     int seen = 0;
     for(p = proc_head; p; p = p->next){
       acquire(&p->lock);
-      if(p->state != UNUSED && seen++ == index - 7){
+      if(p->state != UNUSED && seen++ == index - 8){
         pid = p->pid;
         release(&p->lock);
         de->ino = 1000 + pid;

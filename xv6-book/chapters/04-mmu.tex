@@ -409,19 +409,25 @@ struct list_head {
 };
 
 struct page {
-  struct list_head lru;         // 空闲时挂在 free_area[order] 上
-  uint16 flags;                 // PG_*
+  struct list_head lru;         // PG_buddy：挂在 free_area[order] 上
+                                // PG_pcp：挂在每 CPU 链表上
+                                // PG_slab：挂在 kmem_cache 的 partial 链表上
+  uint8  flags;                 // PG_*
   uint8  order;                 // 空闲块或多页分配的阶
-  uint8  _pad;
+  uint16 inuse;                 // PG_slab：这个 slab 已分出的对象数
   int    refcount;              // 0 空闲，分配后为 1
+  struct kmem_cache *slab_cache;// PG_slab：所属的 cache
+  void  *freelist;              // PG_slab：这个 slab 的第一个空闲对象
 };
 
-#define PG_reserved 0x0001      // 从不交给伙伴系统（内核镜像、mem_map 本身）
-#define PG_buddy    0x0002      // 空闲块的首页，挂在 free_area[] 上
-#define PG_head     0x0004      // order > 0 分配块的首页
+#define PG_reserved 0x01        // 从不交给伙伴系统（内核镜像、mem_map 本身）
+#define PG_buddy    0x02        // 空闲块的首页，挂在 free_area[] 上
+#define PG_head     0x04        // order > 0 分配块的首页
+#define PG_slab     0x08        // 属于某个 kmem_cache（见 slab 一节）
+#define PG_pcp      0x10        // 空闲，暂存在每 CPU 链表上
 \end{ccode}
 
-一个描述符 24 字节，RAM 里每 4\,KiB 一个，物理页号 \code{pfn} 就是数组下标。地址换算因此都是常数时间：
+一个描述符 40 字节（最初只有前 24 字节，第~\ref{sec:slab} 节为 slab 加了后两个字段；Linux 是 64 字节，同样按页的用途复用字段），RAM 里每 4\,KiB 一个，物理页号 \code{pfn} 就是数组下标。地址换算因此都是常数时间：
 
 \begin{ccode}
 struct page *pfn_to_page(uint64 pfn) { return mem_map + pfn; }
@@ -430,7 +436,7 @@ struct page *virt_to_page(void *kva) { return pfn_to_page(V2P(kva) >> PGSHIFT); 
 void *page_address(struct page *pg)  { return P2V(page_to_pfn(pg) << PGSHIFT); }
 \end{ccode}
 
-\code{mem\_map} 自己也要占物理内存，而它的长度由 \code{memblock\_end\_of\_DRAM()} 决定：QEMU 给出 960\,MiB 时是 $245\,760$ 个描述符、5\,760\,KiB，没有 DTB 时是 $28\,672$ 个、672\,KiB。5.6\,MiB 已经放不进启动页表的 4\,MiB，所以 \code{page\_alloc\_init()} 放在 \code{kvminithart()} 之后——此时最终页表已经线性映射了全部 RAM，可以先抬高 \code{current\_limit}，再像 Linux 的 \code{alloc\_node\_mem\_map()} 那样从 memblock 里要一块：
+\code{mem\_map} 自己也要占物理内存，而它的长度由 \code{memblock\_end\_of\_DRAM()} 决定：QEMU 给出 960\,MiB 时是 $245\,760$ 个描述符、9\,600\,KiB，没有 DTB 时是 $28\,672$ 个、1\,120\,KiB。9.4\,MiB 已经放不进启动页表的 4\,MiB，所以 \code{page\_alloc\_init()} 放在 \code{kvminithart()} 之后——此时最终页表已经线性映射了全部 RAM，可以先抬高 \code{current\_limit}，再像 Linux 的 \code{alloc\_node\_mem\_map()} 那样从 memblock 里要一块：
 
 \begin{ccode}
 max_pfn = memblock_end_of_DRAM() >> PGSHIFT;
@@ -447,7 +453,7 @@ memblock_free_all(free_range);           // 只有空闲区间才清掉 PG_reser
 buddy_ready = 1;
 \end{ccode}
 
-自顶向下的分配把 \code{mem\_map} 放在 RAM 的最高处（QEMU 下是 \code{0x3ba60000}），低端留给 DMA 等可能在意地址的用途，这也是 Linux 的习惯。
+自顶向下的分配把 \code{mem\_map} 放在 RAM 的最高处（QEMU 下是 \code{0x3b6a0000}），低端留给 DMA 等可能在意地址的用途，这也是 Linux 的习惯。
 
 \subsection{伙伴分配与合并}
 
@@ -547,24 +553,24 @@ while(pfn < end_pfn){
 }
 \end{ccode}
 
-保留区把空闲内存切成几段，相邻两段交出的块在 \code{\_\_free\_one\_page()} 里照常合并。在 QEMU 上，受管理的页数是 \code{managed\_pages}$=242\,295$（约 946\,MiB），\code{/proc/meminfo} 的 MemTotal 报告的就是这个数，而不是 RAM 的总大小——与 Linux 的 MemTotal 只计 managed pages 一致。启动时 \code{memblock\_dump()} 打印两张表：
+保留区把空闲内存切成几段，相邻两段交出的块在 \code{\_\_free\_one\_page()} 里照常合并。在 QEMU 上，受管理的页数是 \code{managed\_pages}$=241\,333$（约 943\,MiB），\code{/proc/meminfo} 的 MemTotal 报告的就是这个数，而不是 RAM 的总大小——与 Linux 的 MemTotal 只计 managed pages 一致。启动时 \code{memblock\_dump()} 打印两张表：
 
 \begin{txtcode}
 memblock: memory map from DTB at pa 0x0000000008000000 (89494 bytes),
           model "Raspberry Pi 3 Model B"
   memory.cnt = 1, total = 983040 KiB
     [0] 0x0000000000000000-0x000000003bffffff 983040 KiB
-  reserved.cnt = 5, total = 13859 KiB
-    [0] 0x0000000000000000-0x00000000001c1fff 1800 KiB
+  reserved.cnt = 5, total = 17707 KiB
+    [0] 0x0000000000000000-0x00000000001c3fff 1808 KiB
     [1] 0x00000000003ef000-0x00000000003fffff 68 KiB
     [2] 0x0000000007000000-0x00000000075fffff 6144 KiB
     [3] 0x0000000008000000-0x0000000008015d95 87 KiB
-    [4] 0x000000003ba60000-0x000000003bffffff 5760 KiB
-buddy: 242295 pages managed, 242295 free,
-       mem_map 5760 KiB at pa 0x000000003ba60000
+    [4] 0x000000003b6a0000-0x000000003bffffff 9600 KiB
+buddy: 241333 pages managed, 241333 free,
+       mem_map 9600 KiB at pa 0x000000003b6a0000
 \end{txtcode}
 
-五个保留区依次是：第 0 页加内核镜像与 BSS；最终内核页表的 17 个页表页（自顶向下，紧贴 \code{EARLYTOP} 之下）；ramdisk、摄像头 DMA 与模块区窗口；DTB 本身；\code{mem\_map}。不带 DTB 启动（\code{make qemu QEMU\_DTB=}）时第一行变成 \code{memory map from built-in}，RAM 回到 112\,MiB，受管理的是 $28\,037$ 页。
+五个保留区依次是：第 0 页加内核镜像与 BSS；最终内核页表的 17 个页表页（自顶向下，紧贴 \code{EARLYTOP} 之下）；ramdisk、摄像头 DMA 与模块区窗口；DTB 本身；\code{mem\_map}。不带 DTB 启动（\code{make qemu QEMU\_DTB=}）时第一行变成 \code{memory map from built-in}，RAM 回到 112\,MiB，受管理的约 2.8 万页。
 
 \subsection{接口与防错}
 
@@ -577,31 +583,61 @@ void        *__get_free_pages(int order);     // 返回内核虚拟地址
 void         free_pages(void *kva, int order);
 
 void *kalloc(void)   { return __get_free_pages(0); }
-void  kfree(void *va){ /* 原有范围检查 */ free_pages(va, 0); }
+void  kfree(void *va);   // kalloc() 的页，或 kmalloc() 的内存
 \end{ccode}
 
 \code{kfree()} 把页填成 \code{0x01}、\code{kalloc()} 把页填成 \code{0x05} 的做法保留了下来（多页分配填满整块）——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。有了描述符，释放路径还能做空闲链表做不到的检查，出错时直接打印物理地址并 \code{panic}：
 
 \begin{itemize}
   \item 释放 \code{PG\_reserved} 页（内核镜像、\code{mem\_map}）；
-  \item 重复释放：页已经带 \code{PG\_buddy}；
+  \item 重复释放：页已经带 \code{PG\_buddy} 或 \code{PG\_pcp}；
+  \item 把 slab 页（\code{PG\_slab}）当普通页释放；
   \item 阶不匹配：用 order 3 分配、却按 order 0 释放，或反之（靠 \code{PG\_head} 和 \code{order} 判断）；
   \item 释放时 \code{refcount} 仍大于 1。
 \end{itemize}
 
 \code{refcount} 由 \code{get\_page()}/\code{put\_page()}/\code{page\_count()} 维护：分配时置 1，\code{put\_page()} 减到 0 时把页还给伙伴系统。这正是写时复制所需的那一份“这一页还有谁在用”，第~\ref{sec:cow-fork} 节的 COW fork 就建立在它之上。计数的加减用 \code{ldaxr}/\code{stlxr} 写成的 LL/SC 循环，而不是 GCC 的 \code{\_\_atomic} 内建函数：新版 aarch64 工具链默认把它们编译成对 \code{\_\_aarch64\_ldadd4\_acq\_rel} 等“外置原子操作”辅助函数的调用，而内核不链接 libgcc，链接时会报未定义符号。
 
-\code{kfreepages()} 不再遍历链表，改为 $\sum_{o} \text{nr\_free}[o]\cdot 2^{o}$，代价是常数。
+\subsection{每 CPU 页缓存}
+\label{sec:pcp}
+
+四个核共用一把 \code{zone.lock}，而 \code{kalloc()}/\code{kfree()} 是内核里最频繁的调用之一：缺页、写时复制、管道和文件缓冲都要一页一页地拿和还。Linux 的办法是给每个 CPU 一个小的单页缓存（\code{struct per\_cpu\_pages}，简称 pcp）：大多数单页分配只碰本 CPU 的链表，\code{zone.lock} 每批才拿一次。xv6 照搬了这个形状：
+
+\begin{ccode}
+#define PCP_HIGH  64            // 超过这么多页就还一批给伙伴系统
+#define PCP_BATCH 16            // 每次与伙伴系统之间搬运的页数
+
+struct per_cpu_pages {
+  struct spinlock lock;
+  int count;
+  struct list_head list;        // 空闲的 order-0 页，表头是最近释放的（最“热”）
+} __attribute__((aligned(64))); // 各占一条 cache line，避免伪共享
+
+static struct per_cpu_pages pcp[NCPU];
+\end{ccode}
+
+\begin{itemize}
+  \item \textbf{分配}（\code{rmqueue\_pcplist()}）：本 CPU 的链表为空时，拿一次 \code{zone.lock}，用 \code{\_\_rmqueue(0)} 搬 \code{PCP\_BATCH} 页过来；然后从表头取一页。order $>0$ 的请求照旧直接走伙伴系统。
+  \item \textbf{释放}（\code{free\_pages\_ok()} 的 order-0 分支，对应 Linux 的 \code{free\_unref\_page()}）：页挂到本 CPU 表头，标上 \code{PG\_pcp}；数量到 \code{PCP\_HIGH} 时，从表尾（最“冷”的一端）还 \code{PCP\_BATCH} 页给伙伴系统，让它们有机会合并。
+  \item \textbf{排空}（\code{drain\_all\_pages()}）：任何分配失败时先把所有 CPU 的链表还给伙伴系统再试一次——别的核链表里的页，以及因此无法合并出的大块，都可能正好满足这次请求。
+\end{itemize}
+
+早期 Linux 靠“只有本 CPU 访问、访问时关中断”保护 pcp，排空别的 CPU 的链表得发 IPI 让它自己来做；5.19 以后每个 pcp 带一把自旋锁，平时只有本 CPU 拿，几乎不会争抢，而排空可以直接跨核进行。xv6 采用后一种：\code{this\_pcp\_lock()} 在关中断的情况下读 \code{cpuid()} 并拿本 CPU 的锁，锁的顺序固定为先 pcp、后 \code{zone.lock}。
+
+\code{PG\_pcp} 让 pcp 上的页和伙伴系统里的页区分开：\code{\_\_free\_one\_page()} 只与带 \code{PG\_buddy} 的伙伴合并，不会把 pcp 链表上的页摘走；对 pcp 上的页再释放一次，同样会被当作重复释放抓住。
+
+空闲页的统计也换成了计数器。原来的 \code{kfreepages()} 每次都拿着 \code{zone.lock} 把 11 个阶的 \code{nr\_free} 加一遍；现在 \code{add\_to\_free\_area()}/\code{del\_from\_free\_area()} 顺手维护 \code{zone.nr\_free}（对应 Linux 的 \code{NR\_FREE\_PAGES}），\code{kfreepages()} 不拿锁，返回它再加上各 CPU 的 \code{count}。pcp 上的页也算空闲，所以 \code{/proc/meminfo} 的 MemFree 不会因为页暂存在 pcp 上而“丢失”，cowtest 用 MemFree 做的泄漏检查依然精确；另有一行 PerCPUPages 显示 pcp 上的总量（四个核最多 $4\times 64$ 页，即 1\,MiB）。
 
 \subsection{观察：启动自检与 \code{/proc/buddyinfo}}
 
-\code{main()} 在 \code{printf} 可用之后立刻调用 \code{buddy\_selftest()}：先记下各阶的空闲块数，分配 order 3、order 0 和 order 10 各一块，检查对齐、计数和引用计数，再全部释放，要求每一阶的空闲块数都恢复原样——这同时验证了切分与合并。通过后打印一行：
+\code{main()} 在 \code{printf} 可用之后立刻调用 \code{buddy\_selftest()}：先排空 pcp，记下各阶的空闲块数，分配 order 3、order 0 和 order 10 各一块，检查对齐、计数和引用计数，再全部释放并再次排空 pcp，要求每一阶的空闲块数都恢复原样——这同时验证了切分与合并。随后 \code{slab\_selftest()} 检查第~\ref{sec:slab} 节的 kmalloc。两者通过后各打印一行：
 
 \begin{txtcode}
-buddy: 28056 pages managed, 27985 free, mem_map 672 KiB at pa 0x00000000001c0000
+buddy: 241333 pages managed, 241333 free, mem_map 9600 KiB at pa 0x000000003b6a0000
+slab: 7 kmalloc caches (32..2048 B), self-test ok, 1 page(s) kept by kmalloc-64
 \end{txtcode}
 
-\code{/proc/buddyinfo} 按 Linux 的格式列出 order 0 到 10 各有多少空闲块。刚登录时，几乎所有内存都还是 26 个完整的 4\,MiB 块；跑完 \code{mmaptest} 后，大块被切开，低阶链表上出现了大量碎块，order 10 的块少了一个：
+\code{/proc/buddyinfo} 按 Linux 的格式列出 order 0 到 10 各有多少空闲块。下面是 112\,MiB 时的一次观察（带 DTB 启动时 order 10 一列是 230 多个）。刚登录时，几乎所有内存都还是 26 个完整的 4\,MiB 块；跑完 \code{mmaptest} 后，大块被切开，低阶链表上出现了大量碎块，order 10 的块少了一个：
 
 \begin{shcode}
 $ cat /proc/buddyinfo
@@ -626,17 +662,91 @@ Node 0, zone   Normal       0     10     18     18     17     17      9      3  
     \midrule
     内存探测 & e820 / UEFI / DTB & DTB 的 \code{/memory}；没有时用常量 \code{PHYSTOP} \\
     早期分配器 & memblock（memory / reserved 两张表） & 迷你 memblock，各 32 项静态数组 \\
-    页描述符 & \code{struct page}，约 64 字节 & \code{struct page}，24 字节 \\
+    页描述符 & \code{struct page}，约 64 字节 & \code{struct page}，40 字节 \\
     \code{mem\_map} 来源 & \code{memblock\_alloc()} & \code{memblock\_alloc()}，自顶向下 \\
     节点与 zone & 多 NUMA 节点，DMA/DMA32/Normal & 单节点、单 zone \\
     阶数 & \code{MAX\_ORDER}（4\,KiB～4\,MiB） & 同为 11 阶 \\
-    每 CPU 缓存 & per-CPU pageset & 无，一把 \code{kmem} 自旋锁 \\
-    小对象 & slab / SLUB，\code{kmalloc} & \code{kmem\_cache}（建在 \code{kalloc()} 上） \\
+    每 CPU 缓存 & \code{per\_cpu\_pages}，带锁（5.19 起） & 同样形状，high 64 / batch 16 \\
+    空闲页统计 & \code{NR\_FREE\_PAGES} 计数器 & \code{zone.nr\_free} 加各 pcp 的 \code{count} \\
+    小对象 & SLUB，\code{kmalloc-8} 到 \code{kmalloc-8k} & 简化的 SLUB，\code{kmalloc-32} 到 \code{kmalloc-2048} \\
     \bottomrule
   \end{tabularx}
 \end{table}
 
 物理 \code{0x07000000} 起的 6\,MiB 仍保留给 QEMU 时代的 ramdisk、摄像头 DMA 区和模块区，它们登记在 memblock 的保留表里，分配器永远不会把它们发出去。有了 \code{alloc\_pages(order)}，这类“必须物理连续”的缓冲以后可以改从伙伴系统里分配，或者像 Linux 那样写进设备树的保留内存节点，而不必在源码里手工划地盘。
+
+\section{slab 与 \code{kmalloc()}}
+\label{sec:slab}
+
+伙伴系统的最小单位是一页。内核里大量对象只有几十到几百字节：一个 VMA 88 字节，一个 \code{struct file} 168 字节，伪终端的打开状态只有一个 \code{int}。为它们各要一页，浪费的是 95\% 以上的内存。xv6 原先已经有 \code{kmem\_cache}：每个 cache 从 \code{kalloc()} 拿页，切成等长的对象，用对象自身的第一个字串成空闲链表。但它有两个缺陷：
+
+\begin{itemize}
+  \item 只有\emph{类型专用}的 cache，没有按大小分配的 \code{kmalloc()}。于是 \file{unicam.c} 为 4 字节的 \code{struct cam\_file}、\file{pty.c} 为一个 \code{struct pty} 都直接 \code{kalloc()} 整页。
+  \item 页一旦进了 cache 就永不归还。所有对象被释放后，空闲链表把不同页里的对象混在一起，cache 既不知道一个对象属于哪一页，也不知道某一页是否已经全空。
+\end{itemize}
+
+\subsection{元数据放进 \code{struct page}}
+
+第二个缺陷的根源是空闲链表挂在 cache 上，而不是挂在页上。Linux 的 SLUB 把每个 slab（一页或几页）的元数据放在它的 \code{struct page} 里：哪个 cache、页内的空闲链表、已分出几个对象。xv6 照做，于是 \code{struct page} 多了 \code{slab\_cache}、\code{freelist}、\code{inuse} 三个字段（第~\ref{sec:buddy} 节的定义），\code{flags} 里多了 \code{PG\_slab}，\code{lru} 在 slab 页上用来挂 cache 的 partial 链表：
+
+\begin{ccode}
+struct kmem_cache {
+  struct spinlock lock;
+  const char *name;
+  uint object_size, stride, alignment;
+  uint objs_per_slab;           // PGSIZE / stride
+  struct list_head partial;     // 还有空闲对象的 slab
+  uint nr_partial;
+  uint pages, total, inuse;     // 统计，供 /proc/slabinfo
+  struct kmem_cache *next;      // 所有 cache 串成一条链
+};
+\end{ccode}
+
+\begin{itemize}
+  \item \textbf{分配}：取 partial 链表上第一个 slab，从它的 \code{freelist} 摘一个对象，\code{inuse++}；摘空了就把这个 slab 移出 partial（满的 slab 不挂在任何链表上，和 SLUB 一样）。partial 为空时先\emph{放开 cache 锁}再 \code{alloc\_pages(0)}——页分配器可能排空 pcp，调用者也可能还拿着别的锁——拿到页后在 \code{struct page} 里建好空闲链表，再挂进 partial。对象依旧在返回前清零。
+  \item \textbf{释放}：\code{virt\_to\_page(obj)} 找到 slab，核对 \code{PG\_slab}、\code{slab\_cache} 和对象边界，然后把对象推回这个 slab 的 \code{freelist}。原来是满的就重新挂回 partial。\code{inuse} 减到 0 且 cache 还有别的 partial slab 时，清掉 \code{PG\_slab}，把页还给伙伴系统；只剩这一个时留着它，避免一对 alloc/free 让同一页在 slab 和伙伴系统之间来回搬（Linux 用 \code{min\_partial} 做同样的事）。
+\end{itemize}
+
+整页都用来放对象，没有页内头部，所以 \code{kmalloc-2048} 一页正好两个对象。
+
+\subsection{尺寸类与 \code{kfree()}}
+
+\code{kmalloc\_init()} 建 7 个通用 cache：\code{kmalloc-32}、\code{-64}、……、\code{-2048}，每个按自身大小对齐。\code{kmalloc(size)} 向上取到 2 的幂选 cache；超过 2\,KiB 的请求像 Linux 的 \code{kmalloc\_large()} 那样直接向伙伴系统要 $2^{order}$ 页。
+
+释放只有一个入口 \code{kfree()}，它和 Linux 的 \code{kfree()} 一样靠页描述符判断内存从哪里来：
+
+\begin{ccode}
+void kfree(void *va) {
+  struct page *pg = virt_to_page(va);
+  if(pg->flags & PG_slab){            // kmalloc() 的小对象
+    kmem_cache_free(pg->slab_cache, va);
+    return;
+  }
+  if(pg->flags & PG_head){            // kmalloc() 的大块
+    __free_pages(pg, pg->order);
+    return;
+  }
+  free_pages(va, 0);                  // kalloc() 的一页
+}
+\end{ccode}
+
+这样原有上百处 \code{kfree()} 调用一处不用改，\code{unicam.c}、\code{pty.c} 把 \code{kalloc()} 换成 \code{kmalloc(sizeof(*p))} 即可，释放端照旧 \code{kfree()}。\code{kmalloc} 也加进了模块的导出符号表，\file{.ko} 驱动可以直接用。
+
+\subsection{观察：\code{/proc/slabinfo}}
+
+每个 cache 在 \code{kmem\_cache\_init()} 时串进一条全局链表，\code{/proc/slabinfo} 按 Linux slabinfo 2.1 的列序打印它们。登录后不久的样子（节选）：
+
+\begin{txtcode}
+# name            <active_objs> <num_objs> <objsize> <objperslab> <pagesperslab> <num_slabs>
+file_cache                    2         23       168           23              1           1
+vma_cache                     3         42        88           42              1           1
+proc_cache                   16         20       384           10              1           2
+kmalloc-2048                  0          0      2048            2              1           0
+kmalloc-64                    0          0        64           64              1           0
+kmalloc-32                    0          0        32          128              1           0
+\end{txtcode}
+
+\code{num\_slabs} 为 0 的行说明 cache 此刻一页都没占：空 slab 已经还给了伙伴系统。启动时的 \code{slab\_selftest()} 分配 300 个 40 字节对象（落在 \code{kmalloc-64}，占 5 页），检查对齐、清零和页描述符，再全部释放，要求除 cache 自愿保留的一页外，空闲页数精确回到测试前的值。
 
 \section{最终内核页表}
 
