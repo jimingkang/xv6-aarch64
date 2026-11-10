@@ -3,7 +3,7 @@
 //   /dev/mem   mmap(fd, offset = physical address): map device registers
 //              (Device-nGnRnE) or memory the kernel allocator does not own
 //              into a process with remap_pfn_range().  Like Linux with
-//              CONFIG_STRICT_DEVMEM, RAM below PHYSTOP (kernel image and
+//              CONFIG_STRICT_DEVMEM, RAM that memblock reports (kernel image and
 //              kalloc pages) is refused.
 //   /dev/zero  read returns zeros, write discards; MAP_PRIVATE gives
 //              zero-filled private pages and MAP_SHARED gives shared
@@ -18,6 +18,7 @@
 #include <kernel/fs.h>
 #include <kernel/file.h>
 #include <kernel/defs.h>
+#include <kernel/memblock.h>
 #include <kernel/device.h>
 #include <kernel/module.h>
 #include <kernel/mm.h>
@@ -41,7 +42,12 @@ devmem_prot(uint64 pa, uint64 size, uint64 *prot)
 {
   uint64 end = pa + size;
 
-  if(end < pa || pa < PHYSTOP || end > PERIPH_END)
+  if(end < pa || end > PERIPH_END)
+    return -1;
+  // Kernel RAM (anything memblock calls memory, outside the carve-outs) is
+  // refused, like CONFIG_STRICT_DEVMEM.
+  if(memblock_overlaps_memory(pa, size) &&
+     !(pa >= CARVEOUT_START && end <= CARVEOUT_END))
     return -1;
   if(pa >= PERIPHERAL_BASE_PA){
     *prot = PTE_DEVICE;

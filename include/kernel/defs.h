@@ -260,8 +260,7 @@ uint64          kmanagedpages(void);
 struct cow_stat { uint64 shared, copied, reused; };
 extern struct cow_stat cow_stat;
 void            buddy_selftest(void);
-void            kinit1(void *, void *);
-void            kinit2(void *, void *);
+void            page_alloc_init(void);
 
 // log.c
 void            initlog(int, struct superblock*);

@@ -9,6 +9,7 @@
 #include <kernel/proc.h>
 #include <kernel/mm.h>
 #include <kernel/page.h>
+#include <kernel/memblock.h>
 
 /*
  * the kernel's page table.
@@ -19,6 +20,47 @@ static struct spinlock vm_dump_lock;
 static int kernel_dumped;
 
 extern char etext[];  // kernel.ld sets this to end of kernel code.
+
+#define L2BLOCK (1UL << PXSHIFT(2))   // 2 MiB: one level-2 block descriptor
+
+// Map one 2 MiB block at level 2 of the kernel page table.
+static void
+kvmmap_block(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 perm)
+{
+  pte_t *l1e = &kpgtbl[PX(1, va)];
+  pagetable_t l2;
+  pte_t *pte;
+
+  if((*l1e & PTE_VALID) == 0){
+    if((l2 = (pagetable_t)kalloc()) == 0)
+      panic("kvmmap_block");
+    memset(l2, 0, PGSIZE);
+    *l1e = PA2PTE(V2P(l2)) | PTE_TABLE | PTE_VALID;
+  }
+  l2 = (pagetable_t)P2V(PTE2PA(*l1e));
+  pte = &l2[PX(2, va)];
+  if(*pte & PTE_VALID)
+    panic("kvmmap_block: remap");
+  *pte = PA2PTE(pa) | perm | PTE_AF | PTE_VALID;   // bits[1:0] = 01: block
+}
+
+// Linear-map physical [start, end): 2 MiB blocks where aligned, 4 KiB pages
+// at unaligned edges.
+static void
+kvmmap_linear(pagetable_t kpgtbl, uint64 start, uint64 end, uint64 perm)
+{
+  uint64 pa = start;
+
+  while(pa < end){
+    if((pa & (L2BLOCK - 1)) == 0 && pa + L2BLOCK <= end){
+      kvmmap_block(kpgtbl, KERNBASE + pa, pa, perm);
+      pa += L2BLOCK;
+    } else {
+      kvmmap(kpgtbl, KERNBASE + pa, pa, PGSIZE, perm);
+      pa += PGSIZE;
+    }
+  }
+}
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -55,8 +97,27 @@ kvmmake(void)
   // map kernel text executable and read-only.
   kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
 
-  // map kernel data and the physical RAM we'll make use of.
-  kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(PHYSTOP)-(uint64)etext, PTE_NORMAL | PTE_XN);
+  // map kernel data and the rest of the bootstrap window with 4 KiB pages.
+  kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(EARLYTOP)-(uint64)etext, PTE_NORMAL | PTE_XN);
+
+  // Map every other byte of RAM memblock knows about (Linux map_mem()),
+  // mostly with 2 MiB blocks: 1 GiB costs one L2 table instead of 512 L3
+  // tables.  The carve-out window keeps the attributes mapped above.
+  for(int i = 0; i < memblock.memory.cnt; i++){
+    uint64 start = memblock.memory.regions[i].base;
+    uint64 stop = start + memblock.memory.regions[i].size;
+    if(start < EARLYTOP)
+      start = EARLYTOP;
+    if(start >= stop)
+      continue;
+    if(start < CARVEOUT_END && stop > CARVEOUT_START){
+      if(start < CARVEOUT_START)
+        kvmmap_linear(kpgtbl, start, CARVEOUT_START, PTE_NORMAL | PTE_XN);
+      if(stop > CARVEOUT_END)
+        kvmmap_linear(kpgtbl, CARVEOUT_END, stop, PTE_NORMAL | PTE_XN);
+    } else
+      kvmmap_linear(kpgtbl, start, stop, PTE_NORMAL | PTE_XN);
+  }
 
   return kpgtbl;
 }
@@ -344,6 +405,12 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
     pte_t *pte = &pagetable[PX(level, va)];
     if((*pte & PTE_VALID) && (*pte & PTE_TABLE)) {
       pagetable = (pagetable_t)P2V(PTE2PA(*pte));
+    } else if(*pte & PTE_VALID) {
+      // A 2 MiB block of the kernel linear map: there is no L3 entry, and
+      // allocating a table here would silently unmap the whole block.
+      if(alloc)
+        panic("walk: block");
+      return 0;
     } else {
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
@@ -635,7 +702,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
         goto err;
       continue;
     }
-    if((*pte & PTE_SPECIAL) || pa >= PHYSTOP){
+    if((*pte & PTE_SPECIAL) || (pa >> PGSHIFT) >= max_pfn){
       // Not a buddy-allocator page: no struct page to count, copy it.
       if((mem = kalloc()) == 0)
         goto err;

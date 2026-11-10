@@ -315,26 +315,84 @@ hart 1 starting
 
 三个副核几乎同时出发，谁先抢到 \code{printf} 的锁谁先打印，所以顺序不固定；\code{PH0} 是不经过锁的早期标记，会与其他输出交错。
 
-\section{两阶段的物理内存初始化与伙伴系统}
-\label{sec:buddy}
+\section{从设备树到 memblock}
+\label{sec:memblock}
 
-建立最终页表需要分配页表页，分配页表页又需要物理页分配器——这是一个“先有鸡还是先有蛋”的问题。xv6 的解决办法是把分配器分两次喂：
+建立最终页表需要分配页表页，分配页表页又需要物理页分配器，而物理页分配器的 \code{mem\_map} 又要按 RAM 的大小来开——这是一个“先有鸡还是先有蛋”的问题。早先的 xv6 用常量回避它：\code{PHYSTOP}$=$112\,MiB 是 RAM 的大小，\code{kinit1()} 先把 \code{[end, EARLYTOP)} 交给分配器建页表，\code{kinit2()} 再交出 \code{[EARLYTOP, PHYSTOP)}。树莓派 3 实际有 1\,GiB 内存（扣掉 GPU 部分约 960\,MiB），常量让八成内存闲置；换一块板子还得改源码重编。
+
+Linux 的回答分两步：先从固件拿到内存布局（x86 的 e820、UEFI 内存表，ARM 上是设备树），记进 \code{memblock} 这个只有两张区间表的启动期分配器；等页表和 \code{struct page} 数组都就绪，\code{memblock\_free\_all()} 再把剩下的空闲内存一次性移交给伙伴系统。当前源码树照这个形状实现了一个迷你版本（\file{kernel/mm/fdt.c}、\file{kernel/mm/memblock.c}，合计约 500 行），\code{main()} 的开头变成：
 
 \begin{ccode}
-kinit1(end, P2V(EARLYTOP));          // 阶段一：划出 mem_map，再交出内核末尾到 4 MiB
-kvminit();                           // 用这些页建最终内核页表
-kvminithart();                       // 切换 TTBR1，作废 TLB
-kinit2(P2V(EARLYTOP), P2V(PHYSTOP)); // 阶段二：4 MiB 到 112 MiB，最终页表已覆盖
+memblock_init(boot_dtb_pa);  // 从 DTB 读出 RAM 与保留区
+kvminit();                   // 最终内核页表，页表页来自 memblock_alloc()
+kvminithart();               // 切换 TTBR1，作废 TLB
+page_alloc_init();           // mem_map 也来自 memblock，然后 memblock_free_all()
 \end{ccode}
 
-这正对应 Linux 启动流程的末段：\code{memblock} 先在启动早期管着内存，\code{mem\_map} 也是从 memblock 里“借”出来的；等页表和 \code{struct page} 数组都就绪，\code{memblock\_free\_all()} 再把剩下的空闲内存一次性移交给伙伴系统。xv6 没有 e820/DTB 探测和 memblock 的两张区间表，可用范围由 \code{end}、\code{EARLYTOP} 和 \code{PHYSTOP} 三个常量决定，但移交的形状是一样的。
+\subsection{设备树从哪里来}
+
+AArch64 的启动约定是：引导程序把扁平设备树（flattened device tree，FDT，也叫 DTB）的物理地址放在 \code{x0} 里跳进内核。树莓派固件按 \file{config.txt} 加载 \file{bcm2710-rpi-3-b.dtb}，填好 \code{/memory} 节点后传给内核；QEMU 的 \code{-dtb} 选项做同样的事，并把 \code{/memory} 改写成模拟的内存大小。\file{entry.S} 的第一条指令就把 \code{x0} 存进 \code{x21}——后面清 BSS、建启动页表都不能碰它——等启动页表建好后再写进全局变量 \code{boot\_dtb\_pa}。
+
+此时只有启动页表，它只覆盖物理前 4\,MiB，而 QEMU 把 DTB 放在 \code{0x08000000}，固件则通常放在 RAM 顶部附近。所以 \code{entrypgtinit()} 多收一个参数：DTB 地址非零、8 字节对齐、低于外设窗口时，把它所在的 2\,MiB 块和下一块（DTB 不超过 2\,MiB，可能跨块）也映射进高地址的 \code{l2kernel}，\code{memblock\_init()} 就能经 \code{P2V()} 直接读它。
+
+\subsection{解析 FDT}
+
+FDT 是一段大端格式的二进制：40 字节的头（魔数 \code{0xd00dfeed}、总长、结构块和字符串块的偏移、版本），之后是 \code{/memreserve/} 表（若干 \code{<地址, 长度>} 对，以 0 结尾）、结构块和字符串块。结构块是一串 32 位的 token：
+
+\begin{ccode}
+FDT_BEGIN_NODE 1   // 后跟以 NUL 结尾、4 字节对齐的节点名
+FDT_END_NODE   2
+FDT_PROP       3   // 后跟 len、nameoff（指向字符串块）和 len 字节的值
+FDT_NOP        4
+FDT_END        9
+\end{ccode}
+
+\code{fdt\_scan()} 不建树，只顺序走一遍 token，用一个深度不超过 8 的小栈记住每层的 \code{\#address-cells}/\code{\#size-cells}——它们描述的是\emph{子节点} \code{reg} 的格式，所以解析一个节点的 \code{reg} 要用父节点的值，而且属性可能出现在 \code{reg} 之后，于是 \code{reg} 留到 \code{FDT\_END\_NODE} 才上报。它关心三类节点：
+\begin{itemize}
+  \item 根下名为 \code{memory} 或 \code{memory@...}、或 \code{device\_type = "memory"} 的节点：\code{reg} 里每一对都回调 \code{memblock\_add()}；
+  \item \code{/reserved-memory} 的子节点：有 \code{reg} 的回调 \code{memblock\_reserve()}；只有 \code{size} 的（如 CMA 池）是“请内核找个地方”，迷你版不支持，跳过；
+  \item 根节点的 \code{model} 字符串，仅用于打印。
+\end{itemize}
+\code{/memreserve/} 表里的区间同样进 \code{reserved}（树莓派的 DTB 用它保护物理第 0 页的 armstub 与 spin-table）。头部校验失败（魔数不对、地址不对齐、长度超过 2\,MiB、版本低于 16）或扫描中遇到越界 token，\code{memblock\_init()} 就丢掉已经加进去的区间，退回内置布局。
+
+\subsection{memblock：两张有序区间表}
+
+\begin{ccode}
+struct memblock_region { uint64 base, size; };
+struct memblock_type   { int cnt; uint64 total; char *name;
+                         struct memblock_region regions[32]; };
+struct memblock { uint64 current_limit;
+                  struct memblock_type memory, reserved; };
+\end{ccode}
+
+两张表都按地址排序，\code{memblock\_add()} 和 \code{memblock\_reserve()} 插入时与重叠或相邻的区间合并，\code{memblock\_remove()} 必要时把一个区间劈成两段。表是静态数组：此时还没有任何分配器，Linux 也一样先用静态的 128 项数组。\code{memblock\_init()} 在 DTB 之外再登记几样东西：
+
+\begin{ccode}
+if(memblock.memory.cnt == 0){           // 没有 DTB，或 DTB 不可用
+  memblock_source = "built-in";
+  memblock_add(0, PHYSTOP);             // 退回原来的 112 MiB
+}
+memblock_remove(PERIPHERAL_BASE_PA, ~0ULL - PERIPHERAL_BASE_PA);
+memblock_reserve(0, PGROUNDUP(V2P(end)));                  // 第 0 页与内核镜像
+memblock_reserve(CARVEOUT_START, CARVEOUT_END - CARVEOUT_START); // ramdisk/摄像头 DMA/模块区
+memblock_set_current_limit(EARLYTOP);   // 现在只有前 4 MiB 有映射
+\end{ccode}
+
+\code{PHYSTOP} 因此从“RAM 的大小”降格为“没有 DTB 时的内置大小”。\code{0x07000000} 起的 6\,MiB 窗口原先在 \code{PHYSTOP} 之上，分配器天然碰不到；现在 RAM 远大于它，就得显式保留。DTB 本身也被保留，以后还可以再读。
+
+\code{memblock\_alloc(size, align)} 和 Linux 一样\textbf{自顶向下}找：从最高的 memory 区间、\code{current\_limit} 以下开始，取对齐的候选地址；若与某个 reserved 区间重叠，就退到那个区间的下方再试。分到的区间立即记进 \code{reserved}，所以它永远不会再交给伙伴系统。\code{current\_limit} 是这里的关键：建最终页表时它等于 \code{EARLYTOP}，保证页表页落在启动页表已经映射的 4\,MiB 里；切换到最终页表后它抬到 RAM 顶部，\code{mem\_map} 就可以放到任何地方。
+
+\section{物理内存初始化与伙伴系统}
+\label{sec:buddy}
+
+在伙伴系统就绪之前，\code{kalloc()} 直接转给 \code{memblock\_alloc(PGSIZE, PGSIZE)}，\code{kvmmake()} 和 \code{walk()} 不用知道背后是谁。内核页表永不释放，这些页留在 \code{reserved} 里正合适；在 \code{buddy\_ready} 置位之前调用 \code{kfree()} 会直接 \code{panic}。
 
 \subsection{从空闲链表到伙伴系统}
 
 最初的分配器就是经典 xv6 的空闲链表：每个空闲页的前 8 字节存放下一页的地址，\code{kalloc()} 从表头取，\code{kfree()} 往表头放。它简单可靠，但有三个缺陷：
 
 \begin{itemize}
-  \item \textbf{只能分配单页}。链表里相邻的两项在物理上毫无关系，拿不到连续的多页。于是需要连续物理内存的地方只能另想办法：virtio 驱动用静态数组 \code{pages[2*PGSIZE]}，\code{init\_module} 用静态的 \code{module\_image[]}，摄像头 DMA 缓冲和模块区则干脆划在 \code{PHYSTOP} 之上，绕开分配器。
+  \item \textbf{只能分配单页}。链表里相邻的两项在物理上毫无关系，拿不到连续的多页。于是需要连续物理内存的地方只能另想办法：virtio 驱动用静态数组 \code{pages[2*PGSIZE]}，\code{init\_module} 用静态的 \code{module\_image[]}，摄像头 DMA 缓冲和模块区则干脆划在当时的 RAM 上限 \code{PHYSTOP} 之上，绕开分配器。
   \item \textbf{页没有元数据}。分配器不知道一页是空闲还是在用、被谁用，重复 \code{kfree()} 同一页不会报错，只会让链表成环，很久以后才以莫名其妙的方式崩溃。也没有地方放引用计数，写时复制无从谈起。
   \item \textbf{统计要遍历}。\code{/proc/meminfo} 的 MemFree 靠 \code{kfreepages()} 把整条链表走一遍。
 \end{itemize}
@@ -363,7 +421,7 @@ struct page {
 #define PG_head     0x0004      // order > 0 分配块的首页
 \end{ccode}
 
-一个描述符 24 字节，\code{PHYSTOP} 以下每 4\,KiB 一个，物理页号 \code{pfn} 就是数组下标。地址换算因此都是常数时间：
+一个描述符 24 字节，RAM 里每 4\,KiB 一个，物理页号 \code{pfn} 就是数组下标。地址换算因此都是常数时间：
 
 \begin{ccode}
 struct page *pfn_to_page(uint64 pfn) { return mem_map + pfn; }
@@ -372,23 +430,24 @@ struct page *virt_to_page(void *kva) { return pfn_to_page(V2P(kva) >> PGSHIFT); 
 void *page_address(struct page *pg)  { return P2V(page_to_pfn(pg) << PGSHIFT); }
 \end{ccode}
 
-\code{mem\_map} 自己也要占物理内存：$112\,\text{MiB}/4\,\text{KiB}=28\,672$ 个描述符，共 672\,KiB。此时伙伴系统还不存在，\code{kinit1()} 就像 \code{memblock\_alloc()} 那样，直接把内核镜像末尾 \code{end} 向上对齐后的一段划给它，然后先把\emph{所有}页标成 \code{PG\_reserved}，只有真正交给伙伴系统的页才清掉这一位：
+\code{mem\_map} 自己也要占物理内存，而它的长度由 \code{memblock\_end\_of\_DRAM()} 决定：QEMU 给出 960\,MiB 时是 $245\,760$ 个描述符、5\,760\,KiB，没有 DTB 时是 $28\,672$ 个、672\,KiB。5.6\,MiB 已经放不进启动页表的 4\,MiB，所以 \code{page\_alloc\_init()} 放在 \code{kvminithart()} 之后——此时最终页表已经线性映射了全部 RAM，可以先抬高 \code{current\_limit}，再像 Linux 的 \code{alloc\_node\_mem\_map()} 那样从 memblock 里要一块：
 
 \begin{ccode}
-max_pfn = PHYSTOP >> PGSHIFT;
+max_pfn = memblock_end_of_DRAM() >> PGSHIFT;
 size = max_pfn * sizeof(struct page);
-mem_map = (struct page *)PGROUNDUP((uint64)vstart);
-map_end = (char *)PGROUNDUP((uint64)mem_map + size);
-if((uint64)map_end > (uint64)vend)       // 必须落在启动页表覆盖的 4 MiB 内
-  boot_halt("\nmem_map extends past EARLYTOP\n");
+memblock_set_current_limit(max_pfn << PGSHIFT);  // 最终页表已覆盖全部 RAM
+if((pa = memblock_alloc(PGROUNDUP(size), PGSIZE)) == 0)
+  boot_halt("\npage_alloc_init: no memory for mem_map\n");
+mem_map = (struct page *)P2V(pa);
 
 memset(mem_map, 0, size);
 for(uint64 pfn = 0; pfn < max_pfn; pfn++)
-  mem_map[pfn].flags = PG_reserved;
-free_range(map_end, vend);
+  mem_map[pfn].flags = PG_reserved;      // 先全部保留
+memblock_free_all(free_range);           // 只有空闲区间才清掉 PG_reserved
+buddy_ready = 1;
 \end{ccode}
 
-内核镜像（含 BSS）结束在物理地址约 \code{0x1bead0}，\code{mem\_map} 从 \code{0x1c0000} 开始，到 \code{0x268000} 结束，仍在启动页表覆盖的 4\,MiB 之内——所以 \code{kinit1()} 可以在开启最终页表之前就写满整个数组，包括描述 4\,MiB 以上页框的那些项。
+自顶向下的分配把 \code{mem\_map} 放在 RAM 的最高处（QEMU 下是 \code{0x3ba60000}），低端留给 DMA 等可能在意地址的用途，这也是 Linux 的习惯。
 
 \subsection{伙伴分配与合并}
 
@@ -469,7 +528,7 @@ add_to_free_area(pfn_to_page(pfn), order);
 
 \subsection{把内存交给伙伴系统}
 
-\code{kinit1()} 和 \code{kinit2()} 都调用 \code{free\_range()}。旧实现逐页 \code{kfree()}，每页还要先填一遍垃圾；新实现像 \code{memblock\_free\_all()} 那样，每次取当前位置能放下的\textbf{最大对齐块}直接挂上去：
+\code{memblock\_free\_all()} 遍历 memory 减去 reserved 后剩下的每一段 \code{[start, end)}，对每段调用 \code{free\_range()}。最早的实现逐页 \code{kfree()}，每页还要先填一遍垃圾；新实现像 Linux 的 \code{\_\_free\_pages\_memory()} 那样，每次取当前位置能放下的\textbf{最大对齐块}直接挂上去：
 
 \begin{ccode}
 while(pfn < end_pfn){
@@ -488,7 +547,24 @@ while(pfn < end_pfn){
 }
 \end{ccode}
 
-两个阶段交界的 4\,MiB 处恰好是 order 10 的对齐边界，阶段二交出的块会和阶段一的块在 \code{\_\_free\_one\_page()} 里照常合并。最终受管理的页数是 \code{managed\_pages}$=28\,056$（约 109.6\,MiB），\code{/proc/meminfo} 的 MemTotal 现在报告的就是这个数，而不再是 \code{PHYSTOP}——与 Linux 的 MemTotal 只计 managed pages 一致。
+保留区把空闲内存切成几段，相邻两段交出的块在 \code{\_\_free\_one\_page()} 里照常合并。在 QEMU 上，受管理的页数是 \code{managed\_pages}$=242\,295$（约 946\,MiB），\code{/proc/meminfo} 的 MemTotal 报告的就是这个数，而不是 RAM 的总大小——与 Linux 的 MemTotal 只计 managed pages 一致。启动时 \code{memblock\_dump()} 打印两张表：
+
+\begin{txtcode}
+memblock: memory map from DTB at pa 0x0000000008000000 (89494 bytes),
+          model "Raspberry Pi 3 Model B"
+  memory.cnt = 1, total = 983040 KiB
+    [0] 0x0000000000000000-0x000000003bffffff 983040 KiB
+  reserved.cnt = 5, total = 13859 KiB
+    [0] 0x0000000000000000-0x00000000001c1fff 1800 KiB
+    [1] 0x00000000003ef000-0x00000000003fffff 68 KiB
+    [2] 0x0000000007000000-0x00000000075fffff 6144 KiB
+    [3] 0x0000000008000000-0x0000000008015d95 87 KiB
+    [4] 0x000000003ba60000-0x000000003bffffff 5760 KiB
+buddy: 242295 pages managed, 242295 free,
+       mem_map 5760 KiB at pa 0x000000003ba60000
+\end{txtcode}
+
+五个保留区依次是：第 0 页加内核镜像与 BSS；最终内核页表的 17 个页表页（自顶向下，紧贴 \code{EARLYTOP} 之下）；ramdisk、摄像头 DMA 与模块区窗口；DTB 本身；\code{mem\_map}。不带 DTB 启动（\code{make qemu QEMU\_DTB=}）时第一行变成 \code{memory map from built-in}，RAM 回到 112\,MiB，受管理的是 $28\,037$ 页。
 
 \subsection{接口与防错}
 
@@ -548,10 +624,10 @@ Node 0, zone   Normal       0     10     18     18     17     17      9      3  
     \toprule
     & Linux & xv6 \\
     \midrule
-    内存探测 & e820 / UEFI / DTB & 常量 \code{PHYSTOP}（112\,MiB） \\
-    早期分配器 & memblock（memory / reserved 两张表） & 启动页表覆盖的 \code{[end, EARLYTOP)} \\
+    内存探测 & e820 / UEFI / DTB & DTB 的 \code{/memory}；没有时用常量 \code{PHYSTOP} \\
+    早期分配器 & memblock（memory / reserved 两张表） & 迷你 memblock，各 32 项静态数组 \\
     页描述符 & \code{struct page}，约 64 字节 & \code{struct page}，24 字节 \\
-    \code{mem\_map} 来源 & \code{memblock\_alloc()} & 内核镜像之后直接划出 \\
+    \code{mem\_map} 来源 & \code{memblock\_alloc()} & \code{memblock\_alloc()}，自顶向下 \\
     节点与 zone & 多 NUMA 节点，DMA/DMA32/Normal & 单节点、单 zone \\
     阶数 & \code{MAX\_ORDER}（4\,KiB～4\,MiB） & 同为 11 阶 \\
     每 CPU 缓存 & per-CPU pageset & 无，一把 \code{kmem} 自旋锁 \\
@@ -560,7 +636,7 @@ Node 0, zone   Normal       0     10     18     18     17     17      9      3  
   \end{tabularx}
 \end{table}
 
-\code{PHYSTOP} 设为 \code{0x07000000}（112\,MiB）。上面保留给 QEMU 时代的 ramdisk（\code{0x07000000}）和摄像头 DMA 区（\code{0x07200000}），分配器永远不会把它们发出去。有了 \code{alloc\_pages(order)}，这类“必须物理连续”的缓冲以后可以改从伙伴系统里分配，而不必再在 \code{PHYSTOP} 之上手工划地盘。
+物理 \code{0x07000000} 起的 6\,MiB 仍保留给 QEMU 时代的 ramdisk、摄像头 DMA 区和模块区，它们登记在 memblock 的保留表里，分配器永远不会把它们发出去。有了 \code{alloc\_pages(order)}，这类“必须物理连续”的缓冲以后可以改从伙伴系统里分配，或者像 Linux 那样写进设备树的保留内存节点，而不必在源码里手工划地盘。
 
 \section{最终内核页表}
 
@@ -582,9 +658,16 @@ pagetable_t kvmmake(void) {
   kvmmap(kpgtbl, KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
   // 内核代码：只读、可执行
   kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
-  // 内核数据和全部可用 RAM：可读写、不可执行
-  kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(PHYSTOP)-(uint64)etext,
+  // 内核数据和启动窗口其余部分：4 KiB 页，可读写、不可执行
+  kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(EARLYTOP)-(uint64)etext,
          PTE_NORMAL | PTE_XN);
+  // memblock 知道的其余 RAM：尽量用 2 MiB 块（Linux 的 map_mem()）
+  for(int i = 0; i < memblock.memory.cnt; i++){
+    uint64 start = max(memblock.memory.regions[i].base, EARLYTOP);
+    uint64 stop  = memblock.memory.regions[i].base + memblock.memory.regions[i].size;
+    // 跳过 [CARVEOUT_START, CARVEOUT_END)，它已按自己的属性映射
+    kvmmap_linear(kpgtbl, start, stop, PTE_NORMAL | PTE_XN);
+  }
   return kpgtbl;
 }
 \end{ccode}
@@ -651,7 +734,9 @@ int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, uint64 pe
   \end{tabularx}
 \end{table}
 
-如果改用 2\,MiB 块映射 RAM，L3 表可以省掉绝大部分。项目选择全部用 4\,KiB 页，是为了让内核栈的保护页、代码段只读等细粒度属性能用同一套 \code{mappages()} 实现。
+表中的快照来自全部用 4\,KiB 页的旧版本：112\,MiB 就要 56 张 L3 表；照此映射 960\,MiB 需要约 480 张、近 2\,MiB，而且必须在 \code{EARLYTOP} 以下分配，启动页表根本放不下。所以当前版本把 4\,MiB 以上的 RAM 交给 \code{kvmmap\_linear()}：起止地址都 2\,MiB 对齐的部分由 \code{kvmmap\_block()} 直接在 L2 写一个块描述符（\code{PTE\_VALID} 置位、\code{PTE\_TABLE} 清零，输出地址的低 21 位为 0），只有首尾不对齐的零头才落到 4\,KiB 页。960\,MiB 的 RAM 只占 L2 的约 475 项，启动时整张内核页表一共 17 页（见上面 memblock 的 reserved \code{[1]}）。
+
+细粒度属性仍然保得住：代码段只读、数据段不可执行都发生在前 4\,MiB，那里依旧是 4\,KiB 页；carve-out 窗口里的 \code{CAMDMA} 是不可缓存的、\code{MODAREA} 是可执行的，线性映射就绕开整个窗口。代价是 \code{walk()} 现在可能在 L2 遇到块描述符：查询（\code{alloc}$=0$）时返回 0，要求分配时则 \code{panic("walk: block")}——内核不会在线性映射里再去改单页的属性。
 
 \section{用户地址空间}
 \label{sec:uvm}
@@ -940,7 +1025,7 @@ static int fb_mmap(struct file *f, struct vm_area_struct *vma) {
     \toprule
     设备 & 主/次 & 行为 \\
     \midrule
-    \code{/dev/mem} & 8/1 & 偏移即物理地址；拒绝 PA $<$ \code{PHYSTOP}（相当于 \code{STRICT\_DEVMEM}）；MMIO 用 Device-nGnRnE，其余 Normal-NC \\
+    \code{/dev/mem} & 8/1 & 偏移即物理地址；拒绝落在 memblock 内存里的区间（carve-out 窗口除外，相当于 \code{STRICT\_DEVMEM}）；MMIO 用 Device-nGnRnE，其余 Normal-NC \\
     \code{/dev/zero} & 8/5 & 变成匿名映射；\code{MAP\_SHARED} 即共享匿名内存 \\
     \code{/dev/fb0} & 9/0 & \file{bcm2708\_fb.c}：首次 open 用一条多 tag 的 mailbox 消息分配 640$\times$480$\times$32 帧缓冲；支持 \code{FBIOGET\_VSCREENINFO}/\code{FSCREENINFO} \\
     \code{/dev/video0} & 5 & Unicam DMA 缓冲；地址由内核选；\code{VM\_NOFILEREF} 让映射不持有 file，最后一个 fd 关闭即停流；\code{vm\_ops} 的 open/close 维护 \code{camera\_mapped} 计数 \\
@@ -987,7 +1072,7 @@ SoC 把外设寄存器和 RAM 放进同一个物理地址空间，CPU 用普通�
     \toprule
     物理地址 & 用途 \\
     \midrule
-    \code{0x00000000}～\code{0x06ffffff} & 内核管理的 RAM（\code{PHYSTOP} = 112\,MiB） \\
+    \code{0x00000000}～\code{0x3bffffff} & RAM，以 DTB 的 \code{/memory} 为准（QEMU 960\,MiB；无 DTB 时 112\,MiB） \\
     \code{0x00080000} & 内核镜像装载地址 \\
     \code{0x07200000}～\code{0x072fffff} & 摄像头 DMA 区（\code{CAMDMA}） \\
     \code{0x3f003000} & BCM System Timer \\

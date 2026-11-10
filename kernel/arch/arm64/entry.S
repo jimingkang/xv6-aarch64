@@ -6,6 +6,10 @@
 .section ".text"
 .global _entry
 _entry:
+        // The boot loader passes the physical address of the device tree
+        // blob in x0 (QEMU with -dtb, the Pi firmware).  x0 is reused below,
+        // so park it in callee-saved x21 until CPU0 can store it.
+        mov x21, x0
         // Remember the hardware CPU id.  Every core must first normalize its
         // exception level; secondary cores then wait until CPU0 has built the
         // bootstrap page tables.
@@ -85,7 +89,12 @@ entry:
         adrp x3, l2kpgt
         // x4 = physical end of kernel image
         ldr x4, =EARLYTOP        // map all early allocator RAM, not just the image
+        mov x5, x21              // DTB: its 2 MiB block(s) are mapped as well
         bl entrypgtinit
+        // boot_dtb_pa = x0 at entry (MMU still off: physical store, like
+        // secondary_release below).  memblock_init() reads it.
+        adrp x10, boot_dtb_pa
+        str x21, [x10, :lo12:boot_dtb_pa]
         
 
 
@@ -289,6 +298,10 @@ _start:
 .align 3
 secondary_release:
         .word 0
+.align 3
+.global boot_dtb_pa
+boot_dtb_pa:
+        .quad 0
 
 .section ".text"
 

@@ -1,14 +1,16 @@
 // Physical page allocator: struct page array (mem_map) plus a buddy system.
 //
-// This follows the end of the Linux boot path in the memory-init diagram:
+// This follows the Linux boot path in the memory-init diagram:
 //
-//   kinit1()   memblock_alloc(mem_map) + first memblock_free_all() pass
-//              (only RAM covered by entry.S's bootstrap map, [end, EARLYTOP))
-//   kvminit()  page tables are allocated from that first pass
-//   kinit2()   second pass, [EARLYTOP, PHYSTOP), once kvmmake has mapped it
+//   memblock_init()  RAM from the DTB /memory node, reserved ranges
+//   kvminit()        final page table; kalloc() takes its pages from
+//                    memblock_alloc() inside the bootstrap map
+//   page_alloc_init()       mem_map from memblock_alloc(), then memblock_free_all()
+//                    hands every free range to the buddy allocator
 //
-// Every 4 KiB frame below PHYSTOP has a struct page.  Frames that are never
-// handed to the allocator (kernel image, mem_map itself) stay PG_reserved.
+// Every 4 KiB frame below the end of RAM has a struct page.  Frames that are
+// never handed to the allocator (kernel image, DTB, page tables, mem_map,
+// carve-outs, holes between memory regions) stay PG_reserved.
 // Free memory lives in free_area[order] as naturally aligned 2^order blocks.
 //
 // kalloc()/kfree() keep their old one-page contract and are now order-0
@@ -21,6 +23,7 @@
 #include "aarch64.h"
 #include <kernel/defs.h>
 #include <kernel/page.h>
+#include <kernel/memblock.h>
 
 void boot_uart_mark(int c);
 
@@ -29,6 +32,7 @@ extern char end[]; // first address after kernel.
 
 struct page *mem_map;
 uint64 max_pfn;
+static int buddy_ready;         // page_alloc_init() done: kalloc() uses free_area[]
 
 static struct {
   struct spinlock lock;
@@ -301,6 +305,16 @@ page_count(struct page *pg)
 void *
 kalloc(void)
 {
+  if(!buddy_ready){
+    // Before page_alloc_init(): the final kernel page table is built from pages
+    // memblock carves out of the bootstrap-mapped RAM.  They are reserved
+    // for good (kernel page tables are never freed).
+    uint64 pa = memblock_alloc(PGSIZE, PGSIZE);
+    if(pa == 0)
+      return 0;
+    memset(P2V(pa), 5, PGSIZE);
+    return P2V(pa);
+  }
   return __get_free_pages(0);
 }
 
@@ -310,7 +324,8 @@ kalloc(void)
 void
 kfree(void *va)
 {
-  if(((uint64)va % PGSIZE) != 0 || (char*)va < end || (uint64)va >= (uint64)P2V(PHYSTOP))
+  if(!buddy_ready || ((uint64)va % PGSIZE) != 0 || (char*)va < end ||
+     V2P(va) >= (max_pfn << PGSHIFT))
     panic("kfree");
   free_pages(va, 0);
 }
@@ -318,13 +333,15 @@ kfree(void *va)
 // ---------------------------------------------------------------------------
 // boot-time setup (memblock_free_all equivalent)
 
-// Hand [vstart, vend) to the buddy allocator in the largest naturally
-// aligned blocks that fit, instead of one page at a time.
+// Hand physical [start, end) to the buddy allocator in the largest
+// naturally aligned blocks that fit, instead of one page at a time.
+// Called by memblock_free_all() for every range that is memory and not
+// reserved.
 static void
-free_range(void *vstart, void *vend)
+free_range(uint64 start, uint64 end)
 {
-  uint64 pfn = V2P(PGROUNDUP((uint64)vstart)) >> PGSHIFT;
-  uint64 end_pfn = V2P(vend) >> PGSHIFT;
+  uint64 pfn = PGROUNDUP(start) >> PGSHIFT;
+  uint64 end_pfn = end >> PGSHIFT;
 
   if(end_pfn > max_pfn)
     end_pfn = max_pfn;
@@ -355,14 +372,14 @@ boot_halt(char *msg)
     asm volatile("wfe");
 }
 
-// First pass, with only the bootstrap map live: place mem_map right after
-// the kernel image, mark every frame reserved, then free what is left of
-// [vstart, vend).
+// Linux mem_init(): with the final page table mapping all of RAM, place
+// mem_map with memblock_alloc(), mark every frame reserved, then give each
+// free memblock range to the buddy allocator.  From here on kalloc() uses
+// free_area[] and memblock is no longer consulted.
 void
-kinit1(void *vstart, void *vend)
+page_alloc_init(void)
 {
-  uint64 size;
-  char *map_end;
+  uint64 size, pa;
 
   initlock(&zone.lock, "kmem");
   for(int o = 0; o < MAX_ORDER; o++){
@@ -371,12 +388,12 @@ kinit1(void *vstart, void *vend)
   }
   zone.managed_pages = 0;
 
-  max_pfn = PHYSTOP >> PGSHIFT;
+  max_pfn = memblock_end_of_DRAM() >> PGSHIFT;
   size = max_pfn * sizeof(struct page);
-  mem_map = (struct page *)PGROUNDUP((uint64)vstart);
-  map_end = (char *)PGROUNDUP((uint64)mem_map + size);
-  if((uint64)map_end > (uint64)vend)
-    boot_halt("\nmem_map extends past EARLYTOP\n");
+  memblock_set_current_limit(max_pfn << PGSHIFT);
+  if((pa = memblock_alloc(PGROUNDUP(size), PGSIZE)) == 0)
+    boot_halt("\npage_alloc_init: no memory for mem_map\n");
+  mem_map = (struct page *)P2V(pa);
 
   boot_uart_mark('a');
   memset(mem_map, 0, size);
@@ -384,14 +401,9 @@ kinit1(void *vstart, void *vend)
     mem_map[pfn].flags = PG_reserved;
 
   boot_uart_mark('b');
-  free_range(map_end, vend);
+  memblock_free_all(free_range);
+  buddy_ready = 1;
   boot_uart_mark('c');
-}
-
-void
-kinit2(void *vstart, void *vend)
-{
-  free_range(vstart, vend);
 }
 
 // Number of free 4 KiB pages.

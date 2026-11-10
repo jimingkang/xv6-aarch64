@@ -11,10 +11,11 @@
 // the kernel uses physical memory thus:
 // 00080000 -- entry.S, then kernel text and data
 // end -- start of kernel page allocation area
-// PHYSTOP -- end RAM used by the kernel
+// PHYSTOP -- end of RAM assumed when the boot loader passes no DTB;
+//            otherwise memblock takes RAM from the DTB /memory node
 
 #define EXTMEM    0x00000000L
-#define PHYSTOP   0x07000000L               // keep the ramdisk out of kalloc
+#define PHYSTOP   0x07000000L               // built-in RAM size when no DTB is passed
 #define KERNPA    0x00080000L
 #define EARLYTOP  0x00400000L               // bootstrap map: [0, 4MB)
 #define RAMDISK_PA 0x07000000L
@@ -35,6 +36,12 @@
 #define MODAREA_PA   0x07400000L
 #define MODAREA_SIZE (1024*1024L)
 #define MODAREA      (KERNBASE + MODAREA_PA)
+
+// The 2 MiB-aligned window holding the three carve-outs above.  When the DTB
+// reports RAM beyond PHYSTOP, memblock reserves this window and the linear
+// map skips it: kvmmake() maps each carve-out with its own attributes.
+#define CARVEOUT_START RAMDISK_PA
+#define CARVEOUT_END   0x07600000L
 
 #define KERNBASE  0xffffff8000000000L     // First kernel virtual address
 #define KERNLINK  (KERNBASE + KERNPA)     // virtual address where kernel is linked

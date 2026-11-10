@@ -71,6 +71,8 @@ CORE_OBJS = \
 
 MM_OBJS = \
   $K/mm/kalloc.o \
+  $K/mm/memblock.o \
+  $K/mm/fdt.o \
   $K/mm/slab.o \
   $K/mm/vm.o \
   $K/mm/mmap.o
@@ -771,6 +773,16 @@ QEMUOPTS += -chardev stdio,id=xv6uart,signal=off
 # typed characters/Enter no longer reach consoleread().
 QEMUOPTS += -serial null -serial chardev:xv6uart -monitor none
 QEMUOPTS += -drive file=$(SDIMAGE),if=sd,format=raw
+# Hand the kernel a flattened device tree in x0 (as the Pi firmware does) so
+# memblock_init() learns the RAM layout from /memory.  QEMU rewrites the
+# memory node to the emulated size.  Run with QEMU_DTB= to test the built-in
+# (no-DTB) fallback layout.
+QEMU_DTB ?= firmware/bcm2710-rpi-3-b.dtb
+ifneq ($(QEMU_DTB),)
+ifneq ($(wildcard $(QEMU_DTB)),)
+QEMUOPTS += -dtb $(QEMU_DTB)
+endif
+endif
 
 # QEMU user-mode NAT uses the host's active route (Wi-Fi on a MacBook) without
 # requiring a tap device or root. raspi3b exposes the NIC as a USB CDC/RNDIS

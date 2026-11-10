@@ -38,6 +38,7 @@
 #include <kernel/mman.h>
 #include <kernel/mm.h>
 #include <kernel/page.h>
+#include <kernel/memblock.h>
 #include <kernel/slab.h>
 
 #define MAXUVA (1ULL << 38)     // TTBR0 covers [0, 256 GiB)
@@ -322,7 +323,8 @@ mmap_lowest(struct vmspace *vm)
 int
 pa_kernel_mapped(uint64 pa)
 {
-  return pa < PHYSTOP ||
+  return (memblock_is_memory(pa) &&
+          (pa < CARVEOUT_START || pa >= CARVEOUT_END)) ||
          (pa >= RAMDISK_PA && pa < RAMDISK_PA + RAMDISK_SIZE) ||
          (pa >= CAMDMA_PA && pa < CAMDMA_PA + CAMDMA_SIZE) ||
          (pa >= MODAREA_PA && pa < MODAREA_PA + MODAREA_SIZE);

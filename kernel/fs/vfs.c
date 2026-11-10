@@ -24,6 +24,7 @@
 #include <kernel/kobject.h>
 #include <kernel/module.h>
 #include <kernel/page.h>
+#include <kernel/memblock.h>
 #include <kernel/fs_trace.h>
 
 extern char etext[];
@@ -543,7 +544,10 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
     p = putstr(p, limit, " size=4KB Device-nGnRnE XN\n");
     p = putstr(p, limit, "See /proc/iomem for controller subranges.\n");
   } else {
-    p = putmap(p, limit, 0x00000000, PHYSTOP - 1, "System RAM");
+    for(int i = 0; i < memblock.memory.cnt; i++)
+      p = putmap(p, limit, memblock.memory.regions[i].base,
+                 memblock.memory.regions[i].base +
+                 memblock.memory.regions[i].size - 1, "System RAM");
     p = putmap(p, limit, KERNPA, V2P(etext) - 1, "  Kernel code");
     p = putmap(p, limit, V2P(etext), V2P(end) - 1, "  Kernel data/bss");
     p = putmap(p, limit, RAMDISK_PA, RAMDISK_PA + RAMDISK_SIZE - 1,
