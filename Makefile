@@ -204,6 +204,16 @@ CFLAGS += -DFS_TRACE=$(FS_TRACE)
 PAGE_POISONING ?= 0
 CFLAGS += -DPAGE_POISONING=$(PAGE_POISONING)
 
+# Memory-management trace (see include/kernel/mm_trace.h): one line per page,
+# per-CPU list, slab, kmalloc, page-table, page-fault, brk and mmap event.
+#   make MM_TRACE=1                      user processes only
+#   make MM_TRACE=1 MM_TRACE_PID=0       everything, kernel threads included
+#   make MM_TRACE=1 MM_TRACE_PID=7 MM_TRACE_LIMIT=500
+MM_TRACE ?= 0
+MM_TRACE_PID ?= -1
+MM_TRACE_LIMIT ?= 0
+CFLAGS += -DMM_TRACE=$(MM_TRACE) -DMM_TRACE_PID=$(MM_TRACE_PID) -DMM_TRACE_LIMIT=$(MM_TRACE_LIMIT)
+
 # Filesystem-independent VFS dispatch trace.  This is deliberately separate
 # from FS_TRACE, which follows xv6fs inode/block internals.
 VFS_TRACE ?= 0

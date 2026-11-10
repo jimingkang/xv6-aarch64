@@ -792,6 +792,51 @@ MemorySource:   DTB
 
 两者都只读现成的数据结构（memblock 的两张表在启动后保留下来，正像 Linux 保留 \code{memblock} 供 \code{/sys/kernel/debug/memblock} 查看），不额外维护任何状态。
 
+\subsection{逐条跟踪：\code{MM\_TRACE}}
+
+\code{/proc} 给出的是快照；要看一次 \code{fork} 或一次 \code{sbrk} 之后内存到底是怎么一页页分出去的，需要逐事件的跟踪。与 \code{FS\_TRACE}、\code{VM\_TRACE} 一样，它是一个编译开关，定义在 \file{include/kernel/mm\_trace.h}：
+
+\begin{shcode}
+make MM_TRACE=1 qemu                      # 只跟踪用户进程（默认）
+make MM_TRACE=1 MM_TRACE_PID=0 qemu       # 全部，包括内核线程和中断
+make MM_TRACE=1 MM_TRACE_PID=7 MM_TRACE_LIMIT=500 qemu
+\end{shcode}
+
+关闭时 \code{MMTRACE(...)} 展开成 \code{if(0) printf(...)}：参数照样做类型检查，代码和格式串则被编译器整个删掉，热路径上没有任何代价。打开后，每一层在事件发生、锁已经放开之后各打印一行，前缀是当前进程的 pid 和名字：
+
+\begin{itemize}
+  \item \textbf{page}：\code{alloc\_pages}/\code{kalloc} 的阶、物理地址、来自 pcp 还是伙伴系统；\code{\_\_free\_pages}/\code{kfree}/\code{put\_page} 的释放；pcp 的批量补充、超过 high 后的回吐和 \code{drain\_all\_pages}。
+  \item \textbf{slab}：\code{kmem\_cache\_alloc}/\code{free} 的对象地址、所在 slab 及其占用（如 \code{16/25}）、新建 slab、空 slab 还给伙伴系统；\code{kmalloc} 选中的尺寸类或大块的阶。
+  \item \textbf{walk}：\code{walk()} 为某个虚拟地址新建的 L2/L3 页表页；每次用户缺页处理完后，该地址经过的 L1/L2/L3 三个描述符和最终物理地址。
+  \item \textbf{fault} 与 \textbf{cow}：缺页地址、读写、是否来自内核的 copyin/copyout，以及结果——写时复制拷贝或原地复用、brk 堆的零页、VMA 缺页，或 OOM/SIGSEGV/SIGBUS。
+  \item \textbf{brk}、\textbf{mmap}、\textbf{munmap}：系统调用的参数和返回值。
+\end{itemize}
+
+页、slab 和 kmalloc 的行以调用者的返回地址结尾（\code{\_\_builtin\_return\_address(0)}）。内核里没有符号表，主机端的 \file{tools/mm\_trace\_sym.py} 用同一次构建的 \file{kernel/kernel.sym} 把它换成“函数名$+$偏移”。下面是 shell 执行 \code{echo hi} 时的一段（地址略去高位）：
+
+\begin{txtcode}
+mm[16 sh] slab: proc_cache alloc ...8029780 (slab pa 0x8029000 6/10) <- allocproc+0x40
+mm[16 sh] page: alloc order 0 pa 0x3b638000 (pcp) <- alloc_kstack+0x18
+mm[16 sh] page: alloc order 0 pa 0x3b636000 (pcp) <- walk+0xd8
+mm[16 sh] walk: va 0x0: new L2 table pa 0x3b636000 in L1[0]
+mm[16 sh] slab: vma_cache alloc ...80310c0 (slab pa 0x8031000 3/42) <- dup_mmap+0x5c
+mm[16 sh] page: alloc order 0 pa 0x3b632000 (pcp) <- cow_break+0x134
+mm[16 sh] cow: va 0xa000 copied pa 0x3b641000 -> new pa 0x3b632000
+mm[17 sh] page: put_page -> free order 0 pa 0x3b641000 <- cow_break+0x1ac
+mm[17 sh] cow: va 0xa000 copied pa 0x3b641000 -> new pa 0x3b61f000
+mm[17 sh] brk: sbrk(131072) 0xb000 -> 0x2b000 (pages are faulted in lazily)
+mm[17 sh] page: alloc order 0 pa 0x3b61e000 (pcp) <- handle_user_mm_fault+0x180
+mm[17 sh] fault: va 0xb008 write -> brk heap, mapped
+mm[17 sh] walk: va 0xb008  L1[0]=0x3b636003 L2[0]=0x3b635003 L3[11]=0x6000003b61e74b
+                -> pa 0x3b61e008
+mm[17 sh] page: alloc order 0 pa 0x3b619000 (pcp) <- e2_file_read_at+0xb0
+mm[17 sh] page: free  order 0 pa 0x3b619000 <- e2_file_read_at+0x128
+\end{txtcode}
+
+一次 fork 的全过程在这里一目了然：\code{allocproc} 从 slab 拿 \code{struct proc}，从 pcp 拿内核栈，\code{walk} 为子进程建页表，\code{dup\_mmap} 复制 VMA；随后父子进程几乎同时写同一页（\code{0xa000}），两边检查时引用计数都还是 2，于是各自复制，后放手的那次 \code{put\_page} 把旧页的引用降到 0、交还分配器；子进程的 \code{sbrk} 只挪动 brk，真正的页在第一次写时才由缺页处理分配。L3 描述符 \code{0x6000003b61e74b} 也可以对照第~\ref{sec:walk-mappages} 节逐位读出：UXN/PXN 置位（数据不可执行）、AF、Inner Shareable、EL0 可读写、Normal 内存。
+
+跟踪对时序影响很大——串口每行要花几毫秒——所以它适合在单个命令上打开，用 \code{MM\_TRACE\_PID} 和 \code{MM\_TRACE\_LIMIT} 收窄范围；跑 usertests 这类压力测试时应保持关闭。
+
 \section{最终内核页表}
 
 \subsection{\code{kvmmake()}}

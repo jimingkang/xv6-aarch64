@@ -25,6 +25,8 @@
 #include <kernel/page.h>
 #include <kernel/memblock.h>
 #include <kernel/slab.h>
+#include <kernel/proc.h>
+#include <kernel/mm_trace.h>
 
 void boot_uart_mark(int c);
 
@@ -57,6 +59,48 @@ struct per_cpu_pages {
 } __attribute__((aligned(64)));
 
 static struct per_cpu_pages pcp[NCPU];
+
+// ---------------------------------------------------------------------------
+// MM_TRACE filter (see mm_trace.h)
+
+int mm_trace_enabled;
+static int mm_trace_lines;
+
+int
+mm_trace_on(void)
+{
+  struct proc *p;
+
+  if(!MM_TRACE || !mm_trace_enabled)
+    return 0;
+  p = myproc();
+  if(MM_TRACE_PID > 0 && (p == 0 || p->pid != MM_TRACE_PID))
+    return 0;
+  if(MM_TRACE_PID < 0 && (p == 0 || p->kthread_fn != 0))
+    return 0;
+  if(MM_TRACE_LIMIT > 0){
+    int n = __atomic_fetch_add(&mm_trace_lines, 1, __ATOMIC_RELAXED);
+    if(n == MM_TRACE_LIMIT)
+      printf("mm: MM_TRACE_LIMIT (%d lines) reached, trace off\n", MM_TRACE_LIMIT);
+    if(n >= MM_TRACE_LIMIT)
+      return 0;
+  }
+  return 1;
+}
+
+int
+mm_trace_pid(void)
+{
+  struct proc *p = myproc();
+  return p ? p->pid : 0;
+}
+
+char *
+mm_trace_comm(void)
+{
+  struct proc *p = myproc();
+  return p ? p->name : "-";
+}
 
 // ---------------------------------------------------------------------------
 // struct page <-> address helpers
@@ -202,6 +246,7 @@ rmqueue_pcplist(void)
       p->count++;
     }
     release(&zone.lock);
+    MMTRACE("pcp: cpu%d refill %d pages from buddy\n", (int)(p - pcp), p->count);
   }
   if(!list_empty(&p->list)){
     pg = lru_to_page(p->list.next);     // hottest page first
@@ -218,40 +263,49 @@ rmqueue_pcplist(void)
 void
 drain_all_pages(void)
 {
+  int n = 0;
   for(int c = 0; c < NCPU; c++){
     acquire(&pcp[c].lock);
+    n += pcp[c].count;
     free_pcppages_bulk(&pcp[c], pcp[c].count);
     release(&pcp[c].lock);
   }
+  MMTRACE("pcp: drain_all_pages returned %d pages to buddy\n", n);
 }
 
 static struct page *
-rmqueue(int order)
+rmqueue(int order, char **from)
 {
   struct page *pg;
 
-  if(order == 0 && (pg = rmqueue_pcplist()) != 0)
+  if(order == 0 && (pg = rmqueue_pcplist()) != 0){
+    *from = "pcp";
     return pg;
+  }
   acquire(&zone.lock);
   pg = __rmqueue(order);
   release(&zone.lock);
+  *from = "buddy";
   return pg;
 }
 
-// Allocate 2^order physically contiguous pages (Linux alloc_pages).
-struct page *
-alloc_pages(int order)
+// Allocate 2^order physically contiguous pages; who is the caller to report.
+static struct page *
+__alloc_pages(int order, void *who)
 {
   struct page *pg;
+  char *from;
 
   if(order < 0 || order >= MAX_ORDER)
     return 0;
-  if((pg = rmqueue(order)) == 0){
+  if((pg = rmqueue(order, &from)) == 0){
     // Free pages may be parked on other CPUs' lists, and pages there
     // cannot merge into larger blocks: drain and try once more.
     drain_all_pages();
-    if((pg = rmqueue(order)) == 0)
+    if((pg = rmqueue(order, &from)) == 0){
+      MMTRACE("page: alloc order %d FAILED <- %p\n", order, who);
       return 0;
+    }
   }
   pg->refcount = 1;
   pg->order = order;
@@ -259,7 +313,16 @@ alloc_pages(int order)
     pg->flags |= PG_head;
   if(PAGE_POISONING)
     memset(page_address(pg), 5, PGSIZE << order); // fill with junk
+  MMTRACE("page: alloc order %d pa %p (%s) <- %p\n",
+          order, page_to_pfn(pg) << PGSHIFT, from, who);
   return pg;
+}
+
+// Allocate 2^order physically contiguous pages (Linux alloc_pages).
+struct page *
+alloc_pages(int order)
+{
+  return __alloc_pages(order, MM_CALLER());
 }
 
 static void
@@ -305,12 +368,18 @@ free_pages_ok(struct page *pg, int order)
   if(order == 0){
     // Linux free_unref_page(): park it on this CPU's list.
     struct per_cpu_pages *p = this_pcp_lock();
+    int spill = 0;
     pg->flags |= PG_pcp;
     list_add(&pg->lru, &p->list);
     p->count++;
-    if(p->count >= PCP_HIGH)
+    if(p->count >= PCP_HIGH){
       free_pcppages_bulk(p, PCP_BATCH);
+      spill = 1;
+    }
     release(&p->lock);
+    if(spill)
+      MMTRACE("pcp: cpu%d over high (%d), gave %d pages back to buddy\n",
+              (int)(p - pcp), PCP_HIGH, PCP_BATCH);
     return;
   }
   acquire(&zone.lock);
@@ -318,8 +387,8 @@ free_pages_ok(struct page *pg, int order)
   release(&zone.lock);
 }
 
-void
-__free_pages(struct page *pg, int order)
+static void
+__free_pages_from(struct page *pg, int order, void *who)
 {
   free_pages_check(pg, order, "__free_pages");
   if(pg->refcount > 1){
@@ -327,13 +396,21 @@ __free_pages(struct page *pg, int order)
            page_to_pfn(pg) << PGSHIFT, pg->refcount);
     panic("__free_pages");
   }
+  MMTRACE("page: free  order %d pa %p <- %p\n", order,
+          page_to_pfn(pg) << PGSHIFT, who);
   free_pages_ok(pg, order);
+}
+
+void
+__free_pages(struct page *pg, int order)
+{
+  __free_pages_from(pg, order, MM_CALLER());
 }
 
 void *
 __get_free_pages(int order)
 {
-  struct page *pg = alloc_pages(order);
+  struct page *pg = __alloc_pages(order, MM_CALLER());
   return pg ? page_address(pg) : 0;
 }
 
@@ -345,7 +422,7 @@ free_pages(void *kva, int order)
   if(((uint64)kva % PGSIZE) != 0 || (uint64)kva < KERNBASE ||
      (uint64)kva >= (uint64)P2V(max_pfn << PGSHIFT))
     panic("free_pages");
-  __free_pages(virt_to_page(kva), order);
+  __free_pages_from(virt_to_page(kva), order, MM_CALLER());
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +462,8 @@ put_page(struct page *pg)
     panic("put_page: underflow");
   if(r == 0){
     free_pages_check(pg, order, "put_page");
+    MMTRACE("page: put_page -> free order %d pa %p <- %p\n", order,
+            page_to_pfn(pg) << PGSHIFT, MM_CALLER());
     free_pages_ok(pg, order);
   }
 }
@@ -415,7 +494,10 @@ kalloc(void)
       memset(P2V(pa), 5, PGSIZE);
     return P2V(pa);
   }
-  return __get_free_pages(0);
+  {
+    struct page *pg = __alloc_pages(0, MM_CALLER());
+    return pg ? page_address(pg) : 0;
+  }
 }
 
 // Free memory from kalloc() or kmalloc().  Like Linux kfree(), the page
@@ -437,10 +519,10 @@ kfree(void *va)
   if(((uint64)va % PGSIZE) != 0)
     panic("kfree");
   if(pg->flags & PG_head){
-    __free_pages(pg, pg->order);
+    __free_pages_from(pg, pg->order, MM_CALLER());
     return;
   }
-  free_pages(va, 0);
+  __free_pages_from(pg, 0, MM_CALLER());
 }
 
 // ---------------------------------------------------------------------------

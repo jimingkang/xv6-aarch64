@@ -9,6 +9,7 @@
 #include <kernel/mm.h>
 #include <kernel/memblock.h>
 #include <kernel/slab.h>
+#include <kernel/mm_trace.h>
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -74,6 +75,9 @@ main()
     printf("kernel image built: %s (%s)\n", kernel_build_time, kernel_build_rev);
     printf("\n");
     memblock_dump();  // the boot memory map, like Linux's memblock=debug
+    mm_trace_enabled = 1;  // printf works from here on (MM_TRACE builds)
+    if(MM_TRACE)
+      printf("mm: MM_TRACE on, pid filter %d, limit %d\n", MM_TRACE_PID, MM_TRACE_LIMIT);
     buddy_selftest(); // mem_map + free_area[] are live: split/merge check
     slab_selftest();  // kmalloc size classes, slab pages back to buddy
     fdtable_init();   // files_struct/fs_struct caches precede kthreads

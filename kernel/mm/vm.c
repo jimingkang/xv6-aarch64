@@ -10,6 +10,7 @@
 #include <kernel/mm.h>
 #include <kernel/page.h>
 #include <kernel/memblock.h>
+#include <kernel/mm_trace.h>
 
 /*
  * the kernel's page table.
@@ -152,6 +153,25 @@ kvm_directmap(uint64 *n4k, uint64 *n2m)
       pa += PGSIZE;
     }
   }
+}
+
+// MM_TRACE: print the descriptors a translation of va goes through.
+void
+mm_trace_walk(pagetable_t pagetable, uint64 va)
+{
+  pte_t e1, e2 = 0, e3 = 0;
+
+  if(!MM_TRACE || va >= MAXVA)
+    return;
+  e1 = pagetable[PX(1, va)];
+  if((e1 & PTE_VALID) && (e1 & PTE_TABLE)){
+    e2 = ((pagetable_t)P2V(PTE2PA(e1)))[PX(2, va)];
+    if((e2 & PTE_VALID) && (e2 & PTE_TABLE))
+      e3 = ((pagetable_t)P2V(PTE2PA(e2)))[PX(3, va)];
+  }
+  MMTRACE("walk: va %p  L1[%d]=%p L2[%d]=%p L3[%d]=%p -> pa %p\n", va,
+          (int)PX(1, va), e1, (int)PX(2, va), e2, (int)PX(3, va), e3,
+          (e3 & PTE_VALID) ? PTE2PA(e3) | (va & (PGSIZE - 1)) : 0);
 }
 
 // Initialize the one kernel_pagetable
@@ -448,6 +468,8 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
         return 0;
       memset(pagetable, 0, PGSIZE);
       *pte = PA2PTE(V2P(pagetable)) | PTE_TABLE | PTE_VALID;
+      MMTRACE("walk: va %p: new L%d table pa %p in L%d[%d]\n", va, level + 1,
+              V2P(pagetable), level, (int)PX(level, va));
     }
   }
   return &pagetable[PX(3, va)];
@@ -854,6 +876,7 @@ cow_break(pagetable_t pagetable, struct spinlock *lk, uint64 va)
     *pte &= ~(PTE_RO | PTE_COW);
     flush_tlb();
     cow_stat.reused++;
+    MMTRACE("cow: va %p last sharer, reuse pa %p in place\n", va, pa);
     goto out;
   }
   if((mem = kalloc()) == 0){
@@ -873,6 +896,7 @@ cow_break(pagetable_t pagetable, struct spinlock *lk, uint64 va)
   flush_tlb();
   put_page(pg);
   cow_stat.copied++;
+  MMTRACE("cow: va %p copied pa %p -> new pa %p\n", va, pa, V2P(mem));
  out:
   if(locked)
     release(lk);

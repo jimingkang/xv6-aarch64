@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "aarch64.h"
 #include <kernel/defs.h>
+#include <kernel/mm_trace.h>
 #include <kernel/date.h>
 #include <kernel/param.h>
 #include "memlayout.h"
@@ -123,8 +124,12 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  if(growproc(n, &addr) < 0)
+  if(growproc(n, &addr) < 0){
+    MMTRACE("brk: sbrk(%d) from %p FAILED\n", n, addr);
     return -1;
+  }
+  MMTRACE("brk: sbrk(%d) %p -> %p (pages are faulted in lazily)\n", n, addr,
+          addr + n);
   return addr;
 }
 

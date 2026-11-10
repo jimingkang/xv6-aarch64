@@ -11,6 +11,7 @@
 #include <kernel/defs.h>
 #include <kernel/page.h>
 #include <kernel/slab.h>
+#include <kernel/mm_trace.h>
 
 static struct spinlock cache_list_lock;
 static struct kmem_cache *cache_list;
@@ -116,6 +117,8 @@ kmem_cache_alloc(struct kmem_cache *cache)
     release(&cache->lock);
     if((pg = new_slab(cache)) == 0)
       return 0;
+    MMTRACE("slab: %s new slab pa %p (%d x %d B)\n", cache->name,
+            page_to_pfn(pg) << PGSHIFT, cache->objs_per_slab, cache->stride);
     acquire(&cache->lock);
     list_add(&pg->lru, &cache->partial);
     cache->nr_partial++;
@@ -131,7 +134,13 @@ kmem_cache_alloc(struct kmem_cache *cache)
     cache->nr_partial--;
   }
   cache->inuse++;
-  release(&cache->lock);
+  {
+    int used = pg->inuse;
+    release(&cache->lock);
+    MMTRACE("slab: %s alloc %p (slab pa %p %d/%d) <- %p\n", cache->name,
+            object, page_to_pfn(pg) << PGSHIFT, used, cache->objs_per_slab,
+            MM_CALLER());
+  }
 
   memset(object, 0, cache->object_size);
   return object;
@@ -174,10 +183,18 @@ kmem_cache_free(struct kmem_cache *cache, void *object)
     cache->pages--;
     cache->total -= cache->objs_per_slab;
     release(&cache->lock);
+    MMTRACE("slab: %s free %p, slab pa %p empty -> back to buddy\n",
+            cache->name, object, page_to_pfn(pg) << PGSHIFT);
     discard_slab(pg);
     return;
   }
-  release(&cache->lock);
+  {
+    int used = pg->inuse;
+    release(&cache->lock);
+    MMTRACE("slab: %s free %p (slab pa %p %d/%d) <- %p\n", cache->name,
+            object, page_to_pfn(pg) << PGSHIFT, used, cache->objs_per_slab,
+            MM_CALLER());
+  }
 }
 
 void
@@ -204,10 +221,14 @@ kmalloc(uint64 size)
     if(order >= MAX_ORDER || (p = __get_free_pages(order)) == 0)
       return 0;
     memset(p, 0, PGSIZE << order);
+    MMTRACE("kmalloc: %d B -> order-%d pages %p <- %p\n", (int)size, order,
+            p, MM_CALLER());
     return p;
   }
   while((1UL << shift) < size)
     shift++;
+  MMTRACE("kmalloc: %d B -> %s <- %p\n", (int)size,
+          kmalloc_names[shift - KMALLOC_MIN_SHIFT], MM_CALLER());
   return kmem_cache_alloc(&kmalloc_caches[shift - KMALLOC_MIN_SHIFT]);
 }
 

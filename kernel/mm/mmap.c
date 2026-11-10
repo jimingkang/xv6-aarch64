@@ -32,6 +32,7 @@
 #include <kernel/spinlock.h>
 #include <kernel/proc.h>
 #include <kernel/defs.h>
+#include <kernel/mm_trace.h>
 #include <kernel/fs.h>
 #include <kernel/file.h>
 #include <kernel/device.h>
@@ -621,6 +622,12 @@ handle_user_mm_fault(struct vmspace *vm, uint64 va, int flags)
   // not VMAs, so resolve copy-on-write before routing by address.
   if((flags & FAULT_FLAG_WRITE) &&
      (r = cow_break(vm->pagetable, &vm->lock, va)) != 0){
+    MMTRACE("fault: va %p %s%s -> copy-on-write %s\n", va,
+            (flags & FAULT_FLAG_WRITE) ? "write" : "read",
+            (flags & FAULT_FLAG_KERNEL) ? " (kernel copyin/out)" : "",
+            r < 0 ? "OOM" : "resolved");
+    if(MM_TRACE && r > 0)
+      mm_trace_walk(vm->pagetable, va);
     up_read(&vm->mmap_lock);
     return r < 0 ? VM_FAULT_OOM : VM_FAULT_OK;
   }
@@ -629,6 +636,14 @@ handle_user_mm_fault(struct vmspace *vm, uint64 va, int flags)
     r = __handle_brk_fault(vm, va, flags);
   else
     r = __handle_mm_fault(vm, va, flags);
+  MMTRACE("fault: va %p %s%s -> %s, %s\n", va,
+          (flags & FAULT_FLAG_WRITE) ? "write" : "read",
+          (flags & FAULT_FLAG_KERNEL) ? " (kernel copyin/out)" : "",
+          (va >= vm->start_brk && va < vm->brk) ? "brk heap" : "VMA",
+          r == VM_FAULT_OK ? "mapped" : r == VM_FAULT_OOM ? "OOM" :
+          r == VM_FAULT_SIGBUS ? "SIGBUS" : "SIGSEGV");
+  if(MM_TRACE && r == VM_FAULT_OK)
+    mm_trace_walk(vm->pagetable, va);
   up_read(&vm->mmap_lock);
   return r;
 }

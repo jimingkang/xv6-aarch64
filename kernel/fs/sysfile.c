@@ -7,6 +7,7 @@
 #include <kernel/types.h>
 #include "aarch64.h"
 #include <kernel/defs.h>
+#include <kernel/mm_trace.h>
 #include <kernel/param.h>
 #include <kernel/stat.h>
 #include <kernel/spinlock.h>
@@ -774,6 +775,8 @@ sys_mmap(void)
   if(!(flags & MAP_ANONYMOUS) && (f = fget(fd)) == 0)
     return (uint64)-1;
   r = do_mmap(f, addr, len, prot, flags, off);
+  MMTRACE("mmap: addr %p len %p prot %d flags %p fd %d off %p -> %p\n",
+          addr, len, prot, flags, (flags & MAP_ANONYMOUS) ? -1 : fd, off, r);
   if(f)
     fileclose(f);
   return r;
@@ -786,7 +789,11 @@ sys_munmap(void)
 
   if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
     return -1;
-  return do_munmap(myproc()->vm, addr, len);
+  {
+    int r = do_munmap(myproc()->vm, addr, len);
+    MMTRACE("munmap: addr %p len %p -> %d\n", addr, len, r);
+    return r;
+  }
 }
 
 uint64
