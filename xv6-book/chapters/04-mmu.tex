@@ -7,7 +7,7 @@
   \item 描述符格式与内存属性（MAIR）
   \item 清 BSS、启动页表（恒等映射加高地址映射）、TCR/MAIR/SCTLR、跳到高地址
   \item 多核启动：两道闸门
-  \item 两阶段的物理内存初始化
+  \item 两阶段的物理内存初始化：\code{struct page}、\code{mem\_map} 与伙伴系统
   \item 最终内核页表与用户页表
   \item 第一个进程、\code{fork} 与地址空间切换；TLB；缺页与按需分配
   \item \code{mmap()}：VMA、按需调页、共享页与设备映射
@@ -315,20 +315,252 @@ hart 1 starting
 
 三个副核几乎同时出发，谁先抢到 \code{printf} 的锁谁先打印，所以顺序不固定；\code{PH0} 是不经过锁的早期标记，会与其他输出交错。
 
-\section{两阶段的物理内存初始化}
+\section{两阶段的物理内存初始化与伙伴系统}
+\label{sec:buddy}
 
 建立最终页表需要分配页表页，分配页表页又需要物理页分配器——这是一个“先有鸡还是先有蛋”的问题。xv6 的解决办法是把分配器分两次喂：
 
 \begin{ccode}
-kinit1(end, P2V(EARLYTOP));          // 阶段一：内核末尾到 4 MiB，启动页表已覆盖
+kinit1(end, P2V(EARLYTOP));          // 阶段一：划出 mem_map，再交出内核末尾到 4 MiB
 kvminit();                           // 用这些页建最终内核页表
 kvminithart();                       // 切换 TTBR1，作废 TLB
 kinit2(P2V(EARLYTOP), P2V(PHYSTOP)); // 阶段二：4 MiB 到 112 MiB，最终页表已覆盖
 \end{ccode}
 
-分配器本身就是 xv6 的空闲链表：每个空闲页的前 8 字节存放下一页的地址，\code{kalloc()} 从表头取，\code{kfree()} 往表头放，全程由 \code{kmem.lock} 保护。为了尽早暴露“使用已释放内存”的错误，\code{kfree()} 把页填成 \code{0x01}，\code{kalloc()} 把页填成 \code{0x05}——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。
+这正对应 Linux 启动流程的末段：\code{memblock} 先在启动早期管着内存，\code{mem\_map} 也是从 memblock 里“借”出来的；等页表和 \code{struct page} 数组都就绪，\code{memblock\_free\_all()} 再把剩下的空闲内存一次性移交给伙伴系统。xv6 没有 e820/DTB 探测和 memblock 的两张区间表，可用范围由 \code{end}、\code{EARLYTOP} 和 \code{PHYSTOP} 三个常量决定，但移交的形状是一样的。
 
-\code{PHYSTOP} 设为 \code{0x07000000}（112\,MiB）。上面保留给 QEMU 时代的 ramdisk（\code{0x07000000}）和摄像头 DMA 区（\code{0x07200000}），分配器永远不会把它们发出去。
+\subsection{从空闲链表到伙伴系统}
+
+最初的分配器就是经典 xv6 的空闲链表：每个空闲页的前 8 字节存放下一页的地址，\code{kalloc()} 从表头取，\code{kfree()} 往表头放。它简单可靠，但有三个缺陷：
+
+\begin{itemize}
+  \item \textbf{只能分配单页}。链表里相邻的两项在物理上毫无关系，拿不到连续的多页。于是需要连续物理内存的地方只能另想办法：virtio 驱动用静态数组 \code{pages[2*PGSIZE]}，\code{init\_module} 用静态的 \code{module\_image[]}，摄像头 DMA 缓冲和模块区则干脆划在 \code{PHYSTOP} 之上，绕开分配器。
+  \item \textbf{页没有元数据}。分配器不知道一页是空闲还是在用、被谁用，重复 \code{kfree()} 同一页不会报错，只会让链表成环，很久以后才以莫名其妙的方式崩溃。也没有地方放引用计数，写时复制无从谈起。
+  \item \textbf{统计要遍历}。\code{/proc/meminfo} 的 MemFree 靠 \code{kfreepages()} 把整条链表走一遍。
+\end{itemize}
+
+现在的 \file{kernel/mm/kalloc.c} 换成了 Linux 式的两件套：为每个物理页框准备一个描述符 \code{struct page}，组成数组 \code{mem\_map}；空闲内存按 $2^{order}$ 页的块组织在 \code{free\_area[order]} 里，也就是伙伴系统。\code{kalloc()}/\code{kfree()} 的接口原样保留，变成 order 0 的薄封装，全内核四十多处调用点一行都不用改。
+
+\subsection{\code{struct page} 与 \code{mem\_map}}
+
+\file{include/kernel/page.h} 定义了描述符：
+
+\begin{ccode}
+struct list_head {
+  struct list_head *next, *prev;
+};
+
+struct page {
+  struct list_head lru;         // 空闲时挂在 free_area[order] 上
+  uint16 flags;                 // PG_*
+  uint8  order;                 // 空闲块或多页分配的阶
+  uint8  _pad;
+  int    refcount;              // 0 空闲，分配后为 1
+};
+
+#define PG_reserved 0x0001      // 从不交给伙伴系统（内核镜像、mem_map 本身）
+#define PG_buddy    0x0002      // 空闲块的首页，挂在 free_area[] 上
+#define PG_head     0x0004      // order > 0 分配块的首页
+\end{ccode}
+
+一个描述符 24 字节，\code{PHYSTOP} 以下每 4\,KiB 一个，物理页号 \code{pfn} 就是数组下标。地址换算因此都是常数时间：
+
+\begin{ccode}
+struct page *pfn_to_page(uint64 pfn) { return mem_map + pfn; }
+uint64 page_to_pfn(struct page *pg)  { return pg - mem_map; }
+struct page *virt_to_page(void *kva) { return pfn_to_page(V2P(kva) >> PGSHIFT); }
+void *page_address(struct page *pg)  { return P2V(page_to_pfn(pg) << PGSHIFT); }
+\end{ccode}
+
+\code{mem\_map} 自己也要占物理内存：$112\,\text{MiB}/4\,\text{KiB}=28\,672$ 个描述符，共 672\,KiB。此时伙伴系统还不存在，\code{kinit1()} 就像 \code{memblock\_alloc()} 那样，直接把内核镜像末尾 \code{end} 向上对齐后的一段划给它，然后先把\emph{所有}页标成 \code{PG\_reserved}，只有真正交给伙伴系统的页才清掉这一位：
+
+\begin{ccode}
+max_pfn = PHYSTOP >> PGSHIFT;
+size = max_pfn * sizeof(struct page);
+mem_map = (struct page *)PGROUNDUP((uint64)vstart);
+map_end = (char *)PGROUNDUP((uint64)mem_map + size);
+if((uint64)map_end > (uint64)vend)       // 必须落在启动页表覆盖的 4 MiB 内
+  boot_halt("\nmem_map extends past EARLYTOP\n");
+
+memset(mem_map, 0, size);
+for(uint64 pfn = 0; pfn < max_pfn; pfn++)
+  mem_map[pfn].flags = PG_reserved;
+free_range(map_end, vend);
+\end{ccode}
+
+内核镜像（含 BSS）结束在物理地址约 \code{0x1bead0}，\code{mem\_map} 从 \code{0x1c0000} 开始，到 \code{0x268000} 结束，仍在启动页表覆盖的 4\,MiB 之内——所以 \code{kinit1()} 可以在开启最终页表之前就写满整个数组，包括描述 4\,MiB 以上页框的那些项。
+
+\subsection{伙伴分配与合并}
+
+空闲内存按块组织。\code{free\_area[order]} 是一条双向链表，挂着所有大小为 $2^{order}$ 页的空闲块，\code{MAX\_ORDER}$=11$，块大小从 4\,KiB 到 4\,MiB。每个块都\textbf{自然对齐}：首页的 pfn 是 $2^{order}$ 的倍数。只有块的首页带 \code{PG\_buddy} 并挂在链表上，块内其余页的描述符不参与。
+
+自然对齐带来了伙伴系统名字的由来：一个 order 阶的块，与它“结伴”的另一半的首页号只差第 order 位，即
+
+\[
+  \text{buddy\_pfn} = \text{pfn} \oplus 2^{order}.
+\]
+
+\textbf{分配}时从请求的阶往上找第一个非空链表，取下一块；如果块比需要的大，就不断对半切开，把上半块挂回低一阶的链表（Linux 里叫 \code{expand()}）：
+
+\begin{ccode}
+for(o = order; o < MAX_ORDER; o++){
+  if(list_empty(&zone.free_area[o].free_list))
+    continue;
+  pg = lru_to_page(zone.free_area[o].free_list.next);
+  del_from_free_area(pg, o);
+  while(o > order){             // 把用不到的上半块还回低阶链表
+    o--;
+    add_to_free_area(pg + (1UL << o), o);
+  }
+  break;
+}
+\end{ccode}
+
+\textbf{释放}时反过来：只要伙伴也是同阶的完整空闲块，就把它从链表摘下、合成高一阶的块，一直合到伙伴不空闲或到达最高阶为止（\code{\_\_free\_one\_page()}）：
+
+\begin{ccode}
+while(order < MAX_ORDER - 1){
+  uint64 buddy_pfn = pfn ^ (1UL << order);
+  struct page *buddy;
+
+  if(buddy_pfn >= max_pfn)
+    break;
+  buddy = pfn_to_page(buddy_pfn);
+  if((buddy->flags & PG_buddy) == 0 || buddy->order != order)
+    break;
+  del_from_free_area(buddy, order);
+  pfn &= ~(1UL << order);       // 合并后的块从低半块开始
+  order++;
+}
+add_to_free_area(pfn_to_page(pfn), order);
+\end{ccode}
+
+\code{PG\_reserved} 页永远不带 \code{PG\_buddy}，合并自然在内核镜像和 \code{mem\_map} 的边界处停下，不需要任何特判。
+
+图~\ref{fig:buddy-split} 以从一个空的 order 3 块里分配一页为例：8 页的块被切三次，留下 order 2、1、0 各一块；这一页释放时，三次合并按相反顺序发生，恢复成原来的 order 3 块。
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      pg/.style={draw, minimum width=11mm, minimum height=6mm, inner sep=0pt, font=\scriptsize},
+      lab/.style={font=\footnotesize, anchor=east},
+      br/.style={decorate, decoration={brace, mirror, amplitude=3pt}}]
+    \def\w{1.1}
+    \foreach \i in {0,...,7}
+      \node[pg, fill=cyan!15] at (\i*\w, 0) {\i};
+    \node[lab] at (-0.8, 0) {order 3 空闲块};
+    \node[pg, fill=orange!40] at (0, -1.2) {0};
+    \node[pg, fill=green!20] at (\w, -1.2) {1};
+    \foreach \i in {2,3}
+      \node[pg, fill=yellow!30] at (\i*\w, -1.2) {\i};
+    \foreach \i in {4,...,7}
+      \node[pg, fill=cyan!15] at (\i*\w, -1.2) {\i};
+    \node[lab] at (-0.8, -1.2) {alloc\_pages(0) 之后};
+    \draw[br] (-0.5*\w,-1.65) -- (0.5*\w,-1.65) node[midway, below=3pt, font=\scriptsize] {已分配};
+    \draw[br] (0.5*\w,-1.65) -- (1.5*\w,-1.65) node[midway, below=3pt, font=\scriptsize] {order 0};
+    \draw[br] (1.5*\w,-1.65) -- (3.5*\w,-1.65) node[midway, below=3pt, font=\scriptsize] {order 1};
+    \draw[br] (3.5*\w,-1.65) -- (7.5*\w,-1.65) node[midway, below=3pt, font=\scriptsize] {order 2};
+    \node[font=\scriptsize, align=left, anchor=west] at (7.7*\w, -0.6)
+      {伙伴：\\ $0\oplus1=1$\\ $0\oplus2=2$\\ $0\oplus4=4$};
+  \end{tikzpicture}
+  \caption{从 order 3 块分配一页：切三次，上半块依次挂回 order 2、1、0；释放时按 $\text{pfn}\oplus2^{order}$ 找伙伴逐级合并}
+  \label{fig:buddy-split}
+\end{figure}
+
+\subsection{把内存交给伙伴系统}
+
+\code{kinit1()} 和 \code{kinit2()} 都调用 \code{free\_range()}。旧实现逐页 \code{kfree()}，每页还要先填一遍垃圾；新实现像 \code{memblock\_free\_all()} 那样，每次取当前位置能放下的\textbf{最大对齐块}直接挂上去：
+
+\begin{ccode}
+while(pfn < end_pfn){
+  int order = MAX_ORDER - 1;
+  while(order > 0 &&
+        ((pfn & ((1UL << order) - 1)) != 0 || pfn + (1UL << order) > end_pfn))
+    order--;
+  for(uint64 i = 0; i < (1UL << order); i++){
+    struct page *pg = pfn_to_page(pfn + i);
+    pg->flags &= ~PG_reserved;
+    pg->refcount = 0;
+  }
+  __free_one_page(pfn, order);  // 可能与上一段交出的块合并
+  zone.managed_pages += 1UL << order;
+  pfn += 1UL << order;
+}
+\end{ccode}
+
+两个阶段交界的 4\,MiB 处恰好是 order 10 的对齐边界，阶段二交出的块会和阶段一的块在 \code{\_\_free\_one\_page()} 里照常合并。最终受管理的页数是 \code{managed\_pages}$=28\,056$（约 109.6\,MiB），\code{/proc/meminfo} 的 MemTotal 现在报告的就是这个数，而不再是 \code{PHYSTOP}——与 Linux 的 MemTotal 只计 managed pages 一致。
+
+\subsection{接口与防错}
+
+对外的接口与 Linux 同名：
+
+\begin{ccode}
+struct page *alloc_pages(int order);          // 2^order 个物理连续页
+void         __free_pages(struct page *pg, int order);
+void        *__get_free_pages(int order);     // 返回内核虚拟地址
+void         free_pages(void *kva, int order);
+
+void *kalloc(void)   { return __get_free_pages(0); }
+void  kfree(void *va){ /* 原有范围检查 */ free_pages(va, 0); }
+\end{ccode}
+
+\code{kfree()} 把页填成 \code{0x01}、\code{kalloc()} 把页填成 \code{0x05} 的做法保留了下来（多页分配填满整块）——第~\ref{chap:user} 章会看到，用户态异常地址 \code{0x0505050505050505} 正是一页刚分配、尚未初始化的内存。有了描述符，释放路径还能做空闲链表做不到的检查，出错时直接打印物理地址并 \code{panic}：
+
+\begin{itemize}
+  \item 释放 \code{PG\_reserved} 页（内核镜像、\code{mem\_map}）；
+  \item 重复释放：页已经带 \code{PG\_buddy}；
+  \item 阶不匹配：用 order 3 分配、却按 order 0 释放，或反之（靠 \code{PG\_head} 和 \code{order} 判断）；
+  \item 释放时 \code{refcount} 仍大于 1。
+\end{itemize}
+
+\code{refcount} 由 \code{get\_page()}/\code{put\_page()}/\code{page\_count()} 维护：分配时置 1，\code{put\_page()} 减到 0 时把页还给伙伴系统。这是第~\ref{sec:sharedpages} 节写时复制所需的那一份“这一页还有谁在用”，现在有了固定的家。计数的加减用 \code{ldaxr}/\code{stlxr} 写成的 LL/SC 循环，而不是 GCC 的 \code{\_\_atomic} 内建函数：新版 aarch64 工具链默认把它们编译成对 \code{\_\_aarch64\_ldadd4\_acq\_rel} 等“外置原子操作”辅助函数的调用，而内核不链接 libgcc，链接时会报未定义符号。
+
+\code{kfreepages()} 不再遍历链表，改为 $\sum_{o} \text{nr\_free}[o]\cdot 2^{o}$，代价是常数。
+
+\subsection{观察：启动自检与 \code{/proc/buddyinfo}}
+
+\code{main()} 在 \code{printf} 可用之后立刻调用 \code{buddy\_selftest()}：先记下各阶的空闲块数，分配 order 3、order 0 和 order 10 各一块，检查对齐、计数和引用计数，再全部释放，要求每一阶的空闲块数都恢复原样——这同时验证了切分与合并。通过后打印一行：
+
+\begin{txtcode}
+buddy: 28056 pages managed, 27985 free, mem_map 672 KiB at pa 0x00000000001c0000
+\end{txtcode}
+
+\code{/proc/buddyinfo} 按 Linux 的格式列出 order 0 到 10 各有多少空闲块。刚登录时，几乎所有内存都还是 26 个完整的 4\,MiB 块；跑完 \code{mmaptest} 后，大块被切开，低阶链表上出现了大量碎块，order 10 的块少了一个：
+
+\begin{shcode}
+$ cat /proc/buddyinfo
+Node 0, zone   Normal       1      0      0      0      1      1      1      1      1      1     26
+$ mmaptest
+...
+mmaptest: OK (0 failures)
+$ cat /proc/buddyinfo
+Node 0, zone   Normal       0     10     18     18     17     17      9      3      0      0     25
+\end{shcode}
+
+表~\ref{tab:buddy-vs-linux} 把这一实现与 Linux 对照。
+
+\begin{table}[htbp]
+  \centering
+  \caption{xv6 与 Linux 的物理页管理}
+  \label{tab:buddy-vs-linux}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+    & Linux & xv6 \\
+    \midrule
+    内存探测 & e820 / UEFI / DTB & 常量 \code{PHYSTOP}（112\,MiB） \\
+    早期分配器 & memblock（memory / reserved 两张表） & 启动页表覆盖的 \code{[end, EARLYTOP)} \\
+    页描述符 & \code{struct page}，约 64 字节 & \code{struct page}，24 字节 \\
+    \code{mem\_map} 来源 & \code{memblock\_alloc()} & 内核镜像之后直接划出 \\
+    节点与 zone & 多 NUMA 节点，DMA/DMA32/Normal & 单节点、单 zone \\
+    阶数 & \code{MAX\_ORDER}（4\,KiB～4\,MiB） & 同为 11 阶 \\
+    每 CPU 缓存 & per-CPU pageset & 无，一把 \code{kmem} 自旋锁 \\
+    小对象 & slab / SLUB，\code{kmalloc} & \code{kmem\_cache}（建在 \code{kalloc()} 上） \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\code{PHYSTOP} 设为 \code{0x07000000}（112\,MiB）。上面保留给 QEMU 时代的 ramdisk（\code{0x07000000}）和摄像头 DMA 区（\code{0x07200000}），分配器永远不会把它们发出去。有了 \code{alloc\_pages(order)}，这类“必须物理连续”的缓冲以后可以改从伙伴系统里分配，而不必再在 \code{PHYSTOP} 之上手工划地盘。
 
 \section{最终内核页表}
 
@@ -875,7 +1107,7 @@ void uvmsync_icache(pagetable_t pagetable, uint64 sz) {
 
 \subsection{物理页引用计数}
 
-\file{kalloc.c} 为它能分配的每一页维护一个 16 位计数，以物理页号为下标，受 \code{kmem.lock} 保护：
+实验分支写于伙伴系统之前，当时 \file{kalloc.c} 还是空闲链表，没有页描述符，只好为它能分配的每一页另开一个 16 位计数数组，以物理页号为下标，受 \code{kmem.lock} 保护。当前源码树的 \code{struct page} 已经带有 \code{refcount} 和 \code{get\_page()}/\code{put\_page()}（第~\ref{sec:buddy} 节），把这套设计移植过来时，下面的 \code{pageref[]} 就直接换成 \code{mem\_map[pfn].refcount}：
 
 \begin{ccode}
 static uint16 pageref[PHYSTOP / PGSIZE];
