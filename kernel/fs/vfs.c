@@ -23,6 +23,7 @@
 #include <kernel/device.h>
 #include <kernel/kobject.h>
 #include <kernel/module.h>
+#include <kernel/page.h>
 #include <kernel/fs_trace.h>
 
 extern char etext[];
@@ -508,7 +509,7 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
 
   if(!iomem){
     p = putstr(p, limit, "MemTotal:       ");
-    p = putnum(p, limit, PHYSTOP / 1024);
+    p = putnum(p, limit, kmanagedpages() * PGSIZE / 1024);
     p = putstr(p, limit, " kB\nMemFree:        ");
     p = putnum(p, limit, kfreepages() * PGSIZE / 1024);
     p = putstr(p, limit, " kB\nKernelTextPA:   ");
@@ -585,10 +586,11 @@ proc_vstat(char *path, struct stat *st)
   }
   if(streq(path, "/meminfo") || streq(path, "/iomem") ||
      streq(path, "/devices") || streq(path, "/mounts") ||
-     streq(path, "/cmdline") || streq(path, "/modules")){
+     streq(path, "/cmdline") || streq(path, "/modules") ||
+     streq(path, "/buddyinfo")){
     st->ino = streq(path, "/meminfo") ? 2 : streq(path, "/iomem") ? 3 :
               streq(path, "/devices") ? 4 : streq(path, "/mounts") ? 5 :
-              streq(path, "/cmdline") ? 6 : 7;
+              streq(path, "/cmdline") ? 6 : streq(path, "/modules") ? 7 : 8;
     st->type = T_FILE;
     st->size = 2048;
     return 0;
@@ -625,7 +627,8 @@ proc_vread(char *path, uint64 off, void *dst, int n)
   if(streq(path, "/iomem"))
     return proc_memread(1, off, dst, n);
   if(streq(path, "/devices") || streq(path, "/mounts") ||
-     streq(path, "/cmdline") || streq(path, "/modules")){
+     streq(path, "/cmdline") || streq(path, "/modules") ||
+     streq(path, "/buddyinfo")){
     char *page = kalloc();
     int len;
     if(page == 0)
@@ -636,6 +639,8 @@ proc_vread(char *path, uint64 off, void *dst, int n)
       len = fs_mounts_format(page, PGSIZE);
     else if(streq(path, "/modules"))
       len = module_format(page, PGSIZE);
+    else if(streq(path, "/buddyinfo"))
+      len = buddyinfo(page, PGSIZE);
     else {
       safestrcpy(page, cmdline_get_all(), PGSIZE - 1);
       len = strlen(page);
@@ -723,10 +728,17 @@ proc_vreaddir(char *path, int index, void *arg)
       safestrcpy(de->name, "modules", sizeof(de->name));
       return 1;
     }
+    if(index == 6){
+      de->ino = 8;
+      de->type = T_FILE;
+      de->size = 2048;
+      safestrcpy(de->name, "buddyinfo", sizeof(de->name));
+      return 1;
+    }
     int seen = 0;
     for(p = proc_head; p; p = p->next){
       acquire(&p->lock);
-      if(p->state != UNUSED && seen++ == index - 6){
+      if(p->state != UNUSED && seen++ == index - 7){
         pid = p->pid;
         release(&p->lock);
         de->ino = 1000 + pid;

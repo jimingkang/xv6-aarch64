@@ -255,6 +255,8 @@ int             vfsumount(char*);
 void*           kalloc(void);
 void            kfree(void *);
 uint64          kfreepages(void);
+uint64          kmanagedpages(void);
+void            buddy_selftest(void);
 void            kinit1(void *, void *);
 void            kinit2(void *, void *);
 
