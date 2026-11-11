@@ -10,13 +10,12 @@
 // MPI_Init strips "-np N" from argv.  Without it the job has one rank.
 //
 // Differences from full MPI that a caller should know about:
-//   * Only MPI_COMM_WORLD.  Blocking point-to-point and collectives only.
-//   * Sends are buffered: MPI_Send returns once the message is in the ring
-//     (the receiver drains rings into an unexpected-message queue while it
-//     waits), so the classic "both ranks Send first" pattern does not hang.
-//   * The kernel builds user code with +nofp and does not save FP/SIMD
-//     state, so there is no MPI_FLOAT/MPI_DOUBLE and no double MPI_Wtime().
-//     MPI_Wtime_us() returns microseconds instead.
+//   * Only MPI_COMM_WORLD.  Point-to-point is blocking or non-blocking
+//     (Isend/Irecv + Wait/Test family); collectives are blocking.
+//   * Sends are effectively buffered: every wait loop also drains incoming
+//     rings into an unexpected-message queue, so the classic "both ranks
+//     Send first" pattern does not hang.
+//   * Communication progresses only inside MPI calls (no progress thread).
 //   * xv6 programs must call exit(); MPI_Finalize on rank 0 waits for the
 //     other ranks to exit before it returns.
 #ifndef XV6_MPI_H
@@ -25,6 +24,7 @@
 typedef int MPI_Comm;
 typedef int MPI_Datatype;
 typedef int MPI_Op;
+typedef struct mpi_req *MPI_Request;
 
 typedef struct {
   int MPI_SOURCE;
@@ -53,6 +53,8 @@ typedef struct {
 #define MPI_UNDEFINED     (-32766)
 #define MPI_TAG_UB        0x3fffffff
 #define MPI_STATUS_IGNORE ((MPI_Status *)0)
+#define MPI_STATUSES_IGNORE ((MPI_Status *)0)
+#define MPI_REQUEST_NULL  ((MPI_Request)0)
 #define MPI_IN_PLACE      ((void *)1)
 #define MPI_MAX_PROCESSOR_NAME 32
 #define MPI_MAX_RANKS     8
@@ -68,6 +70,8 @@ typedef struct {
 #define MPI_LONG            0x0808
 #define MPI_UNSIGNED_LONG   0x0908
 #define MPI_LONG_LONG       0x0a08
+#define MPI_FLOAT           0x0b04
+#define MPI_DOUBLE          0x0c08
 
 #define MPI_SUM   1
 #define MPI_PROD  2
@@ -87,6 +91,8 @@ int MPI_Comm_rank(MPI_Comm comm, int *rank);
 int MPI_Comm_size(MPI_Comm comm, int *size);
 int MPI_Get_processor_name(char *name, int *resultlen);
 int MPI_Type_size(MPI_Datatype type, int *size);
+double MPI_Wtime(void);
+double MPI_Wtick(void);
 unsigned long MPI_Wtime_us(void);
 
 int MPI_Send(const void *buf, int count, MPI_Datatype type, int dest, int tag,
@@ -98,7 +104,21 @@ int MPI_Sendrecv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
                  void *recvbuf, int recvcount, MPI_Datatype recvtype,
                  int source, int recvtag, MPI_Comm comm, MPI_Status *status);
 int MPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status);
+int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag,
+               MPI_Status *status);
 int MPI_Get_count(const MPI_Status *status, MPI_Datatype type, int *count);
+
+int MPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+              MPI_Comm comm, MPI_Request *request);
+int MPI_Irecv(void *buf, int count, MPI_Datatype type, int source, int tag,
+              MPI_Comm comm, MPI_Request *request);
+int MPI_Wait(MPI_Request *request, MPI_Status *status);
+int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status);
+int MPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses);
+int MPI_Testall(int count, MPI_Request *requests, int *flag,
+                MPI_Status *statuses);
+int MPI_Waitany(int count, MPI_Request *requests, int *index,
+                MPI_Status *status);
 
 int MPI_Barrier(MPI_Comm comm);
 int MPI_Bcast(void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm);

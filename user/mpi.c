@@ -14,11 +14,14 @@
 // space allows, so messages larger than the ring work.
 //
 // Each rank keeps, per source, the message it is currently draining.  An
-// arriving header is matched against the posted receive (at most one, since
-// everything is blocking); if it does not match, the payload is copied into
-// a malloc'd buffer on the unexpected queue.  Because every wait loop keeps
-// draining all incoming rings, a blocked sender never stops its own
-// receiving side, and two ranks that send to each other first cannot hang.
+// arriving header is matched against the posted receives in post order; if
+// none matches, the payload is copied into a malloc'd buffer on the
+// unexpected queue.  Sends wait on a per-destination FIFO and are streamed
+// from the caller's buffer as ring space appears.  Every wait loop drives
+// both directions, so a blocked sender never stops its own receiving side,
+// and two ranks that send to each other first cannot hang.  Blocking calls
+// are a request on the stack plus a wait; MPI_Isend/MPI_Irecv return the
+// same request malloc'd.
 //
 // Waiting: spin on has_work(); after SPIN_LIMIT idle rounds set my sleeping
 // flag (seq_cst store), re-check, and sleep on my doorbell semaphore.  A
@@ -75,8 +78,6 @@ struct msghdr {
   int seq;
 };
 
-struct recvreq;
-
 // A message being drained from a ring or parked on the unexpected queue.
 struct inmsg {
   struct inmsg *next;
@@ -84,15 +85,30 @@ struct inmsg {
   char *buf;                  // user buffer (bound) or malloc'd copy
   int cap;                    // bytes of buf that may be written
   int done;
-  struct recvreq *bound;      // the posted receive it is delivered into
+  struct mpi_req *bound;      // the posted receive it is delivered into
 };
 
-struct recvreq {
+#define REQ_SEND 1
+#define REQ_RECV 2
+
+// One send or receive.  Blocking calls use one on the stack; MPI_Isend and
+// MPI_Irecv malloc it and MPI_Wait/MPI_Test free it.
+struct mpi_req {
+  int kind;
+  int done;
+  int heap;                   // malloc'd by Isend/Irecv
+  MPI_Status st;
+  struct mpi_req *next;       // send queue of its destination, or posted list
+  // send: header + payload streamed from the caller's buffer
+  int dst;
+  struct msghdr h;
+  const char *sbuf;
+  int off, total;
+  // receive
   int src, tag;
   char *buf;
   int cap;
-  int done;
-  MPI_Status st;
+  struct inmsg *um;           // matched unexpected message still arriving
 };
 
 static struct shared *shm;
@@ -102,7 +118,8 @@ static int me = 0, nranks = 1, initialized, finalized;
 static int seqno;
 static struct inmsg *incur[MPI_MAX_RANKS];   // per-source message in flight
 static struct inmsg *uq_head, *uq_tail;      // unexpected queue, arrival order
-static struct recvreq *posted;
+static struct mpi_req *posted_head, *posted_tail;  // receives, post order
+static struct mpi_req *sq_head[MPI_MAX_RANKS], *sq_tail[MPI_MAX_RANKS];
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -133,7 +150,7 @@ static int
 typesize(MPI_Datatype t)
 {
   int id = (t >> 8) & 0xff, sz = t & 0xff;
-  if(id < 1 || id > 0x0a || (sz != 1 && sz != 2 && sz != 4 && sz != 8) ||
+  if(id < 1 || id > 0x0c || (sz != 1 && sz != 2 && sz != 4 && sz != 8) ||
      (t & ~0xffff))
     return -1;
   return sz;
@@ -211,9 +228,27 @@ tag_match(int want, int tag)
 }
 
 static int
-req_match(struct recvreq *q, int src, int tag)
+req_match(struct mpi_req *q, int src, int tag)
 {
   return (q->src == MPI_ANY_SOURCE || q->src == src) && tag_match(q->tag, tag);
+}
+
+// First posted receive (in post order) that takes this message, unlinked.
+static struct mpi_req *
+posted_take(int src, int tag)
+{
+  struct mpi_req **pp = &posted_head, *prev = 0;
+  for(; *pp; prev = *pp, pp = &(*pp)->next){
+    struct mpi_req *q = *pp;
+    if(req_match(q, src, tag)){
+      *pp = q->next;
+      if(posted_tail == q)
+        posted_tail = prev;
+      q->next = 0;
+      return q;
+    }
+  }
+  return 0;
 }
 
 static void
@@ -300,11 +335,11 @@ progress_src(int s)
       m->got = 0;
       m->done = 0;
       m->bound = 0;
-      if(posted && !posted->done && req_match(posted, s, h.tag)){
-        m->bound = posted;
-        m->buf = posted->buf;
-        m->cap = posted->cap;
-        posted = 0;                   // one message per receive
+      struct mpi_req *q = posted_take(s, h.tag);
+      if(q){
+        m->bound = q;
+        m->buf = q->buf;
+        m->cap = q->cap;
       } else {
         m->buf = malloc(h.len > 0 ? h.len : 1);
         if(m->buf == 0){
@@ -340,7 +375,7 @@ progress_src(int s)
     m->done = 1;
     incur[s] = 0;
     if(m->bound){
-      struct recvreq *q = m->bound;
+      struct mpi_req *q = m->bound;
       int bytes = m->len <= q->cap ? m->len : q->cap;
       fill_status(&q->st, m->src, m->tag, bytes,
                   m->len > q->cap ? MPI_ERR_TRUNCATE : MPI_SUCCESS);
@@ -351,34 +386,71 @@ progress_src(int s)
   return moved;
 }
 
+// Push queued sends to dst, oldest first (keeps per-pair order).
 static int
-progress(void)
+progress_dst(int d)
 {
+  struct ring *r = ring_of(me, d);
   int moved = 0;
-  for(int s = 0; s < nranks; s++)
-    if(s != me)
-      moved |= progress_src(s);
+  struct mpi_req *q;
+
+  while((q = sq_head[d]) != 0){
+    while(q->off < q->total){
+      uint n;
+      if(q->off < HDR_SIZE)
+        n = ring_put(r, (const char *)&q->h + q->off, HDR_SIZE - q->off);
+      else
+        n = ring_put(r, q->sbuf + (q->off - HDR_SIZE), q->total - q->off);
+      if(n == 0)
+        break;
+      q->off += n;
+      moved = 1;
+    }
+    if(q->off < q->total)
+      break;
+    sq_head[d] = q->next;
+    if(sq_head[d] == 0)
+      sq_tail[d] = 0;
+    q->next = 0;
+    fill_status(&q->st, d, q->h.tag, q->h.len, MPI_SUCCESS);
+    q->done = 1;
+  }
+  if(moved)
+    wake(d);
   return moved;
 }
 
 static int
-has_work(int send_dst)
+progress(void)
+{
+  int moved = 0;
+  for(int s = 0; s < nranks; s++){
+    if(s == me)
+      continue;
+    if(sq_head[s])
+      moved |= progress_dst(s);
+    moved |= progress_src(s);
+  }
+  return moved;
+}
+
+static int
+has_work(void)
 {
   for(int s = 0; s < nranks; s++){
     if(s == me)
       continue;
-    struct ring *r = ring_of(s, me);
-    if(ring_used(r) >= (incur[s] ? 1 : HDR_SIZE))
+    if(ring_used(ring_of(s, me)) >= (incur[s] ? 1 : HDR_SIZE))
+      return 1;
+    if(sq_head[s] && ring_space(ring_of(me, s)) > 0)
       return 1;
   }
-  if(send_dst >= 0 && ring_space(ring_of(me, send_dst)) > 0)
-    return 1;
   return __atomic_load_n(&shm->aborted, __ATOMIC_ACQUIRE);
 }
 
 // Called after a round of the caller's loop made no progress.
 static void
-idle(int *spins, int send_dst)
+idle(int *spins)
 {
   check_abort();
   if(++*spins < SPIN_LIMIT){
@@ -388,108 +460,165 @@ idle(int *spins, int send_dst)
   }
   *spins = 0;
   __atomic_store_n(&shm->sl[me].sleeping, 1, __ATOMIC_SEQ_CST);
-  if(!has_work(send_dst))
+  if(!has_work())
     sync_wait(shm->bell[me]);
   __atomic_store_n(&shm->sl[me].sleeping, 0, __ATOMIC_SEQ_CST);
 }
 
 // ---------------------------------------------------------------------------
-// point-to-point on bytes
+// point-to-point on bytes: start a request, then complete it
+
+static void
+req_init(struct mpi_req *q, int kind)
+{
+  memset(q, 0, sizeof(*q));
+  q->kind = kind;
+}
+
+static int
+isend_start(struct mpi_req *q, const void *buf, int len, int dst, int tag)
+{
+  req_init(q, REQ_SEND);
+  q->dst = dst;
+  if(dst == MPI_PROC_NULL){
+    fill_status(&q->st, MPI_PROC_NULL, MPI_ANY_TAG, 0, MPI_SUCCESS);
+    q->done = 1;
+    return MPI_SUCCESS;
+  }
+  if(dst == me){
+    // Self-send: park a ready message on the unexpected queue, or hand it
+    // straight to a matching posted receive.
+    struct inmsg *m = malloc(sizeof(*m));
+    if(m == 0 || (m->buf = malloc(len > 0 ? len : 1)) == 0){
+      free(m);
+      return MPI_ERR_OTHER;
+    }
+    fastcopy(m->buf, buf, len);
+    m->src = me; m->tag = tag; m->len = m->got = m->cap = len;
+    m->done = 1; m->bound = 0;
+    struct mpi_req *r = posted_take(me, tag);
+    if(r){
+      int bytes = len <= r->cap ? len : r->cap;
+      fastcopy(r->buf, m->buf, bytes);
+      fill_status(&r->st, me, tag, bytes,
+                  len > r->cap ? MPI_ERR_TRUNCATE : MPI_SUCCESS);
+      r->done = 1;
+      free(m->buf);
+      free(m);
+    } else
+      uq_append(m);
+    fill_status(&q->st, me, tag, len, MPI_SUCCESS);
+    q->done = 1;
+    return MPI_SUCCESS;
+  }
+
+  q->h.tag = tag;
+  q->h.len = len;
+  q->h.comm = MPI_COMM_WORLD;
+  q->h.seq = seqno++;
+  q->sbuf = buf;
+  q->total = HDR_SIZE + len;
+  if(sq_tail[dst])
+    sq_tail[dst]->next = q;
+  else
+    sq_head[dst] = q;
+  sq_tail[dst] = q;
+  progress_dst(dst);
+  return MPI_SUCCESS;
+}
+
+// Finish a receive that matched a message still on the unexpected queue.
+static void
+recv_from_um(struct mpi_req *q)
+{
+  struct inmsg *m = q->um;
+  int bytes = m->len <= q->cap ? m->len : q->cap;
+  fastcopy(q->buf, m->buf, bytes);
+  fill_status(&q->st, m->src, m->tag, bytes,
+              m->len > q->cap ? MPI_ERR_TRUNCATE : MPI_SUCCESS);
+  free(m->buf);
+  free(m);
+  q->um = 0;
+  q->done = 1;
+}
+
+static int
+irecv_start(struct mpi_req *q, void *buf, int cap, int src, int tag)
+{
+  struct inmsg *m;
+
+  req_init(q, REQ_RECV);
+  q->src = src;
+  q->tag = tag;
+  q->buf = buf;
+  q->cap = cap;
+  if(src == MPI_PROC_NULL){
+    fill_status(&q->st, MPI_PROC_NULL, MPI_ANY_TAG, 0, MPI_SUCCESS);
+    q->done = 1;
+    return MPI_SUCCESS;
+  }
+  // Pull in what is already there so the unexpected queue is current.
+  progress();
+  if((m = uq_find(src, tag)) != 0){
+    uq_remove(m);
+    q->um = m;
+    if(m->done)
+      recv_from_um(q);
+    return MPI_SUCCESS;
+  }
+  if(posted_tail)
+    posted_tail->next = q;
+  else
+    posted_head = q;
+  posted_tail = q;
+  return MPI_SUCCESS;
+}
+
+// Non-blocking completion check; drives progress once.
+static int
+req_test(struct mpi_req *q)
+{
+  if(!q->done){
+    progress();
+    if(q->um && q->um->done)
+      recv_from_um(q);
+  }
+  return q->done;
+}
+
+static void
+req_wait(struct mpi_req *q)
+{
+  int spins = 0;
+  while(!q->done){
+    if(progress())
+      spins = 0;
+    else if(q->um && q->um->done)
+      recv_from_um(q);
+    else
+      idle(&spins);
+  }
+}
 
 static int
 send_bytes(const void *buf, int len, int dst, int tag)
 {
-  struct ring *r;
-  struct msghdr h;
-  const char *p;
-  int off = 0, total, spins = 0;
-
-  if(dst == MPI_PROC_NULL)
-    return MPI_SUCCESS;
-  if(dst == me){
-    // Self-send: park a ready message on the unexpected queue.
-    struct inmsg *m = malloc(sizeof(*m));
-    if(m == 0 || (m->buf = malloc(len > 0 ? len : 1)) == 0)
-      return MPI_ERR_OTHER;
-    fastcopy(m->buf, buf, len);
-    m->src = me; m->tag = tag; m->len = m->got = m->cap = len;
-    m->done = 1; m->bound = 0;
-    uq_append(m);
-    return MPI_SUCCESS;
-  }
-
-  r = ring_of(me, dst);
-  h.tag = tag;
-  h.len = len;
-  h.comm = MPI_COMM_WORLD;
-  h.seq = seqno++;
-  total = HDR_SIZE + len;
-  while(off < total){
-    uint n;
-    if(off < HDR_SIZE)
-      n = ring_put(r, (const char *)&h + off, HDR_SIZE - off);
-    else {
-      p = (const char *)buf + (off - HDR_SIZE);
-      n = ring_put(r, p, total - off);
-    }
-    if(n > 0){
-      off += n;
-      wake(dst);
-      spins = 0;
-      continue;
-    }
-    if(progress())                   // keep our own receive side moving
-      spins = 0;
-    else
-      idle(&spins, dst);
-  }
+  struct mpi_req q;
+  int rc = isend_start(&q, buf, len, dst, tag);
+  if(rc != MPI_SUCCESS)
+    return rc;
+  req_wait(&q);
   return MPI_SUCCESS;
 }
 
 static int
 recv_bytes(void *buf, int cap, int src, int tag, MPI_Status *status)
 {
-  struct inmsg *m;
-  struct recvreq q;
-  int spins = 0;
-
-  if(src == MPI_PROC_NULL){
-    fill_status(status, MPI_PROC_NULL, MPI_ANY_TAG, 0, MPI_SUCCESS);
-    return MPI_SUCCESS;
-  }
-
-  // Pull in what is already there so the unexpected queue is current.
-  progress();
-  if((m = uq_find(src, tag)) != 0){
-    uq_remove(m);
-    while(!m->done){
-      if(progress())
-        spins = 0;
-      else
-        idle(&spins, -1);
-    }
-    int bytes = m->len <= cap ? m->len : cap;
-    fastcopy(buf, m->buf, bytes);
-    int err = m->len > cap ? MPI_ERR_TRUNCATE : MPI_SUCCESS;
-    fill_status(status, m->src, m->tag, bytes, err);
-    free(m->buf);
-    free(m);
-    return err;
-  }
-
-  q.src = src;
-  q.tag = tag;
-  q.buf = buf;
-  q.cap = cap;
-  q.done = 0;
-  posted = &q;
-  while(!q.done){
-    if(progress())
-      spins = 0;
-    else
-      idle(&spins, -1);
-  }
-  posted = 0;
+  struct mpi_req q;
+  int rc = irecv_start(&q, buf, cap, src, tag);
+  if(rc != MPI_SUCCESS)
+    return rc;
+  req_wait(&q);
   if(status != MPI_STATUS_IGNORE)
     *status = q.st;
   return q.st.MPI_ERROR;
@@ -647,6 +776,18 @@ MPI_Wtime_us(void)
   return clock_us();
 }
 
+double
+MPI_Wtime(void)
+{
+  return (double)clock_us() / 1000000.0;
+}
+
+double
+MPI_Wtick(void)
+{
+  return 1e-6;
+}
+
 // ---------------------------------------------------------------------------
 // point-to-point
 
@@ -716,16 +857,198 @@ MPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status)
     fill_status(status, MPI_PROC_NULL, MPI_ANY_TAG, 0, MPI_SUCCESS);
     return MPI_SUCCESS;
   }
-  // With no receive posted every arriving header lands on the queue, and its
-  // length is known as soon as the header is in.
+  // A header no posted receive takes lands on the queue, and its length is
+  // known as soon as the header is in.
   while((m = uq_find(source, tag)) == 0){
     if(progress())
       spins = 0;
     else
-      idle(&spins, -1);
+      idle(&spins);
   }
   fill_status(status, m->src, m->tag, m->len, MPI_SUCCESS);
   return MPI_SUCCESS;
+}
+
+int
+MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status)
+{
+  struct inmsg *m;
+  int rc = check_args(comm, 0, MPI_BYTE, source, 1);
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Iprobe", rc);
+  *flag = 0;
+  if(source == MPI_PROC_NULL){
+    *flag = 1;
+    fill_status(status, MPI_PROC_NULL, MPI_ANY_TAG, 0, MPI_SUCCESS);
+    return MPI_SUCCESS;
+  }
+  progress();
+  if((m = uq_find(source, tag)) != 0){
+    *flag = 1;
+    fill_status(status, m->src, m->tag, m->len, MPI_SUCCESS);
+  }
+  return MPI_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// non-blocking point-to-point
+
+int
+MPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+          MPI_Comm comm, MPI_Request *request)
+{
+  struct mpi_req *q;
+  int rc = check_args(comm, count, type, dest, 0);
+  if(rc == MPI_SUCCESS && (tag < 0 || tag > MPI_TAG_UB))
+    rc = MPI_ERR_TAG;
+  if(rc == MPI_SUCCESS && request == 0)
+    rc = MPI_ERR_ARG;
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Isend", rc);
+  if((q = malloc(sizeof(*q))) == 0)
+    return mpi_err("MPI_Isend", MPI_ERR_OTHER);
+  rc = isend_start(q, buf, count * typesize(type), dest, tag);
+  if(rc != MPI_SUCCESS){
+    free(q);
+    return mpi_err("MPI_Isend", rc);
+  }
+  q->heap = 1;
+  *request = q;
+  return MPI_SUCCESS;
+}
+
+int
+MPI_Irecv(void *buf, int count, MPI_Datatype type, int source, int tag,
+          MPI_Comm comm, MPI_Request *request)
+{
+  struct mpi_req *q;
+  int rc = check_args(comm, count, type, source, 1);
+  if(rc == MPI_SUCCESS && tag != MPI_ANY_TAG && (tag < 0 || tag > MPI_TAG_UB))
+    rc = MPI_ERR_TAG;
+  if(rc == MPI_SUCCESS && request == 0)
+    rc = MPI_ERR_ARG;
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Irecv", rc);
+  if((q = malloc(sizeof(*q))) == 0)
+    return mpi_err("MPI_Irecv", MPI_ERR_OTHER);
+  irecv_start(q, buf, count * typesize(type), source, tag);
+  q->heap = 1;
+  *request = q;
+  return MPI_SUCCESS;
+}
+
+// Release a completed request: copy its status out, free it, null the handle.
+static int
+req_finish(MPI_Request *request, MPI_Status *status)
+{
+  struct mpi_req *q = *request;
+  int err = q->st.MPI_ERROR;
+  if(status != MPI_STATUS_IGNORE){
+    *status = q->st;
+    if(q->kind == REQ_SEND)
+      status->MPI_ERROR = MPI_SUCCESS;
+  }
+  if(q->heap)
+    free(q);
+  *request = MPI_REQUEST_NULL;
+  return err;
+}
+
+static void
+null_status(MPI_Status *status)
+{
+  fill_status(status, MPI_ANY_SOURCE, MPI_ANY_TAG, 0, MPI_SUCCESS);
+}
+
+int
+MPI_Wait(MPI_Request *request, MPI_Status *status)
+{
+  if(request == 0)
+    return mpi_err("MPI_Wait", MPI_ERR_ARG);
+  if(*request == MPI_REQUEST_NULL){
+    null_status(status);
+    return MPI_SUCCESS;
+  }
+  req_wait(*request);
+  return req_finish(request, status);
+}
+
+int
+MPI_Test(MPI_Request *request, int *flag, MPI_Status *status)
+{
+  if(request == 0 || flag == 0)
+    return mpi_err("MPI_Test", MPI_ERR_ARG);
+  if(*request == MPI_REQUEST_NULL){
+    *flag = 1;
+    null_status(status);
+    return MPI_SUCCESS;
+  }
+  *flag = req_test(*request);
+  return *flag ? req_finish(request, status) : MPI_SUCCESS;
+}
+
+int
+MPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses)
+{
+  int rc = MPI_SUCCESS;
+  for(int i = 0; i < count; i++){
+    MPI_Status *st = statuses == MPI_STATUSES_IGNORE ? MPI_STATUS_IGNORE
+                                                     : &statuses[i];
+    int r = MPI_Wait(&requests[i], st);
+    if(r != MPI_SUCCESS)
+      rc = r;
+  }
+  return rc;
+}
+
+int
+MPI_Testall(int count, MPI_Request *requests, int *flag,
+            MPI_Status *statuses)
+{
+  // All or nothing: release requests only once every one is complete.
+  progress();
+  for(int i = 0; i < count; i++){
+    struct mpi_req *q = requests[i];
+    if(q && !q->done && q->um && q->um->done)
+      recv_from_um(q);
+    if(q && !q->done){
+      *flag = 0;
+      return MPI_SUCCESS;
+    }
+  }
+  *flag = 1;
+  return MPI_Waitall(count, requests, statuses);
+}
+
+int
+MPI_Waitany(int count, MPI_Request *requests, int *index, MPI_Status *status)
+{
+  int spins = 0, live;
+
+  for(;;){
+    live = 0;
+    for(int i = 0; i < count; i++){
+      struct mpi_req *q = requests[i];
+      if(q == MPI_REQUEST_NULL)
+        continue;
+      live = 1;
+      if(!q->done && q->um && q->um->done)
+        recv_from_um(q);
+      if(q->done){
+        *index = i;
+        return req_finish(&requests[i], status);
+      }
+    }
+    if(!live){
+      *index = MPI_UNDEFINED;
+      null_status(status);
+      return MPI_SUCCESS;
+    }
+    if(progress())
+      spins = 0;
+    else
+      idle(&spins);
+  }
 }
 
 int
@@ -787,6 +1110,20 @@ bcast_bytes(void *buf, int len, int root, int tag)
     }                                                                     \
   } while(0)
 
+#define REDUCE_FLOAT(T)                                                   \
+  do {                                                                    \
+    T *a = (T *)acc;                                                      \
+    const T *b = (const T *)in;                                           \
+    for(int i = 0; i < count; i++){                                       \
+      switch(op){                                                         \
+      case MPI_SUM:  a[i] = a[i] + b[i]; break;                           \
+      case MPI_PROD: a[i] = a[i] * b[i]; break;                           \
+      case MPI_MAX:  if(b[i] > a[i]) a[i] = b[i]; break;                  \
+      case MPI_MIN:  if(b[i] < a[i]) a[i] = b[i]; break;                  \
+      }                                                                   \
+    }                                                                     \
+  } while(0)
+
 static void
 combine(void *acc, const void *in, int count, MPI_Datatype type, MPI_Op op)
 {
@@ -801,6 +1138,8 @@ combine(void *acc, const void *in, int count, MPI_Datatype type, MPI_Op op)
   case MPI_LONG:
   case MPI_LONG_LONG:      REDUCE_LOOP(long); break;
   case MPI_UNSIGNED_LONG:  REDUCE_LOOP(unsigned long); break;
+  case MPI_FLOAT:          REDUCE_FLOAT(float); break;
+  case MPI_DOUBLE:         REDUCE_FLOAT(double); break;
   }
 }
 
@@ -878,8 +1217,10 @@ MPI_Bcast(void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm)
 }
 
 static int
-check_op(MPI_Op op)
+check_op(MPI_Op op, MPI_Datatype type)
 {
+  if(type == MPI_FLOAT || type == MPI_DOUBLE)
+    return op >= MPI_SUM && op <= MPI_MIN;   // no logical/bitwise on reals
   return op >= MPI_SUM && op <= MPI_BXOR;
 }
 
@@ -888,7 +1229,7 @@ MPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
            MPI_Op op, int root, MPI_Comm comm)
 {
   int rc = check_coll(comm, count, type, root);
-  if(rc == MPI_SUCCESS && !check_op(op))
+  if(rc == MPI_SUCCESS && !check_op(op, type))
     rc = MPI_ERR_OP;
   if(rc == MPI_SUCCESS)
     rc = reduce_impl(sendbuf, recvbuf, count, type, op, root, TAG_REDUCE);
@@ -900,7 +1241,7 @@ MPI_Allreduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
               MPI_Op op, MPI_Comm comm)
 {
   int rc = check_coll(comm, count, type, 0);
-  if(rc == MPI_SUCCESS && !check_op(op))
+  if(rc == MPI_SUCCESS && !check_op(op, type))
     rc = MPI_ERR_OP;
   if(rc == MPI_SUCCESS)
     rc = reduce_impl(sendbuf, recvbuf, count, type, op, 0, TAG_REDUCE);

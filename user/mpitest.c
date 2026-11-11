@@ -189,6 +189,166 @@ test_collectives(void)
   report("collectives");
 }
 
+static void
+test_nonblocking(void)
+{
+  int left = (rank - 1 + size) % size, right = (rank + 1) % size;
+  MPI_Request rq[8];
+  MPI_Status st[8];
+  int i, flag;
+
+  // Ring shift with both requests outstanding, large enough to stream.
+  int n = 40000;
+  int *out = malloc(n * sizeof(int)), *in = malloc(n * sizeof(int));
+  for(i = 0; i < n; i++)
+    out[i] = rank * 7919 + i;
+  MPI_Irecv(in, n, MPI_INT, left, 50, MPI_COMM_WORLD, &rq[0]);
+  MPI_Isend(out, n, MPI_INT, right, 50, MPI_COMM_WORLD, &rq[1]);
+  MPI_Waitall(2, rq, st);
+  CHECK(rq[0] == MPI_REQUEST_NULL && rq[1] == MPI_REQUEST_NULL, "not nulled");
+  CHECK(st[0].MPI_SOURCE == left && st[0].MPI_TAG == 50, "st src %d tag %d",
+        st[0].MPI_SOURCE, st[0].MPI_TAG);
+  for(i = 0; i < n; i++)
+    if(in[i] != left * 7919 + i){
+      CHECK(0, "shift word %d = %d", i, in[i]);
+      break;
+    }
+  free(out);
+  free(in);
+
+  // Posted receives match in post order, whatever order messages arrive in.
+  if(size > 1){
+    if(rank == 0){
+      int a = 0, b = 0, c = 0, d = 0;
+      MPI_Irecv(&a, 1, MPI_INT, 1, 61, MPI_COMM_WORLD, &rq[0]);
+      MPI_Irecv(&b, 1, MPI_INT, 1, 62, MPI_COMM_WORLD, &rq[1]);
+      MPI_Irecv(&c, 1, MPI_INT, 1, MPI_ANY_TAG, MPI_COMM_WORLD, &rq[2]);
+      MPI_Irecv(&d, 1, MPI_INT, MPI_ANY_SOURCE, 63, MPI_COMM_WORLD, &rq[3]);
+      int go = 1;
+      MPI_Send(&go, 1, MPI_INT, 1, 60, MPI_COMM_WORLD);   // receives are up
+      do {
+        MPI_Testall(4, rq, &flag, st);
+      } while(!flag);
+      // rank 1 sends tags 62, 63, 61, 63.  The first 63 goes to c (the
+      // earlier-posted ANY_TAG receive), not d; the second 63 goes to d.
+      CHECK(a == 610 && b == 620 && c == 630 && d == 631,
+            "a %d b %d c %d d %d", a, b, c, d);
+    } else if(rank == 1){
+      int go, v;
+      MPI_Recv(&go, 1, MPI_INT, 0, 60, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      v = 620; MPI_Send(&v, 1, MPI_INT, 0, 62, MPI_COMM_WORLD);
+      v = 630; MPI_Send(&v, 1, MPI_INT, 0, 63, MPI_COMM_WORLD);
+      v = 610; MPI_Send(&v, 1, MPI_INT, 0, 61, MPI_COMM_WORLD);
+      v = 631; MPI_Send(&v, 1, MPI_INT, 0, 63, MPI_COMM_WORLD);
+    }
+  }
+
+  // Waitany collects one message from every other rank.
+  if(rank == 0){
+    int vals[MPI_MAX_RANKS], idx, seen = 0;
+    for(i = 1; i < size; i++)
+      MPI_Irecv(&vals[i], 1, MPI_INT, i, 70, MPI_COMM_WORLD, &rq[i - 1]);
+    for(i = 1; i < size; i++){
+      MPI_Waitany(size - 1, rq, &idx, &st[0]);
+      CHECK(idx >= 0 && st[0].MPI_SOURCE == idx + 1 &&
+            vals[idx + 1] == 700 + idx + 1, "waitany idx %d", idx);
+      seen |= 1 << (idx + 1);
+    }
+    CHECK(seen == (1 << size) - 2, "waitany seen %x", seen);
+    MPI_Waitany(size - 1, rq, &idx, MPI_STATUS_IGNORE);
+    CHECK(idx == MPI_UNDEFINED, "waitany on all-null gave %d", idx);
+  } else {
+    int v = 700 + rank;
+    MPI_Isend(&v, 1, MPI_INT, 0, 70, MPI_COMM_WORLD, &rq[0]);
+    MPI_Wait(&rq[0], MPI_STATUS_IGNORE);
+  }
+
+  // MPI_Test polling, self-send, and a receive matching an unexpected
+  // message that is still arriving.
+  int x = rank * 3, y = -1;
+  MPI_Irecv(&y, 1, MPI_INT, rank, 80, MPI_COMM_WORLD, &rq[0]);
+  MPI_Isend(&x, 1, MPI_INT, rank, 80, MPI_COMM_WORLD, &rq[1]);
+  do {
+    MPI_Test(&rq[0], &flag, MPI_STATUS_IGNORE);
+  } while(!flag);
+  MPI_Wait(&rq[1], MPI_STATUS_IGNORE);
+  CHECK(y == rank * 3, "self irecv y %d", y);
+
+  if(size > 1){
+    int big = 30000;
+    int *buf = malloc(big * sizeof(int));
+    if(rank == 1){
+      for(i = 0; i < big; i++)
+        buf[i] = i ^ 0x5a5a;
+      MPI_Send(buf, big, MPI_INT, 0, 90, MPI_COMM_WORLD);
+    } else if(rank == 0){
+      int probed = 0;
+      MPI_Status ps;
+      while(!probed)                 // header in, payload maybe not yet
+        MPI_Iprobe(1, 90, MPI_COMM_WORLD, &probed, &ps);
+      memset(buf, 0, big * sizeof(int));
+      MPI_Irecv(buf, big, MPI_INT, 1, 90, MPI_COMM_WORLD, &rq[0]);
+      MPI_Wait(&rq[0], &st[0]);
+      int cnt;
+      MPI_Get_count(&st[0], MPI_INT, &cnt);
+      CHECK(cnt == big, "count %d", cnt);
+      for(i = 0; i < big; i++)
+        if(buf[i] != (i ^ 0x5a5a)){
+          CHECK(0, "um word %d = %d", i, buf[i]);
+          break;
+        }
+    }
+    free(buf);
+  }
+  report("non-blocking Isend/Irecv/Wait/Test/Waitany");
+}
+
+static long
+dabs_scaled(double x)
+{
+  if(x < 0)
+    x = -x;
+  return (long)(x * 1e12);
+}
+
+static void
+test_double(void)
+{
+  const int n = 1000000;
+  double h = 1.0 / n, part = 0, pi = 0;
+  double t0 = MPI_Wtime();
+
+  for(int i = rank; i < n; i += size){
+    double x = h * (i + 0.5);
+    part += 4.0 / (1.0 + x * x);
+  }
+  part *= h;
+  MPI_Allreduce(&part, &pi, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  CHECK(dabs_scaled(pi - 3.14159265358979323846) < 1000,
+        "pi err %d e-12", (int)dabs_scaled(pi - 3.14159265358979323846));
+
+  double v[3] = { rank + 0.25, -rank * 1.5, 1.0 + rank }, mx[3], mn[3];
+  MPI_Allreduce(v, mx, 3, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  MPI_Allreduce(v, mn, 3, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+  CHECK(mx[0] == size - 1 + 0.25 && mx[1] == 0 && mn[1] == -(size - 1) * 1.5,
+        "double max/min");
+  float f = 0.5f * (rank + 1), fs = 0;
+  MPI_Reduce(&f, &fs, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+  if(rank == 0)
+    CHECK(fs == 0.25f * size * (size + 1), "float sum");
+  double prod = 0;
+  double two = 2.0;
+  MPI_Allreduce(&two, &prod, 1, MPI_DOUBLE, MPI_PROD, MPI_COMM_WORLD);
+  CHECK(prod == (double)(1 << size), "double prod");
+  if(rank == 0){
+    long frac = (long)((pi - 3) * 1e12);
+    printf("mpitest: double pi ~= 3.%d%d (%d ranks, %d us)\n",
+           (int)(frac / 1000000), (int)(frac % 1000000), size,
+           (int)((MPI_Wtime() - t0) * 1e6));
+  }
+  report("MPI_DOUBLE/MPI_FLOAT reductions, MPI_Wtime");
+}
+
 // pi = integral_0^1 4/(1+x^2), midpoint rule in fixed point (no FP here):
 // pi * 1e12 ~= sum_i 16e12 * n / (4n^2 + (2i+1)^2)
 static void
@@ -283,6 +443,8 @@ main(int argc, char *argv[])
   test_matching();
   test_collectives();
   test_pi();
+  test_nonblocking();
+  test_double();
   bench();
 
   MPI_Allreduce(&failures, &total, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
