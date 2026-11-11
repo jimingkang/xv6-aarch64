@@ -241,6 +241,16 @@ sdio_claim_irq(struct sdio_func *func)
   return cmd52_host(func->host, 0, 1, CCCR_INT_ENABLE, &enable);
 }
 
+// CCCR INT_PENDING: bit n set when function n asserts its interrupt.  A
+// CMD52, so it does not move data on DAT[3:0].
+int
+sdio_int_pending(struct sdio_func *func, uint8 *pending)
+{
+  if(func == 0)
+    return -1;
+  return cmd52_host(func->host, 0, 0, 0x05, pending);
+}
+
 void
 sdio_release_irq(struct sdio_func *func)
 {

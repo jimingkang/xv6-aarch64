@@ -170,13 +170,16 @@ gpio_init(void)
 {
   for(int pin = 34; pin <= 39; pin++)
     gpio_alt3(pin);
-  // No pull on CLK (34), pull-up CMD/DAT (35..39).
+  // No pull on CLK (34), pull-up CMD/DAT (35..39).  GPIO32..53 are clocked
+  // by GPPUDCLK1 (0x9c), bits 3..7 for pins 35..39.  (This used GPPUDCLK0,
+  // which pulled up GPIO3..7 instead and left DAT1 floating: the host then
+  // saw an SDIO card interrupt whenever it was re-enabled, ~50k times/s.)
   *reg(GPIO_BASE, 0x94) = 2;
   delay_us(2);
-  *reg(GPIO_BASE, 0x98) = 0x000000f8U;
+  *reg(GPIO_BASE, 0x9c) = 0x000000f8U;
   delay_us(2);
   *reg(GPIO_BASE, 0x94) = 0;
-  *reg(GPIO_BASE, 0x98) = 0;
+  *reg(GPIO_BASE, 0x9c) = 0;
 }
 
 static uint32

@@ -111,6 +111,7 @@ int sdio_cmd53(struct sdio_func *func, int write, uint32 addr,
                int increment, void *buffer, int len);
 int sdio_enable_func(struct sdio_func *func);
 int sdio_claim_irq(struct sdio_func *func);
+int sdio_int_pending(struct sdio_func *func, uint8 *pending);
 void sdio_release_irq(struct sdio_func *func);
 
 #endif

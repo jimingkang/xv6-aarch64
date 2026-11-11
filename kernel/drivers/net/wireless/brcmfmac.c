@@ -294,6 +294,8 @@ struct brcmf_bus_state {
   struct workqueue *wq;
   struct napi_struct napi;
   struct delayed_work state_work;
+  struct delayed_work irq_work;  // re-enables the SDIO IRQ after a spurious one
+  int rx_spurious;               // last poll: card had no F1 interrupt pending
   int connect_active;
   int connect_timedout;
   uint64 connect_deadline;
@@ -315,6 +317,7 @@ static char *brcmf_wq_names[BRCMF_MAX_DEVICES] = {
 
 static int brcmf_napi_poll(struct napi_struct*, int);
 static void brcmf_state_worker(struct work_struct*);
+static void brcmf_irq_worker(struct work_struct*);
 static int brcmf_finish_wpa_handshake(struct brcmf_bus_state*);
 
 static struct brcmf_bus_state *
@@ -331,6 +334,7 @@ brcmf_alloc_bus(void)
     netif_napi_add(&brcmf_devices[i].netdev, &brcmf_devices[i].napi,
                    brcmf_devices[i].wq, brcmf_napi_poll, 16);
     init_delayed_work(&brcmf_devices[i].state_work, brcmf_state_worker);
+    init_delayed_work(&brcmf_devices[i].irq_work, brcmf_irq_worker);
     return &brcmf_devices[i];
   }
   return 0;
@@ -344,6 +348,7 @@ brcmf_free_bus(struct brcmf_bus_state *bus)
     __sync_synchronize();
     napi_disable(&bus->napi);
     cancel_delayed_work_sync(&bus->state_work);
+    cancel_delayed_work_sync(&bus->irq_work);
     memset(bus, 0, sizeof(*bus));
   }
 }
@@ -1168,6 +1173,17 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   uint16 length, check;
   int rest, rounded, offset;
 
+  if(!brcmf_bus.rx_more){
+    // As Linux's sdio_run_irqs() does, ask the card (CCCR INT_PENDING, one
+    // CMD52) whether F1 interrupts before the slower backplane reads, so a
+    // spurious host-side card interrupt costs little.
+    uint8 pending;
+    if(sdio_int_pending(brcmf_bus.f1, &pending) < 0)
+      return -1;
+    brcmf_bus.rx_spurious = (pending & 0x02) == 0;
+    if(brcmf_bus.rx_spurious)
+      return 0;
+  }
   if(brcmf_backplane_read32(brcmf_bus.f1,
        brcmf_bus.sdio_base + SDIO_CORE_INTSTATUS, &intstatus) < 0)
     return -1;
@@ -1335,7 +1351,7 @@ static int
 brcmf_napi_poll(struct napi_struct *napi, int budget)
 {
   struct brcmf_bus_state *bus = napi && napi->dev ? napi->dev->priv : 0;
-  int work_done = 0, drained = 0, finish_keys = 0;
+  int work_done = 0, drained = 0, finish_keys = 0, spurious = 0;
 
   if(bus == 0 || !bus->used || !bus->ready){
     napi_complete_done(napi, 0);
@@ -1367,14 +1383,31 @@ brcmf_napi_poll(struct napi_struct *napi, int budget)
   // installation and DHCP sequencing.  Once that connection loop has
   // stopped, NAPI must finish later AP-initiated pairwise rekeys itself.
   finish_keys = brcmf_bus.keys_pending && !brcmf_bus.connect_active;
+  spurious = work_done == 0 && brcmf_bus.rx_spurious;
   release(&brcmf_bus.lock);
 
   if(finish_keys && brcmf_finish_wpa_handshake(bus) < 0)
     printf("brcmfmac: asynchronous WPA2 rekey failed\n");
 
-  if(drained && napi_complete_done(napi, work_done))
-    arasan_sdio_irq_complete();
+  if(drained && napi_complete_done(napi, work_done)){
+    // The Arasan host reports SDIO card interrupts that the card does not
+    // have pending (CCCR INT_PENDING clear), again as soon as the IRQ is
+    // re-enabled: tens of thousands per second, which kept brcmf0_wq on a
+    // CPU.  After such a spurious one, leave the IRQ masked for a tick.  A
+    // real interrupt is then seen at most one tick (10 ms) late.
+    if(spurious)
+      queue_delayed_work(bus->wq, &bus->irq_work, 1);
+    else
+      arasan_sdio_irq_complete();
+  }
   return work_done;
+}
+
+static void
+brcmf_irq_worker(struct work_struct *work)
+{
+  (void)work;
+  arasan_sdio_irq_complete();
 }
 
 static struct brcmf_bus_state *
