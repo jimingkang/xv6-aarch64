@@ -1,6 +1,7 @@
 #include <uapi/types.h>
 #include <uapi/stat.h>
 #include "user/user.h"
+#include "user/fmtfp.h"
 
 #include <stdarg.h>
 
@@ -63,7 +64,60 @@ printptr(int fd, uint64 x) {
   return written;
 }
 
-// Print to the given fd. Only understands %d, %x, %p, %s.
+// %[-+ 0#][width][.prec](e|E|f|F|g|G): returns the index of the conversion
+// character, or 0 if fmt[i] does not start a floating-point conversion.
+static int
+fp_spec(const char *fmt, int i, va_list *ap, int *width, int *prec, int *flags)
+{
+  int j = i, w = 0, p = -1, fl = 0, wstar = 0, pstar = 0;
+  for(;; j++){
+    if(fmt[j] == '-') fl |= FMT_LEFT;
+    else if(fmt[j] == '+') fl |= FMT_PLUS;
+    else if(fmt[j] == ' ') fl |= FMT_SPACE;
+    else if(fmt[j] == '0') fl |= FMT_ZERO;
+    else if(fmt[j] == '#') fl |= FMT_ALT;
+    else break;
+  }
+  if(fmt[j] == '*'){
+    wstar = 1;
+    j++;
+  } else
+    while(fmt[j] >= '0' && fmt[j] <= '9')
+      w = w * 10 + (fmt[j++] - '0');
+  if(fmt[j] == '.'){
+    j++;
+    p = 0;
+    if(fmt[j] == '*'){
+      pstar = 1;
+      j++;
+    } else
+      while(fmt[j] >= '0' && fmt[j] <= '9')
+        p = p * 10 + (fmt[j++] - '0');
+  }
+  if(fmt[j] == 'l' || fmt[j] == 'L')
+    j++;
+  if(fmt[j] != 'e' && fmt[j] != 'E' && fmt[j] != 'f' && fmt[j] != 'F' &&
+     fmt[j] != 'g' && fmt[j] != 'G')
+    return 0;
+  if(wstar){
+    w = va_arg(*ap, int);
+    if(w < 0){
+      fl |= FMT_LEFT;
+      w = -w;
+    }
+  }
+  if(pstar)
+    p = va_arg(*ap, int);
+  if(fl & FMT_LEFT)
+    fl &= ~FMT_ZERO;
+  *width = w;
+  *prec = p;
+  *flags = fl;
+  return j;
+}
+
+// Print to the given fd. Understands %d, %x, %p, %s, %c, %l and the
+// floating-point conversions %e/%f/%g with flags, width and precision.
 static int
 vfdprintf(int fd, const char *fmt, va_list ap)
 {
@@ -74,7 +128,14 @@ vfdprintf(int fd, const char *fmt, va_list ap)
   for(i = 0; fmt[i]; i++){
     c = fmt[i] & 0xff;
     if(state == 0){
-      if(c == '%'){
+      int conv, w, p, fl;
+      if(c == '%' && (conv = fp_spec(fmt, i + 1, (va_list *)&ap, &w, &p, &fl))){
+        char fbuf[400];
+        int n = fmt_double(fbuf, sizeof(fbuf), va_arg(ap, double), w, p, fl,
+                           fmt[conv]);
+        written += write(fd, fbuf, n < (int)sizeof(fbuf) ? n : (int)sizeof(fbuf) - 1);
+        i = conv;
+      } else if(c == '%'){
         state = '%';
       } else {
         written += putc(fd, c);
@@ -182,6 +243,18 @@ vsnprintf(char *buffer, uint size, const char *fmt, va_list ap)
     if(c != '%'){
       bufchar(buffer, size, &total, c);
       continue;
+    }
+    {
+      int conv, w, p, fl;
+      if((conv = fp_spec(fmt, i + 1, (va_list *)&ap, &w, &p, &fl))){
+        char fbuf[400];
+        int n = fmt_double(fbuf, sizeof(fbuf), va_arg(ap, double), w, p, fl,
+                           fmt[conv]);
+        for(int k = 0; k < n && k < (int)sizeof(fbuf) - 1; k++)
+          bufchar(buffer, size, &total, fbuf[k]);
+        i = conv;
+        continue;
+      }
     }
     c = fmt[++i] & 0xff;
     if(c == 0)

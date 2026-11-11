@@ -1,0 +1,10 @@
+#pragma once
+#include <__xv6_libc.h>
+namespace std {
+inline void *memcpy(void *d, const void *s, size_t n) { return ::memmove(d, s, (int)n); }
+inline void *memmove(void *d, const void *s, size_t n) { return ::memmove(d, s, (int)n); }
+inline void *memset(void *d, int c, size_t n) { return ::memset(d, c, (unsigned)n); }
+inline int memcmp(const void *a, const void *b, size_t n) { return ::memcmp(a, b, (unsigned)n); }
+inline size_t strlen(const char *s) { return ::strlen(s); }
+using ::strcmp; using ::strncmp; using ::strcpy;
+}

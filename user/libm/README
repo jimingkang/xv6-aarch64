@@ -1,0 +1,7 @@
+Double-precision libm for xv6 user programs, taken unmodified from musl 1.2.5
+src/math (and src/math/aarch64 for the instructions that AArch64 has in
+hardware: sqrt, floor, ceil, trunc, round, fabs, fmax, fmin, fma).
+See COPYRIGHT.musl for the license (MIT).  features.h and endian.h are
+local stand-ins for musl's internal headers, and libm.h includes
+features.h (musl gets it via its own math.h).  The public header is
+user/include/math.h.  Built into user/libm.a.

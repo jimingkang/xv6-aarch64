@@ -51,14 +51,24 @@ $ mpirun -np 4 mpitest      # or: mpitest -np 4
 
 `MPI_Init/Initialized/Finalize/Abort`, `Comm_rank/size`,
 `Get_processor_name`, `Type_size`, `MPI_Wtime/Wtick/Wtime_us`;
-`Send/Recv/Sendrecv`, `Probe/Iprobe`, `Get_count` (with `MPI_ANY_SOURCE`,
-`MPI_ANY_TAG`, `MPI_PROC_NULL`); `Isend/Irecv`, `Wait/Waitall/Waitany`,
-`Test/Testall` (`MPI_REQUEST_NULL`, `MPI_STATUSES_IGNORE`);
-`Barrier`, `Bcast`, `Reduce`, `Allreduce`, `Gather`, `Scatter`, `Allgather`,
-`Alltoall` (`MPI_IN_PLACE` supported for Reduce/Allreduce/Gather/Allgather).
+`Send/Recv/Sendrecv/Ssend`, `Probe/Iprobe`, `Get_count` (with
+`MPI_ANY_SOURCE`, `MPI_ANY_TAG`, `MPI_PROC_NULL`); `Isend/Irecv/Issend`,
+`Wait/Waitall/Waitany/Waitsome`, `Test/Testall` (`MPI_REQUEST_NULL`,
+`MPI_STATUSES_IGNORE`); persistent `Send_init/Recv_init/Start/Startall/
+Request_free`; `Barrier`, `Bcast`, `Reduce`, `Allreduce`, `Gather`,
+`Gatherv`, `Scatter`, `Allgather`, `Allgatherv`, `Alltoall`, `Alltoallv`
+(`MPI_IN_PLACE` supported for Reduce/Allreduce/Gather/Gatherv/Allgather/
+Allgatherv); `Iallreduce` and `Ibarrier`, which finish inside the call and
+return a completed request. `Ineighbor_alltoallv` exists for linking only and
+returns `MPI_ERR_COMM`.
 The integer types are `CHAR/BYTE/UNSIGNED_CHAR/SHORT/UNSIGNED_SHORT/INT/UNSIGNED/LONG/UNSIGNED_LONG/LONG_LONG`,
 with ops `SUM PROD MAX MIN LAND LOR BAND BOR BXOR`. `FLOAT` and `DOUBLE`
 take `SUM PROD MAX MIN`.
+
+Every function also exists as `PMPI_x` (the MPI profiling interface).
+`libc.so` defines `PMPI_x`, makes `MPI_x` an alias, and calls only `PMPI_x`
+itself. A program can therefore define its own `MPI_x` wrappers that call
+`PMPI_x`. `mpi.h` can be included from C++.
 
 ## FP/SIMD context (kernel)
 
@@ -89,9 +99,11 @@ across tasks. With the scheduler's save/load commented out, it fails.
 
 ## Limits
 
-* Collectives are blocking only. There is no `MPI_Cancel`, no persistent
-  requests, and no derived datatypes.
-* `printf` has no `%f`. Print doubles scaled to integers.
+* Collectives are blocking (`Iallreduce`/`Ibarrier` complete at once).
+  There is no `MPI_Cancel` and there are no derived datatypes.
+  `MPI_Request_free` on an active request waits for it.
+* `printf` formats doubles with `%e`, `%f` and `%g` (flags, width and
+  precision), using `user/fmtfp.c`.
 * N ≤ 8 (`MPI_MAX_RANKS`). Each job uses N of the 64 kernel sync objects
   (`NSYNC`). If a rank crashes, the other ranks keep waiting. Use
   `MPI_Abort` or `kill`.

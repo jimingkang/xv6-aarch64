@@ -1,0 +1,4 @@
+#pragma once
+// Only the pieces of <tuple> that std::pair and std::array provide.
+#include <utility>
+#include <array>

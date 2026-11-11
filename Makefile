@@ -532,7 +532,7 @@ tags: $(OBJS) _init
 	etags *.S *.c
 
 LIBC_OBJS = $U/libc_syscall.o $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
-	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o $U/mpi.o
+	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o $U/mpi.o $U/fmtfp.o
 LIBC_PIC_OBJS = $(LIBC_OBJS:.o=.pic.o)
 
 # User programs and libc use the private user-facing libc/POSIX headers.
@@ -575,6 +575,8 @@ $U/usys.pic.o: $U/usys.S
 
 $U/libc.so: $(LIBC_PIC_OBJS)
 	$(LD) $(LDFLAGS) -shared --no-undefined -soname libc.so -o $@ $^
+	# Symbols stay; DWARF goes, or libc.so outgrows xv6fs's MAXFILE (268 KB).
+	$(OBJCOPY) --strip-debug $@
 
 # The ELF interpreter is deliberately self-contained.  It executes before
 # libc has been mapped or relocated and uses raw syscalls through usys.pic.o.
@@ -608,6 +610,71 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
+
+# ---------------------------------------------------------------------------
+# C++ user programs: the fem finite-element port (user/fem) and the support
+# it needs.  The cross compilers ship no C++ library, so user/cxx provides a
+# header-only subset of the standard library and a small runtime, user/eigen
+# a subset of Eigen's sparse API and user/petsc a subset of PETSc over
+# user/mpi.c.  Exceptions are compiled out (see user/cxx/include/
+# __xv6_cxx_config.h): a throw prints what() and exits.
+# ---------------------------------------------------------------------------
+CXX = $(TOOLPREFIX)g++
+GCC_INCLUDE := $(shell $(CC) -print-file-name=include)
+LIBGCC := $(shell $(CC) -print-libgcc-file-name)
+CXXFLAGS = -std=c++17 -O2 -g -mcpu=cortex-a53 -ffreestanding -fno-common -fPIE -MD \
+	-nostdinc -nostdinc++ -isystem $(GCC_INCLUDE) -isystem $U/cxx/include \
+	-include __xv6_cxx_config.h -fno-exceptions -fno-rtti -fno-threadsafe-statics \
+	-fno-stack-protector -Wall -Wno-unused-variable \
+	-I$U/include -I$U/eigen -I$U/petsc/include -I$U/fem -I$U/fem/include \
+	-DFEAPPV_HAS_PETSC -DEIGEN_DONT_PARALLELIZE
+CXX_LD_MODE = $(USER_LD_MODE) -e _xv6_cxx_start
+
+$U/%.o: $U/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# musl's libm (user/libm), linked statically into the programs that use it.
+LIBM_OBJS = $(patsubst %.c,%.o,$(wildcard $U/libm/*.c))
+$U/libm/%.o: $U/libm/%.c
+	$(CC) -O2 -g -mcpu=cortex-a53 -ffreestanding -fno-common -fPIE -fno-builtin \
+	  -fno-stack-protector -nostdinc -I$U/libm -I$U/include -isystem $(GCC_INCLUDE) \
+	  -std=c99 -w -MD -c -o $@ $<
+$U/libm.a: $(LIBM_OBJS)
+	$(AR) rcs $@ $^
+
+$U/cxx/cxxstart.o: $U/cxx/cxxstart.c
+	$(CC) $(USER_CFLAGS) -fPIE -c -o $@ $<
+$U/libcxxrt.a: $U/cxx/cxxrt.o $U/cxx/cxxstart.o
+	$(AR) rcs $@ $^
+
+$U/libpetsc.a: $U/petsc/petsc.o
+	$(AR) rcs $@ $^
+
+FEM_LIB_OBJS = $(addprefix $U/fem/,elements/solid1d/bar1.o elements/frame/truss2.o \
+	elements/frame/beam2.o elements/frame/beam3.o elements/solid2d/continuum.o \
+	elements/shells/plate_q4.o elements/shells/shell_q4.o program/model.o \
+	program/spatial_moment.o program/petsc_model.o)
+$U/libfem.a: $(FEM_LIB_OBJS)
+	$(AR) rcs $@ $^
+
+# $(call cxx_program,name,objects) links $U/_name against libfem, libpetsc,
+# the C++ runtime, libm, libc.so and libgcc.  Debug info is stripped: with
+# it the larger programs exceed xv6fs's MAXFILE (268 KB).
+CXX_LIBS = $U/libfem.a $U/libpetsc.a $U/libcxxrt.a $U/libm.a
+define cxx_program
+$U/_$(1): $(2) $(CXX_LIBS) $(ULIB) $(USER_LINK_STAMP)
+	$$(LD) $$(LDFLAGS) $$(CXX_LD_MODE) -o $$@ $(2) $(CXX_LIBS) $$(ULIB) $$(LIBGCC)
+	$$(OBJCOPY) --strip-debug $$@
+endef
+$(eval $(call cxx_program,bar_demo,$U/fem/main/bar.o))
+$(eval $(call cxx_program,truss_demo,$U/fem/main/truss.o))
+$(eval $(call cxx_program,element_benchmarks,$U/fem/tests/elements.o))
+$(eval $(call cxx_program,finite_element_benchmarks,$U/fem/tests/finite_elements.o))
+$(eval $(call cxx_program,plate_locking_benchmark,$U/fem/tests/plate_locking.o))
+$(eval $(call cxx_program,shell_mpi_benchmark,$U/fem/tests/shell_mpi.o $U/fem/tests/shell_mpi_profile.o))
+
+FEM_UPROGS = $U/_bar_demo $U/_truss_demo $U/_element_benchmarks \
+	$U/_finite_element_benchmarks $U/_plate_locking_benchmark $U/_shell_mpi_benchmark
 
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
@@ -683,6 +750,7 @@ UPROGS=\
 	$U/_mpirun\
 	$U/_mpitest\
 	$U/_fptest\
+	$(FEM_UPROGS)\
 
 # ---------------------------------------------------------------------------
 # Loadable kernel modules (.ko): the =m half of the driver model.
@@ -749,6 +817,9 @@ clean: clean-t113
 	$(QEMU_SD_IMAGE) \
 	$(MODULES) $(MODULES:.ko=.mod.o) $(MODULES:%=%.raw) \
 	mkfs/mkfs .gdbinit $U/libc.a $U/libc.so $U/ld-xv6.so $U/.dynamic-user $U/.static-user \
+	$U/libm.a $U/libcxxrt.a $U/libpetsc.a $U/libfem.a $U/libm/*.o $U/libm/*.d \
+	$U/cxx/*.o $U/cxx/*.d $U/petsc/*.o $U/petsc/*.d \
+	$U/fem/*/*.o $U/fem/*/*.d $U/fem/*/*/*.o $U/fem/*/*/*.d \
         $U/usys.S \
 	$(UPROGS)
 	# Remove numbered duplicate build products created by repeated Finder/copy
@@ -864,3 +935,5 @@ qemu-net: $(QEMU_SD_DEP)
 qemu-gdb: $(KERNEL_IMAGE) .gdbinit $(QEMU_SD_DEP)
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
+
+-include $(wildcard $U/fem/*/*.d $U/fem/*/*/*.d $U/cxx/*.d $U/petsc/*.d $U/libm/*.d)

@@ -1,0 +1,7 @@
+#pragma once
+namespace __xv6cxx { [[noreturn]] void fail_message(const char *kind, const char *what); }
+#ifdef NDEBUG
+#define assert(x) ((void)0)
+#else
+#define assert(x) ((x) ? (void)0 : ::__xv6cxx::fail_message("assertion failed", #x))
+#endif

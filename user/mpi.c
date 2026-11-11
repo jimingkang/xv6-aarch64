@@ -51,6 +51,9 @@
 #define TAG_GATHER   (-104)
 #define TAG_SCATTER  (-105)
 #define TAG_ALLTOALL (-106)
+#define TAG_ALLGATHERV (-107)
+#define TAG_ALLTOALLV  (-108)
+#define TAG_GATHERV    (-109)
 
 struct ring {
   uint head;                  // written by the producer only
@@ -97,6 +100,7 @@ struct mpi_req {
   int kind;
   int done;
   int heap;                   // malloc'd by Isend/Irecv
+  struct mpi_persist *pers;   // set for Send_init/Recv_init requests
   MPI_Status st;
   struct mpi_req *next;       // send queue of its destination, or posted list
   // send: header + payload streamed from the caller's buffer
@@ -109,6 +113,15 @@ struct mpi_req {
   char *buf;
   int cap;
   struct inmsg *um;           // matched unexpected message still arriving
+};
+
+// Arguments of a persistent request, replayed by MPI_Start.  The request
+// is inactive (done, nothing queued) between a completion and the next Start.
+struct mpi_persist {
+  int kind;
+  void *buf;
+  int len, peer, tag;
+  int active;
 };
 
 static struct shared *shm;
@@ -326,7 +339,7 @@ progress_src(int s)
       m = malloc(sizeof(*m));
       if(m == 0){
         fprintf(2, "mpi: rank %d: out of memory\n", me);
-        MPI_Abort(MPI_COMM_WORLD, 1);
+        PMPI_Abort(MPI_COMM_WORLD, 1);
       }
       m->next = 0;
       m->src = s;
@@ -344,7 +357,7 @@ progress_src(int s)
         m->buf = malloc(h.len > 0 ? h.len : 1);
         if(m->buf == 0){
           fprintf(2, "mpi: rank %d: out of memory\n", me);
-          MPI_Abort(MPI_COMM_WORLD, 1);
+          PMPI_Abort(MPI_COMM_WORLD, 1);
         }
         m->cap = h.len;
         uq_append(m);
@@ -634,7 +647,7 @@ check_comm(MPI_Comm comm)
 }
 
 int
-MPI_Init(int *argc, char ***argv)
+PMPI_Init(int *argc, char ***argv)
 {
   int n = 1;
 
@@ -676,7 +689,7 @@ MPI_Init(int *argc, char ***argv)
     if(pid < 0){
       fprintf(2, "mpi: fork failed for rank %d\n", r);
       initialized = 1;
-      MPI_Abort(MPI_COMM_WORLD, 1);
+      PMPI_Abort(MPI_COMM_WORLD, 1);
     }
     if(pid == 0){
       me = r;
@@ -688,24 +701,24 @@ MPI_Init(int *argc, char ***argv)
     sched_setaffinity(getpid(), 1U << (me % NCPU));
   initialized = 1;
   // Make sure every rank exists (and every pid is recorded) before user code.
-  return MPI_Barrier(MPI_COMM_WORLD);
+  return PMPI_Barrier(MPI_COMM_WORLD);
 }
 
 int
-MPI_Initialized(int *flag)
+PMPI_Initialized(int *flag)
 {
   *flag = initialized;
   return MPI_SUCCESS;
 }
 
 int
-MPI_Finalize(void)
+PMPI_Finalize(void)
 {
   int rc;
 
   if(!initialized || finalized)
     return mpi_err("MPI_Finalize", MPI_ERR_OTHER);
-  rc = MPI_Barrier(MPI_COMM_WORLD);
+  rc = PMPI_Barrier(MPI_COMM_WORLD);
   finalized = 1;
   if(me == 0){
     for(int r = 1; r < nranks; r++)
@@ -717,7 +730,7 @@ MPI_Finalize(void)
 }
 
 int
-MPI_Abort(MPI_Comm comm, int errorcode)
+PMPI_Abort(MPI_Comm comm, int errorcode)
 {
   (void)comm;
   if(shm){
@@ -731,7 +744,7 @@ MPI_Abort(MPI_Comm comm, int errorcode)
 }
 
 int
-MPI_Comm_rank(MPI_Comm comm, int *rank)
+PMPI_Comm_rank(MPI_Comm comm, int *rank)
 {
   if(!check_comm(comm))
     return MPI_ERR_COMM;
@@ -740,7 +753,7 @@ MPI_Comm_rank(MPI_Comm comm, int *rank)
 }
 
 int
-MPI_Comm_size(MPI_Comm comm, int *size)
+PMPI_Comm_size(MPI_Comm comm, int *size)
 {
   if(!check_comm(comm))
     return MPI_ERR_COMM;
@@ -749,7 +762,7 @@ MPI_Comm_size(MPI_Comm comm, int *size)
 }
 
 int
-MPI_Get_processor_name(char *name, int *resultlen)
+PMPI_Get_processor_name(char *name, int *resultlen)
 {
   const char *s = "xv6-rpi3";
   int i;
@@ -761,7 +774,7 @@ MPI_Get_processor_name(char *name, int *resultlen)
 }
 
 int
-MPI_Type_size(MPI_Datatype type, int *size)
+PMPI_Type_size(MPI_Datatype type, int *size)
 {
   int sz = typesize(type);
   if(sz < 0)
@@ -771,19 +784,19 @@ MPI_Type_size(MPI_Datatype type, int *size)
 }
 
 unsigned long
-MPI_Wtime_us(void)
+PMPI_Wtime_us(void)
 {
   return clock_us();
 }
 
 double
-MPI_Wtime(void)
+PMPI_Wtime(void)
 {
   return (double)clock_us() / 1000000.0;
 }
 
 double
-MPI_Wtick(void)
+PMPI_Wtick(void)
 {
   return 1e-6;
 }
@@ -808,7 +821,7 @@ check_args(MPI_Comm comm, int count, MPI_Datatype type, int peer, int any_ok)
 }
 
 int
-MPI_Send(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+PMPI_Send(const void *buf, int count, MPI_Datatype type, int dest, int tag,
          MPI_Comm comm)
 {
   int rc = check_args(comm, count, type, dest, 0);
@@ -820,7 +833,7 @@ MPI_Send(const void *buf, int count, MPI_Datatype type, int dest, int tag,
 }
 
 int
-MPI_Recv(void *buf, int count, MPI_Datatype type, int source, int tag,
+PMPI_Recv(void *buf, int count, MPI_Datatype type, int source, int tag,
          MPI_Comm comm, MPI_Status *status)
 {
   int rc = check_args(comm, count, type, source, 1);
@@ -833,20 +846,20 @@ MPI_Recv(void *buf, int count, MPI_Datatype type, int source, int tag,
 }
 
 int
-MPI_Sendrecv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+PMPI_Sendrecv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
              int dest, int sendtag,
              void *recvbuf, int recvcount, MPI_Datatype recvtype,
              int source, int recvtag, MPI_Comm comm, MPI_Status *status)
 {
   // Sends are buffered, so send-then-receive cannot deadlock.
-  int rc = MPI_Send(sendbuf, sendcount, sendtype, dest, sendtag, comm);
+  int rc = PMPI_Send(sendbuf, sendcount, sendtype, dest, sendtag, comm);
   if(rc != MPI_SUCCESS)
     return rc;
-  return MPI_Recv(recvbuf, recvcount, recvtype, source, recvtag, comm, status);
+  return PMPI_Recv(recvbuf, recvcount, recvtype, source, recvtag, comm, status);
 }
 
 int
-MPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status)
+PMPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status)
 {
   struct inmsg *m;
   int spins = 0;
@@ -870,7 +883,7 @@ MPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status)
 }
 
 int
-MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status)
+PMPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status)
 {
   struct inmsg *m;
   int rc = check_args(comm, 0, MPI_BYTE, source, 1);
@@ -894,7 +907,7 @@ MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status)
 // non-blocking point-to-point
 
 int
-MPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+PMPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
           MPI_Comm comm, MPI_Request *request)
 {
   struct mpi_req *q;
@@ -918,7 +931,7 @@ MPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
 }
 
 int
-MPI_Irecv(void *buf, int count, MPI_Datatype type, int source, int tag,
+PMPI_Irecv(void *buf, int count, MPI_Datatype type, int source, int tag,
           MPI_Comm comm, MPI_Request *request)
 {
   struct mpi_req *q;
@@ -943,10 +956,20 @@ req_finish(MPI_Request *request, MPI_Status *status)
 {
   struct mpi_req *q = *request;
   int err = q->st.MPI_ERROR;
+  if(q->pers && !q->pers->active){
+    // Completing an inactive persistent request returns an empty status.
+    if(status != MPI_STATUS_IGNORE)
+      fill_status(status, MPI_ANY_SOURCE, MPI_ANY_TAG, 0, MPI_SUCCESS);
+    return MPI_SUCCESS;
+  }
   if(status != MPI_STATUS_IGNORE){
     *status = q->st;
     if(q->kind == REQ_SEND)
       status->MPI_ERROR = MPI_SUCCESS;
+  }
+  if(q->pers){
+    q->pers->active = 0;
+    return err;
   }
   if(q->heap)
     free(q);
@@ -961,7 +984,7 @@ null_status(MPI_Status *status)
 }
 
 int
-MPI_Wait(MPI_Request *request, MPI_Status *status)
+PMPI_Wait(MPI_Request *request, MPI_Status *status)
 {
   if(request == 0)
     return mpi_err("MPI_Wait", MPI_ERR_ARG);
@@ -974,7 +997,7 @@ MPI_Wait(MPI_Request *request, MPI_Status *status)
 }
 
 int
-MPI_Test(MPI_Request *request, int *flag, MPI_Status *status)
+PMPI_Test(MPI_Request *request, int *flag, MPI_Status *status)
 {
   if(request == 0 || flag == 0)
     return mpi_err("MPI_Test", MPI_ERR_ARG);
@@ -988,13 +1011,13 @@ MPI_Test(MPI_Request *request, int *flag, MPI_Status *status)
 }
 
 int
-MPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses)
+PMPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses)
 {
   int rc = MPI_SUCCESS;
   for(int i = 0; i < count; i++){
     MPI_Status *st = statuses == MPI_STATUSES_IGNORE ? MPI_STATUS_IGNORE
                                                      : &statuses[i];
-    int r = MPI_Wait(&requests[i], st);
+    int r = PMPI_Wait(&requests[i], st);
     if(r != MPI_SUCCESS)
       rc = r;
   }
@@ -1002,7 +1025,7 @@ MPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses)
 }
 
 int
-MPI_Testall(int count, MPI_Request *requests, int *flag,
+PMPI_Testall(int count, MPI_Request *requests, int *flag,
             MPI_Status *statuses)
 {
   // All or nothing: release requests only once every one is complete.
@@ -1017,11 +1040,11 @@ MPI_Testall(int count, MPI_Request *requests, int *flag,
     }
   }
   *flag = 1;
-  return MPI_Waitall(count, requests, statuses);
+  return PMPI_Waitall(count, requests, statuses);
 }
 
 int
-MPI_Waitany(int count, MPI_Request *requests, int *index, MPI_Status *status)
+PMPI_Waitany(int count, MPI_Request *requests, int *index, MPI_Status *status)
 {
   int spins = 0, live;
 
@@ -1029,7 +1052,7 @@ MPI_Waitany(int count, MPI_Request *requests, int *index, MPI_Status *status)
     live = 0;
     for(int i = 0; i < count; i++){
       struct mpi_req *q = requests[i];
-      if(q == MPI_REQUEST_NULL)
+      if(q == MPI_REQUEST_NULL || (q->pers && !q->pers->active))
         continue;
       live = 1;
       if(!q->done && q->um && q->um->done)
@@ -1052,7 +1075,7 @@ MPI_Waitany(int count, MPI_Request *requests, int *index, MPI_Status *status)
 }
 
 int
-MPI_Get_count(const MPI_Status *status, MPI_Datatype type, int *count)
+PMPI_Get_count(const MPI_Status *status, MPI_Datatype type, int *count)
 {
   int sz = typesize(type);
   if(sz < 0)
@@ -1195,7 +1218,7 @@ check_coll(MPI_Comm comm, int count, MPI_Datatype type, int root)
 }
 
 int
-MPI_Barrier(MPI_Comm comm)
+PMPI_Barrier(MPI_Comm comm)
 {
   int rc;
   if(!check_comm(comm))
@@ -1208,7 +1231,7 @@ MPI_Barrier(MPI_Comm comm)
 }
 
 int
-MPI_Bcast(void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm)
+PMPI_Bcast(void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm)
 {
   int rc = check_coll(comm, count, type, root);
   if(rc == MPI_SUCCESS)
@@ -1225,7 +1248,7 @@ check_op(MPI_Op op, MPI_Datatype type)
 }
 
 int
-MPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
+PMPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
            MPI_Op op, int root, MPI_Comm comm)
 {
   int rc = check_coll(comm, count, type, root);
@@ -1237,7 +1260,7 @@ MPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
 }
 
 int
-MPI_Allreduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
+PMPI_Allreduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
               MPI_Op op, MPI_Comm comm)
 {
   int rc = check_coll(comm, count, type, 0);
@@ -1251,7 +1274,7 @@ MPI_Allreduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype type,
 }
 
 int
-MPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+PMPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
            void *recvbuf, int recvcount, MPI_Datatype recvtype,
            int root, MPI_Comm comm)
 {
@@ -1278,7 +1301,7 @@ MPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
 }
 
 int
-MPI_Scatter(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+PMPI_Scatter(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
             void *recvbuf, int recvcount, MPI_Datatype recvtype,
             int root, MPI_Comm comm)
 {
@@ -1306,7 +1329,7 @@ MPI_Scatter(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
 }
 
 int
-MPI_Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+PMPI_Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
               void *recvbuf, int recvcount, MPI_Datatype recvtype,
               MPI_Comm comm)
 {
@@ -1321,7 +1344,7 @@ MPI_Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
     if(me == 0)
       sendbuf = MPI_IN_PLACE;
   }
-  rc = MPI_Gather(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype,
+  rc = PMPI_Gather(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype,
                   0, comm);
   if(rc == MPI_SUCCESS)
     rc = bcast_bytes(recvbuf, nranks * recvcount * typesize(recvtype), 0,
@@ -1330,7 +1353,7 @@ MPI_Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
 }
 
 int
-MPI_Alltoall(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+PMPI_Alltoall(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
              void *recvbuf, int recvcount, MPI_Datatype recvtype,
              MPI_Comm comm)
 {
@@ -1358,3 +1381,366 @@ MPI_Alltoall(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
   }
   return MPI_SUCCESS;
 }
+
+// ---------------------------------------------------------------------------
+// v-collectives (linear exchanges over point-to-point)
+
+static int
+check_counts(const int *counts, const int *displs)
+{
+  if(counts == 0 || displs == 0)
+    return MPI_ERR_ARG;
+  for(int r = 0; r < nranks; r++)
+    if(counts[r] < 0)
+      return MPI_ERR_COUNT;
+  return MPI_SUCCESS;
+}
+
+// Post every receive first, then every send, then wait for all of them.
+// recvs/sends hold up to MPI_MAX_RANKS entries; len < 0 skips a peer.
+static int
+exchange(char *const *rbuf, const int *rlen, const char *const *sbuf,
+         const int *slen, int tag)
+{
+  struct mpi_req rq[MPI_MAX_RANKS], sq[MPI_MAX_RANKS];
+  int rc = MPI_SUCCESS, err;
+
+  for(int i = 1; i < nranks; i++){
+    int r = (me - i + nranks) % nranks;
+    if(rlen[r] >= 0 && (err = irecv_start(&rq[r], rbuf[r], rlen[r], r, tag)) != MPI_SUCCESS)
+      return err;
+  }
+  for(int i = 1; i < nranks; i++){
+    int r = (me + i) % nranks;
+    if(slen[r] >= 0 && (err = isend_start(&sq[r], sbuf[r], slen[r], r, tag)) != MPI_SUCCESS)
+      return err;
+  }
+  for(int r = 0; r < nranks; r++){
+    if(r == me)
+      continue;
+    if(slen[r] >= 0)
+      req_wait(&sq[r]);
+    if(rlen[r] >= 0){
+      req_wait(&rq[r]);
+      if(rq[r].st.MPI_ERROR != MPI_SUCCESS)
+        rc = rq[r].st.MPI_ERROR;
+    }
+  }
+  return rc;
+}
+
+int
+PMPI_Allgatherv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+                void *recvbuf, const int *recvcounts, const int *displs,
+                MPI_Datatype recvtype, MPI_Comm comm)
+{
+  char *rbuf[MPI_MAX_RANKS];
+  const char *sbuf[MPI_MAX_RANKS];
+  int rlen[MPI_MAX_RANKS], slen[MPI_MAX_RANKS];
+  int rsz = typesize(recvtype), rc = check_coll(comm, 0, recvtype, 0);
+  if(rc == MPI_SUCCESS)
+    rc = check_counts(recvcounts, displs);
+  if(rc == MPI_SUCCESS && sendbuf != MPI_IN_PLACE)
+    rc = check_coll(comm, sendcount, sendtype, 0);
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Allgatherv", rc);
+  char *mine = (char *)recvbuf + (long)displs[me] * rsz;
+  int mylen = recvcounts[me] * rsz;
+  if(sendbuf != MPI_IN_PLACE){
+    int n = sendcount * typesize(sendtype);
+    fastcopy(mine, sendbuf, n < mylen ? n : mylen);
+  }
+  for(int r = 0; r < nranks; r++){
+    rbuf[r] = (char *)recvbuf + (long)displs[r] * rsz;
+    rlen[r] = recvcounts[r] * rsz;
+    sbuf[r] = mine;
+    slen[r] = mylen;
+  }
+  rc = exchange(rbuf, rlen, sbuf, slen, TAG_ALLGATHERV);
+  return rc == MPI_SUCCESS ? rc : mpi_err("MPI_Allgatherv", rc);
+}
+
+int
+PMPI_Gatherv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
+             void *recvbuf, const int *recvcounts, const int *displs,
+             MPI_Datatype recvtype, int root, MPI_Comm comm)
+{
+  int rc = check_coll(comm, sendbuf == MPI_IN_PLACE ? 0 : sendcount, sendtype, root);
+  if(rc == MPI_SUCCESS && me == root)
+    rc = check_counts(recvcounts, displs);
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Gatherv", rc);
+  int slen = sendcount * typesize(sendtype);
+  if(me != root)
+    return send_bytes(sendbuf, slen, root, TAG_GATHERV);
+  int rsz = typesize(recvtype);
+  for(int r = 0; r < nranks; r++){
+    char *dst = (char *)recvbuf + (long)displs[r] * rsz;
+    int rlen = recvcounts[r] * rsz;
+    if(r == me){
+      if(sendbuf != MPI_IN_PLACE)
+        fastcopy(dst, sendbuf, slen < rlen ? slen : rlen);
+    } else if((rc = recv_bytes(dst, rlen, r, TAG_GATHERV, MPI_STATUS_IGNORE)) != MPI_SUCCESS)
+      return mpi_err("MPI_Gatherv", rc);
+  }
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Alltoallv(const void *sendbuf, const int *sendcounts, const int *sdispls,
+               MPI_Datatype sendtype, void *recvbuf, const int *recvcounts,
+               const int *rdispls, MPI_Datatype recvtype, MPI_Comm comm)
+{
+  char *rbuf[MPI_MAX_RANKS];
+  const char *sbuf[MPI_MAX_RANKS];
+  int rlen[MPI_MAX_RANKS], slen[MPI_MAX_RANKS];
+  int rc = check_coll(comm, 0, sendtype, 0);
+  if(rc == MPI_SUCCESS)
+    rc = check_coll(comm, 0, recvtype, 0);
+  if(rc == MPI_SUCCESS)
+    rc = check_counts(sendcounts, sdispls);
+  if(rc == MPI_SUCCESS)
+    rc = check_counts(recvcounts, rdispls);
+  if(rc != MPI_SUCCESS)
+    return mpi_err("MPI_Alltoallv", rc);
+  int ssz = typesize(sendtype), rsz = typesize(recvtype);
+  for(int r = 0; r < nranks; r++){
+    rbuf[r] = (char *)recvbuf + (long)rdispls[r] * rsz;
+    rlen[r] = recvcounts[r] * rsz;
+    sbuf[r] = (const char *)sendbuf + (long)sdispls[r] * ssz;
+    slen[r] = sendcounts[r] * ssz;
+  }
+  fastcopy(rbuf[me], sbuf[me], slen[me] < rlen[me] ? slen[me] : rlen[me]);
+  rc = exchange(rbuf, rlen, sbuf, slen, TAG_ALLTOALLV);
+  return rc == MPI_SUCCESS ? rc : mpi_err("MPI_Alltoallv", rc);
+}
+
+// ---------------------------------------------------------------------------
+// "non-blocking" collectives: they complete inside the call and return a
+// request that is already done, which is a legal (if unhelpful) schedule.
+
+static int
+done_request(MPI_Request *request)
+{
+  struct mpi_req *q = malloc(sizeof(*q));
+  if(q == 0)
+    return MPI_ERR_OTHER;
+  req_init(q, REQ_SEND);
+  fill_status(&q->st, MPI_ANY_SOURCE, MPI_ANY_TAG, 0, MPI_SUCCESS);
+  q->done = 1;
+  q->heap = 1;
+  *request = q;
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Iallreduce(const void *sendbuf, void *recvbuf, int count,
+                MPI_Datatype type, MPI_Op op, MPI_Comm comm,
+                MPI_Request *request)
+{
+  if(request == 0)
+    return mpi_err("MPI_Iallreduce", MPI_ERR_ARG);
+  int rc = PMPI_Allreduce(sendbuf, recvbuf, count, type, op, comm);
+  return rc == MPI_SUCCESS ? done_request(request) : rc;
+}
+
+int
+PMPI_Ibarrier(MPI_Comm comm, MPI_Request *request)
+{
+  if(request == 0)
+    return mpi_err("MPI_Ibarrier", MPI_ERR_ARG);
+  int rc = PMPI_Barrier(comm);
+  return rc == MPI_SUCCESS ? done_request(request) : rc;
+}
+
+int
+PMPI_Ineighbor_alltoallv(const void *sendbuf, const int *sendcounts,
+                         const int *sdispls, MPI_Datatype sendtype,
+                         void *recvbuf, const int *recvcounts,
+                         const int *rdispls, MPI_Datatype recvtype,
+                         MPI_Comm comm, MPI_Request *request)
+{
+  // Needs a graph or Cartesian communicator, and there is only WORLD.
+  return mpi_err("MPI_Ineighbor_alltoallv", MPI_ERR_COMM);
+}
+
+// Synchronous sends behave as the (effectively buffered) standard ones.
+int
+PMPI_Issend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+            MPI_Comm comm, MPI_Request *request)
+{
+  return PMPI_Isend(buf, count, type, dest, tag, comm, request);
+}
+
+int
+PMPI_Ssend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
+           MPI_Comm comm)
+{
+  return PMPI_Send(buf, count, type, dest, tag, comm);
+}
+
+// ---------------------------------------------------------------------------
+// persistent requests
+
+static int
+persist_init(int kind, void *buf, int count, MPI_Datatype type, int peer,
+             int tag, MPI_Comm comm, MPI_Request *request, const char *fn)
+{
+  int rc = check_args(comm, count, type, peer, kind == REQ_RECV);
+  if(rc == MPI_SUCCESS && !(kind == REQ_RECV && tag == MPI_ANY_TAG) &&
+     (tag < 0 || tag > MPI_TAG_UB))
+    rc = MPI_ERR_TAG;
+  if(rc == MPI_SUCCESS && request == 0)
+    rc = MPI_ERR_ARG;
+  if(rc != MPI_SUCCESS)
+    return mpi_err(fn, rc);
+  struct mpi_req *q = malloc(sizeof(*q));
+  struct mpi_persist *p = malloc(sizeof(*p));
+  if(q == 0 || p == 0){
+    free(q);
+    free(p);
+    return mpi_err(fn, MPI_ERR_OTHER);
+  }
+  p->kind = kind;
+  p->buf = buf;
+  p->len = count * typesize(type);
+  p->peer = peer;
+  p->tag = tag;
+  p->active = 0;
+  req_init(q, kind);
+  q->done = 1;
+  q->heap = 1;
+  q->pers = p;
+  *request = q;
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Send_init(const void *buf, int count, MPI_Datatype type, int dest,
+               int tag, MPI_Comm comm, MPI_Request *request)
+{
+  return persist_init(REQ_SEND, (void *)buf, count, type, dest, tag, comm,
+                      request, "MPI_Send_init");
+}
+
+int
+PMPI_Recv_init(void *buf, int count, MPI_Datatype type, int source, int tag,
+               MPI_Comm comm, MPI_Request *request)
+{
+  return persist_init(REQ_RECV, buf, count, type, source, tag, comm, request,
+                      "MPI_Recv_init");
+}
+
+int
+PMPI_Start(MPI_Request *request)
+{
+  struct mpi_req *q;
+  struct mpi_persist *p;
+  int rc;
+
+  if(request == 0 || (q = *request) == 0 || (p = q->pers) == 0)
+    return mpi_err("MPI_Start", MPI_ERR_ARG);
+  if(p->active)
+    return mpi_err("MPI_Start", MPI_ERR_ARG);   // still active
+  // isend_start/irecv_start reinitialise the request; keep what is ours.
+  if(p->kind == REQ_SEND)
+    rc = isend_start(q, p->buf, p->len, p->peer, p->tag);
+  else
+    rc = irecv_start(q, p->buf, p->len, p->peer, p->tag);
+  q->heap = 1;
+  q->pers = p;
+  if(rc != MPI_SUCCESS){
+    q->done = 1;
+    return mpi_err("MPI_Start", rc);
+  }
+  p->active = 1;
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Startall(int count, MPI_Request *requests)
+{
+  for(int i = 0; i < count; i++){
+    int rc = PMPI_Start(&requests[i]);
+    if(rc != MPI_SUCCESS)
+      return rc;
+  }
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Request_free(MPI_Request *request)
+{
+  struct mpi_req *q;
+  if(request == 0)
+    return mpi_err("MPI_Request_free", MPI_ERR_ARG);
+  if((q = *request) == MPI_REQUEST_NULL)
+    return MPI_SUCCESS;
+  // Full MPI lets an active request finish in the background; here the
+  // caller waits for it, since nothing progresses outside MPI calls.
+  req_wait(q);
+  free(q->pers);
+  if(q->heap)
+    free(q);
+  *request = MPI_REQUEST_NULL;
+  return MPI_SUCCESS;
+}
+
+int
+PMPI_Waitsome(int incount, MPI_Request *requests, int *outcount, int *indices,
+              MPI_Status *statuses)
+{
+  int spins = 0;
+
+  if(outcount == 0 || indices == 0)
+    return mpi_err("MPI_Waitsome", MPI_ERR_ARG);
+  for(;;){
+    int live = 0, n = 0, rc = MPI_SUCCESS;
+    for(int i = 0; i < incount; i++){
+      struct mpi_req *q = requests[i];
+      if(q == MPI_REQUEST_NULL || (q->pers && !q->pers->active))
+        continue;
+      live = 1;
+      if(!q->done && q->um && q->um->done)
+        recv_from_um(q);
+      if(q->done){
+        MPI_Status *st = statuses == MPI_STATUSES_IGNORE ? MPI_STATUS_IGNORE
+                                                         : &statuses[n];
+        int r = req_finish(&requests[i], st);
+        if(r != MPI_SUCCESS)
+          rc = r;
+        indices[n++] = i;
+      }
+    }
+    if(!live){
+      *outcount = MPI_UNDEFINED;
+      return MPI_SUCCESS;
+    }
+    if(n > 0){
+      *outcount = n;
+      return rc;
+    }
+    if(progress())
+      spins = 0;
+    else
+      idle(&spins);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MPI_x is an alias of PMPI_x, so a program can wrap MPI_x and call PMPI_x.
+
+#define ALIAS(name) \
+  extern __typeof(PMPI_##name) MPI_##name __attribute__((alias("PMPI_" #name)));
+ALIAS(Init) ALIAS(Initialized) ALIAS(Finalize) ALIAS(Abort)
+ALIAS(Comm_rank) ALIAS(Comm_size) ALIAS(Get_processor_name) ALIAS(Type_size)
+ALIAS(Wtime) ALIAS(Wtick) ALIAS(Wtime_us)
+ALIAS(Send) ALIAS(Recv) ALIAS(Sendrecv) ALIAS(Probe) ALIAS(Iprobe)
+ALIAS(Get_count) ALIAS(Isend) ALIAS(Irecv) ALIAS(Issend) ALIAS(Ssend)
+ALIAS(Wait) ALIAS(Test) ALIAS(Waitall) ALIAS(Testall) ALIAS(Waitany)
+ALIAS(Waitsome) ALIAS(Send_init) ALIAS(Recv_init) ALIAS(Start)
+ALIAS(Startall) ALIAS(Request_free)
+ALIAS(Barrier) ALIAS(Bcast) ALIAS(Reduce) ALIAS(Allreduce) ALIAS(Gather)
+ALIAS(Gatherv) ALIAS(Scatter) ALIAS(Allgather) ALIAS(Allgatherv)
+ALIAS(Alltoall) ALIAS(Alltoallv) ALIAS(Iallreduce) ALIAS(Ibarrier)
+ALIAS(Ineighbor_alltoallv)

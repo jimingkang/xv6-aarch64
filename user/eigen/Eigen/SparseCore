@@ -1,0 +1,93 @@
+// Mini Eigen for xv6: column-major Eigen::SparseMatrix built from triplets.
+#pragma once
+#include "Core"
+#include <vector>
+#include <algorithm>
+
+namespace Eigen {
+template <class Scalar, class StorageIndex = int> class Triplet {
+  StorageIndex r_ = 0, c_ = 0;
+  Scalar v_ = Scalar(0);
+public:
+  Triplet() = default;
+  Triplet(const StorageIndex &r, const StorageIndex &c, const Scalar &v = Scalar(0)) : r_(r), c_(c), v_(v) {}
+  const StorageIndex &row() const { return r_; }
+  const StorageIndex &col() const { return c_; }
+  const Scalar &value() const { return v_; }
+};
+
+enum { ColMajor = 0, RowMajor = 1 };
+
+// Compressed sparse column storage (Eigen's default layout).
+template <class Scalar, int Options = ColMajor, class StorageIndex = int> class SparseMatrix {
+  Index rows_ = 0, cols_ = 0;
+  std::vector<StorageIndex> outer_{0}, inner_;
+  std::vector<Scalar> values_;
+public:
+  typedef Scalar value_type;
+  typedef StorageIndex StorageIndexType;
+  SparseMatrix() = default;
+  SparseMatrix(Index rows, Index cols) : rows_(rows), cols_(cols), outer_((std::size_t)cols + 1, 0) {}
+  Index rows() const { return rows_; }
+  Index cols() const { return cols_; }
+  Index outerSize() const { return cols_; }
+  Index nonZeros() const { return (Index)values_.size(); }
+  void resize(Index rows, Index cols) {
+    rows_ = rows; cols_ = cols;
+    outer_.assign((std::size_t)cols + 1, 0);
+    inner_.clear(); values_.clear();
+  }
+  void setZero() { outer_.assign((std::size_t)cols_ + 1, 0); inner_.clear(); values_.clear(); }
+  Scalar *valuePtr() { return values_.data(); }
+  const Scalar *valuePtr() const { return values_.data(); }
+  StorageIndex *innerIndexPtr() { return inner_.data(); }
+  const StorageIndex *innerIndexPtr() const { return inner_.data(); }
+  StorageIndex *outerIndexPtr() { return outer_.data(); }
+  const StorageIndex *outerIndexPtr() const { return outer_.data(); }
+  bool isCompressed() const { return true; }
+  void makeCompressed() {}
+
+  // Duplicates are summed, as in Eigen.
+  template <class It> void setFromTriplets(It first, It last) {
+    std::vector<StorageIndex> count((std::size_t)cols_ + 1, 0);
+    for(It t = first; t != last; ++t) count[(std::size_t)t->col() + 1]++;
+    for(Index c = 0; c < cols_; c++) count[c + 1] += count[c];
+    std::vector<StorageIndex> rows((std::size_t)count[cols_]);
+    std::vector<Scalar> vals((std::size_t)count[cols_]);
+    std::vector<StorageIndex> fill(count.begin(), count.end() - 1);
+    for(It t = first; t != last; ++t) {
+      StorageIndex k = fill[(std::size_t)t->col()]++;
+      rows[k] = t->row();
+      vals[k] = t->value();
+    }
+    outer_.assign((std::size_t)cols_ + 1, 0);
+    inner_.clear(); values_.clear();
+    inner_.reserve(rows.size()); values_.reserve(vals.size());
+    std::vector<StorageIndex> order;
+    for(Index c = 0; c < cols_; c++) {
+      order.clear();
+      for(StorageIndex k = count[c]; k < count[c + 1]; k++) order.push_back(k);
+      std::sort(order.begin(), order.end(), [&](StorageIndex a, StorageIndex b) {
+        return rows[a] < rows[b] || (rows[a] == rows[b] && a < b);
+      });
+      for(std::size_t m = 0; m < order.size(); m++) {
+        StorageIndex k = order[m];
+        if(m > 0 && rows[order[m - 1]] == rows[k]) values_.back() += vals[k];
+        else { inner_.push_back(rows[k]); values_.push_back(vals[k]); }
+      }
+      outer_[c + 1] = (StorageIndex)inner_.size();
+    }
+  }
+
+  Scalar coeff(Index r, Index c) const {
+    for(StorageIndex k = outer_[c]; k < outer_[c + 1]; k++) if(inner_[k] == r) return values_[k];
+    return Scalar(0);
+  }
+  Matrix<Scalar, Dynamic, 1> operator*(const Matrix<Scalar, Dynamic, 1> &x) const {
+    Matrix<Scalar, Dynamic, 1> y(rows_);
+    for(Index c = 0; c < cols_; c++)
+      for(StorageIndex k = outer_[c]; k < outer_[c + 1]; k++) y[inner_[k]] += values_[k] * x[c];
+    return y;
+  }
+};
+}

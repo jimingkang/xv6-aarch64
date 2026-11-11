@@ -1,0 +1,38 @@
+#pragma once
+// Exceptions are not supported (see __xv6_cxx_config.h): a throw reports
+// what() and exits.  exception_ptr exists so code that stores "the current
+// exception" compiles; it is always null, because no handler ever runs.
+#include <cstddef>
+
+namespace std {
+class exception {
+public:
+  exception() noexcept {}
+  exception(const exception &) noexcept = default;
+  exception &operator=(const exception &) noexcept = default;
+  virtual ~exception() {}
+  virtual const char *what() const noexcept { return "std::exception"; }
+};
+class bad_exception : public exception {
+public:
+  const char *what() const noexcept override { return "std::bad_exception"; }
+};
+class bad_alloc : public exception {
+public:
+  const char *what() const noexcept override { return "std::bad_alloc"; }
+};
+
+class exception_ptr {
+public:
+  constexpr exception_ptr() noexcept {}
+  constexpr exception_ptr(decltype(nullptr)) noexcept {}
+  explicit operator bool() const noexcept { return false; }
+  friend bool operator==(const exception_ptr &, const exception_ptr &) noexcept { return true; }
+  friend bool operator!=(const exception_ptr &, const exception_ptr &) noexcept { return false; }
+};
+inline exception_ptr current_exception() noexcept { return exception_ptr(); }
+[[noreturn]] void rethrow_exception(exception_ptr);
+template <class E> exception_ptr make_exception_ptr(E) noexcept { return exception_ptr(); }
+[[noreturn]] void terminate() noexcept;
+inline int uncaught_exceptions() noexcept { return 0; }
+}

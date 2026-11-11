@@ -1,0 +1,70 @@
+#pragma once
+#include <cstddef>
+#include <cstring>
+#include <iterator>
+
+namespace std {
+[[noreturn]] void __throw_out_of_range(const char *);
+
+class string_view {
+  const char *p_ = nullptr;
+  size_t n_ = 0;
+public:
+  typedef char value_type;
+  typedef const char *const_iterator;
+  typedef const char *iterator;
+  typedef size_t size_type;
+  static constexpr size_t npos = (size_t)-1;
+
+  constexpr string_view() noexcept = default;
+  constexpr string_view(const char *s, size_t n) noexcept : p_(s), n_(n) {}
+  constexpr string_view(const char *s) noexcept : p_(s), n_(__builtin_strlen(s)) {}
+  constexpr const char *begin() const noexcept { return p_; }
+  constexpr const char *end() const noexcept { return p_ + n_; }
+  constexpr const char *cbegin() const noexcept { return p_; }
+  constexpr const char *cend() const noexcept { return p_ + n_; }
+  constexpr const char *data() const noexcept { return p_; }
+  constexpr size_t size() const noexcept { return n_; }
+  constexpr size_t length() const noexcept { return n_; }
+  constexpr bool empty() const noexcept { return n_ == 0; }
+  constexpr char operator[](size_t i) const { return p_[i]; }
+  constexpr char at(size_t i) const { if(i >= n_) __throw_out_of_range("string_view::at"); return p_[i]; }
+  constexpr char front() const { return p_[0]; }
+  constexpr char back() const { return p_[n_ - 1]; }
+  constexpr void remove_prefix(size_t k) { p_ += k; n_ -= k; }
+  constexpr void remove_suffix(size_t k) { n_ -= k; }
+  constexpr string_view substr(size_t pos = 0, size_t k = npos) const {
+    if(pos > n_) __throw_out_of_range("string_view::substr");
+    return string_view(p_ + pos, k < n_ - pos ? k : n_ - pos);
+  }
+  constexpr int compare(string_view o) const noexcept {
+    size_t k = n_ < o.n_ ? n_ : o.n_;
+    for(size_t i = 0; i < k; i++)
+      if(p_[i] != o.p_[i]) return (unsigned char)p_[i] < (unsigned char)o.p_[i] ? -1 : 1;
+    return n_ == o.n_ ? 0 : n_ < o.n_ ? -1 : 1;
+  }
+  constexpr size_t find(char c, size_t pos = 0) const noexcept {
+    for(size_t i = pos; i < n_; i++) if(p_[i] == c) return i;
+    return npos;
+  }
+  constexpr size_t find(string_view s, size_t pos = 0) const noexcept {
+    if(s.n_ > n_) return npos;
+    for(size_t i = pos; i + s.n_ <= n_; i++)
+      if(string_view(p_ + i, s.n_).compare(s) == 0) return i;
+    return npos;
+  }
+  constexpr size_t rfind(char c, size_t pos = npos) const noexcept {
+    if(!n_) return npos;
+    for(size_t i = pos < n_ ? pos + 1 : n_; i-- > 0;) if(p_[i] == c) return i;
+    return npos;
+  }
+  constexpr bool starts_with(string_view s) const noexcept { return n_ >= s.n_ && substr(0, s.n_).compare(s) == 0; }
+  constexpr bool ends_with(string_view s) const noexcept { return n_ >= s.n_ && substr(n_ - s.n_).compare(s) == 0; }
+};
+constexpr bool operator==(string_view a, string_view b) noexcept { return a.size() == b.size() && a.compare(b) == 0; }
+constexpr bool operator!=(string_view a, string_view b) noexcept { return !(a == b); }
+constexpr bool operator<(string_view a, string_view b) noexcept { return a.compare(b) < 0; }
+constexpr bool operator>(string_view a, string_view b) noexcept { return a.compare(b) > 0; }
+constexpr bool operator<=(string_view a, string_view b) noexcept { return a.compare(b) <= 0; }
+constexpr bool operator>=(string_view a, string_view b) noexcept { return a.compare(b) >= 0; }
+}

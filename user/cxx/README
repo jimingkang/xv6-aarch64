@@ -1,0 +1,7 @@
+A header-only subset of the C++17 standard library (include/) and the
+runtime it needs (cxxrt.cpp: operator new/delete, __cxa_atexit,
+std::cout/cerr; cxxstart.c: the _xv6_cxx_start entry point), for xv6 user
+programs built with the cross gcc, which ships no C++ library.
+
+Exceptions are not supported: __xv6_cxx_config.h, force-included into every
+C++ file, makes "throw" report what() and exit.  See doc/readme/readme_fem.md.

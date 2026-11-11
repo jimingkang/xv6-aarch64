@@ -1,0 +1,178 @@
+#pragma once
+#include <cstddef>
+#include <utility>
+#include <functional>
+#include <initializer_list>
+#include <iterator>
+
+namespace std {
+[[noreturn]] void __throw_out_of_range(const char *);
+
+// Separate chaining; buckets double when the load factor passes 1.
+template <class K, class V, class H = hash<K>, class E = equal_to<K>> class unordered_map {
+public:
+  typedef K key_type;
+  typedef V mapped_type;
+  typedef pair<const K, V> value_type;
+  typedef size_t size_type;
+
+private:
+  struct node {
+    node *next;
+    value_type v;
+    template <class... A> node(A &&...a) : next(nullptr), v(std::forward<A>(a)...) {}
+  };
+  node **b_ = nullptr;
+  size_t nb_ = 0, n_ = 0;
+  H h_;
+  E eq_;
+
+  size_t slot(const K &k) const { return h_(k) & (nb_ - 1); }
+  void rehash_to(size_t nb) {
+    node **nbk = new node *[nb]();
+    for(size_t i = 0; i < nb_; i++)
+      for(node *p = b_[i], *nx; p; p = nx) {
+        nx = p->next;
+        size_t s = h_(p->v.first) & (nb - 1);
+        p->next = nbk[s];
+        nbk[s] = p;
+      }
+    delete[] b_;
+    b_ = nbk;
+    nb_ = nb;
+  }
+  node *lookup(const K &k) const {
+    if(!nb_) return nullptr;
+    for(node *p = b_[slot(k)]; p; p = p->next)
+      if(eq_(p->v.first, k)) return p;
+    return nullptr;
+  }
+
+  template <class N, class Ref> class iter {
+  public:
+    typedef pair<const K, V> value_type;
+    typedef Ref &reference;
+    typedef Ref *pointer;
+  private:
+    friend class unordered_map;
+    const unordered_map *m_;
+    size_t i_;
+    N *p_;
+    void skip() { while(!p_ && ++i_ < m_->nb_) p_ = m_->b_[i_]; }
+  public:
+    typedef forward_iterator_tag iterator_category;
+    typedef ptrdiff_t difference_type;
+    iter() : m_(nullptr), i_(0), p_(nullptr) {}
+    iter(const unordered_map *m, size_t i, N *p) : m_(m), i_(i), p_(p) {}
+    template <class N2, class R2> iter(const iter<N2, R2> &o) : m_(o.m_), i_(o.i_), p_(o.p_) {}
+    Ref &operator*() const { return p_->v; }
+    Ref *operator->() const { return &p_->v; }
+    iter &operator++() { p_ = p_->next; skip(); return *this; }
+    iter operator++(int) { iter t = *this; ++*this; return t; }
+    bool operator==(const iter &o) const { return p_ == o.p_; }
+    bool operator!=(const iter &o) const { return p_ != o.p_; }
+    template <class, class> friend class iter;
+  };
+
+public:
+  typedef iter<node, value_type> iterator;
+  typedef iter<node, const value_type> const_iterator;
+
+  unordered_map() = default;
+  unordered_map(initializer_list<value_type> l) { for(auto &v : l) insert(v); }
+  unordered_map(const unordered_map &o) { for(auto &v : o) insert(v); }
+  unordered_map(unordered_map &&o) noexcept : b_(o.b_), nb_(o.nb_), n_(o.n_) { o.b_ = nullptr; o.nb_ = o.n_ = 0; }
+  ~unordered_map() { clear(); delete[] b_; }
+  unordered_map &operator=(const unordered_map &o) {
+    if(this != &o) { clear(); for(auto &v : o) insert(v); }
+    return *this;
+  }
+  unordered_map &operator=(unordered_map &&o) noexcept {
+    if(this != &o) {
+      clear(); delete[] b_;
+      b_ = o.b_; nb_ = o.nb_; n_ = o.n_;
+      o.b_ = nullptr; o.nb_ = o.n_ = 0;
+    }
+    return *this;
+  }
+
+  iterator begin() noexcept {
+    iterator it(this, 0, nb_ ? b_[0] : nullptr);
+    if(nb_) it.skip();
+    return it;
+  }
+  const_iterator begin() const noexcept { return const_cast<unordered_map *>(this)->begin(); }
+  iterator end() noexcept { return iterator(this, nb_, nullptr); }
+  const_iterator end() const noexcept { return const_iterator(this, nb_, nullptr); }
+  const_iterator cbegin() const noexcept { return begin(); }
+  const_iterator cend() const noexcept { return end(); }
+
+  bool empty() const noexcept { return n_ == 0; }
+  size_t size() const noexcept { return n_; }
+  size_t bucket_count() const noexcept { return nb_; }
+  void reserve(size_t n) { size_t nb = nb_ ? nb_ : 8; while(nb < n) nb *= 2; if(nb != nb_) rehash_to(nb); }
+
+  void clear() noexcept {
+    for(size_t i = 0; i < nb_; i++) {
+      for(node *p = b_[i], *nx; p; p = nx) { nx = p->next; delete p; }
+      b_[i] = nullptr;
+    }
+    n_ = 0;
+  }
+
+  template <class... A> pair<iterator, bool> emplace(A &&...a) {
+    node *nn = new node(std::forward<A>(a)...);
+    if(node *p = lookup(nn->v.first)) {
+      delete nn;
+      return {iterator(this, slot(p->v.first), p), false};
+    }
+    if(n_ + 1 > nb_) rehash_to(nb_ ? 2 * nb_ : 8);
+    size_t s = slot(nn->v.first);
+    nn->next = b_[s];
+    b_[s] = nn;
+    ++n_;
+    return {iterator(this, s, nn), true};
+  }
+  pair<iterator, bool> insert(const value_type &v) { return emplace(v); }
+  pair<iterator, bool> insert(value_type &&v) { return emplace(std::move(v)); }
+  template <class... A> pair<iterator, bool> try_emplace(const K &k, A &&...a) {
+    if(node *p = lookup(k)) return {iterator(this, slot(k), p), false};
+    return emplace(k, V(std::forward<A>(a)...));
+  }
+
+  V &operator[](const K &k) {
+    if(node *p = lookup(k)) return p->v.second;
+    return emplace(k, V()).first->second;
+  }
+  V &operator[](K &&k) {
+    if(node *p = lookup(k)) return p->v.second;
+    return emplace(std::move(k), V()).first->second;
+  }
+  V &at(const K &k) { node *p = lookup(k); if(!p) __throw_out_of_range("unordered_map::at"); return p->v.second; }
+  const V &at(const K &k) const { node *p = lookup(k); if(!p) __throw_out_of_range("unordered_map::at"); return p->v.second; }
+  iterator find(const K &k) { node *p = lookup(k); return p ? iterator(this, slot(k), p) : end(); }
+  const_iterator find(const K &k) const { node *p = lookup(k); return p ? const_iterator(this, slot(k), p) : end(); }
+  size_t count(const K &k) const { return lookup(k) ? 1 : 0; }
+  bool contains(const K &k) const { return lookup(k) != nullptr; }
+
+  size_t erase(const K &k) {
+    if(!nb_) return 0;
+    for(node **pp = &b_[slot(k)]; *pp; pp = &(*pp)->next)
+      if(eq_((*pp)->v.first, k)) {
+        node *d = *pp;
+        *pp = d->next;
+        delete d;
+        --n_;
+        return 1;
+      }
+    return 0;
+  }
+  iterator erase(const_iterator it) {
+    iterator nx(this, it.i_, it.p_);
+    ++nx;
+    erase(it->first);
+    return nx;
+  }
+  iterator erase(iterator it) { return erase(const_iterator(it)); }
+};
+}

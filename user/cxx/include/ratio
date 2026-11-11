@@ -1,0 +1,13 @@
+#pragma once
+#include <cstdint>
+namespace std {
+template <long N, long D = 1> struct ratio {
+  static constexpr long num = N;
+  static constexpr long den = D;
+  typedef ratio<N, D> type;
+};
+typedef ratio<1, 1000000000> nano;
+typedef ratio<1, 1000000> micro;
+typedef ratio<1, 1000> milli;
+typedef ratio<1000, 1> kilo;
+}

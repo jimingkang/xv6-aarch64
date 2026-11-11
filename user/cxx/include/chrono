@@ -1,0 +1,79 @@
+#pragma once
+#include <ratio>
+#include <type_traits>
+#include <__xv6_libc.h>
+
+namespace std {
+namespace chrono {
+template <class Rep, class Period = ratio<1>> class duration;
+template <class To, class Rep, class P> constexpr To duration_cast(const duration<Rep, P> &d) {
+  typedef typename To::rep R;
+  typedef typename To::period TP;
+  // d * P / TP, in double; exact enough for timing.
+  return To(static_cast<R>(static_cast<double>(d.count()) * P::num * TP::den / (static_cast<double>(P::den) * TP::num)));
+}
+template <class Rep, class Period> class duration {
+  Rep r_;
+public:
+  typedef Rep rep;
+  typedef Period period;
+  constexpr duration() = default;
+  template <class R2, class = enable_if_t<is_convertible<const R2 &, Rep>::value>>
+  constexpr explicit duration(const R2 &r) : r_(static_cast<Rep>(r)) {}
+  template <class R2, class P2>
+  constexpr duration(const duration<R2, P2> &d) : r_(duration_cast<duration>(d).count()) {}
+  constexpr Rep count() const { return r_; }
+  static constexpr duration zero() { return duration(Rep(0)); }
+  constexpr duration operator+() const { return *this; }
+  constexpr duration operator-() const { return duration(-r_); }
+  duration &operator+=(const duration &d) { r_ += d.r_; return *this; }
+  duration &operator-=(const duration &d) { r_ -= d.r_; return *this; }
+};
+template <class R, class P> constexpr duration<R, P> operator+(duration<R, P> a, duration<R, P> b) { return duration<R, P>(a.count() + b.count()); }
+template <class R, class P> constexpr duration<R, P> operator-(duration<R, P> a, duration<R, P> b) { return duration<R, P>(a.count() - b.count()); }
+template <class R, class P> constexpr bool operator<(duration<R, P> a, duration<R, P> b) { return a.count() < b.count(); }
+template <class R, class P> constexpr bool operator>(duration<R, P> a, duration<R, P> b) { return a.count() > b.count(); }
+template <class R, class P> constexpr bool operator<=(duration<R, P> a, duration<R, P> b) { return a.count() <= b.count(); }
+template <class R, class P> constexpr bool operator>=(duration<R, P> a, duration<R, P> b) { return a.count() >= b.count(); }
+template <class R, class P> constexpr bool operator==(duration<R, P> a, duration<R, P> b) { return a.count() == b.count(); }
+typedef duration<long, nano> nanoseconds;
+typedef duration<long, micro> microseconds;
+typedef duration<long, milli> milliseconds;
+typedef duration<long> seconds;
+typedef duration<long, ratio<60>> minutes;
+
+template <class Clock, class Dur = typename Clock::duration> class time_point {
+  Dur d_;
+public:
+  typedef Clock clock;
+  typedef Dur duration;
+  typedef typename Dur::rep rep;
+  typedef typename Dur::period period;
+  constexpr time_point() : d_(Dur::zero()) {}
+  constexpr explicit time_point(const Dur &d) : d_(d) {}
+  constexpr Dur time_since_epoch() const { return d_; }
+  time_point &operator+=(const Dur &d) { d_ += d; return *this; }
+};
+template <class C, class D> constexpr D operator-(const time_point<C, D> &a, const time_point<C, D> &b) {
+  return a.time_since_epoch() - b.time_since_epoch();
+}
+template <class C, class D> constexpr time_point<C, D> operator+(const time_point<C, D> &a, const D &d) {
+  return time_point<C, D>(a.time_since_epoch() + d);
+}
+template <class C, class D> constexpr bool operator<(const time_point<C, D> &a, const time_point<C, D> &b) {
+  return a.time_since_epoch() < b.time_since_epoch();
+}
+
+// Microsecond resolution from the kernel's clock_us().
+struct steady_clock {
+  typedef microseconds duration;
+  typedef duration::rep rep;
+  typedef duration::period period;
+  typedef chrono::time_point<steady_clock> time_point;
+  static constexpr bool is_steady = true;
+  static time_point now() noexcept { return time_point(duration((long)::clock_us())); }
+};
+typedef steady_clock high_resolution_clock;
+typedef steady_clock system_clock;
+}
+}

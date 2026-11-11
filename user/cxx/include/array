@@ -1,0 +1,70 @@
+#pragma once
+#include <cstddef>
+#include <utility>
+#include <iterator>
+#include <algorithm>
+
+namespace std {
+[[noreturn]] void __throw_out_of_range(const char *);
+
+template <class T, size_t N> struct array {
+  typedef T value_type;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+  typedef T &reference;
+  typedef const T &const_reference;
+  typedef T *pointer;
+  typedef const T *const_pointer;
+  typedef T *iterator;
+  typedef const T *const_iterator;
+  typedef std::reverse_iterator<iterator> reverse_iterator;
+  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+
+  T _M_elems[N ? N : 1];
+
+  constexpr T &operator[](size_t i) noexcept { return _M_elems[i]; }
+  constexpr const T &operator[](size_t i) const noexcept { return _M_elems[i]; }
+  constexpr T &at(size_t i) { if(i >= N) __throw_out_of_range("array::at"); return _M_elems[i]; }
+  constexpr const T &at(size_t i) const { if(i >= N) __throw_out_of_range("array::at"); return _M_elems[i]; }
+  constexpr T &front() noexcept { return _M_elems[0]; }
+  constexpr const T &front() const noexcept { return _M_elems[0]; }
+  constexpr T &back() noexcept { return _M_elems[N - 1]; }
+  constexpr const T &back() const noexcept { return _M_elems[N - 1]; }
+  constexpr T *data() noexcept { return _M_elems; }
+  constexpr const T *data() const noexcept { return _M_elems; }
+  constexpr iterator begin() noexcept { return _M_elems; }
+  constexpr const_iterator begin() const noexcept { return _M_elems; }
+  constexpr iterator end() noexcept { return _M_elems + N; }
+  constexpr const_iterator end() const noexcept { return _M_elems + N; }
+  constexpr const_iterator cbegin() const noexcept { return _M_elems; }
+  constexpr const_iterator cend() const noexcept { return _M_elems + N; }
+  constexpr reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+  constexpr const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+  constexpr reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+  constexpr const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+  constexpr bool empty() const noexcept { return N == 0; }
+  constexpr size_t size() const noexcept { return N; }
+  constexpr size_t max_size() const noexcept { return N; }
+  constexpr void fill(const T &v) { for(size_t i = 0; i < N; i++) _M_elems[i] = v; }
+  constexpr void swap(array &o) { for(size_t i = 0; i < N; i++) std::swap(_M_elems[i], o._M_elems[i]); }
+};
+template <class T, class... U> array(T, U...) -> array<T, 1 + sizeof...(U)>;
+
+template <class T, size_t N> constexpr bool operator==(const array<T, N> &a, const array<T, N> &b) {
+  return std::equal(a.begin(), a.end(), b.begin());
+}
+template <class T, size_t N> constexpr bool operator!=(const array<T, N> &a, const array<T, N> &b) { return !(a == b); }
+template <class T, size_t N> constexpr bool operator<(const array<T, N> &a, const array<T, N> &b) {
+  return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+}
+template <class T, size_t N> constexpr bool operator>(const array<T, N> &a, const array<T, N> &b) { return b < a; }
+template <class T, size_t N> constexpr bool operator<=(const array<T, N> &a, const array<T, N> &b) { return !(b < a); }
+template <class T, size_t N> constexpr bool operator>=(const array<T, N> &a, const array<T, N> &b) { return !(a < b); }
+template <class T, size_t N> constexpr void swap(array<T, N> &a, array<T, N> &b) { a.swap(b); }
+
+template <class T, size_t N> struct tuple_size<array<T, N>> : integral_constant<size_t, N> {};
+template <size_t I, class T, size_t N> struct tuple_element<I, array<T, N>> { typedef T type; };
+template <size_t I, class T, size_t N> constexpr T &get(array<T, N> &a) noexcept { return a._M_elems[I]; }
+template <size_t I, class T, size_t N> constexpr const T &get(const array<T, N> &a) noexcept { return a._M_elems[I]; }
+template <size_t I, class T, size_t N> constexpr T &&get(array<T, N> &&a) noexcept { return std::move(a._M_elems[I]); }
+}

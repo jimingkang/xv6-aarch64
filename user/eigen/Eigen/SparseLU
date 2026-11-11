@@ -1,0 +1,43 @@
+// Mini Eigen for xv6: Eigen::SparseLU on top of a reverse Cuthill-McKee
+// ordered band LU with partial pivoting (user/sparse/bandlu.hpp).  The
+// factorisation is exact; only the fill-reducing strategy differs from
+// Eigen's supernodal SparseLU.
+#pragma once
+#include "SparseCore"
+#include <string>
+#include "../../sparse/bandlu.hpp"
+
+namespace Eigen {
+template <class Ordering> struct COLAMDOrdering {};
+template <class StorageIndex> struct COLAMDOrderingTag {};
+
+template <class MatrixType, class Ordering = void> class SparseLU {
+  xv6sparse::BandLU lu_;
+  Index n_ = 0;
+  ComputationInfo info_ = InvalidInput;
+  std::string msg_;
+public:
+  SparseLU() = default;
+  explicit SparseLU(const MatrixType &a) { compute(a); }
+  void analyzePattern(const MatrixType &) {}
+  void factorize(const MatrixType &a) { compute(a); }
+  void compute(const MatrixType &a) {
+    n_ = a.rows();
+    if(a.rows() != a.cols()) { info_ = InvalidInput; msg_ = "matrix is not square"; return; }
+    std::vector<long> ptr((std::size_t)n_ + 1), idx((std::size_t)a.nonZeros());
+    for(Index i = 0; i <= n_; i++) ptr[i] = a.outerIndexPtr()[i];
+    for(Index k = 0; k < a.nonZeros(); k++) idx[k] = a.innerIndexPtr()[k];
+    if(lu_.factor(n_, ptr.data(), idx.data(), a.valuePtr())) { info_ = Success; msg_.clear(); }
+    else { info_ = NumericalIssue; msg_ = "the matrix is singular (zero pivot in band LU)"; }
+  }
+  ComputationInfo info() const { return info_; }
+  std::string lastErrorMessage() const { return msg_; }
+  Index rows() const { return n_; }
+  Index cols() const { return n_; }
+  VectorXd solve(const VectorXd &b) const {
+    VectorXd x = b;
+    if(info_ == Success && b.size() == n_) lu_.solve(x.data());
+    return x;
+  }
+};
+}

@@ -1,0 +1,5 @@
+The part of Eigen's API that the fem port (user/fem) uses: Eigen::Index,
+VectorXd, Map<VectorXd>, Triplet, column-major SparseMatrix with
+setFromTriplets, and SparseLU (backed by the band LU with reverse
+Cuthill-McKee ordering in user/sparse/bandlu.hpp).  It is not Eigen and
+contains no Eigen source code.  See doc/readme/readme_fem.md.

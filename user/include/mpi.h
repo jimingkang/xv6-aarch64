@@ -10,8 +10,10 @@
 // MPI_Init strips "-np N" from argv.  Without it the job has one rank.
 //
 // Differences from full MPI that a caller should know about:
-//   * Only MPI_COMM_WORLD.  Point-to-point is blocking or non-blocking
-//     (Isend/Irecv + Wait/Test family); collectives are blocking.
+//   * Only MPI_COMM_WORLD.  Point-to-point is blocking, non-blocking
+//     (Isend/Irecv + Wait/Test family) or persistent (Send_init/Recv_init +
+//     Start).  Collectives are blocking; Iallreduce and Ibarrier finish
+//     inside the call and return a completed request.
 //   * Sends are effectively buffered: every wait loop also drains incoming
 //     rings into an unexpected-message queue, so the classic "both ranks
 //     Send first" pattern does not hang.
@@ -83,60 +85,65 @@ typedef struct {
 #define MPI_BOR   8
 #define MPI_BXOR  9
 
-int MPI_Init(int *argc, char ***argv);
-int MPI_Initialized(int *flag);
-int MPI_Finalize(void);
-int MPI_Abort(MPI_Comm comm, int errorcode);
-int MPI_Comm_rank(MPI_Comm comm, int *rank);
-int MPI_Comm_size(MPI_Comm comm, int *size);
-int MPI_Get_processor_name(char *name, int *resultlen);
-int MPI_Type_size(MPI_Datatype type, int *size);
-double MPI_Wtime(void);
-double MPI_Wtick(void);
-unsigned long MPI_Wtime_us(void);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-int MPI_Send(const void *buf, int count, MPI_Datatype type, int dest, int tag,
-             MPI_Comm comm);
-int MPI_Recv(void *buf, int count, MPI_Datatype type, int source, int tag,
-             MPI_Comm comm, MPI_Status *status);
-int MPI_Sendrecv(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-                 int dest, int sendtag,
-                 void *recvbuf, int recvcount, MPI_Datatype recvtype,
-                 int source, int recvtag, MPI_Comm comm, MPI_Status *status);
-int MPI_Probe(int source, int tag, MPI_Comm comm, MPI_Status *status);
-int MPI_Iprobe(int source, int tag, MPI_Comm comm, int *flag,
-               MPI_Status *status);
-int MPI_Get_count(const MPI_Status *status, MPI_Datatype type, int *count);
+// Every function exists as MPI_x and as PMPI_x (the MPI profiling
+// interface).  libc.so defines PMPI_x and makes MPI_x an alias, and the
+// library itself only calls PMPI_x, so a program may define its own MPI_x
+// wrappers that call PMPI_x.
+#define _MPI_FN(ret, name, params) ret MPI_##name params; ret PMPI_##name params;
+_MPI_FN(int, Init, (int *argc, char ***argv))
+_MPI_FN(int, Initialized, (int *flag))
+_MPI_FN(int, Finalize, (void))
+_MPI_FN(int, Abort, (MPI_Comm comm, int errorcode))
+_MPI_FN(int, Comm_rank, (MPI_Comm comm, int *rank))
+_MPI_FN(int, Comm_size, (MPI_Comm comm, int *size))
+_MPI_FN(int, Get_processor_name, (char *name, int *resultlen))
+_MPI_FN(int, Type_size, (MPI_Datatype type, int *size))
+_MPI_FN(double, Wtime, (void))
+_MPI_FN(double, Wtick, (void))
+_MPI_FN(unsigned long, Wtime_us, (void))
+_MPI_FN(int, Send, (const void *buf, int count, MPI_Datatype type, int dest, int tag, MPI_Comm comm))
+_MPI_FN(int, Recv, (void *buf, int count, MPI_Datatype type, int source, int tag, MPI_Comm comm, MPI_Status *status))
+_MPI_FN(int, Sendrecv, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, int dest, int sendtag, void *recvbuf, int recvcount, MPI_Datatype recvtype, int source, int recvtag, MPI_Comm comm, MPI_Status *status))
+_MPI_FN(int, Probe, (int source, int tag, MPI_Comm comm, MPI_Status *status))
+_MPI_FN(int, Iprobe, (int source, int tag, MPI_Comm comm, int *flag, MPI_Status *status))
+_MPI_FN(int, Get_count, (const MPI_Status *status, MPI_Datatype type, int *count))
+_MPI_FN(int, Isend, (const void *buf, int count, MPI_Datatype type, int dest, int tag, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Irecv, (void *buf, int count, MPI_Datatype type, int source, int tag, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Wait, (MPI_Request *request, MPI_Status *status))
+_MPI_FN(int, Test, (MPI_Request *request, int *flag, MPI_Status *status))
+_MPI_FN(int, Waitall, (int count, MPI_Request *requests, MPI_Status *statuses))
+_MPI_FN(int, Testall, (int count, MPI_Request *requests, int *flag, MPI_Status *statuses))
+_MPI_FN(int, Waitany, (int count, MPI_Request *requests, int *index, MPI_Status *status))
+_MPI_FN(int, Barrier, (MPI_Comm comm))
+_MPI_FN(int, Bcast, (void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm))
+_MPI_FN(int, Reduce, (const void *sendbuf, void *recvbuf, int count, MPI_Datatype type, MPI_Op op, int root, MPI_Comm comm))
+_MPI_FN(int, Allreduce, (const void *sendbuf, void *recvbuf, int count, MPI_Datatype type, MPI_Op op, MPI_Comm comm))
+_MPI_FN(int, Gather, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm))
+_MPI_FN(int, Scatter, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm))
+_MPI_FN(int, Allgather, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm))
+_MPI_FN(int, Alltoall, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm))
+_MPI_FN(int, Allgatherv, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, const int *recvcounts, const int *displs, MPI_Datatype recvtype, MPI_Comm comm))
+_MPI_FN(int, Alltoallv, (const void *sendbuf, const int *sendcounts, const int *sdispls, MPI_Datatype sendtype, void *recvbuf, const int *recvcounts, const int *rdispls, MPI_Datatype recvtype, MPI_Comm comm))
+_MPI_FN(int, Gatherv, (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, const int *recvcounts, const int *displs, MPI_Datatype recvtype, int root, MPI_Comm comm))
+_MPI_FN(int, Iallreduce, (const void *sendbuf, void *recvbuf, int count, MPI_Datatype type, MPI_Op op, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Ibarrier, (MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Issend, (const void *buf, int count, MPI_Datatype type, int dest, int tag, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Ssend, (const void *buf, int count, MPI_Datatype type, int dest, int tag, MPI_Comm comm))
+_MPI_FN(int, Send_init, (const void *buf, int count, MPI_Datatype type, int dest, int tag, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Recv_init, (void *buf, int count, MPI_Datatype type, int source, int tag, MPI_Comm comm, MPI_Request *request))
+_MPI_FN(int, Start, (MPI_Request *request))
+_MPI_FN(int, Startall, (int count, MPI_Request *requests))
+_MPI_FN(int, Request_free, (MPI_Request *request))
+_MPI_FN(int, Waitsome, (int incount, MPI_Request *requests, int *outcount, int *indices, MPI_Status *statuses))
+_MPI_FN(int, Ineighbor_alltoallv, (const void *sendbuf, const int *sendcounts, const int *sdispls, MPI_Datatype sendtype, void *recvbuf, const int *recvcounts, const int *rdispls, MPI_Datatype recvtype, MPI_Comm comm, MPI_Request *request))
+#undef _MPI_FN
 
-int MPI_Isend(const void *buf, int count, MPI_Datatype type, int dest, int tag,
-              MPI_Comm comm, MPI_Request *request);
-int MPI_Irecv(void *buf, int count, MPI_Datatype type, int source, int tag,
-              MPI_Comm comm, MPI_Request *request);
-int MPI_Wait(MPI_Request *request, MPI_Status *status);
-int MPI_Test(MPI_Request *request, int *flag, MPI_Status *status);
-int MPI_Waitall(int count, MPI_Request *requests, MPI_Status *statuses);
-int MPI_Testall(int count, MPI_Request *requests, int *flag,
-                MPI_Status *statuses);
-int MPI_Waitany(int count, MPI_Request *requests, int *index,
-                MPI_Status *status);
-
-int MPI_Barrier(MPI_Comm comm);
-int MPI_Bcast(void *buf, int count, MPI_Datatype type, int root, MPI_Comm comm);
-int MPI_Reduce(const void *sendbuf, void *recvbuf, int count,
-               MPI_Datatype type, MPI_Op op, int root, MPI_Comm comm);
-int MPI_Allreduce(const void *sendbuf, void *recvbuf, int count,
-                  MPI_Datatype type, MPI_Op op, MPI_Comm comm);
-int MPI_Gather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-               void *recvbuf, int recvcount, MPI_Datatype recvtype,
-               int root, MPI_Comm comm);
-int MPI_Scatter(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-                void *recvbuf, int recvcount, MPI_Datatype recvtype,
-                int root, MPI_Comm comm);
-int MPI_Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-                  void *recvbuf, int recvcount, MPI_Datatype recvtype,
-                  MPI_Comm comm);
-int MPI_Alltoall(const void *sendbuf, int sendcount, MPI_Datatype sendtype,
-                 void *recvbuf, int recvcount, MPI_Datatype recvtype,
-                 MPI_Comm comm);
+#ifdef __cplusplus
+}
+#endif
 
 #endif

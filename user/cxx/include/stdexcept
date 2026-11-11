@@ -1,0 +1,30 @@
+#pragma once
+#include <exception>
+#include <string>
+
+namespace std {
+// Holds a private copy of the message, so what() outlives the argument.
+class __message_error : public exception {
+  string msg_;
+public:
+  explicit __message_error(const string &m) : msg_(m) {}
+  explicit __message_error(const char *m) : msg_(m) {}
+  const char *what() const noexcept override { return msg_.c_str(); }
+};
+#define _XV6_ERROR(name, base)                                    \
+  class name : public base {                                      \
+  public:                                                         \
+    explicit name(const string &m) : base(m) {}                   \
+    explicit name(const char *m) : base(m) {}                     \
+  };
+_XV6_ERROR(logic_error, __message_error)
+_XV6_ERROR(runtime_error, __message_error)
+_XV6_ERROR(invalid_argument, logic_error)
+_XV6_ERROR(domain_error, logic_error)
+_XV6_ERROR(length_error, logic_error)
+_XV6_ERROR(out_of_range, logic_error)
+_XV6_ERROR(range_error, runtime_error)
+_XV6_ERROR(overflow_error, runtime_error)
+_XV6_ERROR(underflow_error, runtime_error)
+#undef _XV6_ERROR
+}

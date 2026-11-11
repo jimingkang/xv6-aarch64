@@ -1,0 +1,75 @@
+// Mini Eigen for xv6: just the dense vector the fem port needs
+// (Eigen::VectorXd, Eigen::Map, Eigen::Index).  Not the real Eigen.
+#pragma once
+#include <cstddef>
+#include <cmath>
+#include <vector>
+
+namespace Eigen {
+typedef std::ptrdiff_t Index;
+constexpr int Dynamic = -1;
+enum ComputationInfo { Success = 0, NumericalIssue = 1, NoConvergence = 2, InvalidInput = 3 };
+
+template <class Scalar, int Rows, int Cols> class Matrix;
+
+// Column vector with run-time size.
+template <class Scalar> class Matrix<Scalar, Dynamic, 1> {
+  std::vector<Scalar> v_;
+public:
+  typedef Scalar value_type;
+  Matrix() = default;
+  explicit Matrix(Index n) : v_((std::size_t)n) {}
+  Matrix(const Scalar *p, Index n) : v_(p, p + n) {}
+  static Matrix Zero(Index n) { return Matrix(n); }
+  static Matrix Constant(Index n, Scalar c) { Matrix m(n); for(auto &x : m.v_) x = c; return m; }
+  Index size() const { return (Index)v_.size(); }
+  Index rows() const { return size(); }
+  Index cols() const { return 1; }
+  void resize(Index n) { v_.resize((std::size_t)n); }
+  void setZero() { for(auto &x : v_) x = Scalar(0); }
+  Scalar *data() { return v_.data(); }
+  const Scalar *data() const { return v_.data(); }
+  Scalar &operator[](Index i) { return v_[(std::size_t)i]; }
+  const Scalar &operator[](Index i) const { return v_[(std::size_t)i]; }
+  Scalar &operator()(Index i) { return v_[(std::size_t)i]; }
+  const Scalar &operator()(Index i) const { return v_[(std::size_t)i]; }
+  bool allFinite() const { for(auto x : v_) if(!std::isfinite(x)) return false; return true; }
+  Scalar norm() const { Scalar s = 0; for(auto x : v_) s += x * x; return std::sqrt(s); }
+  Scalar squaredNorm() const { Scalar s = 0; for(auto x : v_) s += x * x; return s; }
+  Scalar dot(const Matrix &o) const { Scalar s = 0; for(Index i = 0; i < size(); i++) s += v_[i] * o[i]; return s; }
+  Scalar lpNormInfinity() const { Scalar s = 0; for(auto x : v_) s = std::abs(x) > s ? std::abs(x) : s; return s; }
+  Matrix &operator+=(const Matrix &o) { for(Index i = 0; i < size(); i++) v_[i] += o[i]; return *this; }
+  Matrix &operator-=(const Matrix &o) { for(Index i = 0; i < size(); i++) v_[i] -= o[i]; return *this; }
+  Matrix &operator*=(Scalar a) { for(auto &x : v_) x *= a; return *this; }
+  friend Matrix operator+(Matrix a, const Matrix &b) { return a += b; }
+  friend Matrix operator-(Matrix a, const Matrix &b) { return a -= b; }
+  friend Matrix operator*(Scalar s, Matrix a) { return a *= s; }
+  friend Matrix operator*(Matrix a, Scalar s) { return a *= s; }
+};
+typedef Matrix<double, Dynamic, 1> VectorXd;
+
+// A view of existing memory as a vector.  Converts to a VectorXd copy.
+template <class Plain> class Map;
+template <class Scalar> class Map<const Matrix<Scalar, Dynamic, 1>> {
+  const Scalar *p_;
+  Index n_;
+public:
+  Map(const Scalar *p, Index n) : p_(p), n_(n) {}
+  Index size() const { return n_; }
+  const Scalar *data() const { return p_; }
+  const Scalar &operator[](Index i) const { return p_[i]; }
+  const Scalar &operator()(Index i) const { return p_[i]; }
+  operator Matrix<Scalar, Dynamic, 1>() const { return Matrix<Scalar, Dynamic, 1>(p_, n_); }
+};
+template <class Scalar> class Map<Matrix<Scalar, Dynamic, 1>> {
+  Scalar *p_;
+  Index n_;
+public:
+  Map(Scalar *p, Index n) : p_(p), n_(n) {}
+  Index size() const { return n_; }
+  Scalar *data() const { return p_; }
+  Scalar &operator[](Index i) const { return p_[i]; }
+  Scalar &operator()(Index i) const { return p_[i]; }
+  operator Matrix<Scalar, Dynamic, 1>() const { return Matrix<Scalar, Dynamic, 1>(p_, n_); }
+};
+}

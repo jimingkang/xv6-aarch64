@@ -1,0 +1,19 @@
+#pragma once
+#include <utility>
+namespace std {
+template <class I, class T> constexpr void iota(I f, I l, T v) { for(; f != l; ++f, ++v) *f = v; }
+template <class I, class T> constexpr T accumulate(I f, I l, T v) { for(; f != l; ++f) v = std::move(v) + *f; return v; }
+template <class I, class T, class Op> constexpr T accumulate(I f, I l, T v, Op op) { for(; f != l; ++f) v = op(std::move(v), *f); return v; }
+template <class I1, class I2, class T> constexpr T inner_product(I1 f, I1 l, I2 g, T v) {
+  for(; f != l; ++f, ++g) v = std::move(v) + *f * *g;
+  return v;
+}
+template <class I, class O> constexpr O partial_sum(I f, I l, O o) {
+  if(f == l) return o;
+  auto s = *f;
+  *o = s;
+  while(++f != l) { s = std::move(s) + *f; *++o = s; }
+  return ++o;
+}
+template <class T> constexpr T gcd(T a, T b) { while(b) { T t = a % b; a = b; b = t; } return a < 0 ? -a : a; }
+}

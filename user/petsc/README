@@ -1,0 +1,12 @@
+A small PETSc subset for xv6 user programs: parallel AIJ matrices and
+vectors assembled from COO entries, ghosted vectors, scatter-to-all, and
+KSP (GMRES, CG, Richardson, PREONLY) with PC (ASM, BJACOBI, JACOBI, LU,
+NONE), over the single-node MPI subset in user/mpi.c.
+
+It implements the calls the fem port (user/fem) makes, with PETSc's
+semantics where they matter (ownership layout, COO summation, ghost
+updates, convergence test and reason codes).  ASM/BJACOBI subdomain
+problems are solved exactly by the band LU in user/sparse/bandlu.hpp; real
+PETSc uses ILU(0) there by default.  See doc/readme/readme_fem.md.
+
+This is not PETSc and contains no PETSc source code.

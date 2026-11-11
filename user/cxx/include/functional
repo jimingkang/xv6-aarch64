@@ -1,0 +1,112 @@
+#pragma once
+#include <cstddef>
+#include <new>
+#include <utility>
+#include <type_traits>
+
+namespace std {
+[[noreturn]] void __throw_bad_function_call();
+
+template <class T = void> struct less { constexpr bool operator()(const T &a, const T &b) const { return a < b; } };
+template <class T = void> struct greater { constexpr bool operator()(const T &a, const T &b) const { return b < a; } };
+template <class T = void> struct less_equal { constexpr bool operator()(const T &a, const T &b) const { return !(b < a); } };
+template <class T = void> struct greater_equal { constexpr bool operator()(const T &a, const T &b) const { return !(a < b); } };
+template <class T = void> struct equal_to { constexpr bool operator()(const T &a, const T &b) const { return a == b; } };
+template <class T = void> struct not_equal_to { constexpr bool operator()(const T &a, const T &b) const { return !(a == b); } };
+template <class T = void> struct plus { constexpr T operator()(const T &a, const T &b) const { return a + b; } };
+template <class T = void> struct minus { constexpr T operator()(const T &a, const T &b) const { return a - b; } };
+template <class T = void> struct multiplies { constexpr T operator()(const T &a, const T &b) const { return a * b; } };
+template <> struct less<void> {
+  template <class A, class B> constexpr bool operator()(A &&a, B &&b) const { return std::forward<A>(a) < std::forward<B>(b); }
+};
+template <> struct greater<void> {
+  template <class A, class B> constexpr bool operator()(A &&a, B &&b) const { return std::forward<B>(b) < std::forward<A>(a); }
+};
+template <> struct equal_to<void> {
+  template <class A, class B> constexpr bool operator()(A &&a, B &&b) const { return std::forward<A>(a) == std::forward<B>(b); }
+};
+
+template <class T, class = void> struct hash;
+namespace __detail {
+inline size_t mix(size_t x) {
+  x ^= x >> 33; x *= 0xff51afd7ed558ccdUL;
+  x ^= x >> 33; x *= 0xc4ceb9fe1a85ec53UL;
+  x ^= x >> 33;
+  return x;
+}
+}
+template <class T> struct hash<T *> { size_t operator()(T *p) const noexcept { return __detail::mix((size_t)p); } };
+template <class T> struct hash<T, enable_if_t<is_integral<T>::value || is_enum<T>::value>> {
+  size_t operator()(T v) const noexcept { return __detail::mix((size_t)v); }
+};
+template <> struct hash<decltype(nullptr)> { size_t operator()(decltype(nullptr)) const noexcept { return 0; } };
+
+template <class F, class... A> constexpr auto invoke(F &&f, A &&...a) -> decltype(std::forward<F>(f)(std::forward<A>(a)...)) {
+  return std::forward<F>(f)(std::forward<A>(a)...);
+}
+
+template <class T> class reference_wrapper {
+  T *p_;
+public:
+  typedef T type;
+  reference_wrapper(T &r) noexcept : p_(std::addressof(r)) {}
+  operator T &() const noexcept { return *p_; }
+  T &get() const noexcept { return *p_; }
+  template <class... A> decltype(auto) operator()(A &&...a) const { return (*p_)(std::forward<A>(a)...); }
+};
+template <class T> reference_wrapper<T> ref(T &r) noexcept { return reference_wrapper<T>(r); }
+template <class T> reference_wrapper<const T> cref(const T &r) noexcept { return reference_wrapper<const T>(r); }
+
+template <class> class function;
+// Type-erased callable: a small inline buffer for small trivially movable
+// functors would be faster, but one heap object per function keeps it simple.
+template <class R, class... A> class function<R(A...)> {
+  struct base {
+    virtual ~base() {}
+    virtual R call(A &&...a) = 0;
+    virtual base *clone() const = 0;
+  };
+  template <class F> struct holder final : base {
+    F f;
+    template <class G> explicit holder(G &&g) : f(std::forward<G>(g)) {}
+    R call(A &&...a) override {
+      if constexpr (is_void<R>::value) f(std::forward<A>(a)...);
+      else return f(std::forward<A>(a)...);
+    }
+    base *clone() const override { return new holder(f); }
+  };
+  base *p_ = nullptr;
+
+  template <class F> static bool is_null(const F &f) {
+    if constexpr (is_pointer<F>::value || is_member_pointer<F>::value) return f == nullptr;
+    else return false;
+  }
+
+public:
+  typedef R result_type;
+  function() noexcept = default;
+  function(decltype(nullptr)) noexcept {}
+  function(const function &o) : p_(o.p_ ? o.p_->clone() : nullptr) {}
+  function(function &&o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+  template <class F, class D = decay_t<F>,
+            class = enable_if_t<!is_same<D, function>::value &&
+                                is_invocable<D &, A...>::value>>
+  function(F &&f) {
+    if(!is_null(f)) p_ = new holder<D>(std::forward<F>(f));
+  }
+  ~function() { delete p_; }
+  function &operator=(const function &o) { function(o).swap(*this); return *this; }
+  function &operator=(function &&o) noexcept { function(std::move(o)).swap(*this); return *this; }
+  function &operator=(decltype(nullptr)) noexcept { delete p_; p_ = nullptr; return *this; }
+  template <class F, class = enable_if_t<!is_same<decay_t<F>, function>::value>>
+  function &operator=(F &&f) { function(std::forward<F>(f)).swap(*this); return *this; }
+  void swap(function &o) noexcept { std::swap(p_, o.p_); }
+  explicit operator bool() const noexcept { return p_ != nullptr; }
+  R operator()(A... a) const {
+    if(!p_) __throw_bad_function_call();
+    return p_->call(std::forward<A>(a)...);
+  }
+};
+template <class R, class... A> bool operator==(const function<R(A...)> &f, decltype(nullptr)) noexcept { return !f; }
+template <class R, class... A> bool operator!=(const function<R(A...)> &f, decltype(nullptr)) noexcept { return (bool)f; }
+}

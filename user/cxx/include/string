@@ -1,0 +1,262 @@
+#pragma once
+#include <cstddef>
+#include <cstring>
+#include <cstdlib>
+#include <utility>
+#include <iterator>
+#include <initializer_list>
+#include <string_view>
+#include <type_traits>
+
+namespace std {
+[[noreturn]] void __throw_out_of_range(const char *);
+[[noreturn]] void __throw_length_error(const char *);
+
+// char only; always heap-backed and NUL-terminated (p_ may be the shared
+// empty string when cap_ == 0).
+class string {
+  char *p_;
+  size_t n_ = 0, cap_ = 0;
+  static char *empty_buf() { static char z = 0; return &z; }
+  void grow(size_t need) {
+    if(need <= cap_) return;
+    size_t c = cap_ ? 2 * cap_ : 15;
+    if(c < need) c = need;
+    char *np = static_cast<char *>(::malloc(c + 1));
+    ::memcpy(np, p_, n_ + 1);
+    if(cap_) ::free(p_);
+    p_ = np;
+    cap_ = c;
+  }
+  void init(const char *s, size_t n) {
+    p_ = empty_buf();
+    grow(n);
+    if(n) ::memcpy(p_, s, n);
+    n_ = n;
+    p_[n] = 0;
+  }
+public:
+  typedef char value_type;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+  typedef char &reference;
+  typedef const char &const_reference;
+  typedef char *iterator;
+  typedef const char *const_iterator;
+  static constexpr size_t npos = (size_t)-1;
+
+  string() noexcept : p_(empty_buf()) {}
+  string(const char *s) { init(s, ::strlen(s)); }
+  string(const char *s, size_t n) { init(s, n); }
+  string(size_t n, char c) { init("", 0); grow(n); ::memset(p_, c, n); n_ = n; p_[n] = 0; }
+  string(const string &o) { init(o.p_, o.n_); }
+  string(const string &o, size_t pos, size_t k = npos) {
+    if(pos > o.n_) __throw_out_of_range("string");
+    init(o.p_ + pos, k < o.n_ - pos ? k : o.n_ - pos);
+  }
+  string(string &&o) noexcept : p_(o.p_), n_(o.n_), cap_(o.cap_) { o.p_ = empty_buf(); o.n_ = o.cap_ = 0; }
+  explicit string(string_view v) { init(v.data(), v.size()); }
+  string(initializer_list<char> l) { init(l.begin(), l.size()); }
+  template <class I, class = enable_if_t<!is_integral<I>::value>> string(I f, I l) : p_(empty_buf()) {
+    for(; f != l; ++f) push_back(*f);
+  }
+  string(decltype(nullptr)) = delete;
+  ~string() { if(cap_) ::free(p_); }
+
+  string &operator=(const string &o) { if(this != &o) assign(o.p_, o.n_); return *this; }
+  string &operator=(string &&o) noexcept {
+    if(this != &o) {
+      if(cap_) ::free(p_);
+      p_ = o.p_; n_ = o.n_; cap_ = o.cap_;
+      o.p_ = empty_buf(); o.n_ = o.cap_ = 0;
+    }
+    return *this;
+  }
+  string &operator=(const char *s) { return assign(s, ::strlen(s)); }
+  string &operator=(char c) { return assign(&c, 1); }
+  string &operator=(string_view v) { return assign(v.data(), v.size()); }
+  string &assign(const char *s, size_t n) {
+    if(n > cap_) {
+      string t(s, n);
+      swap(t);
+    } else {
+      ::memmove(p_, s, n);
+      n_ = n;
+      p_[n] = 0;
+    }
+    return *this;
+  }
+  string &assign(const string &s) { return assign(s.p_, s.n_); }
+  string &assign(const char *s) { return assign(s, ::strlen(s)); }
+  string &assign(size_t n, char c) { clear(); return append(n, c); }
+
+  operator string_view() const noexcept { return string_view(p_, n_); }
+
+  const char *c_str() const noexcept { return p_; }
+  const char *data() const noexcept { return p_; }
+  char *data() noexcept { return p_; }
+  size_t size() const noexcept { return n_; }
+  size_t length() const noexcept { return n_; }
+  size_t capacity() const noexcept { return cap_; }
+  size_t max_size() const noexcept { return npos / 2; }
+  bool empty() const noexcept { return n_ == 0; }
+  void reserve(size_t n) { grow(n); }
+  void clear() noexcept { n_ = 0; p_[0] = 0; }
+  void resize(size_t n, char c = 0) {
+    if(n > n_) { grow(n); ::memset(p_ + n_, c, n - n_); }
+    n_ = n;
+    if(cap_) p_[n] = 0;
+  }
+  void shrink_to_fit() {}
+
+  char &operator[](size_t i) { return p_[i]; }
+  const char &operator[](size_t i) const { return p_[i]; }
+  char &at(size_t i) { if(i >= n_) __throw_out_of_range("string::at"); return p_[i]; }
+  const char &at(size_t i) const { if(i >= n_) __throw_out_of_range("string::at"); return p_[i]; }
+  char &front() { return p_[0]; }
+  const char &front() const { return p_[0]; }
+  char &back() { return p_[n_ - 1]; }
+  const char &back() const { return p_[n_ - 1]; }
+  char *begin() noexcept { return p_; }
+  const char *begin() const noexcept { return p_; }
+  char *end() noexcept { return p_ + n_; }
+  const char *end() const noexcept { return p_ + n_; }
+  const char *cbegin() const noexcept { return p_; }
+  const char *cend() const noexcept { return p_ + n_; }
+
+  string &append(const char *s, size_t n) {
+    if(!n) return *this;
+    if(s >= p_ && s < p_ + n_ + 1 && n_ + n > cap_) {
+      string t(s, n);
+      return append(t.p_, n);
+    }
+    grow(n_ + n);
+    ::memmove(p_ + n_, s, n);
+    n_ += n;
+    p_[n_] = 0;
+    return *this;
+  }
+  string &append(const char *s) { return append(s, ::strlen(s)); }
+  string &append(const string &s) { return append(s.p_, s.n_); }
+  string &append(string_view v) { return append(v.data(), v.size()); }
+  string &append(size_t n, char c) {
+    if(!n) return *this;
+    grow(n_ + n);
+    ::memset(p_ + n_, c, n);
+    n_ += n;
+    p_[n_] = 0;
+    return *this;
+  }
+  template <class I, class = enable_if_t<!is_integral<I>::value>> string &append(I f, I l) {
+    for(; f != l; ++f) push_back(*f);
+    return *this;
+  }
+  void push_back(char c) { append(1, c); }
+  void pop_back() { p_[--n_] = 0; }
+  string &operator+=(const string &s) { return append(s); }
+  string &operator+=(const char *s) { return append(s); }
+  string &operator+=(char c) { return append(1, c); }
+  string &operator+=(string_view v) { return append(v); }
+  string &insert(size_t pos, const char *s, size_t n) {
+    if(pos > n_) __throw_out_of_range("string::insert");
+    string t(p_, pos);
+    t.append(s, n).append(p_ + pos, n_ - pos);
+    swap(t);
+    return *this;
+  }
+  string &insert(size_t pos, const string &s) { return insert(pos, s.p_, s.n_); }
+  string &insert(size_t pos, const char *s) { return insert(pos, s, ::strlen(s)); }
+  string &insert(size_t pos, size_t n, char c) { string t(n, c); return insert(pos, t); }
+  string &erase(size_t pos = 0, size_t k = npos) {
+    if(pos > n_) __throw_out_of_range("string::erase");
+    if(k > n_ - pos) k = n_ - pos;
+    ::memmove(p_ + pos, p_ + pos + k, n_ - pos - k);
+    n_ -= k;
+    if(cap_) p_[n_] = 0;
+    return *this;
+  }
+  string &replace(size_t pos, size_t k, const string &s) {
+    if(pos > n_) __throw_out_of_range("string::replace");
+    if(k > n_ - pos) k = n_ - pos;
+    string t(p_, pos);
+    t.append(s).append(p_ + pos + k, n_ - pos - k);
+    swap(t);
+    return *this;
+  }
+  string substr(size_t pos = 0, size_t k = npos) const { return string(*this, pos, k); }
+  void swap(string &o) noexcept { std::swap(p_, o.p_); std::swap(n_, o.n_); std::swap(cap_, o.cap_); }
+
+  int compare(string_view v) const noexcept { return string_view(*this).compare(v); }
+  int compare(const string &s) const noexcept { return string_view(*this).compare(s); }
+  int compare(const char *s) const noexcept { return string_view(*this).compare(s); }
+  size_t find(char c, size_t pos = 0) const noexcept { return string_view(*this).find(c, pos); }
+  size_t find(string_view s, size_t pos = 0) const noexcept { return string_view(*this).find(s, pos); }
+  size_t find(const char *s, size_t pos = 0) const noexcept { return string_view(*this).find(s, pos); }
+  size_t find(const string &s, size_t pos = 0) const noexcept { return string_view(*this).find(s, pos); }
+  size_t rfind(char c, size_t pos = npos) const noexcept { return string_view(*this).rfind(c, pos); }
+  size_t find_first_of(char c, size_t pos = 0) const noexcept { return find(c, pos); }
+  size_t find_last_of(char c, size_t pos = npos) const noexcept { return rfind(c, pos); }
+  bool starts_with(string_view s) const noexcept { return string_view(*this).starts_with(s); }
+  bool ends_with(string_view s) const noexcept { return string_view(*this).ends_with(s); }
+};
+
+inline string operator+(const string &a, const string &b) { string r; r.reserve(a.size() + b.size()); r.append(a).append(b); return r; }
+inline string operator+(const string &a, const char *b) { string r(a); r.append(b); return r; }
+inline string operator+(const char *a, const string &b) { string r(a); r.append(b); return r; }
+inline string operator+(const string &a, char b) { string r(a); r.push_back(b); return r; }
+inline string operator+(char a, const string &b) { string r(1, a); r.append(b); return r; }
+inline string operator+(string &&a, const string &b) { a.append(b); return std::move(a); }
+inline string operator+(string &&a, const char *b) { a.append(b); return std::move(a); }
+inline string operator+(string &&a, char b) { a.push_back(b); return std::move(a); }
+inline string operator+(string &&a, string &&b) { a.append(b); return std::move(a); }
+inline string operator+(const string &a, string &&b) { b.insert(0, a); return std::move(b); }
+inline string operator+(const char *a, string &&b) { b.insert(0, a); return std::move(b); }
+
+inline bool operator==(const string &a, const string &b) noexcept { return string_view(a) == string_view(b); }
+inline bool operator==(const string &a, const char *b) noexcept { return string_view(a) == string_view(b); }
+inline bool operator==(const char *a, const string &b) noexcept { return string_view(a) == string_view(b); }
+inline bool operator!=(const string &a, const string &b) noexcept { return !(a == b); }
+inline bool operator!=(const string &a, const char *b) noexcept { return !(a == b); }
+inline bool operator!=(const char *a, const string &b) noexcept { return !(a == b); }
+inline bool operator<(const string &a, const string &b) noexcept { return a.compare(b) < 0; }
+inline bool operator>(const string &a, const string &b) noexcept { return a.compare(b) > 0; }
+inline bool operator<=(const string &a, const string &b) noexcept { return a.compare(b) <= 0; }
+inline bool operator>=(const string &a, const string &b) noexcept { return a.compare(b) >= 0; }
+inline void swap(string &a, string &b) noexcept { a.swap(b); }
+
+namespace __detail {
+template <class U> string utoa(U v, bool neg) {
+  char buf[24], *p = buf + sizeof(buf);
+  do { *--p = char('0' + v % 10); v /= 10; } while(v);
+  if(neg) *--p = '-';
+  return string(p, buf + sizeof(buf) - p);
+}
+}
+inline string to_string(int v) { return __detail::utoa<unsigned long>(v < 0 ? 0UL - (unsigned long)(long)v : (unsigned long)v, v < 0); }
+inline string to_string(long v) { return __detail::utoa<unsigned long>(v < 0 ? 0UL - (unsigned long)v : (unsigned long)v, v < 0); }
+inline string to_string(long long v) { return to_string((long)v); }
+inline string to_string(unsigned v) { return __detail::utoa<unsigned long>(v, false); }
+inline string to_string(unsigned long v) { return __detail::utoa<unsigned long>(v, false); }
+inline string to_string(unsigned long long v) { return __detail::utoa<unsigned long>(v, false); }
+inline string to_string(double v) {
+  char buf[512];
+  int n = ::fmt_double(buf, sizeof(buf), v, 0, 6, 0, 'f');
+  return string(buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
+}
+inline string to_string(float v) { return to_string((double)v); }
+inline string to_string(long double v) { return to_string((double)v); }
+
+inline long stol(const string &s, size_t *idx = nullptr, int base = 10) {
+  char *e;
+  long v = ::strtol(s.c_str(), &e, base);
+  if(idx) *idx = e - s.c_str();
+  return v;
+}
+inline int stoi(const string &s, size_t *idx = nullptr, int base = 10) { return (int)stol(s, idx, base); }
+inline unsigned long stoul(const string &s, size_t *idx = nullptr, int base = 10) {
+  char *e;
+  unsigned long v = ::strtoul(s.c_str(), &e, base);
+  if(idx) *idx = e - s.c_str();
+  return v;
+}
+}

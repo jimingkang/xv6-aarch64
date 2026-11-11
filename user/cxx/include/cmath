@@ -1,0 +1,52 @@
+#pragma once
+#include "../../include/math.h"
+#include <type_traits>
+#include <cstdlib>
+namespace std {
+using ::acos; inline float acos(float x) { return (float)::acos((double)x); } inline long double acos(long double x) { return ::acos((double)x); }
+using ::asin; inline float asin(float x) { return (float)::asin((double)x); } inline long double asin(long double x) { return ::asin((double)x); }
+using ::atan; inline float atan(float x) { return (float)::atan((double)x); } inline long double atan(long double x) { return ::atan((double)x); }
+using ::cbrt; inline float cbrt(float x) { return (float)::cbrt((double)x); } inline long double cbrt(long double x) { return ::cbrt((double)x); }
+using ::ceil; inline float ceil(float x) { return (float)::ceil((double)x); } inline long double ceil(long double x) { return ::ceil((double)x); }
+using ::cos; inline float cos(float x) { return (float)::cos((double)x); } inline long double cos(long double x) { return ::cos((double)x); }
+using ::cosh; inline float cosh(float x) { return (float)::cosh((double)x); } inline long double cosh(long double x) { return ::cosh((double)x); }
+using ::exp; inline float exp(float x) { return (float)::exp((double)x); } inline long double exp(long double x) { return ::exp((double)x); }
+using ::expm1; inline float expm1(float x) { return (float)::expm1((double)x); } inline long double expm1(long double x) { return ::expm1((double)x); }
+using ::fabs; inline float fabs(float x) { return (float)::fabs((double)x); } inline long double fabs(long double x) { return ::fabs((double)x); }
+using ::floor; inline float floor(float x) { return (float)::floor((double)x); } inline long double floor(long double x) { return ::floor((double)x); }
+using ::log; inline float log(float x) { return (float)::log((double)x); } inline long double log(long double x) { return ::log((double)x); }
+using ::log10; inline float log10(float x) { return (float)::log10((double)x); } inline long double log10(long double x) { return ::log10((double)x); }
+using ::log1p; inline float log1p(float x) { return (float)::log1p((double)x); } inline long double log1p(long double x) { return ::log1p((double)x); }
+using ::log2; inline float log2(float x) { return (float)::log2((double)x); } inline long double log2(long double x) { return ::log2((double)x); }
+using ::round; inline float round(float x) { return (float)::round((double)x); } inline long double round(long double x) { return ::round((double)x); }
+using ::sin; inline float sin(float x) { return (float)::sin((double)x); } inline long double sin(long double x) { return ::sin((double)x); }
+using ::sinh; inline float sinh(float x) { return (float)::sinh((double)x); } inline long double sinh(long double x) { return ::sinh((double)x); }
+using ::sqrt; inline float sqrt(float x) { return (float)::sqrt((double)x); } inline long double sqrt(long double x) { return ::sqrt((double)x); }
+using ::tan; inline float tan(float x) { return (float)::tan((double)x); } inline long double tan(long double x) { return ::tan((double)x); }
+using ::tanh; inline float tanh(float x) { return (float)::tanh((double)x); } inline long double tanh(long double x) { return ::tanh((double)x); }
+using ::trunc; inline float trunc(float x) { return (float)::trunc((double)x); } inline long double trunc(long double x) { return ::trunc((double)x); }
+using ::atan2; inline float atan2(float x, float y) { return (float)::atan2((double)x, (double)y); }
+using ::copysign; inline float copysign(float x, float y) { return (float)::copysign((double)x, (double)y); }
+using ::fmax; inline float fmax(float x, float y) { return (float)::fmax((double)x, (double)y); }
+using ::fmin; inline float fmin(float x, float y) { return (float)::fmin((double)x, (double)y); }
+using ::fmod; inline float fmod(float x, float y) { return (float)::fmod((double)x, (double)y); }
+using ::hypot; inline float hypot(float x, float y) { return (float)::hypot((double)x, (double)y); }
+using ::pow; inline float pow(float x, float y) { return (float)::pow((double)x, (double)y); }
+template <class T, class U, class = enable_if_t<is_arithmetic<T>::value && is_arithmetic<U>::value && !(is_same<T, U>::value && is_floating_point<T>::value)>>
+inline double pow(T x, U y) { return ::pow((double)x, (double)y); }
+template <class T, class U, class = enable_if_t<is_arithmetic<T>::value && is_arithmetic<U>::value && !(is_same<T, U>::value && is_floating_point<T>::value)>>
+inline double atan2(T x, U y) { return ::atan2((double)x, (double)y); }
+template <class T, class U, class = enable_if_t<is_arithmetic<T>::value && is_arithmetic<U>::value && !(is_same<T, U>::value && is_floating_point<T>::value)>>
+inline double hypot(T x, U y) { return ::hypot((double)x, (double)y); }
+template <class T, class = enable_if_t<is_integral<T>::value>> inline double sqrt(T x) { return ::sqrt((double)x); }
+inline double hypot(double x, double y, double z) { return ::sqrt(x * x + y * y + z * z); }
+using ::fma; using ::frexp; using ::ldexp; using ::modf; using ::scalbn;
+inline double abs(double x) { return ::fabs(x); }
+inline float abs(float x) { return __builtin_fabsf(x); }
+inline long double abs(long double x) { return ::fabs((double)x); }
+template <class T> constexpr bool isfinite(T x) { if constexpr (is_integral<T>::value) return true; else return __builtin_isfinite(x); }
+template <class T> constexpr bool isnan(T x) { if constexpr (is_integral<T>::value) return false; else return __builtin_isnan(x); }
+template <class T> constexpr bool isinf(T x) { if constexpr (is_integral<T>::value) return false; else return __builtin_isinf(x); }
+template <class T> constexpr bool signbit(T x) { return __builtin_signbit((double)x); }
+inline double nan(const char *) { return __builtin_nan(""); }
+}

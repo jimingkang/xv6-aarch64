@@ -23,3 +23,6 @@ __pycache__/
 trace/
 kernel/buildinfo.c
 /build/t113/
+# musl libm internals and the C++ library's private headers start with "_".
+!user/libm/__*
+!user/cxx/include/__*

@@ -1,0 +1,209 @@
+#pragma once
+#include <cstddef>
+#include <new>
+#include <utility>
+#include <iterator>
+#include <initializer_list>
+#include <type_traits>
+#include <algorithm>
+#include <memory>
+
+namespace std {
+[[noreturn]] void __throw_out_of_range(const char *);
+[[noreturn]] void __throw_length_error(const char *);
+
+// vector<bool> is not specialised here: it stores one bool per byte.
+template <class T, class Alloc = allocator<T>> class vector {
+  T *b_ = nullptr, *e_ = nullptr, *c_ = nullptr;
+
+  static T *alloc(size_t n) {
+    if(n > (size_t)-1 / 2 / sizeof(T)) __throw_length_error("vector");
+    return n ? static_cast<T *>(::operator new(n * sizeof(T))) : nullptr;
+  }
+  static void release(T *p) { ::operator delete(p); }
+  static void destroy_range(T *f, T *l) {
+    if constexpr (!is_trivially_destructible<T>::value)
+      for(; f != l; ++f) f->~T();
+  }
+  size_t grow_to(size_t need) const {
+    size_t c = capacity() ? 2 * capacity() : 4;
+    return c < need ? need : c;
+  }
+  void relocate(size_t n) {
+    T *nb = alloc(n), *d = nb;
+    for(T *p = b_; p != e_; ++p, ++d) {
+      ::new((void *)d) T(std::move(*p));
+      p->~T();
+    }
+    release(b_);
+    e_ = nb + (e_ - b_);
+    b_ = nb;
+    c_ = nb + n;
+  }
+  template <class I> void init_range(I f, I l, input_iterator_tag) { for(; f != l; ++f) emplace_back(*f); }
+  template <class I> void init_range(I f, I l, forward_iterator_tag) {
+    size_t n = std::distance(f, l);
+    b_ = e_ = alloc(n);
+    c_ = b_ + n;
+    for(; f != l; ++f, ++e_) ::new((void *)e_) T(*f);
+  }
+
+public:
+  typedef T value_type;
+  typedef Alloc allocator_type;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+  typedef T &reference;
+  typedef const T &const_reference;
+  typedef T *pointer;
+  typedef const T *const_pointer;
+  typedef T *iterator;
+  typedef const T *const_iterator;
+  typedef std::reverse_iterator<iterator> reverse_iterator;
+  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+
+  vector() noexcept = default;
+  explicit vector(const Alloc &) noexcept {}
+  explicit vector(size_t n) : b_(alloc(n)), e_(b_), c_(b_ + n) {
+    for(; e_ != c_; ++e_) ::new((void *)e_) T();
+  }
+  vector(size_t n, const T &v) : b_(alloc(n)), e_(b_), c_(b_ + n) {
+    for(; e_ != c_; ++e_) ::new((void *)e_) T(v);
+  }
+  template <class I, class = enable_if_t<!is_integral<I>::value>>
+  vector(I f, I l) { init_range(f, l, typename iterator_traits<I>::iterator_category()); }
+  vector(initializer_list<T> l) { init_range(l.begin(), l.end(), random_access_iterator_tag()); }
+  vector(const vector &o) { init_range(o.begin(), o.end(), random_access_iterator_tag()); }
+  vector(vector &&o) noexcept : b_(o.b_), e_(o.e_), c_(o.c_) { o.b_ = o.e_ = o.c_ = nullptr; }
+  ~vector() { destroy_range(b_, e_); release(b_); }
+
+  vector &operator=(const vector &o) {
+    if(this != &o) assign(o.begin(), o.end());
+    return *this;
+  }
+  vector &operator=(vector &&o) noexcept {
+    if(this != &o) {
+      destroy_range(b_, e_);
+      release(b_);
+      b_ = o.b_; e_ = o.e_; c_ = o.c_;
+      o.b_ = o.e_ = o.c_ = nullptr;
+    }
+    return *this;
+  }
+  vector &operator=(initializer_list<T> l) { assign(l.begin(), l.end()); return *this; }
+  template <class I, class = enable_if_t<!is_integral<I>::value>> void assign(I f, I l) {
+    vector t(f, l);
+    swap(t);
+  }
+  void assign(size_t n, const T &v) { vector t(n, v); swap(t); }
+  void assign(initializer_list<T> l) { assign(l.begin(), l.end()); }
+
+  T &operator[](size_t i) noexcept { return b_[i]; }
+  const T &operator[](size_t i) const noexcept { return b_[i]; }
+  T &at(size_t i) { if(i >= size()) __throw_out_of_range("vector::at"); return b_[i]; }
+  const T &at(size_t i) const { if(i >= size()) __throw_out_of_range("vector::at"); return b_[i]; }
+  T &front() { return *b_; }
+  const T &front() const { return *b_; }
+  T &back() { return e_[-1]; }
+  const T &back() const { return e_[-1]; }
+  T *data() noexcept { return b_; }
+  const T *data() const noexcept { return b_; }
+
+  iterator begin() noexcept { return b_; }
+  const_iterator begin() const noexcept { return b_; }
+  iterator end() noexcept { return e_; }
+  const_iterator end() const noexcept { return e_; }
+  const_iterator cbegin() const noexcept { return b_; }
+  const_iterator cend() const noexcept { return e_; }
+  reverse_iterator rbegin() noexcept { return reverse_iterator(e_); }
+  const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(e_); }
+  reverse_iterator rend() noexcept { return reverse_iterator(b_); }
+  const_reverse_iterator rend() const noexcept { return const_reverse_iterator(b_); }
+
+  bool empty() const noexcept { return b_ == e_; }
+  size_t size() const noexcept { return e_ - b_; }
+  size_t capacity() const noexcept { return c_ - b_; }
+  size_t max_size() const noexcept { return (size_t)-1 / sizeof(T); }
+  void reserve(size_t n) { if(n > capacity()) relocate(n); }
+  void shrink_to_fit() { if(e_ != c_) relocate(size()); }
+
+  void clear() noexcept { destroy_range(b_, e_); e_ = b_; }
+  template <class... A> T &emplace_back(A &&...a) {
+    if(e_ == c_) {
+      // a may alias an element; build first, then relocate.
+      T tmp(std::forward<A>(a)...);
+      relocate(grow_to(size() + 1));
+      ::new((void *)e_) T(std::move(tmp));
+    } else
+      ::new((void *)e_) T(std::forward<A>(a)...);
+    return *e_++;
+  }
+  void push_back(const T &v) { emplace_back(v); }
+  void push_back(T &&v) { emplace_back(std::move(v)); }
+  void pop_back() { (--e_)->~T(); }
+  void resize(size_t n) {
+    if(n < size()) { destroy_range(b_ + n, e_); e_ = b_ + n; return; }
+    reserve(n);
+    for(; e_ != b_ + n; ++e_) ::new((void *)e_) T();
+  }
+  void resize(size_t n, const T &v) {
+    if(n < size()) { destroy_range(b_ + n, e_); e_ = b_ + n; return; }
+    if(n > capacity()) { T tmp(v); reserve(n); for(; e_ != b_ + n; ++e_) ::new((void *)e_) T(tmp); return; }
+    for(; e_ != b_ + n; ++e_) ::new((void *)e_) T(v);
+  }
+  iterator erase(const_iterator p) { return erase(p, p + 1); }
+  iterator erase(const_iterator f, const_iterator l) {
+    T *d = b_ + (f - b_), *s = b_ + (l - b_);
+    if(d != s) {
+      T *ne = std::move(s, e_, d);
+      destroy_range(ne, e_);
+      e_ = ne;
+    }
+    return d;
+  }
+  template <class... A> iterator emplace(const_iterator pos, A &&...a) {
+    size_t i = pos - b_;
+    T tmp(std::forward<A>(a)...);
+    if(e_ == c_) relocate(grow_to(size() + 1));
+    if(b_ + i == e_) { ::new((void *)e_) T(std::move(tmp)); ++e_; return b_ + i; }
+    ::new((void *)e_) T(std::move(e_[-1]));
+    ++e_;
+    std::move_backward(b_ + i, e_ - 2, e_ - 1);
+    b_[i] = std::move(tmp);
+    return b_ + i;
+  }
+  iterator insert(const_iterator pos, const T &v) { return emplace(pos, v); }
+  iterator insert(const_iterator pos, T &&v) { return emplace(pos, std::move(v)); }
+  iterator insert(const_iterator pos, size_t n, const T &v) {
+    size_t i = pos - b_;
+    vector t(n, v);
+    return insert(b_ + i, t.begin(), t.end());
+  }
+  template <class I, class = enable_if_t<!is_integral<I>::value>>
+  iterator insert(const_iterator pos, I f, I l) {
+    size_t i = pos - b_;
+    vector t(f, l);
+    size_t n = t.size(), old = size();
+    if(!n) return b_ + i;
+    reserve(old + n > 2 * capacity() ? old + n : (old + n > capacity() ? 2 * capacity() : capacity()));
+    for(size_t k = 0; k < n; ++k) ::new((void *)(e_ + k)) T();
+    e_ += n;
+    std::move_backward(b_ + i, b_ + old, e_);
+    std::move(t.begin(), t.end(), b_ + i);
+    return b_ + i;
+  }
+  iterator insert(const_iterator pos, initializer_list<T> l) { return insert(pos, l.begin(), l.end()); }
+  void swap(vector &o) noexcept { std::swap(b_, o.b_); std::swap(e_, o.e_); std::swap(c_, o.c_); }
+  Alloc get_allocator() const { return Alloc(); }
+};
+template <class I> vector(I, I) -> vector<typename iterator_traits<I>::value_type>;
+
+template <class T, class A> bool operator==(const vector<T, A> &a, const vector<T, A> &b) {
+  return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+}
+template <class T, class A> bool operator!=(const vector<T, A> &a, const vector<T, A> &b) { return !(a == b); }
+template <class T, class A> bool operator<(const vector<T, A> &a, const vector<T, A> &b) {
+  return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+}
+template <class T, class A> void swap(vector<T, A> &a, vector<T, A> &b) noexcept { a.swap(b); }
+}

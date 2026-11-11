@@ -1,0 +1,243 @@
+// Output streams: std::ostream writing to a file descriptor, plus
+// std::ostringstream.  No input streams and no locales.
+#pragma once
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <__xv6_libc.h>
+#include <stdexcept>
+
+namespace std {
+class ios_base {
+public:
+  typedef unsigned fmtflags;
+  static constexpr fmtflags boolalpha = 1u << 0, dec = 1u << 1, fixed = 1u << 2, hex = 1u << 3,
+                            internal = 1u << 4, left = 1u << 5, oct = 1u << 6, right = 1u << 7,
+                            scientific = 1u << 8, showbase = 1u << 9, showpoint = 1u << 10,
+                            showpos = 1u << 11, skipws = 1u << 12, unitbuf = 1u << 13,
+                            uppercase = 1u << 14;
+  static constexpr fmtflags adjustfield = left | right | internal;
+  static constexpr fmtflags basefield = dec | oct | hex;
+  static constexpr fmtflags floatfield = scientific | fixed;
+  typedef int iostate;
+  static constexpr iostate goodbit = 0, badbit = 1, eofbit = 2, failbit = 4;
+
+  fmtflags flags() const { return flags_; }
+  fmtflags flags(fmtflags f) { fmtflags o = flags_; flags_ = f; return o; }
+  fmtflags setf(fmtflags f) { fmtflags o = flags_; flags_ |= f; return o; }
+  fmtflags setf(fmtflags f, fmtflags mask) { fmtflags o = flags_; flags_ = (flags_ & ~mask) | (f & mask); return o; }
+  void unsetf(fmtflags f) { flags_ &= ~f; }
+  long precision() const { return prec_; }
+  long precision(long p) { long o = prec_; prec_ = p; return o; }
+  long width() const { return width_; }
+  long width(long w) { long o = width_; width_ = w; return o; }
+  bool good() const { return state_ == 0; }
+  bool fail() const { return state_ & (failbit | badbit); }
+  bool bad() const { return state_ & badbit; }
+  explicit operator bool() const { return !fail(); }
+  bool operator!() const { return fail(); }
+  iostate rdstate() const { return state_; }
+  void clear(iostate s = goodbit) { state_ = s; }
+  void setstate(iostate s) { state_ |= s; }
+
+protected:
+  constexpr ios_base() {}
+  fmtflags flags_ = dec | skipws;
+  long prec_ = 6, width_ = 0;
+  iostate state_ = 0;
+};
+class ios : public ios_base {
+public:
+  char fill() const { return fill_; }
+  char fill(char c) { char o = fill_; fill_ = c; return o; }
+protected:
+  constexpr ios() {}
+  char fill_ = ' ';
+};
+
+#define _XV6_MANIP(name, set, mask) \
+  inline ios_base &name(ios_base &s) { s.setf(ios_base::set, ios_base::mask); return s; }
+_XV6_MANIP(dec, dec, basefield) _XV6_MANIP(hex, hex, basefield) _XV6_MANIP(oct, oct, basefield)
+_XV6_MANIP(fixed, fixed, floatfield) _XV6_MANIP(scientific, scientific, floatfield)
+_XV6_MANIP(left, left, adjustfield) _XV6_MANIP(right, right, adjustfield) _XV6_MANIP(internal, internal, adjustfield)
+#undef _XV6_MANIP
+#define _XV6_FLAG(name, flag) \
+  inline ios_base &name(ios_base &s) { s.setf(ios_base::flag); return s; } \
+  inline ios_base &no##name(ios_base &s) { s.unsetf(ios_base::flag); return s; }
+_XV6_FLAG(boolalpha, boolalpha) _XV6_FLAG(showpos, showpos) _XV6_FLAG(showpoint, showpoint)
+_XV6_FLAG(showbase, showbase) _XV6_FLAG(uppercase, uppercase) _XV6_FLAG(unitbuf, unitbuf)
+#undef _XV6_FLAG
+inline ios_base &defaultfloat(ios_base &s) { s.unsetf(ios_base::floatfield); return s; }
+
+class ostream : public ios {
+public:
+  // fd >= 0: buffered output to that descriptor.  fd < 0: string sink.
+  constexpr ostream(int fd, ostream *tie = nullptr, bool unit = false)
+      : fd_(fd), tie_(tie), unit_(unit) {}
+  ostream(const ostream &) = delete;
+  ostream &operator=(const ostream &) = delete;
+  virtual ~ostream() {}
+
+  ostream &write(const char *s, long n) {
+    if(tie_) tie_->flush();
+    sink(s, n);
+    if(unit_ || (flags_ & unitbuf)) flush();
+    return *this;
+  }
+  ostream &put(char c) { return write(&c, 1); }
+  ostream &flush() {
+    if(fd_ >= 0 && len_ > 0) {
+      long off = 0;
+      while(off < len_) {
+        int w = ::write(fd_, buf_ + off, (int)(len_ - off));
+        if(w <= 0) { setstate(badbit); break; }
+        off += w;
+      }
+      len_ = 0;
+    }
+    return *this;
+  }
+  ostream *tie() const { return tie_; }
+  ostream *tie(ostream *t) { ostream *o = tie_; tie_ = t; return o; }
+
+  // Formatted output with the current width, fill and adjustment.
+  ostream &__padded(const char *s, long n) {
+    long w = width_;
+    width_ = 0;
+    if(w <= n) return write(s, n);
+    long padn = w - n;
+    char pad[64];
+    for(int i = 0; i < 64; i++) pad[i] = fill_;
+    bool lft = (flags_ & adjustfield) == left;
+    if(lft) write(s, n);
+    for(; padn > 0; padn -= 64) write(pad, padn < 64 ? padn : 64);
+    if(!lft) write(s, n);
+    return *this;
+  }
+  ostream &__put_unsigned(unsigned long v, bool neg) {
+    char b[32], *p = b + sizeof(b);
+    fmtflags base = flags_ & basefield;
+    const char *dig = (flags_ & uppercase) ? "0123456789ABCDEF" : "0123456789abcdef";
+    unsigned r = base == hex ? 16 : base == oct ? 8 : 10;
+    do { *--p = dig[v % r]; v /= r; } while(v);
+    if(flags_ & showbase) {
+      if(r == 16) { *--p = (flags_ & uppercase) ? 'X' : 'x'; *--p = '0'; }
+      else if(r == 8 && *p != '0') *--p = '0';
+    }
+    if(neg) *--p = '-';
+    else if((flags_ & showpos) && r == 10) *--p = '+';
+    return __padded(p, b + sizeof(b) - p);
+  }
+  ostream &__put_signed(long v) {
+    if((flags_ & basefield) != dec && (flags_ & basefield) != 0) return __put_unsigned((unsigned long)v, false);
+    return __put_unsigned(v < 0 ? 0UL - (unsigned long)v : (unsigned long)v, v < 0);
+  }
+  ostream &__put_double(double v) {
+    char b[400];
+    int fl = 0, conv;
+    if(flags_ & showpos) fl |= 2;
+    if(flags_ & showpoint) fl |= 16;
+    fmtflags ff = flags_ & floatfield;
+    bool up = flags_ & uppercase;
+    conv = ff == fixed ? 'f' : ff == scientific ? (up ? 'E' : 'e') : (up ? 'G' : 'g');
+    long p = prec_;
+    if(ff == floatfield) { conv = up ? 'G' : 'g'; p = 17; }
+    int n = ::fmt_double(b, sizeof(b), v, 0, (int)(p < 0 ? 6 : p), fl, conv);
+    if(n >= (int)sizeof(b)) n = sizeof(b) - 1;
+    return __padded(b, n);
+  }
+
+  ostream &operator<<(bool v) {
+    if(flags_ & boolalpha) return v ? __padded("true", 4) : __padded("false", 5);
+    return __put_unsigned(v, false);
+  }
+  ostream &operator<<(short v) { return __put_signed(v); }
+  ostream &operator<<(unsigned short v) { return __put_unsigned(v, false); }
+  ostream &operator<<(int v) { return __put_signed(v); }
+  ostream &operator<<(unsigned v) { return __put_unsigned(v, false); }
+  ostream &operator<<(long v) { return __put_signed(v); }
+  ostream &operator<<(unsigned long v) { return __put_unsigned(v, false); }
+  ostream &operator<<(long long v) { return __put_signed(v); }
+  ostream &operator<<(unsigned long long v) { return __put_unsigned(v, false); }
+  ostream &operator<<(double v) { return __put_double(v); }
+  ostream &operator<<(float v) { return __put_double(v); }
+  ostream &operator<<(long double v) { return __put_double((double)v); }
+  ostream &operator<<(const void *p) {
+    fmtflags o = flags_;
+    flags_ = (flags_ & ~basefield) | hex | showbase;
+    __put_unsigned((unsigned long)p, false);
+    flags_ = o;
+    return *this;
+  }
+  ostream &operator<<(decltype(nullptr)) { return __padded("nullptr", 7); }
+  ostream &operator<<(ostream &(*f)(ostream &)) { return f(*this); }
+  ostream &operator<<(ios_base &(*f)(ios_base &)) { f(*this); return *this; }
+
+protected:
+  virtual void sink(const char *s, long n) {
+    while(n > 0) {
+      if(len_ == (long)sizeof(buf_)) flush();
+      long k = (long)sizeof(buf_) - len_;
+      if(k > n) k = n;
+      for(long i = 0; i < k; i++) buf_[len_ + i] = s[i];
+      len_ += k;
+      s += k;
+      n -= k;
+    }
+  }
+
+private:
+  int fd_;
+  ostream *tie_;
+  bool unit_;
+  long len_ = 0;
+  char buf_[1024] = {};
+};
+
+inline ostream &operator<<(ostream &o, char c) { return o.__padded(&c, 1); }
+inline ostream &operator<<(ostream &o, signed char c) { return o << (char)c; }
+inline ostream &operator<<(ostream &o, unsigned char c) { return o << (char)c; }
+inline ostream &operator<<(ostream &o, const char *s) { return o.__padded(s, (long)::strlen(s)); }
+inline ostream &operator<<(ostream &o, const signed char *s) { return o << (const char *)s; }
+inline ostream &operator<<(ostream &o, const unsigned char *s) { return o << (const char *)s; }
+inline ostream &operator<<(ostream &o, const string &s) { return o.__padded(s.data(), (long)s.size()); }
+inline ostream &operator<<(ostream &o, string_view s) { return o.__padded(s.data(), (long)s.size()); }
+// Rvalue stream insertion, as for ostringstream() << x.
+template <class S, class T, class = enable_if_t<is_base_of<ostream, S>::value && !is_reference<S>::value>>
+S &&operator<<(S &&o, const T &x) { static_cast<ostream &>(o) << x; return std::move(o); }
+
+inline ostream &endl(ostream &o) { o.put('\n'); return o.flush(); }
+inline ostream &ends(ostream &o) { return o.put('\0'); }
+inline ostream &flush(ostream &o) { return o.flush(); }
+
+class ostringstream : public ostream {
+  string s_;
+protected:
+  void sink(const char *s, long n) override { s_.append(s, (size_t)n); }
+public:
+  ostringstream() : ostream(-1) {}
+  explicit ostringstream(const string &s) : ostream(-1), s_(s) {}
+  string str() const { return s_; }
+  void str(const string &s) { s_ = s; }
+};
+typedef ostringstream stringstream;
+
+extern ostream cout, cerr, clog;
+
+struct __setprecision { int n; };
+struct __setw { int n; };
+struct __setfill { char c; };
+struct __setiosflags { ios_base::fmtflags f; };
+struct __resetiosflags { ios_base::fmtflags f; };
+inline __setprecision setprecision(int n) { return {n}; }
+inline __setw setw(int n) { return {n}; }
+inline __setfill setfill(char c) { return {c}; }
+inline __setiosflags setiosflags(ios_base::fmtflags f) { return {f}; }
+inline __resetiosflags resetiosflags(ios_base::fmtflags f) { return {f}; }
+inline ostream &operator<<(ostream &o, __setprecision m) { o.precision(m.n); return o; }
+inline ostream &operator<<(ostream &o, __setw m) { o.width(m.n); return o; }
+inline ostream &operator<<(ostream &o, __setfill m) { o.fill(m.c); return o; }
+inline ostream &operator<<(ostream &o, __setiosflags m) { o.setf(m.f); return o; }
+inline ostream &operator<<(ostream &o, __resetiosflags m) { o.unsetf(m.f); return o; }
+}

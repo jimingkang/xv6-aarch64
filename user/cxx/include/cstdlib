@@ -1,0 +1,15 @@
+#pragma once
+#include <__xv6_libc.h>
+namespace std {
+// Run static destructors and flush the streams, then exit.
+[[noreturn]] void exit(int);
+[[noreturn]] void abort();
+using ::malloc; using ::free; using ::realloc; using ::calloc;
+using ::atoi; using ::strtol; using ::strtoul;
+inline int abs(int x) { return x < 0 ? -x : x; }
+inline long abs(long x) { return x < 0 ? -x : x; }
+inline long long abs(long long x) { return x < 0 ? -x : x; }
+inline long labs(long x) { return x < 0 ? -x : x; }
+}
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1

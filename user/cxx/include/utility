@@ -1,0 +1,101 @@
+#pragma once
+#include <cstddef>
+#include <type_traits>
+#include <initializer_list>
+
+namespace std {
+template <class T> constexpr remove_reference_t<T> &&move(T &&t) noexcept {
+  return static_cast<remove_reference_t<T> &&>(t);
+}
+template <class T> constexpr T &&forward(remove_reference_t<T> &t) noexcept { return static_cast<T &&>(t); }
+template <class T> constexpr T &&forward(remove_reference_t<T> &&t) noexcept { return static_cast<T &&>(t); }
+template <class T> constexpr T *addressof(T &r) noexcept { return __builtin_addressof(r); }
+template <class T> constexpr void swap(T &a, T &b) noexcept {
+  T t(std::move(a));
+  a = std::move(b);
+  b = std::move(t);
+}
+template <class T, size_t N> constexpr void swap(T (&a)[N], T (&b)[N]) noexcept {
+  for(size_t i = 0; i < N; i++)
+    swap(a[i], b[i]);
+}
+template <class T, class U = T> constexpr T exchange(T &obj, U &&v) {
+  T old = std::move(obj);
+  obj = std::forward<U>(v);
+  return old;
+}
+template <class T> constexpr const T &as_const(T &t) noexcept { return t; }
+
+// Structured bindings over library types.
+template <class T> struct tuple_size;
+// Only complete for const T when tuple_size<T> is, so structured bindings
+// of plain aggregates still use their members.
+template <class T, class U = remove_cv_t<T>, class = enable_if_t<is_same<T, U>::value>,
+          size_t = tuple_size<T>::value>
+using __enable_if_has_tuple_size = T;
+template <class T> struct tuple_size<const __enable_if_has_tuple_size<T>> : tuple_size<T> {};
+template <size_t I, class T> struct tuple_element;
+template <size_t I, class T> struct tuple_element<I, const T> {
+  typedef const typename tuple_element<I, T>::type type;
+};
+template <size_t I, class T> using tuple_element_t = typename tuple_element<I, T>::type;
+
+struct piecewise_construct_t { explicit piecewise_construct_t() = default; };
+
+template <class T1, class T2> struct pair {
+  typedef T1 first_type;
+  typedef T2 second_type;
+  T1 first;
+  T2 second;
+  constexpr pair() : first(), second() {}
+  constexpr pair(const T1 &a, const T2 &b) : first(a), second(b) {}
+  template <class U1, class U2>
+  constexpr pair(U1 &&a, U2 &&b) : first(std::forward<U1>(a)), second(std::forward<U2>(b)) {}
+  template <class U1, class U2>
+  constexpr pair(const pair<U1, U2> &p) : first(p.first), second(p.second) {}
+  template <class U1, class U2>
+  constexpr pair(pair<U1, U2> &&p) : first(std::forward<U1>(p.first)), second(std::forward<U2>(p.second)) {}
+  pair(const pair &) = default;
+  pair(pair &&) = default;
+  pair &operator=(const pair &p) { first = p.first; second = p.second; return *this; }
+  pair &operator=(pair &&p) { first = std::move(p.first); second = std::move(p.second); return *this; }
+  void swap(pair &p) { using std::swap; swap(first, p.first); swap(second, p.second); }
+};
+template <class T1, class T2> pair(T1, T2) -> pair<T1, T2>;
+template <class T1, class T2> constexpr pair<decay_t<T1>, decay_t<T2>> make_pair(T1 &&a, T2 &&b) {
+  return pair<decay_t<T1>, decay_t<T2>>(std::forward<T1>(a), std::forward<T2>(b));
+}
+template <class A, class B> constexpr bool operator==(const pair<A, B> &x, const pair<A, B> &y) {
+  return x.first == y.first && x.second == y.second;
+}
+template <class A, class B> constexpr bool operator!=(const pair<A, B> &x, const pair<A, B> &y) { return !(x == y); }
+template <class A, class B> constexpr bool operator<(const pair<A, B> &x, const pair<A, B> &y) {
+  return x.first < y.first || (!(y.first < x.first) && x.second < y.second);
+}
+template <class A, class B> constexpr bool operator>(const pair<A, B> &x, const pair<A, B> &y) { return y < x; }
+template <class A, class B> constexpr bool operator<=(const pair<A, B> &x, const pair<A, B> &y) { return !(y < x); }
+template <class A, class B> constexpr bool operator>=(const pair<A, B> &x, const pair<A, B> &y) { return !(x < y); }
+
+template <class A, class B> struct tuple_size<pair<A, B>> : integral_constant<size_t, 2> {};
+template <class A, class B> struct tuple_element<0, pair<A, B>> { typedef A type; };
+template <class A, class B> struct tuple_element<1, pair<A, B>> { typedef B type; };
+template <size_t I, class A, class B> constexpr auto &get(pair<A, B> &p) noexcept {
+  if constexpr (I == 0) return p.first; else return p.second;
+}
+template <size_t I, class A, class B> constexpr const auto &get(const pair<A, B> &p) noexcept {
+  if constexpr (I == 0) return p.first; else return p.second;
+}
+template <size_t I, class A, class B> constexpr auto &&get(pair<A, B> &&p) noexcept {
+  if constexpr (I == 0) return std::move(p.first); else return std::move(p.second);
+}
+
+template <class T, T... I> struct integer_sequence {
+  static constexpr size_t size() noexcept { return sizeof...(I); }
+};
+template <size_t... I> using index_sequence = integer_sequence<size_t, I...>;
+template <class T, T N> using make_integer_sequence = integer_sequence<T, __integer_pack(N)...>;
+template <size_t N> using make_index_sequence = make_integer_sequence<size_t, N>;
+
+struct in_place_t { explicit in_place_t() = default; };
+inline constexpr in_place_t in_place{};
+}
