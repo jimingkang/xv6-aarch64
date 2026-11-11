@@ -30,6 +30,11 @@ namespace {
 
 int rank_ = 0, size_ = 1;
 bool initialized_ = false;
+std::string sync_buf_;                  // PetscSynchronizedPrintf text not yet flushed
+// -ksp_trace: mat_mult remembers the off-process x entries it received.
+bool trace_ = false;
+std::vector<PetscInt> trace_cols_;
+std::vector<PetscScalar> trace_vals_;
 std::vector<std::string> options_;
 
 // Tags above anything the programs here use; per-pair FIFO order keeps
@@ -287,7 +292,7 @@ struct _p_KSP {
   std::string type = KSPGMRES;
   PetscInt restart = 30, maxits = 10000;
   PetscReal rtol = 1e-5, atol = 1e-50, dtol = 1e5;
-  bool guess_nonzero = false, monitor = false, show_reason = false;
+  bool guess_nonzero = false, monitor = false, show_reason = false, trace = false;
   PC pc = nullptr;
   Mat A = nullptr, P = nullptr;
   KSPConvergedReason reason = KSP_CONVERGED_ITERATING;
@@ -326,6 +331,7 @@ PetscErrorCode mat_mult(Mat A, const PetscScalar *x, PetscScalar *y) {
   const PetscInt n = A->L.n;
   std::vector<PetscScalar> xg(A->col_ghosts.size());
   PetscCall(A->col_plan.forward(x, xg.data()));
+  if(trace_) { trace_cols_ = A->col_ghosts; trace_vals_ = xg; }
   for(PetscInt i = 0; i < n; i++) {
     PetscScalar s = 0;
     for(PetscInt k = A->rowptr[i]; k < A->rowptr[i + 1]; k++) {
@@ -574,6 +580,60 @@ PetscErrorCode precond_residual(KSP ksp, const PetscScalar *b, const std::vector
   return pc_apply(ksp->pc, t.data(), z.data());
 }
 
+// -ksp_trace output, printed per rank in rank order.
+std::string fmt_vec(const PetscScalar *a, std::size_t n) {
+  std::string s = "[";
+  char buf[40];
+  for(std::size_t i = 0; i < n; i++) {
+    snprintf(buf, sizeof(buf), "%s%.12g", i ? "," : "", a[i]);
+    s += buf;
+  }
+  return s + "]";
+}
+std::string fmt_vec(const std::vector<PetscScalar> &a) { return fmt_vec(a.data(), a.size()); }
+std::string fmt_num(double x) {
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%.12g", x);
+  return buf;
+}
+std::string fmt_recv() {
+  std::string s = "recv col[";
+  char buf[16];
+  for(std::size_t i = 0; i < trace_cols_.size(); i++) {
+    snprintf(buf, sizeof(buf), "%s%d", i ? "," : "", int(trace_cols_[i]));
+    s += buf;
+  }
+  return s + "]=" + fmt_vec(trace_vals_);
+}
+void trace(int step, const std::string &text) {
+  PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[gmres] rank %d step %d %s\n", rank_, step, text.c_str());
+}
+
+// True residual of the current GMRES iterate x + V y, where y solves the
+// rotated (upper triangular) j x j system; used only by -ksp_trace.
+PetscErrorCode trace_true_residual(KSP ksp, int step, const PetscScalar *b, const std::vector<PetscScalar> &x,
+                                   const std::vector<std::vector<PetscScalar>> &V, const std::vector<double> &H,
+                                   const std::vector<double> &g, int m, int j, double estimate) {
+  const std::size_t n = x.size();
+  auto Hij = [&](int i, int k) { return H[(std::size_t)k * (m + 1) + i]; };
+  std::vector<double> y(j > 0 ? j : 1);
+  for(int i = j - 1; i >= 0; i--) {
+    double s = g[i];
+    for(int k = i + 1; k < j; k++) s -= Hij(i, k) * y[k];
+    y[i] = Hij(i, i) != 0.0 ? s / Hij(i, i) : 0.0;
+  }
+  std::vector<PetscScalar> xj(x), r(n);
+  for(int i = 0; i < j; i++)
+    for(std::size_t k = 0; k < n; k++) xj[k] += y[i] * V[i][k];
+  PetscCall(mat_mult(ksp->A, xj.data(), r.data()));
+  for(std::size_t k = 0; k < n; k++) r[k] = b[k] - r[k];
+  double local = dot_local(r, r), global = global_sum(local, false);
+  trace(step, "x=" + fmt_vec(xj) + " " + fmt_recv() + " r=b-Kx=" + fmt_vec(r));
+  trace(step, "local r.r=" + fmt_num(local) + " allreduce=" + fmt_num(global) +
+              " true|r|=" + fmt_num(std::sqrt(global)) + " KSP=" + fmt_num(estimate));
+  return PetscSynchronizedFlush(PETSC_COMM_WORLD, nullptr);
+}
+
 PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScalar> &x) {
   const std::size_t n = x.size();
   const int m = std::max<PetscInt>(1, ksp->restart);
@@ -587,6 +647,10 @@ PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScala
     PetscCall(precond_residual(ksp, b, x, zero_x, t, V[0]));
     zero_x = false;
     double beta = std::sqrt(global_sum(dot_local(V[0], V[0]), false));
+    if(ksp->trace) {
+      trace(ksp->its, "r0=" + fmt_vec(t) + " local r0.r0=" + fmt_num(dot_local(t, t)) +
+                      " beta=" + fmt_num(beta));
+    }
     if(rnorm0 < 0) {
       rnorm0 = beta;
       monitor(ksp, beta);
@@ -596,6 +660,10 @@ PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScala
       }
     }
     for(std::size_t i = 0; i < n; i++) V[0][i] /= beta;
+    if(ksp->trace) {
+      trace(ksp->its, "v1=" + fmt_vec(V[0]));
+      PetscCall(trace_true_residual(ksp, ksp->its, b, x, V, H, g, m, 0, beta));
+    }
     std::fill(g.begin(), g.end(), 0.0);
     g[0] = beta;
     int j = 0;
@@ -604,6 +672,11 @@ PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScala
       ksp->its++;
       PetscCall(mat_mult(ksp->A, V[j].data(), t.data()));
       PetscCall(pc_apply(ksp->pc, t.data(), w.data()));
+      const int step = int(ksp->its);
+      const std::string col = std::to_string(j + 1);
+      if(ksp->trace)
+        trace(step, "w=B K v" + col + ": v" + col + "=" + fmt_vec(V[j]) + " " + fmt_recv() +
+                    " Kv=" + fmt_vec(t) + " w=" + fmt_vec(w));
       // Classical Gram-Schmidt, applied twice; one reduction per pass.
       for(int pass = 0; pass < 2; pass++) {
         std::vector<double> &hh = pass ? h2 : h;
@@ -613,12 +686,22 @@ PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScala
           PetscCallMPI(MPI_Allreduce(loc.data(), hh.data(), j + 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD));
         else
           for(int i = 0; i <= j; i++) hh[i] = loc[i];
+        if(ksp->trace) {
+          std::string dots;
+          for(int i = 0; i <= j; i++)
+            dots += " h" + std::to_string(i + 1) + col + ":" + fmt_num(loc[i]) + "->" + fmt_num(hh[i]);
+          trace(step, std::string(pass ? "CGS pass 2" : "CGS pass 1") + " local v.w -> reduced" + dots);
+        }
         for(int i = 0; i <= j; i++)
           for(std::size_t k = 0; k < n; k++) w[k] -= hh[i] * V[i][k];
       }
       for(int i = 0; i <= j; i++) Hij(i, j) = h[i] + h2[i];
-      double hn = std::sqrt(global_sum(dot_local(w, w), false));
+      const double ww = dot_local(w, w);
+      double hn = std::sqrt(global_sum(ww, false));
       Hij(j + 1, j) = hn;
+      if(ksp->trace)
+        trace(step, "w-sum(h v)=" + fmt_vec(w) + " local w.w=" + fmt_num(ww) + " h" +
+                    std::to_string(j + 2) + col + "=" + fmt_num(hn));
       for(int i = 0; i < j; i++) {
         double a = Hij(i, j), c = Hij(i + 1, j);
         Hij(i, j) = cs[i] * a + sn[i] * c;
@@ -632,6 +715,14 @@ PetscErrorCode solve_gmres(KSP ksp, const PetscScalar *b, std::vector<PetscScala
       g[j] = cs[j] * g[j];
       double res = std::abs(g[j + 1]);
       monitor(ksp, res);
+      if(ksp->trace) {
+        if(hn != 0.0) {
+          std::vector<PetscScalar> next(n);
+          for(std::size_t k = 0; k < n; k++) next[k] = w[k] / hn;
+          trace(step, "v" + std::to_string(j + 2) + "=" + fmt_vec(next));
+        }
+        PetscCall(trace_true_residual(ksp, step, b, x, V, H, g, m, j + 1, res));
+      }
       if(test_conv(ksp, res, rnorm0)) { j++; done = true; break; }
       if(hn == 0.0) { ksp->reason = KSP_CONVERGED_HAPPY_BREAKDOWN; j++; done = true; break; }
       for(std::size_t k = 0; k < n; k++) V[j + 1][k] = w[k] / hn;
@@ -772,6 +863,37 @@ PetscErrorCode PetscPrintf(MPI_Comm, const char format[], ...) {
   va_start(ap, format);
   vprintf(format, ap);
   va_end(ap);
+  return PETSC_SUCCESS;
+}
+
+PetscErrorCode PetscSynchronizedPrintf(MPI_Comm, const char format[], ...) {
+  char buf[1024];
+  va_list ap;
+  va_start(ap, format);
+  vsnprintf(buf, sizeof(buf), format, ap);
+  va_end(ap);
+  sync_buf_ += buf;
+  return PETSC_SUCCESS;
+}
+
+// Collective: rank 0 prints its text, then each other rank's, in rank order.
+PetscErrorCode PetscSynchronizedFlush(MPI_Comm comm, void *) {
+  constexpr int TAG_SYNC = 0x3fff0002;
+  if(rank_ == 0) {
+    printf("%s", sync_buf_.c_str());
+    for(int r = 1; r < size_; r++) {
+      int len;
+      PetscCallMPI(MPI_Recv(&len, 1, MPI_INT, r, TAG_SYNC, comm, MPI_STATUS_IGNORE));
+      std::string text((std::size_t)len, '\0');
+      if(len) PetscCallMPI(MPI_Recv(&text[0], len, MPI_CHAR, r, TAG_SYNC, comm, MPI_STATUS_IGNORE));
+      printf("%s", text.c_str());
+    }
+  } else {
+    int len = int(sync_buf_.size());
+    PetscCallMPI(MPI_Send(&len, 1, MPI_INT, 0, TAG_SYNC, comm));
+    if(len) PetscCallMPI(MPI_Send(&sync_buf_[0], len, MPI_CHAR, 0, TAG_SYNC, comm));
+  }
+  sync_buf_.clear();
   return PETSC_SUCCESS;
 }
 
@@ -1261,6 +1383,22 @@ PetscErrorCode MatMult(Mat A, Vec x, Vec y) {
   return mat_mult(A, x->data, y->data);
 }
 
+PetscErrorCode MatGetRow(Mat A, PetscInt row, PetscInt *ncols, const PetscInt **cols, const PetscScalar **vals) {
+  if(!A->assembled) FAIL(PETSC_ERR_ARG_WRONGSTATE, "matrix is not assembled");
+  if(!A->L.owns(row)) FAIL(PETSC_ERR_ARG_OUTOFRANGE, "MatGetRow: row is owned by another rank");
+  const PetscInt i = row - A->L.rstart, k = A->rowptr[i];
+  *ncols = A->rowptr[i + 1] - k;
+  if(cols) *cols = A->colg.data() + k;
+  if(vals) *vals = A->val.data() + k;
+  return PETSC_SUCCESS;
+}
+
+PetscErrorCode MatRestoreRow(Mat, PetscInt, PetscInt *, const PetscInt **cols, const PetscScalar **vals) {
+  if(cols) *cols = nullptr;
+  if(vals) *vals = nullptr;
+  return PETSC_SUCCESS;
+}
+
 PetscErrorCode MatGetDiagonal(Mat A, Vec d) {
   for(PetscInt i = 0; i < A->L.n; i++) {
     d->data[i] = 0;
@@ -1373,6 +1511,9 @@ PetscErrorCode KSPSetFromOptions(KSP ksp) {
   if(set) ksp->monitor = flag;
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-ksp_converged_reason", &flag, &set));
   if(set) ksp->show_reason = flag;
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-ksp_trace", &flag, &set));
+  if(set) ksp->trace = flag;
+  trace_ = trace_ || ksp->trace;
   return PCSetFromOptions(ksp->pc);
 }
 

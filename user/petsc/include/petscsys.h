@@ -52,6 +52,11 @@ PetscErrorCode PetscFinalize(void);
 PetscErrorCode PetscError(MPI_Comm comm, int line, const char *func, const char *file,
                           PetscErrorCode n, int p, const char *mess, ...);
 PetscErrorCode PetscPrintf(MPI_Comm comm, const char format[], ...);
+// Buffered per rank; PetscSynchronizedFlush (collective) prints rank 0's text,
+// then rank 1's, and so on.  The FILE argument is ignored (always stdout).
+PetscErrorCode PetscSynchronizedPrintf(MPI_Comm comm, const char format[], ...);
+PetscErrorCode PetscSynchronizedFlush(MPI_Comm comm, void *fd);
+#define PETSC_STDOUT ((void *)0)
 PetscErrorCode PetscOptionsHasName(PetscOptions options, const char pre[], const char name[], PetscBool *set);
 PetscErrorCode PetscOptionsGetBool(PetscOptions options, const char pre[], const char name[],
                                    PetscBool *value, PetscBool *set);

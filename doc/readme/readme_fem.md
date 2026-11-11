@@ -25,6 +25,7 @@ need things xv6 did not have, so this directory set adds them:
 | `finite_element_benchmarks` | `tests/finite_elements.cpp` | `finite_element_benchmarks shell_q4_finite` (also `beam2_finite beam3_simo beam3_spatial_moment`) |
 | `plate_locking_benchmark` | `tests/plate_locking.cpp` | `plate_locking_benchmark`, `plate_locking_benchmark --distorted` |
 | `shell_mpi_benchmark` | `tests/shell_mpi.cpp` + `tests/shell_mpi_profile.cpp` | `mpirun -np 4 shell_mpi_benchmark` (`-shell_benchmark`, `-shell_refined` for larger meshes) |
+| `bar_mpi_trace` | `tests/bar_mpi_trace.cpp` | `mpirun -np 2 bar_mpi_trace` (two-element bar, prints every rank's data, see below) |
 
 `tests/shell_parallel.cpp` (OpenMP) is not built: there is no OpenMP
 runtime. `Model::set_element_threads(n)` with `n > 1` therefore reports
@@ -155,3 +156,17 @@ line by line, except where the floating-point evaluation differs:
   1e-7). Ghost slots are 0, 24 and 72, and the tip deflection is -0.230292986591
   in every run. The wall time for the 4x2 mesh is 7.6 s, 4.2 s and 2.3 s.
 * `mpitest -np 4` still passes after the PMPI rename.
+* `mpirun -np 2 bar_mpi_trace`: two bar elements (EA/L = 2 and 3), node 0
+  fixed, unit force at node 2, one element per rank. Without options it adds
+  `-fem_trace -ksp_trace -pc_type none -ksp_converged_reason`.
+  `-fem_trace` (program/petsc_model.cpp) prints, rank by rank, the COO
+  `rows`/`columns`/`matrix_values`, the owned rows of K after
+  `MatSetValuesCOO`, ghosts and state slots, `rhs_rows`/`rhs_values`, the
+  ghosted state of each Newton evaluation, the KSP correction and the
+  reaction reduction. `-ksp_trace` (user/petsc) prints each GMRES step: the
+  basis vector, the off-process entries the matrix-vector product received,
+  the local dot products of both Gram-Schmidt passes with their reduced
+  values, and the true residual with its local and reduced squares. Result
+  u = (0, 1/2, 5/6), reaction -1, as by hand; the numbers match a host run
+  with real PETSc 3.25.4 except that the final true residual is 5.6e-16
+  here (0 there). Full log: `doc/readme/bar_mpi_trace_xv6.log`.

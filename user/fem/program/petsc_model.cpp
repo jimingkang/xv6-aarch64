@@ -5,6 +5,8 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <sstream>
+#include <string>
 #include <stdexcept>
 #include <type_traits>
 
@@ -22,6 +24,37 @@ struct PetscObjectOwner {
         }
     }
 };
+
+// -fem_trace: rank-ordered dump of the COO pattern, ghost state, residual and Newton updates.
+template <class T>
+std::string list(const T* data, std::size_t count) {
+    std::ostringstream out;
+    out.precision(12);
+    out << '[';
+    for (std::size_t i = 0; i < count; ++i) {
+        out << (i ? "," : "") << data[i];
+    }
+    out << ']';
+    return out.str();
+}
+
+template <class T>
+std::string list(const std::vector<T>& values) {
+    return list(values.data(), values.size());
+}
+
+void trace_line(bool trace, PetscMPIInt rank, const std::string& text) {
+    if (trace) {
+        PetscCallAbort(PETSC_COMM_WORLD, PetscSynchronizedPrintf(
+            PETSC_COMM_WORLD, "[fem] rank %d %s\n", rank, text.c_str()));
+    }
+}
+
+void trace_flush(bool trace) {
+    if (trace) {
+        PetscCallAbort(PETSC_COMM_WORLD, PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT));
+    }
+}
 
 struct Contribution {
     Dofs dofs;
@@ -72,6 +105,9 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
     for (PetscInt i = 0; i < n; ++i) {
         equation[free[i]] = i;
     }
+    PetscBool trace_option = PETSC_FALSE;
+    PetscCallAbort(PETSC_COMM_WORLD, PetscOptionsGetBool(nullptr, nullptr, "-fem_trace", &trace_option, nullptr));
+    const bool trace = trace_option == PETSC_TRUE;
     double start = MPI_Wtime();
     std::vector<Contribution> contributions;
     const auto add_pattern = [&](const Dofs& dofs) {
@@ -107,6 +143,17 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
     }
     if (timings) {
         timings->assembly_seconds += MPI_Wtime()-start;
+    }
+    if (trace) {
+        trace_line(trace, rank, "elements [" + std::to_string(begin) + "," + std::to_string(end) +
+                   ") equation=" + list(equation));
+        for (std::size_t e = 0; e < contributions.size(); ++e) {
+            trace_line(trace, rank, "contribution " + std::to_string(e) + " dofs=" +
+                       list(contributions[e].dofs) + " equations=" + list(contributions[e].equations));
+        }
+        trace_line(trace, rank, "COO rows=" + list(rows) + " columns=" + list(columns));
+        trace_line(trace, rank, "element rhs_rows=" + list(rhs_rows));
+        trace_flush(trace);
     }
 
     PetscObjectOwner<Mat, MatDestroy> matrix;
@@ -152,6 +199,16 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
         for (auto row = owned_begin; row < owned_end; ++row) {
             rhs_rows.push_back(row);
         }
+        if (trace) {
+            trace_line(trace, rank, "owned rows [" + std::to_string(owned_begin) + "," +
+                       std::to_string(owned_end) + ") ghosts=" + list(ghosts));
+            for (std::size_t e = 0; e < contributions.size(); ++e) {
+                trace_line(trace, rank, "contribution " + std::to_string(e) + " state_slots=" +
+                           list(contributions[e].state_slots));
+            }
+            trace_line(trace, rank, "rhs_rows=" + list(rhs_rows));
+            trace_flush(trace);
+        }
         if (timings) {
             timings->assembly_seconds += MPI_Wtime()-start;
             timings->ghost_dofs = ghosts.size();
@@ -177,6 +234,9 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
         PetscCallAbort(PETSC_COMM_WORLD, PCASMSetOverlap(pc, 2));
         PetscCallAbort(PETSC_COMM_WORLD, KSPSetTolerances(ksp.value, 1e-12, 1e-14, PETSC_DEFAULT, 4000));
         PetscCallAbort(PETSC_COMM_WORLD, KSPSetFromOptions(ksp.value));
+        if (timings && timings->configure_ksp) {
+            timings->configure_ksp(ksp.value, timings->configure_context);
+        }
     }
     if (timings) {
         timings->communication_seconds += MPI_Wtime()-start;
@@ -200,6 +260,14 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
             }
             PetscCallAbort(PETSC_COMM_WORLD, VecGhostGetLocalForm(state.value, &local_state));
             PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(local_state, &local_values));
+            if (trace) {
+                PetscInt local_size;
+                PetscCallAbort(PETSC_COMM_WORLD, VecGetSize(local_state, &local_size));
+                trace_line(trace, rank, "newton " + std::to_string(iteration) +
+                           " local state=" +
+                           list(local_values, static_cast<std::size_t>(local_size)));
+                trace_flush(trace);
+            }
         }
         std::exception_ptr failure;
         start = MPI_Wtime();
@@ -296,11 +364,41 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
             PetscCallAbort(PETSC_COMM_WORLD, MatSetValuesCOO(matrix.value, matrix_values.data(), INSERT_VALUES));
             PetscCallAbort(PETSC_COMM_WORLD, VecSetValuesCOO(rhs.value, rhs_values.data(), INSERT_VALUES));
             PetscCallAbort(PETSC_COMM_WORLD, VecNorm(rhs.value, NORM_INFINITY, &norm));
+            if (trace) {
+                const std::string prefix = "newton " + std::to_string(iteration) + " ";
+                trace_line(trace, rank, prefix + "matrix_values=" + list(matrix_values));
+                trace_line(trace, rank, prefix + "rhs_values=" + list(rhs_values));
+                for (auto row = owned_begin; row < owned_end; ++row) {
+                    PetscInt ncols;
+                    const PetscInt* cols;
+                    const PetscScalar* vals;
+                    PetscCallAbort(PETSC_COMM_WORLD, MatGetRow(matrix.value, row, &ncols, &cols, &vals));
+                    std::ostringstream out;
+                    out.precision(12);
+                    for (PetscInt j = 0; j < ncols; ++j) {
+                        out << (j ? " " : "") << '(' << cols[j] << ':' << vals[j] << ')';
+                    }
+                    PetscCallAbort(PETSC_COMM_WORLD, MatRestoreRow(matrix.value, row, &ncols, &cols, &vals));
+                    trace_line(trace, rank, prefix + "K row " + std::to_string(row) + ": " + out.str());
+                }
+                const PetscScalar* owned_rhs;
+                PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(rhs.value, &owned_rhs));
+                trace_line(trace, rank, prefix + "R owned=" +
+                           list(owned_rhs, static_cast<std::size_t>(owned_end-owned_begin)));
+                PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(rhs.value, &owned_rhs));
+                std::ostringstream out;
+                out.precision(12);
+                out << prefix << "global |R|_inf=" << norm;
+                trace_line(trace, rank, out.str());
+                trace_flush(trace);
+            }
         }
         if (!std::isfinite(norm)) {
             throw std::runtime_error("Non-finite PETSc residual");
         }
         if (norm <= tolerance) {
+            trace_line(trace, rank, "converged, local nodal forces=" + list(imbalance));
+            trace_flush(trace);
             PetscCallMPIAbort(PETSC_COMM_WORLD, MPI_Allreduce(
                 MPI_IN_PLACE, imbalance.data(), static_cast<int>(dof_count_), MPI_DOUBLE, MPI_SUM,
                 PETSC_COMM_WORLD));
@@ -329,6 +427,9 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
                     u[i] = prescribed_[i];
                 }
             }
+            trace_line(trace, rank, "Allreduce-load imbalance=" + list(imbalance) +
+                       " u=" + list(u));
+            trace_flush(trace);
             return imbalance;
         }
         if (timings) {
@@ -393,6 +494,19 @@ Vector Model::solve_petsc(Vector& u, const Vector& load,
         }
 
         PetscCallAbort(PETSC_COMM_WORLD, VecAXPY(state.value, 1.0, delta.value));
+        if (trace) {
+            const PetscScalar *owned_delta, *owned_state;
+            const auto owned = static_cast<std::size_t>(owned_end-owned_begin);
+            PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(delta.value, &owned_delta));
+            PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(state.value, &owned_state));
+            trace_line(trace, rank, "newton " + std::to_string(iteration) + " KSP its=" +
+                       std::to_string(iterations) + " reason=" + std::to_string(reason) +
+                       " delta=" + list(owned_delta, owned) +
+                       " state=" + list(owned_state, owned));
+            PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(state.value, &owned_state));
+            PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(delta.value, &owned_delta));
+            trace_flush(trace);
+        }
     }
     throw std::runtime_error("PETSc Newton iteration did not converge");
 }

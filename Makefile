@@ -674,9 +674,11 @@ $(eval $(call cxx_program,element_benchmarks,$U/fem/tests/elements.o))
 $(eval $(call cxx_program,finite_element_benchmarks,$U/fem/tests/finite_elements.o))
 $(eval $(call cxx_program,plate_locking_benchmark,$U/fem/tests/plate_locking.o))
 $(eval $(call cxx_program,shell_mpi_benchmark,$U/fem/tests/shell_mpi.o $U/fem/tests/shell_mpi_profile.o))
+$(eval $(call cxx_program,bar_mpi_trace,$U/fem/tests/bar_mpi_trace.o))
 
 FEM_UPROGS = $U/_bar_demo $U/_truss_demo $U/_element_benchmarks \
-	$U/_finite_element_benchmarks $U/_plate_locking_benchmark $U/_shell_mpi_benchmark
+	$U/_finite_element_benchmarks $U/_plate_locking_benchmark $U/_shell_mpi_benchmark \
+	$U/_bar_mpi_trace
 
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c

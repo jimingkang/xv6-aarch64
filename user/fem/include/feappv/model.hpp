@@ -19,6 +19,9 @@ struct SolveTimings {
 };
 
 #ifdef FEAPPV_HAS_PETSC
+}
+struct _p_KSP;
+namespace fem {
 struct PetscMpiCalls {
     double seconds = 0;
     double reduction_seconds = 0;
@@ -41,6 +44,9 @@ struct PetscSolveTimings {
     double setup_mpi_seconds = 0;
     double iteration_mpi_seconds = 0;
     PetscMpiCalls (*read_mpi_calls)() = nullptr;
+    // Called once after KSPSetFromOptions, e.g. to attach a diagnostic monitor.
+    void (*configure_ksp)(_p_KSP* ksp, void* context) = nullptr;
+    void* configure_context = nullptr;
     PetscMpiCalls iteration_mpi;
     bool check_true_residual = false;
     double max_true_relative_residual = 0;

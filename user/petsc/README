@@ -10,3 +10,7 @@ problems are solved exactly by the band LU in user/sparse/bandlu.hpp; real
 PETSc uses ILU(0) there by default.  See doc/readme/readme_fem.md.
 
 This is not PETSc and contains no PETSc source code.
+
+Diagnostics: -ksp_trace prints each GMRES step per rank (basis vectors,
+received off-process entries, local and reduced dot products, true
+residual) through PetscSynchronizedPrintf/PetscSynchronizedFlush.

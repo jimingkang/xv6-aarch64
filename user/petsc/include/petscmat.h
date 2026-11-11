@@ -29,6 +29,9 @@ PetscErrorCode MatGetOwnershipRange(Mat A, PetscInt *lo, PetscInt *hi);
 PetscErrorCode MatCreateVecs(Mat A, Vec *right, Vec *left);
 PetscErrorCode MatMult(Mat A, Vec x, Vec y);
 PetscErrorCode MatGetDiagonal(Mat A, Vec d);
+// Owned rows only; columns are global indices in ascending order.
+PetscErrorCode MatGetRow(Mat A, PetscInt row, PetscInt *ncols, const PetscInt **cols, const PetscScalar **vals);
+PetscErrorCode MatRestoreRow(Mat A, PetscInt row, PetscInt *ncols, const PetscInt **cols, const PetscScalar **vals);
 PetscErrorCode MatDestroy(Mat *A);
 
 #ifdef __cplusplus
