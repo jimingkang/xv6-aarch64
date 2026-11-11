@@ -358,6 +358,9 @@ exec(char *path, char **argv)
   p->trapframe->elr = initial_entry; // dynamic: ld.so; static: main
   p->trapframe->spsr = 0;     // switch to EL0
   p->trapframe->sp = sp; // initial stack pointer
+  // The new image must not see the old one's FP/SIMD registers.
+  memset(&p->fpsimd, 0, sizeof(p->fpsimd));
+  fpsimd_load(&p->fpsimd);
   // Debug trace (normally disabled): installed entry point and user stack.
   // printf("exec: path=%s entry=%p sz=%p sp=%p\n",
   //        path, elf.entry, sz, sp);

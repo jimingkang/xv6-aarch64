@@ -25,6 +25,9 @@ _entry:
         msr cntvoff_el2, xzr
         mov x0, #3               // permit EL1 physical counter/timer access
         msr cnthctl_el2, x0
+        msr cptr_el3, xzr        // CPTR_EL3.TFP=0: do not trap FP/SIMD
+        mov x0, #0x33ff          // CPTR_EL2: RES1 bits, TFP=0
+        msr cptr_el2, x0
         mov x0, #0x431           // SCR_EL3: RES1, RW, non-secure
         msr scr_el3, x0
         mov x0, #0x3c5           // EL1h, mask D/A/I/F during boot
@@ -40,6 +43,8 @@ _entry:
         msr cntvoff_el2, xzr
         mov x0, #3
         msr cnthctl_el2, x0
+        mov x0, #0x33ff          // CPTR_EL2: RES1 bits, TFP=0
+        msr cptr_el2, x0
         mov x0, #0x3c5           // EL1h, mask D/A/I/F during boot
         msr spsr_el2, x0
         adr x0, 3f
@@ -50,6 +55,11 @@ _entry:
         // SCTLR_EL1 cache/MMU state from firmware or a custom armstub.
         ldr x0, =((3 << 28) | (3 << 22) | (1 << 20) | (1 << 11))
         msr sctlr_el1, x0
+        // CPACR_EL1.FPEN=0b11: FP/SIMD usable at EL0 and EL1.  The kernel is
+        // still built +nofp; only fpsimd_save/fpsimd_load (swtch.S) touch the
+        // registers, on behalf of user tasks.
+        mov x0, #(3 << 20)
+        msr cpacr_el1, x0
         isb
 
         cbnz x15, secondary_wait

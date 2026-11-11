@@ -921,6 +921,8 @@ found:
   // kalloc() poisons free pages with 0x05.  A fresh user task must not return
   // to EL0 with those bytes in registers that userinit() does not overwrite.
   memset(p->trapframe, 0, sizeof(*p->trapframe));
+  // Fresh tasks start with zeroed FP/SIMD registers and default FPCR.
+  memset(&p->fpsimd, 0, sizeof(p->fpsimd));
 
   // An empty user address space. clone() replaces this reference with its
   // caller's vmspace; fork() keeps it and copies pages into it.
@@ -1212,6 +1214,9 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
       up_read(&vm->mmap_lock);
     goto bad;
   }
+  // The child (process or thread) inherits the caller's FP/SIMD registers,
+  // which are still live in this CPU's registers.
+  fpsimd_save(&np->fpsimd);
 
   if(flags & CLONE_VM){
     acquire(&vm->lock);
@@ -1755,7 +1760,10 @@ scheduler(void)
       proc_sched_trace_dispatch(c, p);
 #endif
       switchuvm(p);
+      fpsimd_load(&p->fpsimd);
       swtch(&c->context, &p->context);
+      // Nothing since p trapped into the kernel has used FP/SIMD (+nofp).
+      fpsimd_save(&p->fpsimd);
 
       switchkvm();
 #if PROC_SCHED_TRACE

@@ -414,6 +414,9 @@ void            usbnet_rx(void*, int);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
+struct fpsimd_state;
+void            fpsimd_save(struct fpsimd_state*);
+void            fpsimd_load(const struct fpsimd_state*);
 
 // spinlock.c
 void            acquire(struct spinlock*);

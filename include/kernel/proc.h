@@ -2,6 +2,14 @@
 
 struct vm_area_struct;
 
+// User FP/SIMD registers, saved and loaded by scheduler() (swtch.S).
+struct fpsimd_state {
+  uint64 vregs[64];            // q0..q31, low half first
+  uint32 fpsr;
+  uint32 fpcr;
+  uint64 pad;
+} __attribute__((aligned(16)));
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 sp;
@@ -181,6 +189,7 @@ struct proc {
   struct vmspace *vm;          // Shared user address space
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
+  struct fpsimd_state fpsimd;  // user v0-v31/fpsr/fpcr while switched out
   void (*kthread_fn)(void*);   // kernel-thread entry, or zero for user process
   void *kthread_arg;
   struct files_struct *files;  // Descriptor table, shared by CLONE_FILES

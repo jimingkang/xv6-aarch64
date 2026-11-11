@@ -190,7 +190,9 @@ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 &
 
 # Keep libc/POSIX headers out of the kernel include namespace.  Kernel and
 # user code both see include/uapi, while only user objects see user/include.
-USER_CFLAGS = $(CFLAGS) -I$U/include
+# User tasks get their own FP/SIMD state (scheduler saves v0-v31/fpsr/fpcr),
+# so user code is built with FP enabled; the last -mcpu wins over +nofp.
+USER_CFLAGS = $(CFLAGS) -I$U/include -mcpu=cortex-a53
 
 # Verbose filesystem teaching trace.  Use `make FS_TRACE=1` to print the
 # superblock, inode-cache and pathname-walk call chain (for example `ls /`).
@@ -680,6 +682,7 @@ UPROGS=\
 	$U/_posixtest\
 	$U/_mpirun\
 	$U/_mpitest\
+	$U/_fptest\
 
 # ---------------------------------------------------------------------------
 # Loadable kernel modules (.ko): the =m half of the driver model.
