@@ -635,7 +635,9 @@ $U/%.o: $U/%.cpp
 
 # musl's libm (user/libm), linked statically into the programs that use it.
 LIBM_OBJS = $(patsubst %.c,%.o,$(wildcard $U/libm/*.c))
-$U/libm/%.o: $U/libm/%.c
+# A static pattern rule: make 3.81 (macOS) would otherwise use the generic
+# $U/%.o: $U/%.c rule above, which is defined first.
+$(LIBM_OBJS): $U/libm/%.o: $U/libm/%.c
 	$(CC) -O2 -g -mcpu=cortex-a53 -ffreestanding -fno-common -fPIE -fno-builtin \
 	  -fno-stack-protector -nostdinc -I$U/libm -I$U/include -isystem $(GCC_INCLUDE) \
 	  -std=c99 -w -MD -c -o $@ $<

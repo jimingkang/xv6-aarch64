@@ -13,8 +13,13 @@ typedef float float_t;
 
 #define HUGE_VAL  __builtin_huge_val()
 #define HUGE_VALF __builtin_huge_valf()
+// C23 <float.h> (GCC 15+) also defines these two.
+#ifndef INFINITY
 #define INFINITY  __builtin_inff()
+#endif
+#ifndef NAN
 #define NAN       __builtin_nanf("")
+#endif
 
 #define FP_NAN       0
 #define FP_INFINITE  1
