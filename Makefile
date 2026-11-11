@@ -530,7 +530,7 @@ tags: $(OBJS) _init
 	etags *.S *.c
 
 LIBC_OBJS = $U/libc_syscall.o $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/thread.o \
-	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o
+	$U/posix.o $U/tweetnacl.o $U/ssh_crypto.o $U/mpi.o
 LIBC_PIC_OBJS = $(LIBC_OBJS:.o=.pic.o)
 
 # User programs and libc use the private user-facing libc/POSIX headers.
@@ -678,6 +678,8 @@ UPROGS=\
 	$U/_reboot\
 	$U/_wget\
 	$U/_posixtest\
+	$U/_mpirun\
+	$U/_mpitest\
 
 # ---------------------------------------------------------------------------
 # Loadable kernel modules (.ko): the =m half of the driver model.
