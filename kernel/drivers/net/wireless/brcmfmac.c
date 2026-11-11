@@ -110,6 +110,7 @@
 #define HOSTINTMASK                   (0x000000f0U | (1U << 29))
 
 #define I_HMB_FRAME_IND               (1U << 6)
+#define I_HMB_HOST_INT                (1U << 7)
 #define SDPCM_HEADER_LEN              12
 #define SDPCM_CONTROL_CHANNEL         0
 #define SDPCM_EVENT_CHANNEL           1
@@ -268,6 +269,7 @@ struct brcmf_bus_state {
   uint8 net_deliver[1600];
   int net_rx_len;
   int polling;
+  int rx_more;          // last F2 read returned a frame: keep draining
   int ctl_len;
   uint16 ctl_id;
   int eapol_rx;
@@ -1169,8 +1171,33 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   if(brcmf_backplane_read32(brcmf_bus.f1,
        brcmf_bus.sdio_base + SDIO_CORE_INTSTATUS, &intstatus) < 0)
     return -1;
-  if((intstatus & I_HMB_FRAME_IND) == 0)
+  // INTSTATUS is write-1-to-clear, and the card keeps its (level) interrupt
+  // asserted until the host clears it.  Clear what we saw before draining F2,
+  // as Linux's brcmf_sdio_dpc() does; otherwise every re-enable of the SDIO
+  // IRQ fires again at once and brcmf0_wq spins forever.  A frame that
+  // arrives after the clear sets the bit again.
+  intstatus &= HOSTINTMASK;
+  if(intstatus){
+    if(brcmf_backplane_write32(brcmf_bus.f1,
+         brcmf_bus.sdio_base + SDIO_CORE_INTSTATUS, intstatus) < 0)
+      return -1;
+    if(intstatus & I_HMB_HOST_INT){
+      // Firmware mailbox message: read it and acknowledge it.
+      uint32 mailbox;
+      if(brcmf_backplane_read32(brcmf_bus.f1,
+           brcmf_bus.sdio_base + SDIO_CORE_TOHOSTMAILBOXDATA, &mailbox) < 0 ||
+         brcmf_backplane_write32(brcmf_bus.f1,
+           brcmf_bus.sdio_base + SDIO_CORE_TOSBMAILBOX, SMB_INT_ACK) < 0)
+        return -1;
+      if(mailbox & HMB_DATA_FWHALT)
+        printf("brcmfmac: firmware halted mailbox=%x\n", mailbox);
+    }
+  }
+  // The bit was cleared above, so after one frame keep reading F2 until it
+  // is empty instead of waiting for the bit.
+  if((intstatus & I_HMB_FRAME_IND) == 0 && !brcmf_bus.rx_more)
     return 0;
+  brcmf_bus.rx_more = 0;
 
   memset(brcmf_bus.rx, 0, sizeof(brcmf_bus.rx));
   if(brcmf_f2_transfer(bus, 0, brcmf_bus.rx, 64) < 0)
@@ -1197,6 +1224,7 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
     return -1;
   *payload = brcmf_bus.rx + offset;
   *payload_len = length - offset;
+  brcmf_bus.rx_more = 1;
   return 1;
 }
 
