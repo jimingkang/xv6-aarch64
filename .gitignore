@@ -19,7 +19,7 @@ user/usys.S
 *.out
 __pycache__/
 *.pyc
-media/
+/media/
 trace/
 kernel/buildinfo.c
 /build/t113/
