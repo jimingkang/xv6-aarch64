@@ -1316,8 +1316,10 @@ net_tcp_accept(int handle, int nonblock)
   if(listener == 0)
     return -1;
   acquire(&listener->lock);
-  if(listener->owner != myproc()->pid || listener->state == TCP_CLOSED ||
-     listener->accepted){
+  // The syscall layer has already resolved a live struct file owned by this
+  // process.  Do not reject a listener inherited across fork(): PostgreSQL's
+  // postmaster model and normal POSIX socket sharing both rely on that.
+  if(listener->state == TCP_CLOSED || listener->accepted){
     release(&listener->lock);
     return -1;
   }
@@ -1390,7 +1392,7 @@ net_tcp_read(int handle, uint64 uaddr, int maxlen, int nonblock)
   if(c == 0 || maxlen < 0)
     return -1;
   acquire(&c->lock);
-  if(c->owner != myproc()->pid || !c->accepted){
+  if(!c->accepted){
     release(&c->lock);
     return -1;
   }
@@ -1436,7 +1438,7 @@ net_tcp_write(int handle, uint64 uaddr, int len, int nonblock)
     return -1;
   while(done < len){
     acquire(&c->lock);
-    if(c->owner != myproc()->pid || !c->accepted ||
+    if(!c->accepted ||
        (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT)){
       release(&c->lock);
       return done ? done : -1;
@@ -1484,10 +1486,6 @@ net_tcp_close(int handle)
   if(c == 0)
     return -1;
   acquire(&c->lock);
-  if(c->owner != myproc()->pid){
-    release(&c->lock);
-    return -1;
-  }
   was_listener = c->state == TCP_LISTEN;
   if(c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT){
     while((c->tx_unacked || c->txq_len) && !c->tx_failed)

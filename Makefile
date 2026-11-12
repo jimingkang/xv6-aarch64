@@ -607,6 +607,18 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
+# PostgreSQL-style teaching database.  Keep the complete implementation in
+# user/mygres while installing the familiar flat /bin names in rootfs.
+$U/_mygres: $U/mygres/main.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
+	$(OBJDUMP) -S $@ > $U/mygres/main.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/mygres/main.sym
+
+$U/_mygresd: $U/mygres/mygresd.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
+	$(OBJDUMP) -S $@ > $U/mygres/mygresd.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/mygres/mygresd.sym
+
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
 
@@ -647,6 +659,8 @@ UPROGS=\
 	$U/_dhcp\
 	$U/_waltest\
 	$U/_minisqlite\
+	$U/_mygres\
+	$U/_mygresd\
 	$U/_tcpd\
 	$U/_epollserver\
 	$U/_ptytest\
