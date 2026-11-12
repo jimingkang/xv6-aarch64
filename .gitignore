@@ -23,3 +23,6 @@ __pycache__/
 trace/
 kernel/buildinfo.c
 /build/t113/
+*.ko
+*.so
+*.log
