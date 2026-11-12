@@ -776,6 +776,7 @@ clean: clean-t113
 		-name 'armstub-xv6 [0-9]*.bin' \
 	\) -delete
 	find mkfs -maxdepth 1 -type f -name 'mkfs [0-9]*' -delete
+	find $U -mindepth 2 -type f \( -name '*.o' -o -name '*.d' -o -name '*.asm' -o -name '*.sym' \) -delete
 	find $K -mindepth 2 -type f \( -name '*.o' -o -name '*.d' -o -name '*.asm' -o -name '*.sym' -o -name '*.ko.raw' \) -delete
 	rm -rf $U/obj $U/.deps $U/build $K/obj $K/.deps $K/build
 	rm -rf $(MODULE_INSTALL_DIR)

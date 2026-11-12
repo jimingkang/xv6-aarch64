@@ -15,14 +15,14 @@
 
 | mygres 代码 | PostgreSQL 对应目录/入口 | 当前承担的职责 |
 |---|---|---|
-| `run_postmaster()` | `src/backend/postmaster/postmaster.c` | 建共享区、派生 backend、管理 listener |
-| `create_postmaster_database()` | `src/backend/storage/ipc/ipci.c` 的 `CreateSharedMemoryAndSemaphores()` | 计算并初始化主共享区 |
-| `pgwire_listener_loop()`、`pgwire_connection()` | `src/backend/libpq/pqcomm.c` | listen/accept、消息 framing、frontend/backend I/O |
-| `pg_execute_query()` | `src/backend/tcop/postgres.c` | traffic-cop 主循环和事务状态 |
-| `write_wal()`、`recover_locked()` | `src/backend/access/transam/xlog*.c` | WAL insert/flush 与 startup REDO 的最小版本 |
-| `shm_state.rows/index` | `src/backend/storage/buffer`、`src/backend/access/hash` | 共享 buffer 与可重建索引 |
+| `run_postmaster()` | [`src/backend/postmaster/postmaster.c`](https://github.com/postgres/postgres/blob/master/src/backend/postmaster/postmaster.c) | 建共享区、派生 backend、管理 listener |
+| `create_postmaster_database()` | [`src/backend/storage/ipc/ipci.c`](https://github.com/postgres/postgres/blob/master/src/backend/storage/ipc/ipci.c) 的 `CreateSharedMemoryAndSemaphores()` | 计算并初始化主共享区 |
+| `pgwire_listener_loop()`、`pgwire_connection()` | [`src/backend/libpq/pqcomm.c`](https://github.com/postgres/postgres/blob/master/src/backend/libpq/pqcomm.c) | listen/accept、消息 framing、frontend/backend I/O |
+| `pg_execute_query()` | [`src/backend/tcop/postgres.c`](https://github.com/postgres/postgres/blob/master/src/backend/tcop/postgres.c) | traffic-cop 主循环和事务状态 |
+| `write_wal()`、`recover_locked()` | [`src/backend/access/transam/xlog.c`](https://github.com/postgres/postgres/blob/master/src/backend/access/transam/xlog.c) | WAL insert/flush 与 startup REDO 的最小版本 |
+| `shm_state.rows/index` | [`src/backend/storage/buffer`](https://github.com/postgres/postgres/tree/master/src/backend/storage/buffer)、[`src/backend/access/hash`](https://github.com/postgres/postgres/tree/master/src/backend/access/hash) | 共享 buffer 与可重建索引 |
 
-PostgreSQL 官方注释特别强调：postmaster 创建共享内存和 semaphore，但通常不参与 lock manager 或共享数据操作；收到连接后立即 fork，由子进程认证并成为 backend。mygres 也让 postmaster 只负责创建/监督，数据库操作由本地 worker 或远程连接 backend 执行。
+PostgreSQL 官方注释特别强调：postmaster 创建共享内存和 semaphore，但通常不参与 lock manager 或共享数据操作；收到连接后立即 fork，由子进程认证并成为 backend。mygres 也让 postmaster 只负责创建/监督，数据库操作由本地 worker 或远程连接 backend 执行。后台持久化职责可继续参考 [`checkpointer.c`](https://github.com/postgres/postgres/blob/master/src/backend/postmaster/checkpointer.c)。
 
 ## 进程与共享内存模型
 
@@ -110,7 +110,7 @@ backend 获取匿名共享区中的提交锁
 
 ## PostgreSQL 客户端协议
 
-pgwire listener 监听 TCP 5432，支持 PostgreSQL protocol 3.0 的 StartupMessage、明文回退、trust authentication、ParameterStatus、BackendKeyData、ReadyForQuery、Simple Query、RowDescription、DataRow、CommandComplete、ErrorResponse 和 Terminate。每个远程连接 fork 独立 backend，继承 postmaster 的匿名主共享区。
+pgwire listener 监听 TCP 5432，支持 PostgreSQL protocol 3.0 的 StartupMessage、SSL/GSS 明文回退、trust authentication、ParameterStatus、BackendKeyData、ReadyForQuery、Simple Query，以及 Parse/Bind/Describe/Execute/Close/Flush/Sync 扩展查询流程。结果消息包括 RowDescription、DataRow、CommandComplete、ErrorResponse 和 Terminate。每个远程连接 fork 独立 backend，继承 postmaster 的匿名主共享区。
 
 ```sh
 psql "host=<rpi-ip> port=5432 user=root dbname=mygres sslmode=disable"
@@ -131,7 +131,7 @@ ROLLBACK;
 SELECT version();
 ```
 
-当前只实现 Simple Query。libpq/psql 可以直接握手和查询；使用 JDBC、Go pgx 等默认 Extended Query 的客户端时，需要配置 simple-query 模式。Parse/Bind/Execute、TLS、SCRAM、系统 catalog 和完整 SQL parser 尚未实现。
+扩展查询当前支持一条活动 prepared statement/portal、最多 16 个参数、文本结果，以及 `int2/int4/int8` 的文本或二进制输入参数。这足以让常见客户端完成基本参数化 CRUD，但不是完整 PostgreSQL：prepared-statement cache、多 portal、二进制结果、TLS、SCRAM、系统 catalog 和完整 SQL parser 尚未实现；遇到这些能力时客户端应回退到文本/Simple Query。
 
 ## 并发压力测试
 

@@ -157,6 +157,7 @@ struct ipc_response {
   uint32 key;
   uint64 value;
   uint64 txid;
+  uint64 row_txid;
   uint64 rows;
   uint64 commits;
   uint64 recoveries;
@@ -656,10 +657,18 @@ initialize_database(void)
 }
 
 static int
-allocate_row_slot(struct shm_state *s)
+allocate_row_slot(struct shm_state *s, struct wal_page *pending)
 {
   int tomb = -1;
   for(uint i = 0; i < MAX_ROWS; i++){
+    int reserved = 0;
+    for(uint j = 0; j < pending->nops; j++)
+      if(pending->ops[j].slot == i){
+        reserved = 1;
+        break;
+      }
+    if(reserved)
+      continue;
     if(s->rows[i].state == ROW_FREE)
       return tomb >= 0 ? tomb : (int)i;
     if(s->rows[i].state == ROW_TOMB && tomb < 0)
@@ -727,7 +736,10 @@ tx_commit(struct database *db, struct transaction *tx, int wal_only)
     if(op->type == OP_DELETE && slot < 0)
       continue;
     if(op->type == OP_PUT && slot < 0){
-      slot = allocate_row_slot(db->shm);
+      // Earlier operations in the same transaction have not yet been
+      // published into shared rows.  Treat their WAL slots as reservations,
+      // otherwise two new keys in one COMMIT both choose the same free row.
+      slot = allocate_row_slot(db->shm, &wal_buffer);
       if(slot < 0){
         shared_unlock(&db->shm->lock);
         printf("mygres: table is full\n");
@@ -883,7 +895,7 @@ process_ipc_request(struct database *db, struct ipc_request *request,
     response->key = request->key;
     response->status = db_get(db, request->key, &value, &txid);
     response->value = value;
-    response->txid = txid;
+    response->row_txid = txid;
     break;
   case IPC_COMMIT:
   case IPC_PREPARE:
@@ -1168,7 +1180,8 @@ parse_u64(char *s, uint64 *out)
 }
 
 // --------------------------------------------------------------------------
-// PostgreSQL v3 frontend/backend protocol (trust authentication, simple query)
+// PostgreSQL v3 frontend/backend protocol (trust authentication and the
+// simple/extended query flows used by libpq, JDBC and pgx).
 // --------------------------------------------------------------------------
 
 #define PG_MAX_MESSAGE 2048
@@ -1187,6 +1200,22 @@ pg_be32(uint32 value)
 {
   return ((value & 0xffU) << 24) | ((value & 0xff00U) << 8) |
          ((value >> 8) & 0xff00U) | ((value >> 24) & 0xffU);
+}
+
+static uint16
+pg_get16(uchar *buffer)
+{
+  uint16 value;
+  memmove(&value, buffer, 2);
+  return pg_be16(value);
+}
+
+static uint32
+pg_get32(uchar *buffer)
+{
+  uint32 value;
+  memmove(&value, buffer, 4);
+  return pg_be32(value);
 }
 
 static int
@@ -1276,7 +1305,10 @@ pg_send_error(int fd, char *code, char *message)
     n = sizeof(payload) - pos - 1;
   memmove(payload + pos, message, n); pos += n;
   payload[pos++] = 0;
-  return pg_send(fd, 'E', payload, pos);
+  // Positive means an ErrorResponse was delivered.  Extended-query callers
+  // use it to enter the protocol's discard-until-Sync state; negative still
+  // means the TCP connection itself failed.
+  return pg_send(fd, 'E', payload, pos) < 0 ? -1 : 1;
 }
 
 static void
@@ -1417,24 +1449,24 @@ pg_numbers(char *text, uint64 *numbers, int maximum)
 }
 
 static int
-pg_send_text_result(int fd, char *name, char *value, char *tag)
+pg_send_text_result(int fd, char *name, char *value, char *tag, int describe)
 {
   char *names[1] = { name };
   char *values[1] = { value };
   uint32 oids[1] = { 25 };                // TEXTOID
   uint16 widths[1] = { 0xffff };
-  return pg_send_row_description(fd, 1, names, oids, widths) < 0 ||
+  return (describe && pg_send_row_description(fd, 1, names, oids, widths) < 0) ||
          pg_send_data_row(fd, 1, values) < 0 ||
          pg_send_command(fd, tag) < 0 ? -1 : 0;
 }
 
 static int
-pg_send_kv_result(int fd, struct db_row *rows, uint count)
+pg_send_kv_result(int fd, struct db_row *rows, uint count, int describe)
 {
   char *names[2] = { "key", "value" };
   uint32 oids[2] = { 23, 20 };             // INT4OID, INT8OID
   uint16 widths[2] = { 4, 8 };
-  if(pg_send_row_description(fd, 2, names, oids, widths) < 0)
+  if(describe && pg_send_row_description(fd, 2, names, oids, widths) < 0)
     return -1;
   for(uint i = 0; i < count; i++){
     char key[24], value[32];
@@ -1450,19 +1482,19 @@ pg_send_kv_result(int fd, struct db_row *rows, uint count)
 }
 
 static int
-pg_execute_select(int fd, struct database *db, char *sql)
+pg_execute_select(int fd, struct database *db, char *sql, int describe)
 {
   uint64 number[4], value, txid;
   int n = pg_numbers(sql, number, 4);
   if(pg_contains(sql, "version()"))
     return pg_send_text_result(fd, "version",
-      "mygres 0.1 (PostgreSQL 16.0 wire protocol)", "SELECT 1");
+      "mygres 0.1 (PostgreSQL 16.0 wire protocol)", "SELECT 1", describe);
   if(pg_contains(sql, "set_config"))
-    return pg_send_text_result(fd, "set_config", "", "SELECT 1");
+    return pg_send_text_result(fd, "set_config", "", "SELECT 1", describe);
   if(!pg_contains(sql, "from kv")){
     char value_buffer[32];
     pg_u64toa(n ? number[0] : 1, value_buffer);
-    return pg_send_text_result(fd, "?column?", value_buffer, "SELECT 1");
+    return pg_send_text_result(fd, "?column?", value_buffer, "SELECT 1", describe);
   }
   if(pg_contains(sql, "where")){
     struct db_row row;
@@ -1474,9 +1506,9 @@ pg_execute_select(int fd, struct database *db, char *sql)
       row.state = ROW_USED;
       row.key = number[n - 1];
       row.value = value;
-      return pg_send_kv_result(fd, &row, 1);
+      return pg_send_kv_result(fd, &row, 1, describe);
     }
-    return pg_send_kv_result(fd, &row, 0);
+    return pg_send_kv_result(fd, &row, 0, describe);
   }
 
   struct db_row *snapshot = malloc(MAX_ROWS * sizeof(struct db_row));
@@ -1488,7 +1520,7 @@ pg_execute_select(int fd, struct database *db, char *sql)
     if(db->shm->rows[i].state == ROW_USED)
       snapshot[count++] = db->shm->rows[i];
   shared_unlock(&db->shm->lock);
-  int result = pg_send_kv_result(fd, snapshot, count);
+  int result = pg_send_kv_result(fd, snapshot, count, describe);
   free(snapshot);
   return result;
 }
@@ -1505,7 +1537,7 @@ pg_auto_change(struct database *db, uint type, uint32 key, uint64 value)
 
 static int
 pg_execute_query(int fd, struct database *db, struct transaction *tx,
-                 char *sql)
+                 char *sql, int describe)
 {
   uint64 number[4];
   int n;
@@ -1529,9 +1561,11 @@ pg_execute_query(int fd, struct database *db, struct transaction *tx,
     return pg_send_command(fd, "ROLLBACK");
   }
   if(pg_starts_with(sql, "select"))
-    return pg_execute_select(fd, db, sql);
+    return pg_execute_select(fd, db, sql, describe);
   if(pg_starts_with(sql, "show"))
-    return pg_send_text_result(fd, "setting", "on", "SHOW");
+    return pg_send_text_result(fd, "setting", "on", "SHOW", describe);
+  if(pg_starts_with(sql, "set ") || pg_starts_with(sql, "reset "))
+    return pg_send_command(fd, pg_starts_with(sql, "set ") ? "SET" : "RESET");
 
   n = pg_numbers(sql, number, 4);
   if(pg_starts_with(sql, "insert") && n >= 2 && number[0] <= 0xffffffffU){
@@ -1598,12 +1632,206 @@ pg_startup(int fd)
          pg_send_ready(fd, 0);
 }
 
+#define PG_MAX_PARAMS 16
+
+struct pg_extended_state {
+  char statement[PG_MAX_MESSAGE];
+  char portal[PG_MAX_MESSAGE];
+  uint32 parameter_oid[PG_MAX_PARAMS];
+  int parameter_count;
+  int statement_valid;
+  int portal_valid;
+  int failed;
+};
+
+static char *
+pg_cstring(uchar **cursor, uchar *end)
+{
+  char *value = (char *)*cursor;
+  while(*cursor < end && **cursor)
+    (*cursor)++;
+  if(*cursor >= end)
+    return 0;
+  (*cursor)++;
+  return value;
+}
+
+static int
+pg_describe_query(int fd, char *sql)
+{
+  if(pg_starts_with(sql, "select") && pg_contains(sql, "from kv")){
+    char *names[2] = { "key", "value" };
+    uint32 oids[2] = { 23, 20 };
+    uint16 widths[2] = { 4, 8 };
+    return pg_send_row_description(fd, 2, names, oids, widths);
+  }
+  if(pg_starts_with(sql, "select") || pg_starts_with(sql, "show")){
+    char *names[1] = { pg_contains(sql, "version()") ? "version" : "?column?" };
+    uint32 oids[1] = { 25 };
+    uint16 widths[1] = { 0xffff };
+    return pg_send_row_description(fd, 1, names, oids, widths);
+  }
+  return pg_send(fd, 'n', 0, 0);          // NoData
+}
+
+static int
+pg_parse_message(int fd, uchar *message, uint length,
+                 struct pg_extended_state *extended)
+{
+  uchar *cursor = message, *end = message + length;
+  char *name = pg_cstring(&cursor, end);
+  char *sql = pg_cstring(&cursor, end);
+  (void)name;                              // one active prepared statement
+  if(name == 0 || sql == 0 || cursor + 2 > end)
+    return pg_send_error(fd, "08P01", "malformed Parse message");
+  int count = pg_get16(cursor);
+  cursor += 2;
+  if(count > PG_MAX_PARAMS || cursor + count * 4 > end)
+    return pg_send_error(fd, "54000", "too many query parameters");
+  if(strlen(sql) >= sizeof(extended->statement))
+    return pg_send_error(fd, "54000", "prepared statement is too long");
+  strcpy(extended->statement, sql);
+  extended->parameter_count = count;
+  for(int i = 0; i < count; i++, cursor += 4)
+    extended->parameter_oid[i] = pg_get32(cursor);
+  extended->statement_valid = 1;
+  extended->portal_valid = 0;
+  return pg_send(fd, '1', 0, 0);           // ParseComplete
+}
+
+static int
+pg_parameter_text(char *output, uint output_size, uchar *data, uint length,
+                  int format, uint32 oid)
+{
+  if(format == 0){
+    if(length + 1 > output_size)
+      return -1;
+    memmove(output, data, length);
+    output[length] = 0;
+    return 0;
+  }
+  uint64 value;
+  if((oid == 21 && length == 2))
+    value = pg_get16(data);
+  else if((oid == 23 && length == 4))
+    value = pg_get32(data);
+  else if(oid == 20 && length == 8)
+    value = ((uint64)pg_get32(data) << 32) | pg_get32(data + 4);
+  else
+    return -1;
+  pg_u64toa(value, output);
+  return 0;
+}
+
+static int
+pg_expand_parameters(char *output, uint output_size, char *sql,
+                     char parameter[PG_MAX_PARAMS][64], int count)
+{
+  uint used = 0;
+  for(uint i = 0; sql[i];){
+    if(sql[i] == '$' && sql[i + 1] >= '1' && sql[i + 1] <= '9'){
+      uint number = 0;
+      i++;
+      while(sql[i] >= '0' && sql[i] <= '9')
+        number = number * 10 + (sql[i++] - '0');
+      if(number == 0 || number > (uint)count)
+        return -1;
+      char *value = parameter[number - 1];
+      uint n = strlen(value);
+      if(used + n + 1 > output_size)
+        return -1;
+      memmove(output + used, value, n);
+      used += n;
+    } else {
+      if(used + 2 > output_size)
+        return -1;
+      output[used++] = sql[i++];
+    }
+  }
+  output[used] = 0;
+  return 0;
+}
+
+static int
+pg_bind_message(int fd, uchar *message, uint length,
+                struct pg_extended_state *extended)
+{
+  uchar *cursor = message, *end = message + length;
+  char parameter[PG_MAX_PARAMS][64];
+  uint16 formats[PG_MAX_PARAMS];
+  if(pg_cstring(&cursor, end) == 0 || pg_cstring(&cursor, end) == 0 ||
+     cursor + 2 > end || !extended->statement_valid)
+    return pg_send_error(fd, "26000", "prepared statement does not exist");
+  int format_count = pg_get16(cursor);
+  cursor += 2;
+  if(format_count > PG_MAX_PARAMS || cursor + format_count * 2 + 2 > end)
+    return pg_send_error(fd, "08P01", "malformed Bind formats");
+  for(int i = 0; i < format_count; i++, cursor += 2)
+    formats[i] = pg_get16(cursor);
+  int count = pg_get16(cursor);
+  cursor += 2;
+  if(count != extended->parameter_count || count > PG_MAX_PARAMS)
+    return pg_send_error(fd, "08P01", "Bind parameter count mismatch");
+  for(int i = 0; i < count; i++){
+    if(cursor + 4 > end)
+      return pg_send_error(fd, "08P01", "truncated Bind parameter");
+    uint32 n = pg_get32(cursor);
+    cursor += 4;
+    if(n == 0xffffffffU)
+      return pg_send_error(fd, "22004", "NULL parameters are not supported");
+    if(cursor + n > end)
+      return pg_send_error(fd, "08P01", "truncated Bind parameter");
+    int format = format_count == 0 ? 0 : formats[format_count == 1 ? 0 : i];
+    if(pg_parameter_text(parameter[i], sizeof(parameter[i]), cursor, n,
+                         format, extended->parameter_oid[i]) < 0)
+      return pg_send_error(fd, "0A000", "unsupported parameter format or type");
+    cursor += n;
+  }
+  if(cursor + 2 > end)
+    return pg_send_error(fd, "08P01", "missing Bind result formats");
+  int result_formats = pg_get16(cursor);
+  cursor += 2;
+  if(result_formats > PG_MAX_PARAMS || cursor + result_formats * 2 > end)
+    return pg_send_error(fd, "08P01", "malformed Bind result formats");
+  for(int i = 0; i < result_formats; i++, cursor += 2)
+    if(pg_get16(cursor) != 0)
+      return pg_send_error(fd, "0A000", "binary query results are not supported");
+  if(pg_expand_parameters(extended->portal, sizeof(extended->portal),
+                          extended->statement, parameter, count) < 0)
+    return pg_send_error(fd, "54000", "bound query is too long");
+  extended->portal_valid = 1;
+  return pg_send(fd, '2', 0, 0);           // BindComplete
+}
+
+static int
+pg_describe_message(int fd, uchar *message, uint length,
+                    struct pg_extended_state *extended)
+{
+  if(length < 2)
+    return pg_send_error(fd, "08P01", "malformed Describe message");
+  if(message[0] == 'S'){
+    uchar payload[2 + PG_MAX_PARAMS * 4];
+    uint position = 0;
+    pg_put16(payload, &position, extended->parameter_count);
+    for(int i = 0; i < extended->parameter_count; i++)
+      pg_put32(payload, &position, extended->parameter_oid[i]);
+    if(!extended->statement_valid || pg_send(fd, 't', payload, position) < 0)
+      return -1;
+    return pg_describe_query(fd, extended->statement);
+  }
+  if(message[0] == 'P' && extended->portal_valid)
+    return pg_describe_query(fd, extended->portal);
+  return pg_send_error(fd, "26000", "portal does not exist");
+}
+
 static void
 pgwire_connection(int fd, struct database *db)
 {
   uchar message[PG_MAX_MESSAGE];
   struct transaction tx;
+  struct pg_extended_state extended;
   memset(&tx, 0, sizeof(tx));
+  memset(&extended, 0, sizeof(extended));
   if(pg_startup(fd) < 0)
     return;
   for(;;){
@@ -1619,16 +1847,41 @@ pgwire_connection(int fd, struct database *db)
     message[length - 4] = 0;
     if(type == 'X')
       return;
-    if(type != 'Q'){
-      if(pg_send_error(fd, "0A000",
-          "use PostgreSQL simple-query mode; extended protocol is not implemented") < 0 ||
-         pg_send_ready(fd, tx.active) < 0)
+    if(type == 'S'){
+      extended.failed = 0;
+      if(pg_send_ready(fd, tx.active) < 0)
         return;
       continue;
     }
-    if(pg_execute_query(fd, db, &tx, (char *)message) < 0 ||
-       pg_send_ready(fd, tx.active) < 0)
+    if(extended.failed)
+      continue;                              // discard until Sync
+    int status = 0;
+    if(type == 'Q'){
+      status = pg_execute_query(fd, db, &tx, (char *)message, 1);
+      if(status >= 0)
+        status = pg_send_ready(fd, tx.active);
+    } else if(type == 'P')
+      status = pg_parse_message(fd, message, length - 4, &extended);
+    else if(type == 'B')
+      status = pg_bind_message(fd, message, length - 4, &extended);
+    else if(type == 'D')
+      status = pg_describe_message(fd, message, length - 4, &extended);
+    else if(type == 'E'){
+      if(!extended.portal_valid)
+        status = pg_send_error(fd, "26000", "portal does not exist");
+      else
+        status = pg_execute_query(fd, db, &tx, extended.portal, 0);
+    } else if(type == 'C'){
+      extended.statement_valid = extended.portal_valid = 0;
+      status = pg_send(fd, '3', 0, 0);       // CloseComplete
+    } else if(type == 'H')
+      status = 0;                            // Flush: writes are synchronous
+    else
+      status = pg_send_error(fd, "0A000", "frontend message is not supported");
+    if(status < 0)
       return;
+    if(type != 'Q' && status > 0)
+      extended.failed = 1;
   }
 }
 
@@ -1836,7 +2089,7 @@ run_shell(struct ipc_client *client)
           struct ipc_response response;
           r = submit_get(client, key, &response);
           value = response.value;
-          xmin = response.txid;
+          xmin = response.row_txid;
         }
         if(r == 0)
           printf(" key | value | xmin\n %d | %l | %l\n(1 row)\n",
@@ -1964,7 +2217,7 @@ main(int argc, char **argv)
       r = submit_get(&client, key, &response);
       if(r == 0)
         printf("mygres: key=%d value=%l xmin=%l\n", (uint32)key,
-               response.value, response.txid);
+               response.value, response.row_txid);
       else if(r == 1)
         printf("mygres: key=%d not found\n", (uint32)key);
     }
