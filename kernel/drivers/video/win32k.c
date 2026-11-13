@@ -85,7 +85,7 @@ static struct fb_kinfo fbk;
 static int fb_ok;
 static int mx, my, mouse_seen, pdx, pdy;
 static int cursor_drawn, cursor_hide, csx, csy;
-static uint32 cursor_save[CUR_W * CUR_H];
+static uint32 *shadow;          // cached copy of the screen (see compose)
 static int shift, ctrl, caps;
 static uint64 last_click_us;
 static int last_click_w = -1, last_click_x, last_click_y;
@@ -253,20 +253,22 @@ timer_fn(struct work_struct *w)
 }
 
 // ---------------------------------------------------------------------------
-// The cursor: drawn by the kernel over whatever is on the screen, with the
-// pixels underneath saved.  It is lifted while any window paints.
+// The cursor: drawn by the kernel straight onto the frame buffer.  What is
+// underneath is always in the shadow screen, so erasing it is a copy back.
 
 static void
 cursor_erase(void)
 {
   if(!cursor_drawn)
     return;
-  for(int r = 0; r < CUR_H; r++)
-    for(int c = 0; c < CUR_W; c++){
-      int x = csx + c, y = csy + r;
-      if(x < fbk.width && y < fbk.height && cursor_img[r][c] != ' ')
-        fbk.pixels[y * fbk.stride + x] = cursor_save[r * CUR_W + c];
-    }
+  for(int r = 0; r < CUR_H; r++){
+    int y = csy + r;
+    if(y >= fbk.height)
+      break;
+    int n = csx + CUR_W <= fbk.width ? CUR_W : fbk.width - csx;
+    memmove(fbk.pixels + y * fbk.stride + csx, shadow + y * fbk.width + csx,
+            n * 4);
+  }
   cursor_drawn = 0;
 }
 
@@ -283,9 +285,7 @@ cursor_draw(void)
       char p = cursor_img[r][c];
       if(x >= fbk.width || y >= fbk.height || p == ' ')
         continue;
-      uint32 *px = &fbk.pixels[y * fbk.stride + x];
-      cursor_save[r * CUR_W + c] = *px;
-      *px = p == 'X' ? 0x000000 : 0xffffff;
+      fbk.pixels[y * fbk.stride + x] = p == 'X' ? 0x000000 : 0xffffff;
     }
   cursor_drawn = 1;
 }
@@ -331,23 +331,42 @@ invalidate_screen_on(int i, struct w32_rect s)
     wakeup(q);
 }
 
+// The frame buffer is mapped non-cacheable, so every pixel written there is
+// a slow uncached store.  compose() therefore layers the windows in the
+// shadow screen (ordinary cached RAM) with the painter's algorithm and then
+// writes each frame-buffer pixel of the area exactly once.
+static void
+shadow_to_fb(struct w32_rect r)
+{
+  for(int y = r.top; y < r.bottom; y++)
+    memmove(fbk.pixels + y * fbk.stride + r.left,
+            shadow + y * fbk.width + r.left, (r.right - r.left) * 4);
+  // The copy may have wiped the cursor: put it back on top.
+  struct w32_rect cur = { csx, csy, csx + CUR_W, csy + CUR_H };
+  if(cursor_drawn){
+    struct w32_rect x = risect(cur, r);
+    if(!rempty(&x)){
+      cursor_drawn = 0;
+      cursor_draw();
+    }
+  }
+}
+
 // Recompose screen rectangle s from the backing surfaces: the background,
-// then every shown window bottom to top (painter's algorithm).  This is the
-// only code that writes window pixels to the frame buffer.
+// then every shown window bottom to top.  This and window_to_screen() are
+// the only code that writes window pixels to the frame buffer.
 static void
 compose(struct w32_rect s)
 {
-  if(!fb_ok)
+  if(!fb_ok || !shadow)
     return;
   struct w32_rect scr = { 0, 0, fbk.width, fbk.height };
   s = risect(s, scr);
   if(rempty(&s))
     return;
-  int was = cursor_drawn;
-  cursor_erase();
   uint32 bg = nwin ? desktop_pixel() : 0;
   for(int y = s.top; y < s.bottom; y++){
-    uint32 *row = fbk.pixels + y * fbk.stride;
+    uint32 *row = shadow + y * fbk.width;
     for(int x = s.left; x < s.right; x++)
       row[x] = bg;
   }
@@ -357,12 +376,74 @@ compose(struct w32_rect s)
       continue;
     struct w32_rect r = risect(s, w->rc);
     for(int y = r.top; y < r.bottom; y++)
-      memmove(fbk.pixels + y * fbk.stride + r.left,
+      memmove(shadow + y * fbk.width + r.left,
               w->surf + (y - w->rc.top) * w->sw + (r.left - w->rc.left),
               (r.right - r.left) * 4);
   }
-  if(was || mouse_seen)
-    cursor_draw();
+  if(!mouse_seen || nwin == 0)
+    cursor_drawn = 0;
+  shadow_to_fb(s);
+  cursor_draw();
+}
+
+// Window i repainted screen area s: copy only the parts of s that no window
+// above i covers, straight from its surface (it is the top layer there).
+// A video window behind another one thus costs nothing on screen.
+static void
+window_to_screen(int i, struct w32_rect s)
+{
+  struct w32_rect piece[32];
+  int n = 0, k;
+  struct w32_rect scr = { 0, 0, fbk.width, fbk.height };
+  s = risect(risect(s, wins[i].rc), scr);
+  if(rempty(&s) || !shadow)
+    return;
+  piece[n++] = s;
+  for(k = 0; k < nz && z[k] != i; k++)
+    ;
+  for(k++; k < nz && n > 0; k++){
+    int j = z[k];
+    if(!shown(j))
+      continue;
+    struct w32_rect b = wins[j].rc;
+    int m = n;
+    for(int r = 0; r < m; r++){
+      struct w32_rect a = piece[r], x = risect(a, b);
+      if(rempty(&x))
+        continue;
+      struct w32_rect out[4];
+      int no = 0;
+      if(a.top < x.top){ out[no] = a; out[no].bottom = x.top; no++; }
+      if(x.bottom < a.bottom){ out[no] = a; out[no].top = x.bottom; no++; }
+      if(a.left < x.left){ out[no] = x; out[no].left = a.left;
+                           out[no].right = x.left; no++; }
+      if(x.right < a.right){ out[no] = x; out[no].left = x.right;
+                             out[no].right = a.right; no++; }
+      piece[r].right = piece[r].left;            // drop a
+      for(int o = 0; o < no; o++){
+        if(n < 32)
+          piece[n++] = out[o];
+        else{
+          compose(s);                            // too fragmented: fall back
+          return;
+        }
+      }
+    }
+    int c = 0;
+    for(int r = 0; r < n; r++)
+      if(!rempty(&piece[r]))
+        piece[c++] = piece[r];
+    n = c;
+  }
+  struct kwnd *w = &wins[i];
+  for(int r = 0; r < n; r++){
+    struct w32_rect p = piece[r];
+    for(int y = p.top; y < p.bottom; y++)
+      memmove(shadow + y * fbk.width + p.left,
+              w->surf + (y - w->rc.top) * w->sw + (p.left - w->rc.left),
+              (p.right - p.left) * 4);
+    shadow_to_fb(p);
+  }
 }
 
 static void
@@ -552,8 +633,15 @@ mouse_move(int dx, int dy)
       w->rc.right = nx + ww; w->rc.bottom = ny + hh;
       // Pure composition: the window and what it uncovers come from
       // their backing surfaces, no WM_PAINT round trip.
-      compose(old);
-      compose(w->rc);
+      struct w32_rect both = risect(old, w->rc);
+      if(rempty(&both)){
+        compose(old);
+        compose(w->rc);
+      } else {
+        both = old;
+        runion(&both, w->rc);
+        compose(both);
+      }
     }
   } else {
     int t = capture >= 0 ? capture : window_at(mx, my);
@@ -709,6 +797,11 @@ input_work_fn(struct work_struct *work)
     acquire(&rawlk);
     if(rawh == rawt){
       release(&rawlk);
+      acquire(&lk);
+      if(nwin > 0 && (pdx || pdy))
+        mouse_move(pdx, pdy);
+      pdx = pdy = 0;
+      release(&lk);
       return;
     }
     type = raw[rawh % RAWQ].type;
@@ -725,14 +818,16 @@ input_work_fn(struct work_struct *work)
         else if(code == REL_Y)
           pdy += value;
         else if(code == REL_WHEEL && mouse_seen){
+          if(pdx || pdy)
+            mouse_move(pdx, pdy);
+          pdx = pdy = 0;
           int t = window_at(mx, my);
           if(t >= 0)
             post_win(t, W32M_MOUSEWHEEL, (uint64)(long)value, wpos(t, mx, my));
         }
       } else if(type == EV_SYN && code == SYN_REPORT){
-        if(pdx || pdy)
-          mouse_move(pdx, pdy);
-        pdx = pdy = 0;
+        // Motion is applied once the queue is drained (below): a 500 Hz
+        // mouse must not trigger 500 compositions a second.
       } else if(type == EV_KEY){
         if(code == BTN_LEFT || code == BTN_RIGHT){
           if(pdx || pdy)
@@ -780,7 +875,8 @@ sys_create(uint64 uarg)
   if(c.w <= 0 || c.h <= 0 || c.w > 4096 || c.h > 4096)
     return 0;
   if(!fb_ok){
-    if(fb_kernel_info(&fbk) < 0)
+    if(fb_kernel_info(&fbk) < 0 ||
+       (!shadow && !(shadow = kmalloc((uint64)fbk.width * fbk.height * 4))))
       return 0;
     fb_ok = 1;
   }
@@ -1061,7 +1157,8 @@ sys_win32k(void)
     return sys_blit((uint32)a1, a2);
   case W32_SCREEN:
     if(!fb_ok){
-      if(fb_kernel_info(&fbk) < 0)
+      if(fb_kernel_info(&fbk) < 0 ||
+         (!shadow && !(shadow = kmalloc((uint64)fbk.width * fbk.height * 4))))
         return -1;
       fb_ok = 1;
     }
@@ -1178,7 +1275,7 @@ sys_win32k(void)
     }
     r.left += w->rc.left; r.right += w->rc.left;
     r.top += w->rc.top; r.bottom += w->rc.top;
-    compose(r);
+    window_to_screen(i, r);
     release(&lk);
     return 0;
   }
