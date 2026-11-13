@@ -51,7 +51,7 @@ ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUI
 IMG = $(BUILD)/xv6-x210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1
+.PHONY: all clean qemu check sdimg bl1 uarttest
 all: $(IMG).bin $(IMG).uImage $(BUILD)/x210-bl1.bin $(BUILD)/x210-sd.img
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
@@ -136,6 +136,17 @@ $(BUILD)/x210-bl1.bin: $(BUILD)/bl1/bl1-code.bin $(P)/mkx210.py
 # Whole card: BL1 @ sector 1, xv6 uImage @ sector 49.
 $(BUILD)/x210-sd.img: $(BUILD)/bl1/bl1-code.bin $(IMG).uImage $(P)/mkx210.py
 	python3 $(P)/mkx210.py sdimg $@ $(BUILD)/bl1/bl1-code.bin $(IMG).uImage
+# Serial check BL1 (no kernel): prints a numbered line forever.
+UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o
+$(BUILD)/bl1/bl1-uarttest.o: $(P)/bl1/bl1.c $(P)/bl1/bl1lib.h $(P)/board.h
+	@mkdir -p $(@D)
+	$(ARM_CC) $(BL1FLAGS) -DBL1_UART_TEST -Wno-unused-function -c $< -o $@
+$(BUILD)/bl1/uarttest.elf: $(UTOBJS) $(P)/bl1/bl1.ld
+	$(ARM_LD) -m armelf --gc-sections -T $(P)/bl1/bl1.ld -o $@ $(UTOBJS)
+$(BUILD)/x210-uarttest.bin: $(BUILD)/bl1/uarttest.elf $(P)/mkx210.py
+	$(ARM_OBJCOPY) -O binary $< $(BUILD)/bl1/uarttest-code.bin
+	python3 $(P)/mkx210.py bl1 $(BUILD)/bl1/uarttest-code.bin $@
+uarttest: $(BUILD)/x210-uarttest.bin
 bl1: $(BUILD)/x210-bl1.bin
 sdimg: $(BUILD)/x210-sd.img
 # Host build of the BL1 logic, checked against the real uImage.

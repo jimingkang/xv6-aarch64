@@ -298,6 +298,27 @@ static void load_kernel(struct uimage_info *ui) {
   uputs("BL1: data CRC OK\n");
 }
 
+#ifdef BL1_UART_TEST
+/* Serial check only (make ... uarttest): same clock and UART setup as the
+   FriendlyARM Tiny210 U-Boot (1000/200/166/133, UBRDIV 34, UDIVSLOT
+   0xDDDD), then print a numbered line forever and walk the LEDs, so the
+   terminal can be adjusted while it runs. */
+void bl1_main(void) {
+  power_hold();
+  led_init();
+  clock_init();
+  REG(BOARD_UART_GPIOCON)=(REG(BOARD_UART_GPIOCON)&~0xffU)|0x22;
+  REG(UART+UFCON)=0; REG(UART+UMCON)=0; REG(UART+ULCON)=3; REG(UART+UCON)=5; REG(UART+UINTM)=0xf;
+  REG(UART+UBRDIV)=34; REG(UART+UDIVSLOT)=0xDDDD;
+  uart_pclk=pclk_psys();
+  for(uint32 n=0;;n++) {
+    uputs("xv6 UART test 115200 8N1 on " BOARD_NAME ", PCLK_PSYS ");
+    putdec(uart_pclk); uputs(" Hz, line "); putdec(n); uputs(" UUUUUUUUUU\n");
+    leds(1U<<(n&3));
+    delay(0x400000);
+  }
+}
+#else
 void bl1_main(void) {
   struct uimage_info ui;
   power_hold();
@@ -330,3 +351,4 @@ void bl1_main(void) {
   puthex(KERNEL_RUN); uputs("\n\n");
   bl1_boot(KERNEL_RUN,BOARD_MACH,ATAG_ADDR);
 }
+#endif
