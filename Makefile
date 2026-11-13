@@ -1,4 +1,20 @@
-ifneq ($(filter t113 t113-qemu t113-check t113-clean,$(MAKECMDGOALS)),)
+ifneq ($(filter am335x am335x-qemu am335x-check am335x-clean,$(MAKECMDGOALS)),)
+# BeagleBone Black (TI AM335x): see ports/am335x/README.md
+.PHONY: am335x am335x-qemu am335x-check am335x-clean clean
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+am335x am335x-qemu am335x-check: clean
+endif
+clean:
+	$(MAKE) -f ports/am335x/Makefile BUILD=build/am335x clean
+	$(MAKE) -f ports/am335x/Makefile BUILD=build/am335x-qemu clean
+am335x-clean: clean
+am335x:
+	$(MAKE) -f ports/am335x/Makefile
+am335x-qemu:
+	$(MAKE) -f ports/am335x/Makefile BUILD=build/am335x-qemu QEMU_TEST=1 qemu
+am335x-check:
+	$(MAKE) -f ports/am335x/Makefile check
+else ifneq ($(filter t113 t113-qemu t113-check t113-clean,$(MAKECMDGOALS)),)
 .PHONY: t113 t113-qemu t113-check t113-clean clean
 # Order cleanup before building even for `make -j t113 clean`.
 ifneq ($(filter clean,$(MAKECMDGOALS)),)

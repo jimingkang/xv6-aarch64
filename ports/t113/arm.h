@@ -10,10 +10,18 @@ static inline void dsb(void) { asm volatile("dsb sy" ::: "memory"); }
 static inline void flush_tlb(void) {
   uint z=0; dsb(); asm volatile("mcr p15, 0, %0, c8, c7, 0"::"r"(z):"memory"); dsb(); isb();
 }
+#ifdef XV6_AM335X
+/* Cortex-A8 has no Generic Timer; the platform supplies a counter. */
+uint64 arm32_counter(void);
+uint arm32_counter_hz(void);
+static inline uint64 r_cntvct_el0(void) { return arm32_counter(); }
+static inline uint r_cntfrq_el0(void) { return arm32_counter_hz(); }
+#else
 static inline uint64 r_cntvct_el0(void) {
   uint lo, hi; asm volatile("mrrc p15, 1, %0, %1, c14":"=r"(lo),"=r"(hi)); return ((uint64)hi<<32)|lo;
 }
 static inline uint r_cntfrq_el0(void) { uint v; asm volatile("mrc p15, 0, %0, c14, c0, 0":"=r"(v)); return v; }
+#endif
 typedef uint32 pte_t;
 typedef uint32 *pagetable_t;
 #endif

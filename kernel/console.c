@@ -60,7 +60,10 @@ struct {
 static int uart_probe(struct device *dev);
 
 #ifdef XV6_ARM32
-static struct device uartdev = { .name = "t113-uart0" };
+#ifndef ARM32_UART_NAME
+#define ARM32_UART_NAME "t113-uart0"
+#endif
+static struct device uartdev = { .name = ARM32_UART_NAME };
 #else
 static struct device uartdev = {
   .name = "bcm2837-mini-uart",
@@ -79,7 +82,7 @@ static struct device uartdev = {
 
 static struct device_driver uartdrv = {
 #ifdef XV6_ARM32
-  .name = "t113-uart0",
+  .name = ARM32_UART_NAME,
 #else
   .name = "bcm2837-mini-uart",
 #endif

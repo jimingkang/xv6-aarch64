@@ -1,5 +1,9 @@
 #ifdef XV6_ARM32
+#ifdef XV6_AM335X
+#include "../ports/am335x/memlayout.h"
+#else
 #include "../ports/t113/memlayout.h"
+#endif
 #else
 // Physical memory layout
 

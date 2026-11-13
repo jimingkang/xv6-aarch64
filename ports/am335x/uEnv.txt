@@ -1,0 +1,15 @@
+# xv6 on BeagleBone Black: copy this file, xv6-am335x.bin and
+# am335x-boneblack.dtb to the root of the FAT boot partition (next to MLO and
+# u-boot.img). Mainline am335x_evm U-Boot loads uEnv.txt from mmc ${mmcdev},
+# imports it, and runs ${uenvcmd}.
+#
+# 0x82000000 / 0x88000000 are the board defaults; xv6 is linked at loadaddr
+# and bootz does not relocate, so loadaddr must stay 0x82000000.
+loadaddr=0x82000000
+fdtaddr=0x88000000
+xv6image=xv6-am335x.bin
+xv6fdt=am335x-boneblack.dtb
+xv6load=load mmc ${mmcdev} ${loadaddr} ${xv6image}
+# Prefer the DTB file; fall back to U-Boot's own control DTB.
+xv6dtb=if load mmc ${mmcdev} ${fdtaddr} ${xv6fdt}; then setenv xv6fdtaddr ${fdtaddr}; else setenv xv6fdtaddr ${fdtcontroladdr}; fi
+uenvcmd=echo Booting xv6 from mmc ${mmcdev} ...; run xv6load; run xv6dtb; bootz ${loadaddr} - ${xv6fdtaddr}

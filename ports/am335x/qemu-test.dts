@@ -1,0 +1,16 @@
+/* Stand-in for am335x-boneblack.dtb in the QEMU test: exercises the
+   r2 handoff and the /memory, /model, /chosen parsing. */
+/dts-v1/;
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	model = "xv6 QEMU stand-in for TI AM335x BeagleBone Black";
+	compatible = "ti,am335x-bone-black", "ti,am33xx";
+	chosen {
+		bootargs = "console=ttyS0,115200n8 xv6test";
+	};
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x40000000 0x06000000>; /* QEMU rewrites this to -m */
+	};
+};
