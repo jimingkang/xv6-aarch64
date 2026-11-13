@@ -86,8 +86,14 @@ evdev_pass_event(struct evdev_client *client, uint16 type, uint16 code,
 static void
 input_queue_locked(struct input_dev *dev, uint16 type, uint16 code, int value)
 {
-  for(struct evdev_client *c = dev->clients; c; c = c->next)
-    evdev_pass_event(c, type, code, value);
+  // Linux evdev_grab(): while one open file holds EVIOCGRAB, the device's
+  // events go to that file only (and other handlers, such as the keyboard's
+  // console path, check input_grabbed()).
+  if(dev->grab)
+    evdev_pass_event(dev->grab, type, code, value);
+  else
+    for(struct evdev_client *c = dev->clients; c; c = c->next)
+      evdev_pass_event(c, type, code, value);
   dev->sync_pending = !(type == EV_SYN && code == SYN_REPORT);
 }
 
@@ -100,6 +106,7 @@ evdev_open(struct file *f)
   client = kmem_cache_alloc(&evdev_client_cache);
   if(client == 0)
     return -1;
+  memset(client, 0, sizeof(*client));   // recycled slab object: reset head/tail
 
   acquire(&input_devices_lock);
   int minor = f->ip ? f->ip->minor : -1;
@@ -132,6 +139,8 @@ evdev_release(struct file *f)
     return;
   dev = client->dev;
   acquire(&dev->lock);
+  if(dev->grab == client)
+    dev->grab = 0;
   for(struct evdev_client **pp = &dev->clients; *pp; pp = &(*pp)->next)
     if(*pp == client){
       *pp = client->next;
@@ -191,6 +200,45 @@ evdev_poll(struct file *f, int events)
   return ready;
 }
 
+// EVIOCGRAB (Linux _IOW('E', 0x90, int)): arg != 0 grabs the device for this
+// open file, arg == 0 releases it.  A second grabber gets -1 (Linux EBUSY).
+static int
+evdev_ioctl(struct file *f, uint64 cmd, uint64 arg)
+{
+  struct evdev_client *client = f->private_data;
+  struct input_dev *dev;
+  int r = 0;
+
+  if(client == 0 || cmd != EVIOCGRAB)
+    return -1;
+  dev = client->dev;
+  acquire(&dev->lock);
+  if(arg){
+    if(dev->grab && dev->grab != client)
+      r = -1;
+    else
+      dev->grab = client;
+  } else if(dev->grab == client){
+    dev->grab = 0;
+  } else {
+    r = -1;
+  }
+  release(&dev->lock);
+  return r;
+}
+
+int
+input_grabbed(struct input_dev *dev)
+{
+  int r;
+  if(dev == 0)
+    return 0;
+  acquire(&dev->lock);
+  r = dev->grab != 0;
+  release(&dev->lock);
+  return r;
+}
+
 void
 input_init(void)
 {
@@ -199,6 +247,7 @@ input_init(void)
     .release = evdev_release,
     .fread = evdev_read,
     .poll = evdev_poll,
+    .ioctl = evdev_ioctl,
   };
 
   if(kmem_cache_init(&input_dev_cache, "input_dev_cache",
@@ -222,6 +271,10 @@ input_allocate_device(void)
   struct input_dev *dev = kmem_cache_alloc(&input_dev_cache);
   if(dev == 0)
     return 0;
+  // Slab objects are recycled without being cleared: a stale registered or
+  // disconnected flag (or a stale dev.driver) from an earlier input_dev made
+  // input_register_device() refuse a mouse whose .ko loads after boot.
+  memset(dev, 0, sizeof(*dev));
   initlock(&dev->lock, "input-device");
   dev->refs = 1;            // the driver's reference
   dev->event_number = -1;

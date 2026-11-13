@@ -8,6 +8,9 @@
 #define EV_KEY 1
 #define EV_REL 2
 
+// ioctl: grab the device for one open file (Linux _IOW('E', 0x90, int)).
+#define EVIOCGRAB 0x40044590
+
 #define SYN_REPORT  0
 #define SYN_DROPPED 3
 
@@ -134,6 +137,7 @@ struct input_dev {
   uint32 keystate[INPUT_KEY_WORDS];
   uint32 relbit;
   struct evdev_client *clients;
+  struct evdev_client *grab;      // EVIOCGRAB owner: sole receiver of events
   int refs;
   int registered;
   int disconnected;
@@ -150,5 +154,6 @@ void input_unregister_device(struct input_dev *dev);
 void input_report_key(struct input_dev *dev, int code, int value);
 void input_report_rel(struct input_dev *dev, int code, int value);
 void input_sync(struct input_dev *dev);
+int input_grabbed(struct input_dev *dev);
 
 #endif

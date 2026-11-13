@@ -461,6 +461,8 @@ device_register(struct device *dev)
   acquire(&device_core.lock);
   if(device_core.ndevice >= DEVICE_MAX){
     release(&device_core.lock);
+    printf("device: table full (DEVICE_MAX %d), cannot add %s\n",
+           DEVICE_MAX, dev->name);
     return -1;
   }
   device_core.devices[device_core.ndevice++] = dev;

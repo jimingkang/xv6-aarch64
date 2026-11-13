@@ -96,12 +96,22 @@ was_down(struct usbkbd_state *kbd, uchar code)
   return 0;
 }
 
+// Feed one character to the console TTY, unless a program (the GUI) holds
+// EVIOCGRAB on this keyboard: then the keys belong to it alone, as on Linux
+// where a grabbed evdev device no longer reaches the VT keyboard handler.
 static void
-emit_escape(char final)
+kbd_tty(struct usbkbd_state *kbd, int c)
 {
-  consoleintr(0x1b);
-  consoleintr('[');
-  consoleintr(final);
+  if(!input_grabbed(kbd->input))
+    consoleintr(c);
+}
+
+static void
+emit_escape(struct usbkbd_state *kbd, char final)
+{
+  kbd_tty(kbd, 0x1b);
+  kbd_tty(kbd, '[');
+  kbd_tty(kbd, final);
 }
 
 static void
@@ -121,10 +131,10 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
     kbd->capslock ^= 1;
     goto report_key;
   }
-  if(code == 79){ emit_escape('C'); goto report_key; }
-  if(code == 80){ emit_escape('D'); goto report_key; }
-  if(code == 81){ emit_escape('B'); goto report_key; }
-  if(code == 82){ emit_escape('A'); goto report_key; }
+  if(code == 79){ emit_escape(kbd, 'C'); goto report_key; }
+  if(code == 80){ emit_escape(kbd, 'D'); goto report_key; }
+  if(code == 81){ emit_escape(kbd, 'B'); goto report_key; }
+  if(code == 82){ emit_escape(kbd, 'A'); goto report_key; }
   if(code >= sizeof(keymap) || keymap[code] == 0)
     goto report_key;
   if(code >= 4 && code <= 29)
@@ -134,7 +144,7 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
     c = c - 'a' + 1;
   else if(control && c >= 'A' && c <= 'Z')
     c = c - 'A' + 1;
-  consoleintr(c);
+  kbd_tty(kbd, c);
 
 report_key:
   if(hid_to_key[code])

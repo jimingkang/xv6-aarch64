@@ -161,6 +161,7 @@ char*           cmdline_get_all(void);
 
 // do_mounts.c
 void            prepare_namespace(void);
+void            wait_for_rootfs(void);
 void            devtmpfs_device_add(struct device*);
 void            devtmpfs_device_del(struct device*);
 

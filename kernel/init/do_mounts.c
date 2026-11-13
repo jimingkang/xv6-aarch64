@@ -400,6 +400,22 @@ mount_root(char *devname, char *dir)
          type, dev, bd ? bd->name : "?");
 }
 
+// Set once "/" is the real root filesystem.  Kernel threads that read files
+// (the kmod autoloader for a USB mouse enumerated at boot) start as soon as
+// the scheduler runs, which is before forkret() mounts root=, so they wait
+// here instead of walking a path on a filesystem that is not there yet.
+static struct spinlock rootfs_lock = { .name = "rootfs" };
+static int rootfs_ready;
+
+void
+wait_for_rootfs(void)
+{
+  acquire(&rootfs_lock);
+  while(!rootfs_ready)
+    sleep(&rootfs_ready, &rootfs_lock);
+  release(&rootfs_lock);
+}
+
 void
 prepare_namespace(void)
 {
@@ -446,4 +462,9 @@ prepare_namespace(void)
   fs_set_root(p->fs->cwd);
   safestrcpy(p->fs->cwdpath, "/", sizeof(p->fs->cwdpath));
   printf("VFS: root moved over rootfs, chroot done; running /init\n");
+
+  acquire(&rootfs_lock);
+  rootfs_ready = 1;
+  wakeup(&rootfs_ready);
+  release(&rootfs_lock);
 }

@@ -238,14 +238,19 @@ apply_rela(uint32 type, uint64 P, uint64 S, char *err, int errlen)
   case R_AARCH64_ADR_PREL_PG_HI21: {
     // adrp: page-aligned difference, 21-bit signed, split into immlo[30:29]
     // and immhi[23:5].
-    s64 pages = (((s64)S & ~0xffLL) - ((s64)P & ~0xffLL)) >> 12;
+    // Page(S) - Page(P) with 4 KiB pages.  (Masking only the low 8 bits
+    // gave the wrong page whenever S and P sat at different 4 KiB offsets,
+    // e.g. a string literal in .rodata.str1.1 read as NULL.)
+    s64 pages = (((s64)S & ~0xfffLL) - ((s64)P & ~0xfffLL)) >> 12;
     if(pages < -(1LL<<20) || pages >= (1LL<<20)){
       seterr(err, errlen, "adrp out of range");
       return -1;
     }
     uint32 *w = (uint32 *)P;
     set_bitfield(w, 0x60000000u, 29, (uint64)pages & 0x3);
-    set_bitfield(w, 0x001ffffeu, 5, ((uint64)pages >> 2) & 0x7ffff);
+    // immhi is bits [23:5]; a mask of 0x001ffffe also cleared Rd's low bits,
+    // turning e.g. "adrp x2" into "adrp x0" and corrupting x0.
+    set_bitfield(w, 0x00ffffe0u, 5, ((uint64)pages >> 2) & 0x7ffff);
     return 0;
   }
   case R_AARCH64_ADR_PREL_LO21: {
@@ -256,13 +261,13 @@ apply_rela(uint32 type, uint64 P, uint64 S, char *err, int errlen)
     }
     uint32 *w = (uint32 *)P;
     set_bitfield(w, 0x60000000u, 29, (uint64)delta & 0x3);
-    set_bitfield(w, 0x001ffffeu, 5, ((uint64)delta >> 2) & 0x7ffff);
+    set_bitfield(w, 0x00ffffe0u, 5, ((uint64)delta >> 2) & 0x7ffff);
     return 0;
   }
   case R_AARCH64_ADD_ABS_LO12_NC: {
     // add: low 12 bits of the absolute target, complementing the adrp above it.
     uint32 *w = (uint32 *)P;
-    set_bitfield(w, 0x00fff000u, 10, S & 0xfff);
+    set_bitfield(w, 0x003ffc00u, 10, S & 0xfff);   // imm12 is bits [21:10]
     return 0;
   }
   case R_AARCH64_JUMP26:
@@ -666,6 +671,9 @@ kmod_load(char *kofile)
     path[i++] = kofile[n];
   path[i] = 0;
 
+  // A device enumerated during boot queues its autoload before forkret()
+  // has mounted root=; read /lib/modules only once it is there.
+  wait_for_rootfs();
   begin_op();
   struct inode *ip = namei(path);
   if(ip == 0){

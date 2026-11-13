@@ -1920,6 +1920,99 @@ dwc2_irq(void)
   }
 }
 
+
+// Configure one boot-HID device at addr and publish one usb_device per
+// boot-HID interface (class 03 / subclass 01 / protocol 01|02) that owns an
+// interrupt-IN endpoint.  An interface's endpoint descriptors follow it until
+// the next interface descriptor, so a candidate is committed once we know it
+// carried a usable interrupt-IN endpoint.  Children are appended to
+// usb_hid_child[], so a keyboard and a mouse on separate hub ports are both
+// published (Linux binds a driver per interface of every device).  Returns
+// the number of interfaces published for this device.
+static int
+dwc2_publish_hid(int addr, int mps, uint16 vid, uint16 pid)
+{
+  int cfg, total, off, first = usb_hid_child_count, current_interface = -1;
+  struct usb_device *pending = 0;
+
+  memset(ctrl_buf, 0, sizeof(ctrl_buf));
+  if(control(addr, 0x80, USB_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
+             ctrl_buf, 9) < 0 ||
+     ctrl_buf[1] != USB_DT_CONFIG || ctrl_buf[5] == 0){
+    printf("dwc2: HID configuration descriptor failed\n");
+    return 0;
+  }
+  cfg = ctrl_buf[5];
+  total = ctrl_buf[2] | ((uint16)ctrl_buf[3] << 8);
+  if(total < 9 || total > (int)sizeof(ctrl_buf) ||
+     control(addr, 0x80, USB_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
+             ctrl_buf, total) < 0){
+    printf("dwc2: HID full configuration descriptor failed\n");
+    return 0;
+  }
+  for(off = 0; off + 2 <= total && ctrl_buf[off] >= 2;
+      off += ctrl_buf[off]){
+    uint8 dlen = ctrl_buf[off], dtype = ctrl_buf[off + 1];
+    if(dtype == 4 && dlen >= 9){
+      if(pending && pending->interrupt_in_ep != 0)
+        usb_hid_child_count++;
+      pending = 0;
+      current_interface = ctrl_buf[off + 2];
+      if(ctrl_buf[off + 5] == 3 && ctrl_buf[off + 6] == 1 &&
+         (ctrl_buf[off + 7] == 1 || ctrl_buf[off + 7] == 2) &&
+         usb_hid_child_count < DWC2_HID_CHILDREN){
+        pending = &usb_hid_child[usb_hid_child_count];
+        memset(pending, 0, sizeof(*pending));
+        pending->dev.name = (char *)usb_hid_name[usb_hid_child_count];
+        pending->dev.parent = usb_parent;
+        pending->ops = &dwc2_usb_ops;
+        pending->vendor = vid;
+        pending->product = pid;
+        pending->class = ctrl_buf[off + 5];
+        pending->subclass = ctrl_buf[off + 6];
+        pending->protocol = ctrl_buf[off + 7];
+        pending->interface_number = current_interface;
+        pending->address = addr;
+        pending->ep0_max_packet = mps;
+      }
+    } else if(pending && current_interface == pending->interface_number &&
+              dtype == 5 && dlen >= 7 && (ctrl_buf[off + 2] & 0x80) &&
+              (ctrl_buf[off + 3] & 3) == EPTYPE_INTERRUPT &&
+              pending->interrupt_in_ep == 0){
+      pending->interrupt_in_ep = ctrl_buf[off + 2] & 0xf;
+      pending->interrupt_in_max_packet =
+        ctrl_buf[off + 4] | ((uint16)ctrl_buf[off + 5] << 8);
+      pending->interrupt_in_interval = ctrl_buf[off + 6];
+    }
+  }
+  if(pending && pending->interrupt_in_ep != 0)
+    usb_hid_child_count++;
+  if(usb_hid_child_count == first){
+    printf("dwc2: no usable boot HID interface on %x:%x\n", vid, pid);
+    return 0;
+  }
+  if(control(addr, 0x00, USB_SET_CONFIG, cfg, 0, ctrl_buf, 0) < 0){
+    printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
+    usb_hid_child_count = first;
+    return 0;
+  }
+  for(int i = first; i < usb_hid_child_count; i++){
+    struct usb_device *child = &usb_hid_child[i];
+    if(usb_device_register(child) < 0){
+      printf("dwc2: cannot register HID intf %d on %x:%x\n",
+             child->interface_number, vid, pid);
+      for(int j = first; j < i; j++)
+        usb_device_unregister(&usb_hid_child[j]);
+      usb_hid_child_count = first;
+      return 0;
+    }
+    printf("dwc2: HID boot %s intf %d (%x:%x addr %d) handed to usb bus\n",
+           child->protocol == 2 ? "mouse" : "keyboard",
+           child->interface_number, vid, pid, addr);
+  }
+  return usb_hid_child_count - first;
+}
+
 static void
 dwc2_init(void)
 {
@@ -1927,7 +2020,6 @@ dwc2_init(void)
   int cfg = -1, total, off, idx, root_class, nport, port = 0;
   int mt_found = 0, hid_found = 0;
   int selected_subclass = 0, selected_protocol = 0, selected_interface = 0;
-  int current_interface = -1, selected_interface_found = 0;
   uint16 vid, pid;
   struct hid_selection nested_hid;
 
@@ -2211,11 +2303,14 @@ dwc2_init(void)
           selected_subclass = 1;
           selected_protocol = nested_hid.protocol;
           selected_interface = nested_hid.interface_number;
-          hid_found = 1;
-          break;
+          if(dwc2_publish_hid(usb_address, ep0_mps, vid, pid) > 0)
+            hid_found = 1;
+          continue;
         }
       }
       if(is_mt7601(vid, pid)){
+        if(hid_found)
+          continue;
         mt_found = 1;
         break;
       }
@@ -2237,14 +2332,18 @@ dwc2_init(void)
               selected_subclass = 1;
               selected_protocol = ctrl_buf[poff + 7];
               selected_interface = ctrl_buf[poff + 2];
-              hid_found = 1;
+              if(dwc2_publish_hid(usb_address, ep0_mps, vid, pid) > 0)
+                hid_found = 1;
               break;
             }
           }
         }
       }
-      if(hid_found)
-        break;
+    }
+    if(hid_found){
+      // Every boot-HID device on the hub's ports is now on the usb bus.
+      dwc2_start_hub_monitor();
+      return;
     }
     if(!mt_found && !hid_found){
       printf("dwc2: no supported USB child on external hub ports\n");
@@ -2321,97 +2420,7 @@ dwc2_init(void)
       return;
     }
   } else if(hid_found || root_class == 3){
-    memset(ctrl_buf, 0, sizeof(ctrl_buf));
-    if(control(usb_address, 0x80, USB_GET_DESCRIPTOR,
-               USB_DT_CONFIG << 8, 0, ctrl_buf, 9) < 0 ||
-       ctrl_buf[1] != USB_DT_CONFIG || ctrl_buf[5] == 0){
-      printf("dwc2: HID configuration descriptor failed\n");
-      dwc2_start_hub_monitor();
-      return;
-    }
-    cfg = ctrl_buf[5];
-    total = ctrl_buf[2] | ((uint16)ctrl_buf[3] << 8);
-    if(total < 9 || total > (int)sizeof(ctrl_buf) ||
-       control(usb_address, 0x80, USB_GET_DESCRIPTOR,
-               USB_DT_CONFIG << 8, 0, ctrl_buf, total) < 0){
-      printf("dwc2: HID full configuration descriptor failed\n");
-      dwc2_start_hub_monitor();
-      return;
-    }
-    // Walk the configuration descriptor and publish one usb_device per
-    // boot-HID interface (class 03 / subclass 01 / protocol 01|02) that owns
-    // an interrupt-IN endpoint.  An interface's endpoint descriptors follow it
-    // until the next interface descriptor, so a candidate is committed once we
-    // know it carried a usable interrupt-IN endpoint.
-    (void)selected_interface_found;
-    (void)selected_interface;
-    usb_hid_child_count = 0;
-    current_interface = -1;
-    struct usb_device *pending = 0;
-    for(off = 0; off + 2 <= total && ctrl_buf[off] >= 2;
-        off += ctrl_buf[off]){
-      uint8 dlen = ctrl_buf[off], dtype = ctrl_buf[off + 1];
-      if(dtype == 4 && dlen >= 9){
-        if(pending && pending->interrupt_in_ep != 0)
-          usb_hid_child_count++;
-        pending = 0;
-        current_interface = ctrl_buf[off + 2];
-        if(ctrl_buf[off + 5] == 3 && ctrl_buf[off + 6] == 1 &&
-           (ctrl_buf[off + 7] == 1 || ctrl_buf[off + 7] == 2) &&
-           usb_hid_child_count < DWC2_HID_CHILDREN){
-          pending = &usb_hid_child[usb_hid_child_count];
-          memset(pending, 0, sizeof(*pending));
-          pending->dev.name = (char *)usb_hid_name[usb_hid_child_count];
-          pending->dev.parent = usb_parent;
-          pending->ops = &dwc2_usb_ops;
-          pending->vendor = vid;
-          pending->product = pid;
-          pending->class = ctrl_buf[off + 5];
-          pending->subclass = ctrl_buf[off + 6];
-          pending->protocol = ctrl_buf[off + 7];
-          pending->interface_number = current_interface;
-          pending->address = usb_address;
-          pending->ep0_max_packet = ep0_mps;
-        }
-      } else if(pending && current_interface == pending->interface_number &&
-                dtype == 5 && dlen >= 7 && (ctrl_buf[off + 2] & 0x80) &&
-                (ctrl_buf[off + 3] & 3) == EPTYPE_INTERRUPT &&
-                pending->interrupt_in_ep == 0){
-        pending->interrupt_in_ep = ctrl_buf[off + 2] & 0xf;
-        pending->interrupt_in_max_packet =
-          ctrl_buf[off + 4] | ((uint16)ctrl_buf[off + 5] << 8);
-        pending->interrupt_in_interval = ctrl_buf[off + 6];
-      }
-    }
-    if(pending && pending->interrupt_in_ep != 0)
-      usb_hid_child_count++;
-    if(usb_hid_child_count == 0){
-      printf("dwc2: no usable boot HID interface on %x:%x\n", vid, pid);
-      dwc2_start_hub_monitor();
-      return;
-    }
-    if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
-               ctrl_buf, 0) < 0){
-      printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
-      usb_hid_child_count = 0;
-      dwc2_start_hub_monitor();
-      return;
-    }
-    for(int i = 0; i < usb_hid_child_count; i++){
-      struct usb_device *child = &usb_hid_child[i];
-      if(usb_device_register(child) < 0){
-        printf("dwc2: cannot register HID intf %d on %x:%x\n",
-               child->interface_number, vid, pid);
-        for(int j = 0; j < i; j++)
-          usb_device_unregister(&usb_hid_child[j]);
-        usb_hid_child_count = 0;
-        dwc2_start_hub_monitor();
-        return;
-      }
-      printf("dwc2: HID boot %s intf %d handed to usb bus\n",
-             child->protocol == 2 ? "mouse" : "keyboard",
-             child->interface_number);
-    }
+    dwc2_publish_hid(usb_address, ep0_mps, vid, pid);
     dwc2_start_hub_monitor();
     return;
   }
