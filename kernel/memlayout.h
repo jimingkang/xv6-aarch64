@@ -1,6 +1,8 @@
 #ifdef XV6_ARM32
 #ifdef XV6_AM335X
 #include "../ports/am335x/memlayout.h"
+#elif defined(XV6_X210)
+#include "../ports/x210/memlayout.h"
 #else
 #include "../ports/t113/memlayout.h"
 #endif

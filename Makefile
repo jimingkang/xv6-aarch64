@@ -1,4 +1,24 @@
-ifneq ($(filter am335x am335x-qemu am335x-check am335x-clean,$(MAKECMDGOALS)),)
+ifneq ($(filter x210 x210-qemu x210-check x210-clean x210-bl1 x210-sdimg,$(MAKECMDGOALS)),)
+# 九鼎 X210 (Samsung S5PV210): see ports/x210/README.md
+.PHONY: x210 x210-qemu x210-check x210-clean x210-bl1 x210-sdimg clean
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+x210 x210-qemu x210-check x210-bl1 x210-sdimg: clean
+endif
+clean:
+	$(MAKE) -f ports/x210/Makefile BUILD=build/x210 clean
+	$(MAKE) -f ports/x210/Makefile BUILD=build/x210-qemu clean
+x210-clean: clean
+x210:
+	$(MAKE) -f ports/x210/Makefile
+x210-qemu:
+	$(MAKE) -f ports/x210/Makefile BUILD=build/x210-qemu QEMU_TEST=1 qemu
+x210-check:
+	$(MAKE) -f ports/x210/Makefile check
+x210-bl1:
+	$(MAKE) -f ports/x210/Makefile bl1 UBOOT=$(UBOOT)
+x210-sdimg:
+	$(MAKE) -f ports/x210/Makefile sdimg UBOOT=$(UBOOT)
+else ifneq ($(filter am335x am335x-qemu am335x-check am335x-clean,$(MAKECMDGOALS)),)
 # BeagleBone Black (TI AM335x): see ports/am335x/README.md
 .PHONY: am335x am335x-qemu am335x-check am335x-clean clean
 ifneq ($(filter clean,$(MAKECMDGOALS)),)

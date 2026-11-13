@@ -15,6 +15,9 @@ pagetable_t kernel_pagetable;
 #ifdef XV6_AM335X
 void am335x_map_devices(pagetable_t p);
 #endif
+#ifdef XV6_X210
+void x210_map_devices(pagetable_t p);
+#endif
 static void install(pagetable_t p) {
   uint32 base = (uintptr)p, zero = 0, domain = 1;
   dsb();
@@ -39,6 +42,8 @@ void kvminit(void) {
     kernel_pagetable[a>>20]=a | (1<<12) | (1<<10) | 2;
 #if defined(XV6_AM335X)
   am335x_map_devices(kernel_pagetable);
+#elif defined(XV6_X210)
+  x210_map_devices(kernel_pagetable);
 #elif defined(T113_QEMU)
   kernel_pagetable[0x08000000>>20]=0x08000000 | (1<<10) | (1<<4) | 2;
   kernel_pagetable[0x09000000>>20]=0x09000000 | (1<<10) | (1<<4) | 2;
