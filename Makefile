@@ -612,6 +612,11 @@ $U/_camview: $U/camview.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camview.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camview.sym
 
+$U/_win: $U/winshell.o $U/win32.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
+	$(OBJDUMP) -S $@ > $U/win.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/win.sym
+
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
 
@@ -666,6 +671,7 @@ UPROGS=\
 	$U/_vmmap\
 	$U/_mmaptest\
 	$U/_gui\
+	$U/_win\
 	$U/_cowtest\
 	$U/_grind\
 	$U/_wc\
