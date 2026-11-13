@@ -17,6 +17,9 @@
 #include "kernel/file.h"
 #include "kernel/device.h"
 #include "atag.h"
+#ifndef X210_QEMU
+#include "lcd.h"
+#endif
 #include "ports/am335x/fdt.h"
 _Static_assert(sizeof(struct trapframe)==272, "ARM exception frame size");
 _Static_assert(__builtin_offsetof(struct trapframe,x30)==240, "ARM user LR slot");
@@ -67,6 +70,9 @@ _Static_assert(DRAM_BASE>=MAXVA, "DRAM must lie above the user window");
    uncached, so only the first USE_DRAM bytes of DDR are handed to the
    allocator (X210 has 512 MiB in two banks; ATAG_MEM is still reported). */
 #define USE_DRAM (128U<<20)
+#ifndef X210_QEMU
+_Static_assert(LCD_FB_OFFSET>=USE_DRAM, "LCD frame buffer overlaps the page allocator");
+#endif
 
 extern uchar ramdisk_start[], ramdisk_end[];
 extern char end[];
@@ -88,6 +94,11 @@ void x210_map_devices(pagetable_t p) {
   p[WDT>>20]=SECTION_DEV(WDT);                        /* watchdog */
   p[UART>>20]=SECTION_DEV(UART & ~0xFFFFFU);          /* UART0-3 */
   for(int n=0;n<4;n++) p[VIC(n)>>20]=SECTION_DEV(VIC(n));
+  p[0xE0200000>>20]=SECTION_DEV(0xE0200000);          /* GPIO (LCD pins) */
+  p[0xF8000000>>20]=SECTION_DEV(0xF8000000);          /* FIMD */
+  /* LCD frame buffer: privileged, XN, Normal non-cacheable (TEX=001). */
+  for(uint a=DRAM_BASE+LCD_FB_OFFSET; a<DRAM_BASE+LCD_FB_OFFSET+LCD_FB_SIZE; a+=0x100000)
+    p[a>>20]=a | (1<<12) | (1<<10) | (1<<4) | 2;
 #endif
 }
 
@@ -112,6 +123,7 @@ void uartputc_sync(int c) {
   if(uart_fifo()) { while(REG(UART+UFSTAT)&(1U<<24)) {} }  /* Tx FIFO full */
   else { while(!(REG(UART+UTRSTAT)&2)) {} }                /* Tx buffer empty */
   REG(UART+UTXH)=(uchar)c;
+  lcd_putc(c);                                             /* mirror on the LCD */
 }
 #endif
 void uartputc(int c) { uartputc_sync(c); }
@@ -281,6 +293,9 @@ void x210_main(uint r0, uint machid, uint r2) {
   printf("timer: PWM4 from PCLK_PSYS %d Hz\n",timer_clock());
 #endif
   printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,x210_phystop);
+#ifndef X210_QEMU
+  lcd_init();
+#endif
   printf("single CPU, ARMv7 MMU, embedded RAM disk\n");
   procinit(); initlock(&tickslock,"ticks");
   binit(); iinit(); fileinit(); userinit();

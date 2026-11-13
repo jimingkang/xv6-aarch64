@@ -35,12 +35,18 @@ PLAT_FLAGS = -DX210_QEMU
 else
 KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(X210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
-PLAT_FLAGS = $(BOARD_DEF)
+PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
 SHARED = vm syscall stubs runtime
 OWN = platform atag
+ifneq ($(QEMU_TEST),1)
+OWN += lcd
+endif
+# LCD panel (lcd.c table): s70 (7", 800x480, default), h43, w50, a70.
+S5PV210_LCD ?= s70
+LCD_INDEX = $(if $(filter s70,$(S5PV210_LCD)),0,$(if $(filter h43,$(S5PV210_LCD)),1,$(if $(filter w50,$(S5PV210_LCD)),2,$(if $(filter a70,$(S5PV210_LCD)),3,$(error S5PV210_LCD must be s70, h43, w50 or a70)))))
 OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \

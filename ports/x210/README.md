@@ -142,6 +142,38 @@ init: starting sh
 $
 ```
 
+## 串口终端
+
+macOS 上推荐直接用 `screen /dev/cu.usbserial-XXXX 115200`。用 minicom 时要
+确认它确实是 115200：Tiny210 上实测，minicom 实际按 9600 接收时，每行只收到
+约 7 个固定样式的乱码字符（例如 `` `J&?C?? ``）。也不要让多个 minicom/screen
+同时打开同一个串口，否则数据会被分抢，同样显示为乱码。
+
+`make -f ports/x210/Makefile uarttest` 生成 `x210-uarttest.bin`（只有 BL1，
+写到第 1 扇区）：它按 Tiny210 U-Boot 的时钟和 UART 参数，每半秒输出一行
+`xv6 UART test ... line N`，LED 轮流亮，用来单独检查串口链路。
+
+## LCD
+
+`lcd.c` 驱动 S5PV210 的 FIMD：GPF0–GPF3 设为 LCD 功能，DISPLAY_CONTROL
+选 FIMD，Window 0 为 32 bpp（XRGB8888），帧缓冲放在 DRAM_BASE+128 MiB
+（2 MiB，在页分配器范围之外，无缓存映射）。像素时钟取自 HCLK_DSYS
+（166.75 MHz）分频。启动时先显示约一秒的彩条，然后清屏，之后内核控制台
+的全部输出（包括 shell）同时显示在屏上，8x16 字体，800x480 时为 100x30 字符。
+键盘输入仍然走串口。
+
+面板型号在编译时选择，换型号前先 `make x210-clean`：
+
+```sh
+make -f ports/x210/Makefile S5PV210_LCD=s70   # 7" 800x480（默认）
+make -f ports/x210/Makefile S5PV210_LCD=h43   # 4.3" 480x272
+make -f ports/x210/Makefile S5PV210_LCD=w50   # 5" 800x480
+make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
+```
+
+时序取自 FriendlyARM mini210/tiny210 BSP 的面板表（凭记录整理，未在实板
+核对）；背光由 LCD 模块自身控制，本驱动不调节。
+
 ## BL1 格式
 
 S5PV210 iROM 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字节头后
