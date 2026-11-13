@@ -5,7 +5,9 @@
 // (on QEMU raspi3b too), outside the kernel's direct map.  Userspace draws
 // into it through mmap(): f_op->mmap maps the frames write-combining
 // (Normal non-cacheable, Linux pgprot_writecombine) with remap_pfn_range().
-// ioctl(FBIOGET_[VF]SCREENINFO) reports the geometry.
+// ioctl(FBIOGET_[VF]SCREENINFO) reports the geometry and, like Linux, where
+// red/green/blue sit in a 32-bit pixel, so user space never has to guess the
+// firmware's pixel order.
 
 #include <kernel/types.h>
 #include <kernel/param.h>
@@ -30,6 +32,7 @@ static struct {
   struct spinlock lock;
   int ready;
   uint32 width, height, depth, pitch;
+  uint32 rgb;                   // firmware pixel order: 1 = RGB, 0 = BGR
   uint64 base;                  // ARM physical address
   uint32 size;
 } fb;
@@ -44,7 +47,9 @@ fb_alloc(void)
     MBOX_TAG_SET_VIRT_WH,     8, 0, FB_WIDTH, FB_HEIGHT,
     MBOX_TAG_SET_VIRT_OFFSET, 8, 0, 0, 0,
     MBOX_TAG_SET_DEPTH,       4, 0, FB_DEPTH,
-    MBOX_TAG_SET_PIXEL_ORDER, 4, 0, 1,          // RGB
+    // BGR, the firmware default the LLD rpi_bm video.c relies on: bytes
+    // B,G,R,A in memory, i.e. a little-endian 0xAARRGGBB word.
+    MBOX_TAG_SET_PIXEL_ORDER, 4, 0, 0,
     MBOX_TAG_ALLOCATE_BUFFER, 8, 0, PGSIZE, 0,
     MBOX_TAG_GET_PITCH,       4, 0, 0,
   };
@@ -54,6 +59,7 @@ fb_alloc(void)
   fb.width = t[3];
   fb.height = t[4];
   fb.depth = t[18];
+  fb.rgb = t[22] == 1;
   fb.base = t[26] & 0x3fffffffU;             // VC bus address -> ARM PA
   fb.size = t[27];
   fb.pitch = t[31];
@@ -69,8 +75,9 @@ fb_open(struct file *f)
   if(!fb.ready){
     if(fb_alloc() == 0){
       fb.ready = 1;
-      printf("fb0: %dx%d %d bpp pitch %d, %d bytes at pa %p\n", fb.width,
-             fb.height, fb.depth, fb.pitch, fb.size, fb.base);
+      printf("fb0: %dx%d %d bpp %s pitch %d, %d bytes at pa %p\n",
+             fb.width, fb.height, fb.depth, fb.rgb ? "RGB" : "BGR",
+             fb.pitch, fb.size, fb.base);
     } else {
       printf("fb0: firmware did not allocate a frame buffer\n");
       r = -1;
@@ -114,6 +121,10 @@ fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
     var.xres = var.xres_virtual = fb.width;
     var.yres = var.yres_virtual = fb.height;
     var.bits_per_pixel = fb.depth;
+    var.red.length = var.green.length = var.blue.length = 8;
+    var.red.offset = fb.rgb ? 0 : 16;   // pixel order RGB: bytes R,G,B,A
+    var.green.offset = 8;
+    var.blue.offset = fb.rgb ? 16 : 0;
     return either_copyout(1, arg, &var, sizeof(var));
   }
   return -1;

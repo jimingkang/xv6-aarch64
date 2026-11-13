@@ -660,6 +660,7 @@ UPROGS=\
 	$U/_usertests\
 	$U/_vmmap\
 	$U/_mmaptest\
+	$U/_gui\
 	$U/_cowtest\
 	$U/_grind\
 	$U/_wc\
@@ -846,12 +847,20 @@ else
 QEMU_SD_DEP = $(KERNEL_IMAGE)
 endif
 
-.PHONY: qemu qemu-net qemu-gdb
+.PHONY: qemu qemu-net qemu-gui qemu-gdb
 qemu: $(QEMU_SD_DEP)
 	$(QEMU) $(QEMUOPTS)
 
 qemu-net: $(QEMU_SD_DEP)
 	$(QEMU) $(QEMUOPTS) $(QEMUNETOPTS)
+
+# HDMI desktop: open a QEMU window showing /dev/fb0 and plug a USB keyboard
+# and mouse into the emulated hub.  Log in on the serial console (this
+# terminal) and run "gui"; click into the QEMU window to give it the mouse.
+QEMUGUIOPTS = $(subst -display none,-display default,$(QEMUOPTS))
+QEMUGUIOPTS += -device usb-kbd -device usb-mouse
+qemu-gui: $(QEMU_SD_DEP)
+	$(QEMU) $(QEMUGUIOPTS)
 
 .gdbinit: .gdbinit.tmpl-aarch64
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
