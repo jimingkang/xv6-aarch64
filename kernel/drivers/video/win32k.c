@@ -11,14 +11,18 @@
 //     window for keys); the mouse cursor is drawn by the kernel;
 //   - non-client behaviour: dragging by the caption, the minimize and close
 //     buttons, a click outside a popup menu cancelling it;
-//   - painting bookkeeping: each window has an update rectangle; WM_PAINT is
-//     synthesized when the queue is empty, and BeginPaint returns the parts
-//     of the update area that are not covered by windows above (the visible
-//     region) so user mode can draw straight into /dev/fb0 without
-//     overwriting anybody else -- the pre-DWM Windows model.
+//   - painting: each window has an update rectangle; WM_PAINT is synthesized
+//     when the queue is empty;
+//   - GDI: every window has a kernel backing surface.  User mode sends
+//     batches of drawing commands (W32_GDI, like NT's GDI batching) that are
+//     rasterized here, with the font in the kernel;
+//   - composition: the kernel alone writes /dev/fb0, copying the surfaces
+//     onto the screen in Z order.  Moving or uncovering a window is pure
+//     composition -- applications are not asked to repaint -- a small
+//     version of what the Desktop Window Manager does on top of win32k.
 //
-// Child controls and the actual drawing (GDI) stay in each process's user32
-// library for now.  When a process exits, win32k_exit() destroys its windows.
+// Child controls stay in each process's user32 library.  When a process
+// exits, win32k_exit() destroys its windows.
 
 #include <kernel/types.h>
 #include <kernel/param.h>
@@ -35,6 +39,7 @@
 #include <kernel/module.h>
 #include <kernel/win32k.h>
 #include <uapi/win32k.h>
+#include "user/font8x16.h"
 
 #define MAXW  64
 #define MAXQ  16
@@ -52,8 +57,11 @@ struct kwnd {
   char title[64];
   struct w32_rect upd;          // pending repaint, window coordinates
   int minimized;
-  int painting;                 // inside BeginPaint..EndPaint
   uint seq;                     // creation order (taskbar)
+  uint32 *surf;                 // backing surface, sw x sh, fb pixel format
+  int sw, sh;
+  int painted;                  // the surface holds a complete picture
+  struct w32_rect painting;     // update area handed out by BeginPaint
 };
 
 struct kq {
@@ -323,33 +331,44 @@ invalidate_screen_on(int i, struct w32_rect s)
     wakeup(q);
 }
 
-// Something moved away from screen rectangle s: whatever is now visible
-// there must repaint.  Without a desktop window the kernel paints the
-// background itself.
+// Recompose screen rectangle s from the backing surfaces: the background,
+// then every shown window bottom to top (painter's algorithm).  This is the
+// only code that writes window pixels to the frame buffer.
+static void
+compose(struct w32_rect s)
+{
+  if(!fb_ok)
+    return;
+  struct w32_rect scr = { 0, 0, fbk.width, fbk.height };
+  s = risect(s, scr);
+  if(rempty(&s))
+    return;
+  int was = cursor_drawn;
+  cursor_erase();
+  uint32 bg = nwin ? desktop_pixel() : 0;
+  for(int y = s.top; y < s.bottom; y++){
+    uint32 *row = fbk.pixels + y * fbk.stride;
+    for(int x = s.left; x < s.right; x++)
+      row[x] = bg;
+  }
+  for(int k = 0; k < nz; k++){
+    struct kwnd *w = &wins[z[k]];
+    if(!shown(z[k]) || !w->painted || !w->surf)
+      continue;
+    struct w32_rect r = risect(s, w->rc);
+    for(int y = r.top; y < r.bottom; y++)
+      memmove(fbk.pixels + y * fbk.stride + r.left,
+              w->surf + (y - w->rc.top) * w->sw + (r.left - w->rc.left),
+              (r.right - r.left) * 4);
+  }
+  if(was || mouse_seen)
+    cursor_draw();
+}
+
 static void
 damage_screen(struct w32_rect s)
 {
-  int have_desktop = 0;
-  for(int k = 0; k < nz; k++){
-    int i = z[k];
-    if(!shown(i))
-      continue;
-    if(wins[i].style & W32S_BOTTOM)
-      have_desktop = 1;
-    invalidate_screen_on(i, s);
-  }
-  if(!have_desktop && fb_ok){
-    struct w32_rect scr = { 0, 0, fbk.width, fbk.height };
-    struct w32_rect r = risect(s, scr);
-    uint32 p = nwin ? desktop_pixel() : 0;
-    int was = cursor_drawn;
-    cursor_erase();
-    for(int y = r.top; y < r.bottom; y++)
-      for(int x = r.left; x < r.right; x++)
-        fbk.pixels[y * fbk.stride + x] = p;
-    if(was)
-      cursor_draw();
-  }
+  compose(s);
 }
 
 static void
@@ -367,7 +386,7 @@ raise_win(int i)
     z[k] = z[k - 1];
   z[pos] = i;
   nz++;
-  invalidate_screen_on(i, wins[i].rc);
+  compose(wins[i].rc);          // its surface is now on top
 }
 
 static void
@@ -379,12 +398,15 @@ activate(int i)
   if(old == i)
     return;
   active = i;
+  // Both captions change colour: the owners repaint their frames.
   if(old >= 0 && wins[old].used){
-    invalidate_screen_on(old, wins[old].rc);   // caption turns grey
+    invalidate_screen_on(old, wins[old].rc);
     post_win(old, W32M_ACTIVATE, 0, 0);
   }
-  if(i >= 0)
+  if(i >= 0){
+    invalidate_screen_on(i, wins[i].rc);
     post_win(i, W32M_ACTIVATE, 1, 0);
+  }
   shell_notify();
 }
 
@@ -410,11 +432,6 @@ destroy_locked(int i)
   int was_shown = shown(i);
   uint32 h = hwnd_of(i);
 
-  if(wins[i].painting){
-    cursor_hide -= wins[i].painting;
-    if(cursor_hide < 0)
-      cursor_hide = 0;
-  }
   wins[i].used = 0;
   wins[i].gen++;
   nwin--;
@@ -432,6 +449,8 @@ destroy_locked(int i)
   if(last_click_w == i) last_click_w = -1;
   if(was_shown)
     damage_screen(r);
+  kfree(wins[i].surf);          // after composing: nothing shows it now
+  wins[i].surf = 0;
   if(active == i){
     active = -1;
     activate_next();
@@ -531,8 +550,10 @@ mouse_move(int dx, int dy)
       struct w32_rect old = w->rc;
       w->rc.left = nx; w->rc.top = ny;
       w->rc.right = nx + ww; w->rc.bottom = ny + hh;
-      damage_screen(old);
-      invalidate_screen_on(dragw, w->rc);
+      // Pure composition: the window and what it uncovers come from
+      // their backing surfaces, no WM_PAINT round trip.
+      compose(old);
+      compose(w->rc);
     }
   } else {
     int t = capture >= 0 ? capture : window_at(mx, my);
@@ -748,56 +769,6 @@ win32k_exit(int tgid)
 // ---------------------------------------------------------------------------
 // The system call.
 
-// Visible parts of screen rectangle s on window i: s minus every shown
-// window above i in Z order.
-static int
-visible_rects(int i, struct w32_rect s, struct w32_rect *out, int max)
-{
-  int n = 0, k;
-  s = risect(s, wins[i].rc);
-  if(rempty(&s))
-    return 0;
-  out[n++] = s;
-  for(k = 0; k < nz && z[k] != i; k++)
-    ;
-  for(k++; k < nz; k++){
-    int j = z[k];
-    if(!shown(j))
-      continue;
-    struct w32_rect b = wins[j].rc;
-    int m = n;
-    for(int r = 0; r < m; r++){
-      struct w32_rect a = out[r], x = risect(a, b);
-      if(rempty(&x))
-        continue;
-      // Replace a by up to four pieces of a outside b.
-      struct w32_rect piece[4];
-      int np = 0;
-      if(a.top < x.top){ piece[np] = a; piece[np].bottom = x.top; np++; }
-      if(x.bottom < a.bottom){ piece[np] = a; piece[np].top = x.bottom; np++; }
-      if(a.left < x.left){ piece[np] = x; piece[np].left = a.left;
-                           piece[np].right = x.left; np++; }
-      if(x.right < a.right){ piece[np] = x; piece[np].left = x.right;
-                             piece[np].right = a.right; np++; }
-      out[r].right = out[r].left;      // mark empty
-      for(int p = 0; p < np; p++){
-        if(n < max){
-          out[n++] = piece[p];
-        } else {
-          runion(&out[max - 1], piece[p]);  // overflow: be conservative
-        }
-      }
-    }
-    // Compact away the emptied entries.
-    int c = 0;
-    for(int r = 0; r < n; r++)
-      if(!rempty(&out[r]))
-        out[c++] = out[r];
-    n = c;
-  }
-  return n;
-}
-
 static int
 sys_create(uint64 uarg)
 {
@@ -821,9 +792,19 @@ sys_create(uint64 uarg)
     release(&lk);
     return 0;
   }
+  uint32 *surf = kmalloc((uint64)c.w * c.h * 4);   // zeroed
+  if(!surf){
+    release(&lk);
+    return 0;
+  }
   struct kwnd *w = &wins[i];
   uint gen = w->gen;
   memset(w, 0, sizeof(*w));
+  w->surf = surf;
+  w->sw = c.w;
+  w->sh = c.h;
+  w->upd.right = c.w;           // everything needs a first paint
+  w->upd.bottom = c.h;
   w->gen = gen;
   w->used = 1;
   w->owner = p->tgid;
@@ -837,7 +818,7 @@ sys_create(uint64 uarg)
   if(nwin++ == 0){
     struct w32_rect all = { 0, 0, fbk.width, fbk.height };
     cursor_hide = 0;
-    damage_screen(all);         // the session starts on a clean desktop
+    compose(all);               // the session starts on a clean desktop
   }
   z[nz++] = i;
   raise_win(i);
@@ -915,20 +896,100 @@ sys_beginpaint(int i, uint64 uptr)
   ps.rc = wins[i].rc;
   ps.update = wins[i].upd;
   ps.active = i == active;
-  if(!rempty(&ps.update)){
-    struct w32_rect s = ps.update;
-    s.left += ps.rc.left; s.right += ps.rc.left;
-    s.top += ps.rc.top; s.bottom += ps.rc.top;
-    ps.nvis = visible_rects(i, s, ps.vis, W32_MAXVIS);
-  }
+  runion(&wins[i].painting, wins[i].upd);
   wins[i].upd.left = wins[i].upd.right = 0;
-  wins[i].painting++;
-  cursor_hide++;
-  cursor_erase();
   release(&lk);
   if(copyout(myproc()->vm->pagetable, uptr, (char *)&ps, sizeof(ps)) < 0)
     return -1;
-  return ps.nvis;
+  return 0;
+}
+
+static uint32
+gdi_pixel(uint32 colorref)
+{
+  uint32 r = colorref & 0xff, g = (colorref >> 8) & 0xff,
+         b = (colorref >> 16) & 0xff;
+  return fbk.rgb ? (r | g << 8 | b << 16) : (b | g << 8 | r << 16);
+}
+
+// Rasterize one batch of drawing commands into window i's surface.  Runs
+// without lk: only the owner draws, and only the owner (or its exit) frees
+// the surface; the compositor may read a half-drawn surface, which merely
+// shows up once more after EndPaint recomposes.
+static long
+sys_gdi(uint32 h, uint64 ubuf, int len)
+{
+  struct proc *p = myproc();
+  char *buf;
+  if(len <= 0)
+    return 0;
+  if(len > 32768)
+    return -1;
+  if((buf = kmalloc(len)) == 0)
+    return -1;
+  if(copyin(p->vm->pagetable, buf, ubuf, len) < 0){
+    kfree(buf);
+    return -1;
+  }
+  acquire(&lk);
+  int i = index_of(h);
+  if(i < 0 || wins[i].owner != p->tgid || !wins[i].surf){
+    release(&lk);
+    kfree(buf);
+    return -1;
+  }
+  uint32 *surf = wins[i].surf;
+  int sw = wins[i].sw, sh = wins[i].sh;
+  release(&lk);
+
+  int off = 0, n = 0;
+  while(off + (int)sizeof(struct w32_gdicmd) <= len){
+    struct w32_gdicmd *c = (struct w32_gdicmd *)(buf + off);
+    int textlen = c->len;
+    int next = off + sizeof(*c) + ((textlen + 3) & ~3);
+    if(next > len)
+      break;
+    // Clip to the command's clip box and the surface.
+    int cl = c->clip_left > 0 ? c->clip_left : 0;
+    int ct = c->clip_top > 0 ? c->clip_top : 0;
+    int cr = c->clip_right < sw ? c->clip_right : sw;
+    int cb = c->clip_bottom < sh ? c->clip_bottom : sh;
+    uint32 px = gdi_pixel(c->color);
+    if(c->op == GDI_FILL){
+      int x0 = c->x0 > cl ? c->x0 : cl, y0 = c->y0 > ct ? c->y0 : ct;
+      int x1 = c->x1 < cr ? c->x1 : cr, y1 = c->y1 < cb ? c->y1 : cb;
+      for(int y = y0; y < y1; y++){
+        uint32 *row = surf + y * sw;
+        for(int x = x0; x < x1; x++)
+          row[x] = px;
+      }
+    } else if(c->op == GDI_TEXT){
+      const char *t = (const char *)(c + 1);
+      for(int k = 0; k < textlen; k++){
+        int ch = (uchar)t[k], gx = c->x0 + k * FONT_W;
+        if(ch < FONT_FIRST || ch > FONT_LAST || gx >= cr)
+          continue;
+        const uchar *g = font8x16[ch - FONT_FIRST];
+        for(int r = 0; r < FONT_H; r++){
+          int y = c->y0 + r;
+          if(y < ct || y >= cb)
+            continue;
+          uint bits = g[r];
+          if(c->y1)
+            bits |= bits >> 1;          // bold
+          for(int b = 0; b < FONT_W; b++){
+            int x = gx + b;
+            if(x >= cl && x < cr && (bits & (0x80 >> b)))
+              surf[y * sw + x] = px;
+          }
+        }
+      }
+    }
+    off = next;
+    n++;
+  }
+  kfree(buf);
+  return n;
 }
 
 long
@@ -947,6 +1008,15 @@ sys_win32k(void)
     return sys_create(a1);
   case W32_GETMSG:
     return sys_getmsg(a1, (int)a2);
+  case W32_GDI:
+    return sys_gdi((uint32)a1, a2, (int)a3);
+  case W32_SCREEN:
+    if(!fb_ok){
+      if(fb_kernel_info(&fbk) < 0)
+        return -1;
+      fb_ok = 1;
+    }
+    return fbk.width | (fbk.height << 16);
   case W32_POST: {
     struct w32_msg m;
     if(copyin(p->vm->pagetable, (char *)&m, a1, sizeof(m)) < 0)
@@ -1045,17 +1115,24 @@ sys_win32k(void)
     shellw = i;
     release(&lk);
     return 0;
-  case W32_ENDPAINT:
+  case W32_ENDPAINT: {
     if(!mine)
       break;
-    if(w->painting > 0){
-      w->painting--;
-      if(cursor_hide > 0)
-        cursor_hide--;
+    // Show what was just drawn: recompose the painted area on screen.
+    struct w32_rect r = w->painting;
+    w->painting.left = w->painting.right = 0;
+    if(!w->painted){
+      w->painted = 1;
+      r.left = r.top = 0;
+      r.right = w->sw;
+      r.bottom = w->sh;
     }
-    cursor_draw();
+    r.left += w->rc.left; r.right += w->rc.left;
+    r.top += w->rc.top; r.bottom += w->rc.top;
+    compose(r);
     release(&lk);
     return 0;
+  }
   case W32_BEGINPAINT:
     if(!mine)
       break;
@@ -1091,9 +1168,26 @@ sys_win32k(void)
     if((i = index_of((uint32)a1)) < 0 || rempty(&r))
       break;
     struct w32_rect old = wins[i].rc;
+    int nw = r.right - r.left, nh = r.bottom - r.top;
+    if(nw != wins[i].sw || nh != wins[i].sh){
+      uint32 *ns = kmalloc((uint64)nw * nh * 4);
+      if(!ns)
+        break;
+      kfree(wins[i].surf);
+      wins[i].surf = ns;
+      wins[i].sw = nw;
+      wins[i].sh = nh;
+      wins[i].painted = 0;
+      wins[i].upd.left = wins[i].upd.top = 0;
+      wins[i].upd.right = nw;
+      wins[i].upd.bottom = nh;
+      struct kq *q = queue_of(wins[i].owner, 0);
+      if(q)
+        wakeup(q);
+    }
     wins[i].rc = r;
-    damage_screen(old);
-    invalidate_screen_on(i, r);
+    compose(old);
+    compose(r);
     release(&lk);
     return 0;
   }

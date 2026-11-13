@@ -12,11 +12,12 @@
 //                                      GDI drawing, popup menus, MessageBox
 //
 // GetMessage() blocks in the kernel.  When the kernel reports WM_PAINT for
-// one of our top-level windows, we draw its frame, client area and children
-// into a private screen-sized back buffer, then copy only the visible
-// rectangles the kernel returned by BeginPaint to /dev/fb0.  So several
-// processes draw on one screen without overwriting each other, as GDI did
-// before the desktop window manager composited windows.
+// one of our top-level windows, we walk its frame, client area and children
+// as before, but every GDI primitive becomes a command in a batch buffer
+// (NT's GDI batching).  The batch goes to the kernel with W32_GDI, which
+// rasterizes it into the window's kernel surface; EndPaint lets the kernel
+// compose the result onto the screen.  This process never touches
+// /dev/fb0, so it cannot draw over anybody else.
 
 #include <uapi/types.h>
 #include <uapi/stat.h>
@@ -109,15 +110,48 @@ scopy(char *d, const char *s, int n)
 // ---------------------------------------------------------------------------
 // Screen.
 
-static uint32 *fb, *bb;         // frame buffer; this process's back buffer
-static int SW, SH, stride;
-static int roff, goff, boff;
+static int SW, SH;              // screen size
 
-static uint32
-px(COLORREF c)
+// The GDI batch for the top-level window being painted.  Primitives below
+// work in screen coordinates (like the rest of this file); they are turned
+// into window coordinates of batch_win here.
+static char batch[16384];
+static int batch_len;
+static HWND batch_win;
+static int batch_ox, batch_oy;
+
+static void
+batch_flush(void)
 {
-  return (GetRValue(c) << roff) | (GetGValue(c) << goff) |
-         (GetBValue(c) << boff);
+  if(batch_len > 0 && batch_win && batch_win->khwnd)
+    k(W32_GDI, batch_win->khwnd, (long)batch, batch_len);
+  batch_len = 0;
+}
+
+static void
+batch_cmd(int op, int x0, int y0, int x1, int y1, COLORREF c,
+          const RECT *clip, const char *text, int len)
+{
+  int need = sizeof(struct w32_gdicmd) + ((len + 3) & ~3);
+  if(!batch_win)
+    return;                     // GDI outside WM_PAINT: nothing to draw on
+  if(batch_len + need > (int)sizeof(batch))
+    batch_flush();
+  struct w32_gdicmd *cmd = (struct w32_gdicmd *)(batch + batch_len);
+  cmd->op = op;
+  cmd->len = len;
+  cmd->x0 = x0 - batch_ox;
+  cmd->y0 = y0 - batch_oy;
+  cmd->x1 = x1 - batch_ox;
+  cmd->y1 = op == GDI_TEXT ? y1 : y1 - batch_oy;
+  cmd->color = c;
+  cmd->clip_left = clip->left - batch_ox;
+  cmd->clip_top = clip->top - batch_oy;
+  cmd->clip_right = clip->right - batch_ox;
+  cmd->clip_bottom = clip->bottom - batch_oy;
+  if(len)
+    memmove(cmd + 1, text, len);
+  batch_len += need;
 }
 
 static int
@@ -148,42 +182,20 @@ sfill(const RECT *clip, int x0, int y0, int x1, int y1, COLORREF c)
   rect_intersect(&d, &r, clip);
   if(rect_empty(&d))
     return;
-  uint32 p = px(c);
-  for(int y = d.top; y < d.bottom; y++){
-    uint32 *row = bb + y * SW;
-    for(int x = d.left; x < d.right; x++)
-      row[x] = p;
-  }
-}
-
-static void
-sglyph(const RECT *clip, int x, int y, int ch, COLORREF fg, int bold)
-{
-  if(ch < FONT_FIRST || ch > FONT_LAST)
-    return;
-  const uchar *g = font8x16[ch - FONT_FIRST];
-  uint32 p = px(fg);
-  for(int r = 0; r < FONT_H; r++){
-    int yy = y + r;
-    if(yy < clip->top || yy >= clip->bottom)
-      continue;
-    uint bits = g[r];
-    if(bold)
-      bits |= bits >> 1;
-    for(int c = 0; c < FONT_W; c++){
-      int xx = x + c;
-      if(xx >= clip->left && xx < clip->right && (bits & (0x80 >> c)))
-        bb[yy * SW + xx] = p;
-    }
-  }
+  batch_cmd(GDI_FILL, d.left, d.top, d.right, d.bottom, c, clip, 0, 0);
 }
 
 static void
 stext(const RECT *clip, int x, int y, const char *s, int n, COLORREF fg,
       int bold)
 {
-  for(int i = 0; i < n && s[i]; i++, x += FONT_W)
-    sglyph(clip, x, y, s[i], fg, bold);
+  int len = 0;
+  while(len < n && s[len])
+    len++;
+  if(len == 0 || y >= clip->bottom || y + FONT_H <= clip->top ||
+     x >= clip->right || x + len * FONT_W <= clip->left)
+    return;
+  batch_cmd(GDI_TEXT, x, y, 0, bold, fg, clip, s, len);
 }
 
 static void
@@ -1072,25 +1084,19 @@ paint_toplevel(HWND w)
   w->rc.top = ps.rc.top;
   w->rc.right = ps.rc.right;
   w->rc.bottom = ps.rc.bottom;
-  if(ps.nvis > 0){
+  if(ps.update.right > ps.update.left && ps.update.bottom > ps.update.top){
     RECT clip = { ps.rc.left + ps.update.left, ps.rc.top + ps.update.top,
                   ps.rc.left + ps.update.right, ps.rc.top + ps.update.bottom };
-    RECT screen = { 0, 0, SW, SH };
-    rect_intersect(&clip, &clip, &screen);
+    batch_win = w;
+    batch_ox = ps.rc.left;
+    batch_oy = ps.rc.top;
     active = ps.active ? w : 0;
     paint_tree(w, &clip);
     active = 0;
-    // Only the parts nobody covers reach the screen.
-    for(int i = 0; i < ps.nvis; i++){
-      RECT v = { ps.vis[i].left, ps.vis[i].top, ps.vis[i].right,
-                 ps.vis[i].bottom };
-      rect_intersect(&v, &v, &screen);
-      for(int y = v.top; y < v.bottom; y++)
-        memmove(fb + y * stride + v.left, bb + y * SW + v.left,
-                (v.right - v.left) * 4);
-    }
+    batch_flush();
+    batch_win = 0;
   }
-  k(W32_ENDPAINT, w->khwnd, 0, 0);
+  k(W32_ENDPAINT, w->khwnd, 0, 0);   // the kernel composes the result
 }
 
 // ---------------------------------------------------------------------------
@@ -2000,33 +2006,13 @@ MessageBox(HWND owner, const char *text, const char *caption, uint type)
 int
 WinInit(void)
 {
-  struct fb_var_screeninfo var;
-  struct fb_fix_screeninfo fix;
-  int fd = open("/dev/fb0", O_RDWR);
-
-  if(fd < 0){
-    printf("win: cannot open /dev/fb0\n");
+  long scr = k(W32_SCREEN, 0, 0, 0);
+  if(scr <= 0){
+    printf("win: no frame buffer for the window manager\n");
     return -1;
   }
-  if(ioctl(fd, FBIOGET_VSCREENINFO, &var) < 0 ||
-     ioctl(fd, FBIOGET_FSCREENINFO, &fix) < 0 || var.bits_per_pixel != 32){
-    printf("win: /dev/fb0 is not a 32 bpp frame buffer\n");
-    close(fd);
-    return -1;
-  }
-  SW = var.xres;
-  SH = var.yres;
-  stride = fix.line_length / 4;
-  roff = var.red.offset;
-  goff = var.green.offset;
-  boff = var.blue.offset;
-  if(roff == boff){ roff = 16; goff = 8; boff = 0; }
-  fb = mmap(0, fix.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  close(fd);
-  if(fb == MAP_FAILED || (bb = malloc(SW * SH * 4)) == 0){
-    printf("win: cannot map the frame buffer\n");
-    return -1;
-  }
+  SW = scr & 0xffff;
+  SH = (scr >> 16) & 0xffff;
 
   static const struct { const char *name; WNDPROC proc; COLORREF bg; } builtin[] = {
     { "BUTTON", ButtonProc, (COLORREF)-1 },

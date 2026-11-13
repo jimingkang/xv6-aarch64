@@ -9,8 +9,11 @@
  *   long win32k(int op, long a1, long a2, long a3, long a4);
  *
  * Top-level windows, their Z order, per-process message queues, input
- * routing, and the visible-region bookkeeping live in the kernel.  Child
- * controls and drawing stay in the user32 library of each process. */
+ * routing, drawing (GDI) and composing the screen live in the kernel.
+ * Each window has a kernel backing surface: user mode sends batches of
+ * drawing commands (W32_GDI, like NT's GDI batching) that the kernel
+ * rasterizes into it, and the kernel composes the surfaces onto /dev/fb0
+ * in Z order.  Child controls stay in the user32 library of each process. */
 
 #define W32_CREATE      1   /* (struct w32_create *) -> hwnd */
 #define W32_DESTROY     2   /* (hwnd) */
@@ -29,6 +32,21 @@
 #define W32_ENUM        15  /* (uint32 *out, max, all) -> n; creation order */
 #define W32_SETSHELL    16  /* (hwnd) receives WM_SHELLHOOK on changes */
 #define W32_QUIT        17  /* (code) post WM_QUIT to the caller's queue */
+#define W32_GDI         18  /* (hwnd, const void *cmds, bytes) draw */
+#define W32_SCREEN      19  /* () -> width | height << 16 */
+
+/* GDI batch: a sequence of struct w32_gdicmd, each followed by len bytes
+ * of text padded to a multiple of 4.  Coordinates are window coordinates
+ * (frame included); clip limits the command, also in window coordinates.
+ * Colours are COLORREF values, 0x00BBGGRR. */
+#define GDI_FILL  1     /* fill [x0,x1) x [y0,y1) */
+#define GDI_TEXT  2     /* text at x0,y0 in the 8x16 font; y1 != 0: bold */
+struct w32_gdicmd {
+  unsigned short op, len;
+  int x0, y0, x1, y1;
+  uint32 color;
+  int clip_left, clip_top, clip_right, clip_bottom;
+};
 
 /* Window styles known to the kernel. */
 #define W32S_VISIBLE    0x01
@@ -90,13 +108,10 @@ struct w32_info {
   int active;
 };
 
-#define W32_MAXVIS 32
 struct w32_paint {
   struct w32_rect rc;           /* the window on screen */
   struct w32_rect update;       /* what needs repainting, window coords */
   int active;                   /* draw the caption as active */
-  int nvis;                     /* visible (unobscured) parts of update */
-  struct w32_rect vis[W32_MAXVIS];   /* screen coords */
 };
 
 #endif
