@@ -14,10 +14,8 @@ QEMU_ARM ?= qemu-system-arm
 TARGET_FLAGS ?= --target=arm-none-eabi
 # DRAM bank 1 as configured by the X210 U-Boot (PHYS_SDRAM_1).
 X210_DRAM_BASE ?= 0x30000000
-# Root file system blocks (1 KiB): keeps the image under the 4 MiB kernel slot.
-X210_FSBLOCKS ?= 3072
-# u-boot.bin for the SD image (X210 BSP U-Boot or another S5PV210 U-Boot).
-UBOOT ?=
+# Root file system blocks (1 KiB).
+X210_FSBLOCKS ?= 4096
 ifeq ($(QEMU_TEST),1)
 KERNEL_LOAD = 0x40008000
 EARLY_UART = 0x01C28000
@@ -42,7 +40,7 @@ IMG = $(BUILD)/xv6-x210
 
 .SECONDARY:
 .PHONY: all clean qemu check sdimg bl1
-all: $(IMG).bin $(IMG).uImage
+all: $(IMG).bin $(IMG).uImage $(BUILD)/x210-bl1.bin $(BUILD)/x210-sd.img
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
@@ -107,19 +105,37 @@ $(IMG).bin: $(BUILD)/kernel.elf $(P)/mkx210.py
 # Legacy uImage (IH_OS_LINUX, load/entry 0x30008000): `bootm 30008000`.
 $(IMG).uImage: $(IMG).bin $(P)/mkx210.py
 	python3 $(P)/mkx210.py uimage $< $@ $(KERNEL_LOAD)
-# BL1 (16 KiB, header + checksum) from a u-boot.bin, as the BSP's mkx210 does.
-bl1: $(P)/mkx210.py
-	@test -n "$(UBOOT)" || { echo "usage: make x210-bl1 UBOOT=/path/to/u-boot.bin"; exit 1; }
-	@mkdir -p $(BUILD)
-	python3 $(P)/mkx210.py bl1 $(UBOOT) $(BUILD)/x210-bl1.bin
-# Whole SD layout: BL1 @1, U-Boot (BL2) @49, xv6 uImage @1073.
-sdimg: $(IMG).uImage $(P)/mkx210.py
-	@test -n "$(UBOOT)" || { echo "usage: make x210-sdimg UBOOT=/path/to/u-boot.bin"; exit 1; }
-	python3 $(P)/mkx210.py sdimg $(BUILD)/x210-sd.img $(UBOOT) $(IMG).uImage
+# Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART2/DDR, loads xv6.
+BL1FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(P)/bl1 -Wall -Wextra
+BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o
+$(BUILD)/bl1/%.o: $(P)/bl1/%.c $(P)/bl1/bl1lib.h
+	@mkdir -p $(@D)
+	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
+$(BUILD)/bl1/%.o: $(P)/bl1/%.S
+	@mkdir -p $(@D)
+	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
+$(BUILD)/bl1/bl1.elf: $(BL1OBJS) $(P)/bl1/bl1.ld
+	$(ARM_LD) -m armelf --gc-sections -T $(P)/bl1/bl1.ld -Map $(BUILD)/bl1/bl1.map -o $@ $(BL1OBJS)
+$(BUILD)/bl1/bl1-code.bin: $(BUILD)/bl1/bl1.elf
+	$(ARM_OBJCOPY) -O binary $< $@
+# 16 KiB BL1 with the iROM header (size, checksum): SD sector 1.
+$(BUILD)/x210-bl1.bin: $(BUILD)/bl1/bl1-code.bin $(P)/mkx210.py
+	python3 $(P)/mkx210.py bl1 $< $@
+# Whole card: BL1 @ sector 1, xv6 uImage @ sector 49.
+$(BUILD)/x210-sd.img: $(BUILD)/bl1/bl1-code.bin $(IMG).uImage $(P)/mkx210.py
+	python3 $(P)/mkx210.py sdimg $@ $(BUILD)/bl1/bl1-code.bin $(IMG).uImage
+bl1: $(BUILD)/x210-bl1.bin
+sdimg: $(BUILD)/x210-sd.img
+# Host build of the BL1 logic, checked against the real uImage.
+$(BUILD)/bl1-hosttest: $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c $(P)/bl1/bl1lib.h $(P)/atag.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -Wall -I. -I$(P)/bl1 -o $@ $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c
 qemu: all
 	$(QEMU_ARM) -M cubieboard -m 512M -nographic -monitor none -kernel $(IMG).uImage -append "console=ttySAC2,115200 xv6test"
-check:
+check: $(BUILD)/bl1-hosttest
 	python3 $(P)/mkx210.py selftest
+	$(MAKE) -f $(P)/Makefile BUILD=build/x210 build/x210/xv6-x210.uImage build/x210/x210-sd.img
+	$(BUILD)/bl1-hosttest build/x210/xv6-x210.uImage
 	python3 $(P)/test_shell.py
 clean:
 	rm -rf $(BUILD)

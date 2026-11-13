@@ -15,9 +15,9 @@ x210-qemu:
 x210-check:
 	$(MAKE) -f ports/x210/Makefile check
 x210-bl1:
-	$(MAKE) -f ports/x210/Makefile bl1 UBOOT=$(UBOOT)
+	$(MAKE) -f ports/x210/Makefile bl1
 x210-sdimg:
-	$(MAKE) -f ports/x210/Makefile sdimg UBOOT=$(UBOOT)
+	$(MAKE) -f ports/x210/Makefile sdimg
 else ifneq ($(filter am335x am335x-qemu am335x-check am335x-clean,$(MAKECMDGOALS)),)
 # BeagleBone Black (TI AM335x): see ports/am335x/README.md
 .PHONY: am335x am335x-qemu am335x-check am335x-clean clean
