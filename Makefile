@@ -608,7 +608,7 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
-$U/_camview: $U/camview.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
+$U/_camview: $U/camview.o $U/camproc.o $U/jpeg.o $U/win32.o $(ULIB) $(USER_LINK_STAMP)
 	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
 	$(OBJDUMP) -S $@ > $U/camview.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camview.sym

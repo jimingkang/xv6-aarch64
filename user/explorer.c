@@ -32,7 +32,7 @@ static void shut_down_finish(void);
 // Icons: 32x32 pictures drawn with a few rectangles, so no image files.
 
 enum { IC_COMPUTER, IC_NOTEPAD, IC_CALC, IC_CONSOLE, IC_TASKMGR, IC_FOLDER,
-       IC_FILE };
+       IC_FILE, IC_CAMERA };
 
 
 static void
@@ -74,6 +74,13 @@ draw_icon(HDC dc, int x, int y, int kind)
       box(dc, x + 5 + i * 5, y + 28 - h, 3, h, RGB(0, 220, 0));
     }
     break;
+  case IC_CAMERA:
+    box(dc, x + 2, y + 9, 28, 18, CLR_SHADOW);
+    box(dc, x + 8, y + 5, 10, 5, CLR_SHADOW);
+    box(dc, x + 10, y + 12, 12, 12, CLR_DKSHADOW);
+    box(dc, x + 13, y + 15, 6, 6, RGB(60, 120, 220));
+    box(dc, x + 24, y + 11, 4, 3, RGB(240, 200, 60));
+    break;
   case IC_FOLDER:
     box(dc, x + 2, y + 6, 12, 4, RGB(220, 180, 40));
     box(dc, x + 2, y + 9, 28, 19, RGB(240, 210, 80));
@@ -98,6 +105,7 @@ static const struct {
   { "Calculator", IC_CALC },
   { "Command", IC_CONSOLE },
   { "Task Manager", IC_TASKMGR },
+  { "Camera", IC_CAMERA },
 };
 #define NDESK (int)(sizeof(desk_items) / sizeof(desk_items[0]))
 #define DESK_CELL 70
@@ -113,6 +121,7 @@ desk_launch(int i)
   case 2: spawn("/bin/calc", 0); break;
   case 3: spawn("/bin/cmd", 0); break;
   case 4: spawn("/bin/taskmgr", 0); break;
+  case 5: spawn("/bin/camview", 0); break;
   }
 }
 
@@ -225,7 +234,7 @@ task_layout(int i, RECT *r)
 
 static const char *start_items[] = {
   "Explorer", "Notepad", "Calculator", "Command Prompt", "Task Manager",
-  0, "About xv6...", "Shut Down...",
+  "Camera", 0, "About xv6...", "Shut Down...",
 };
 #define START_BASE 100
 
@@ -326,7 +335,7 @@ TaskbarProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
     if(x >= 2 && x < START_W){
       RECT r;
       GetWindowRect(w, &r);
-      start_menu = TrackPopupMenu(start_items, 8, r.left + 2, r.top, w,
+      start_menu = TrackPopupMenu(start_items, 9, r.left + 2, r.top, w,
                                   START_BASE);
       InvalidateRect(w, 0, 1);
       return 0;
@@ -357,8 +366,9 @@ TaskbarProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
     case 2: spawn("/bin/calc", 0); break;
     case 3: spawn("/bin/cmd", 0); break;
     case 4: spawn("/bin/taskmgr", 0); break;
-    case 6: MessageBox(w, about_text, "About xv6", MB_OK); break;
-    case 7: shut_down(w); break;
+    case 5: spawn("/bin/camview", 0); break;
+    case 7: MessageBox(w, about_text, "About xv6", MB_OK); break;
+    case 8: shut_down(w); break;
     }
     return 0;
   }

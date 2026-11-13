@@ -212,6 +212,8 @@ COLORREF SetBkColor(HDC hdc, COLORREF c);
 int     SetBkMode(HDC hdc, int opaque);     // 0 transparent, 1 opaque
 int     DrawEdge(HDC hdc, const RECT *rc, int edge);
 int     GetTextWidth(const char *s);         // pixels (fixed 8x16 font)
+int     SetDIBitsToDevice(HDC hdc, int x, int y, int w, int h,
+                          const COLORREF *pixels);
 #define FONT_CX 8
 #define FONT_CY 16
 

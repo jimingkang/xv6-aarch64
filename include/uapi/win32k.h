@@ -34,6 +34,7 @@
 #define W32_QUIT        17  /* (code) post WM_QUIT to the caller's queue */
 #define W32_GDI         18  /* (hwnd, const void *cmds, bytes) draw */
 #define W32_SCREEN      19  /* () -> width | height << 16 */
+#define W32_BLIT        20  /* (hwnd, struct w32_blit *) copy pixels in */
 
 /* GDI batch: a sequence of struct w32_gdicmd, each followed by len bytes
  * of text padded to a multiple of 4.  Coordinates are window coordinates
@@ -46,6 +47,15 @@ struct w32_gdicmd {
   int x0, y0, x1, y1;
   uint32 color;
   int clip_left, clip_top, clip_right, clip_bottom;
+};
+
+/* W32_BLIT (SetDIBitsToDevice): w x h pixels, COLORREF each (0x00BBGGRR),
+ * rows top-down `pitch` pixels apart, to window coordinates x,y, clipped. */
+struct w32_blit {
+  int x, y, w, h;
+  int pitch;
+  int clip_left, clip_top, clip_right, clip_bottom;
+  uint64 pixels;                /* user address */
 };
 
 /* Window styles known to the kernel. */

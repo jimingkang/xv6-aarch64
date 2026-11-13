@@ -992,6 +992,53 @@ sys_gdi(uint32 h, uint64 ubuf, int len)
   return n;
 }
 
+// SetDIBitsToDevice: copy a user bitmap into window i's surface, row by
+// row, converting COLORREF to the frame buffer's pixel order.
+static long
+sys_blit(uint32 h, uint64 uarg)
+{
+  struct proc *p = myproc();
+  struct w32_blit b;
+  if(copyin(p->vm->pagetable, (char *)&b, uarg, sizeof(b)) < 0 ||
+     b.w <= 0 || b.h <= 0 || b.w > 4096 || b.h > 4096 || b.pitch < b.w)
+    return -1;
+  acquire(&lk);
+  int i = index_of(h);
+  if(i < 0 || wins[i].owner != p->tgid || !wins[i].surf){
+    release(&lk);
+    return -1;
+  }
+  uint32 *surf = wins[i].surf;
+  int sw = wins[i].sw, sh = wins[i].sh;
+  release(&lk);
+
+  int cl = b.clip_left > 0 ? b.clip_left : 0;
+  int ct = b.clip_top > 0 ? b.clip_top : 0;
+  int cr = b.clip_right < sw ? b.clip_right : sw;
+  int cb = b.clip_bottom < sh ? b.clip_bottom : sh;
+  int x0 = b.x > cl ? b.x : cl, x1 = b.x + b.w < cr ? b.x + b.w : cr;
+  if(x1 <= x0)
+    return 0;
+  uint32 *row = kmalloc((x1 - x0) * 4);
+  if(!row)
+    return -1;
+  for(int r = 0; r < b.h; r++){
+    int y = b.y + r;
+    if(y < ct || y >= cb)
+      continue;
+    uint64 src = b.pixels + ((uint64)r * b.pitch + (x0 - b.x)) * 4;
+    if(copyin(p->vm->pagetable, (char *)row, src, (x1 - x0) * 4) < 0){
+      kfree(row);
+      return -1;
+    }
+    uint32 *d = surf + y * sw + x0;
+    for(int x = 0; x < x1 - x0; x++)
+      d[x] = gdi_pixel(row[x]);
+  }
+  kfree(row);
+  return 0;
+}
+
 long
 sys_win32k(void)
 {
@@ -1010,6 +1057,8 @@ sys_win32k(void)
     return sys_getmsg(a1, (int)a2);
   case W32_GDI:
     return sys_gdi((uint32)a1, a2, (int)a3);
+  case W32_BLIT:
+    return sys_blit((uint32)a1, a2);
   case W32_SCREEN:
     if(!fb_ok){
       if(fb_kernel_info(&fbk) < 0)

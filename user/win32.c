@@ -968,6 +968,29 @@ DrawEdge(HDC dc, const RECT *r, int edge)
   return 1;
 }
 
+// SetDIBitsToDevice: draw a w x h bitmap of COLORREF pixels (rows top-down,
+// w pixels apart) at x,y of the DC.  Pending primitives are flushed first so
+// the kernel applies them in order.
+int
+SetDIBitsToDevice(HDC dc, int x, int y, int w, int h, const COLORREF *pixels)
+{
+  if(!batch_win || !batch_win->khwnd || w <= 0 || h <= 0)
+    return 0;
+  batch_flush();
+  struct w32_blit b;
+  b.x = dc->ox + x - batch_ox;
+  b.y = dc->oy + y - batch_oy;
+  b.w = w;
+  b.h = h;
+  b.pitch = w;
+  b.clip_left = dc->clip.left - batch_ox;
+  b.clip_top = dc->clip.top - batch_oy;
+  b.clip_right = dc->clip.right - batch_ox;
+  b.clip_bottom = dc->clip.bottom - batch_oy;
+  b.pixels = (uint64)pixels;
+  return k(W32_BLIT, batch_win->khwnd, (long)&b, 0) == 0;
+}
+
 static void
 draw_caption_button(const RECT *clip, int x, int y, int kind, int pressed)
 {
