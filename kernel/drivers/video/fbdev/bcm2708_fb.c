@@ -23,6 +23,7 @@
 #include <kernel/mbox.h>
 #include <kernel/mm.h>
 #include <uapi/fb.h>
+#include <kernel/win32k.h>
 
 #define FB_WIDTH   640
 #define FB_HEIGHT  480
@@ -35,7 +36,12 @@ static struct {
   uint32 rgb;                   // firmware pixel order: 1 = RGB, 0 = BGR
   uint64 base;                  // ARM physical address
   uint32 size;
+  uint32 *kva;                  // kernel mapping (win32k), 0 until needed
 } fb;
+
+// A fixed kernel window for the frame buffer, far above the linear map and
+// the peripherals, so mapping it can never collide with an existing entry.
+#define FB_KVA (KERNBASE + 0x80000000UL)
 
 // Configure and allocate in one property message; the firmware ignores a
 // separate ALLOCATE_BUFFER that follows the geometry in another message.
@@ -128,6 +134,34 @@ fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
     return either_copyout(1, arg, &var, sizeof(var));
   }
   return -1;
+}
+
+// The frame buffer for the kernel window manager (win32k): allocate it if no
+// one has opened /dev/fb0 yet and map it once, write-combining, at FB_KVA.
+int
+fb_kernel_info(struct fb_kinfo *ki)
+{
+  extern pagetable_t kernel_pagetable;
+
+  if(fb_open(0) < 0)
+    return -1;
+  acquire(&fb.lock);
+  if(fb.kva == 0){
+    if(mappages(kernel_pagetable, FB_KVA, PGROUNDUP(fb.size), fb.base,
+                PTE_NORMAL_NC | PTE_XN) < 0){
+      release(&fb.lock);
+      return -1;
+    }
+    flush_tlb();
+    fb.kva = (uint32 *)FB_KVA;
+  }
+  ki->pixels = fb.kva;
+  ki->width = fb.width;
+  ki->height = fb.height;
+  ki->stride = fb.pitch / 4;
+  ki->rgb = fb.rgb;
+  release(&fb.lock);
+  return 0;
 }
 
 static void

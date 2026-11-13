@@ -19,6 +19,7 @@
 #include <kernel/defs.h>
 #include <kernel/device.h>
 #include <kernel/input.h>
+#include <kernel/win32k.h>
 #include <kernel/module.h>
 #include <kernel/slab.h>
 #include <uapi/poll.h>
@@ -95,6 +96,9 @@ input_queue_locked(struct input_dev *dev, uint16 type, uint16 code, int value)
     for(struct evdev_client *c = dev->clients; c; c = c->next)
       evdev_pass_event(c, type, code, value);
   dev->sync_pending = !(type == EV_SYN && code == SYN_REPORT);
+  // The kernel window manager is one more consumer, like a Linux
+  // input_handler next to evdev.
+  win32k_input_event(type, code, value);
 }
 
 static int

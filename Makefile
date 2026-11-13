@@ -107,7 +107,8 @@ DRIVER_NET_OBJS = \
 
 DRIVER_CHAR_OBJS = \
   $K/drivers/char/mem.o \
-  $K/drivers/video/fbdev/bcm2708_fb.o
+  $K/drivers/video/fbdev/bcm2708_fb.o \
+  $K/drivers/video/win32k.o
 
 DRIVER_TTY_OBJS = \
   $K/drivers/tty/console.o \
@@ -612,10 +613,13 @@ $U/_camview: $U/camview.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camview.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camview.sym
 
-$U/_win: $U/winshell.o $U/win32.o $(ULIB) $(USER_LINK_STAMP)
+# Windowed programs: each is its own process on top of the kernel window
+# manager (win32k), linked with the user32/gdi32 library in win32.c.
+WINPROGS = explorer notepad calc cmd taskmgr
+$(WINPROGS:%=$U/_%): $U/_%: $U/%.o $U/win32.o $(ULIB) $(USER_LINK_STAMP)
 	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
-	$(OBJDUMP) -S $@ > $U/win.asm
-	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/win.sym
+	$(OBJDUMP) -S $@ > $U/$*.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/$*.sym
 
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
@@ -671,7 +675,11 @@ UPROGS=\
 	$U/_vmmap\
 	$U/_mmaptest\
 	$U/_gui\
-	$U/_win\
+	$U/_explorer\
+	$U/_notepad\
+	$U/_calc\
+	$U/_cmd\
+	$U/_taskmgr\
 	$U/_cowtest\
 	$U/_grind\
 	$U/_wc\

@@ -1,24 +1,30 @@
-// win32.c: the window manager, message queue, GDI and built-in controls
-// behind win32.h.  Roughly what ReactOS splits into win32k (windows, input,
-// painting) and user32/comctl32 (controls), squeezed into one user-space
-// module that draws on /dev/fb0.
+// win32.c: user32 + gdi32 for xv6, on top of the kernel window manager.
 //
-// Painting model: any change calls InvalidateRect(), which only grows a
-// "dirty" screen rectangle.  When the message queue runs dry, GetMessage()
-// recomposes the dirty rectangle bottom to top -- desktop, normal windows,
-// topmost windows, popup menu, mouse cursor -- calling each window's
-// WM_PAINT with an HDC clipped to its client area, and copies the result
-// from the RAM back buffer to the frame buffer.  Applications therefore
-// never draw outside WM_PAINT, exactly as in Win32.
+// Since the win32k step the split follows Windows NT:
+//
+//   kernel (drivers/video/win32k.c)    top-level windows (HWND handles), Z
+//                                      order, activation, per-process message
+//                                      queues, input hit testing, caption
+//                                      drag/minimize/close, the mouse cursor,
+//                                      update regions and visible regions
+//   this library, in every process     child controls (BUTTON, EDIT, ...),
+//                                      window procedures, DefWindowProc,
+//                                      GDI drawing, popup menus, MessageBox
+//
+// GetMessage() blocks in the kernel.  When the kernel reports WM_PAINT for
+// one of our top-level windows, we draw its frame, client area and children
+// into a private screen-sized back buffer, then copy only the visible
+// rectangles the kernel returned by BeginPaint to /dev/fb0.  So several
+// processes draw on one screen without overwriting each other, as GDI did
+// before the desktop window manager composited windows.
 
 #include <uapi/types.h>
 #include <uapi/stat.h>
 #include "user/user.h"
 #include <fcntl.h>
-#include <poll.h>
 #include <sys/mman.h>
 #include <uapi/fb.h>
-#include <uapi/input.h>
+#include <uapi/win32k.h>
 #include "user/win32.h"
 #include "user/font8x16.h"
 
@@ -26,15 +32,14 @@
 #define MAXCLASS   32
 #define MAXQUEUE   256
 #define MAXTIMER   32
-#define MAXWATCH   8
-#define MAX_INPUT  4
 
-#define FRAME      3            // WS_CAPTION outer 3D frame
-#define CAPTION_H  18
+#define FRAME      W32_FRAME
+#define CAPTION_H  W32_CAPTION_H
 #define CBORDER    2            // WS_BORDER sunken control border
 // WS_CAPTION is WS_BORDER | WS_DLGFRAME (as in Win32), so a bordered control
 // also has one of its bits: a caption needs both.
 #define HASCAP(style) (((style) & WS_CAPTION) == WS_CAPTION)
+#define WS_MENU_INTERNAL 0x00000020u
 
 struct wclass {
   int used;
@@ -56,6 +61,8 @@ struct window {
   long userdata;
   int visible, minimized;
   void *ctl;                    // built-in control state
+  uint32 khwnd;                 // top-level: the kernel's handle
+  struct window *focus;         // top-level: focused descendant
 };
 
 struct dc {
@@ -68,33 +75,25 @@ struct dc {
 
 static struct wclass classes[MAXCLASS];
 static struct window windows[MAXWIN];
-static HWND top[MAXWIN];        // top-level windows, bottom to top
-static int ntop;
 
 static MSG queue[MAXQUEUE];
 static int qhead, qtail;
 static int quit_posted;
 
 static struct { HWND hwnd; int id, ms; uint64 next; } timers[MAXTIMER];
-static struct { int fd; HWND hwnd; } watches[MAXWATCH];
 
-static HWND focus, active, capture, popup, taskbar;
-static HWND popup_prev_focus;  // focus to give back when the menu closes
-static HWND drag_win;           // caption drag in progress
-static int drag_dx, drag_dy;
-static HWND nc_button_win;      // caption button pressed (1 min, 2 close)
+static HWND active;             // the top-level being painted, if active
+static HWND active_top;         // our top-level the kernel last activated
+static HWND capture;            // control that got the button down
+static HWND popup;              // our open popup menu
+static HWND nc_button_win;      // (the kernel tracks caption buttons)
 static int nc_button;
 
-// ---------------------------------------------------------------------------
-// Screen.
-
-static uint32 *fb, *bb;
-static int SW, SH, stride;
-static int roff, goff, boff;
-static RECT dirty;
-static int infd[MAX_INPUT] = { -1, -1, -1, -1 };
-static int mouse_x, mouse_y, mouse_on;
-static int shift, ctrl, caps;
+static long
+k(int op, long a1, long a2, long a3)
+{
+  return win32k(op, a1, a2, a3);
+}
 
 // strncpy that always terminates (the kernel's safestrcpy).
 static void
@@ -106,6 +105,13 @@ scopy(char *d, const char *s, int n)
     *d++ = *s++;
   *d = 0;
 }
+
+// ---------------------------------------------------------------------------
+// Screen.
+
+static uint32 *fb, *bb;         // frame buffer; this process's back buffer
+static int SW, SH, stride;
+static int roff, goff, boff;
 
 static uint32
 px(COLORREF c)
@@ -135,22 +141,6 @@ pt_in(const RECT *r, int x, int y)
   return x >= r->left && x < r->right && y >= r->top && y < r->bottom;
 }
 
-static void
-damage(const RECT *r)
-{
-  if(rect_empty(r))
-    return;
-  if(rect_empty(&dirty)){
-    dirty = *r;
-    return;
-  }
-  if(r->left < dirty.left) dirty.left = r->left;
-  if(r->top < dirty.top) dirty.top = r->top;
-  if(r->right > dirty.right) dirty.right = r->right;
-  if(r->bottom > dirty.bottom) dirty.bottom = r->bottom;
-}
-
-// Raw fill in screen coordinates, clipped.
 static void
 sfill(const RECT *clip, int x0, int y0, int x1, int y1, COLORREF c)
 {
@@ -251,8 +241,7 @@ client_origin(HWND w, int *x, int *y)
 {
   RECT r;
   window_screen_rect(w, &r);
-  int inset = HASCAP(w->style) ? FRAME :
-              (w->style & WS_BORDER) ? CBORDER : 0;
+  int inset = HASCAP(w->style) ? FRAME : (w->style & WS_BORDER) ? CBORDER : 0;
   *x = r.left + inset;
   *y = r.top + inset + (HASCAP(w->style) ? CAPTION_H : 0);
 }
@@ -262,12 +251,34 @@ client_screen_rect(HWND w, RECT *c)
 {
   RECT r;
   window_screen_rect(w, &r);
-  int inset = HASCAP(w->style) ? FRAME :
-              (w->style & WS_BORDER) ? CBORDER : 0;
+  int inset = HASCAP(w->style) ? FRAME : (w->style & WS_BORDER) ? CBORDER : 0;
   c->left = r.left + inset;
   c->top = r.top + inset + (HASCAP(w->style) ? CAPTION_H : 0);
   c->right = r.right - inset;
   c->bottom = r.bottom - inset;
+}
+
+static HWND
+toplevel(HWND w)
+{
+  while(w && w->parent)
+    w = w->parent;
+  return w;
+}
+
+// The kernel may have moved a top-level window (caption drag): refresh.
+static void
+sync_rect(HWND w)
+{
+  struct w32_info info;
+  if(w && !w->parent && w->khwnd &&
+     k(W32_GETINFO, w->khwnd, (long)&info, 0) == 0){
+    w->rc.left = info.rc.left;
+    w->rc.top = info.rc.top;
+    w->rc.right = info.rc.right;
+    w->rc.bottom = info.rc.bottom;
+    w->minimized = info.minimized;
+  }
 }
 
 int
@@ -288,40 +299,24 @@ GetWindowRect(HWND h, RECT *rc)
 {
   if(!valid(h))
     return 0;
+  sync_rect(toplevel(h));
   window_screen_rect(h, rc);
   return 1;
 }
 
-static int
-shown(HWND w)
-{
-  for(; w; w = w->parent)
-    if(!w->visible || w->minimized)
-      return 0;
-  return 1;
-}
-
-int IsWindowVisible(HWND h) { return valid(h) && shown(h); }
+int IsWindowVisible(HWND h) { return valid(h) && h->visible && !h->minimized; }
 int IsIconic(HWND h) { return valid(h) && h->minimized; }
 HWND GetParent(HWND h) { return valid(h) ? h->parent : 0; }
-
-static HWND
-toplevel(HWND w)
-{
-  while(w && w->parent)
-    w = w->parent;
-  return w;
-}
 
 int
 InvalidateRect(HWND h, const RECT *rc, int erase)
 {
   (void)erase;
-  if(!valid(h)){
-    RECT all = { 0, 0, SW, SH };
-    damage(&all);
-    return 1;
-  }
+  if(!valid(h))
+    return 0;
+  HWND t = toplevel(h);
+  if(!t->khwnd)
+    return 0;
   RECT r;
   if(rc){
     int ox, oy;
@@ -331,23 +326,16 @@ InvalidateRect(HWND h, const RECT *rc, int erase)
   } else {
     window_screen_rect(h, &r);
   }
-  damage(&r);
+  struct w32_rect wr = { r.left - t->rc.left, r.top - t->rc.top,
+                         r.right - t->rc.left, r.bottom - t->rc.top };
+  k(W32_INVALIDATE, t->khwnd, (long)&wr, 0);
   return 1;
 }
 
 static void
 damage_window(HWND w)
 {
-  RECT r;
-  window_screen_rect(w, &r);
-  damage(&r);
-}
-
-static void
-shell_notify(void)
-{
-  if(valid(taskbar))
-    PostMessage(taskbar, WM_SHELLHOOK, 0, 0);
+  InvalidateRect(w, 0, 1);
 }
 
 int
@@ -357,59 +345,9 @@ GetSystemMetrics(int i)
   case SM_CXSCREEN: return SW;
   case SM_CYSCREEN: return SH;
   case SM_CYCAPTION: return CAPTION_H;
-  case SM_CYTASKBAR: return valid(taskbar) ? taskbar->rc.bottom - taskbar->rc.top : 0;
+  case SM_CYTASKBAR: return 28;
   }
   return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Z order.
-
-static void
-top_remove(HWND w)
-{
-  int j = 0;
-  for(int i = 0; i < ntop; i++)
-    if(top[i] != w)
-      top[j++] = top[i];
-  ntop = j;
-}
-
-// Raise below the topmost band (or to the very top for topmost windows).
-static void
-raise_window(HWND w)
-{
-  if(w->style & WS_BOTTOM){
-    top_remove(w);
-    memmove(top + 1, top, ntop * sizeof(top[0]));
-    top[0] = w;
-    ntop++;
-    return;
-  }
-  top_remove(w);
-  int pos = ntop;
-  if(!(w->style & WS_TOPMOST))
-    while(pos > 0 && (top[pos - 1]->style & WS_TOPMOST))
-      pos--;
-  memmove(top + pos + 1, top + pos, (ntop - pos) * sizeof(top[0]));
-  top[pos] = w;
-  ntop++;
-  damage_window(w);
-}
-
-int
-WinEnumTopLevel(HWND *out, int max)
-{
-  // Creation order (slot order), not Z order, so taskbar buttons stay put
-  // when another window is activated.
-  int n = 0;
-  for(int i = 0; i < MAXWIN && n < max; i++){
-    HWND w = &windows[i];
-    if(w->used && !w->parent && w->visible && HASCAP(w->style) &&
-       !(w->style & WS_NOTASKBAR))
-      out[n++] = w;
-  }
-  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +398,14 @@ strdup_(const char *s)
   return d;
 }
 
-static int cascade;
+static HWND
+by_khwnd(uint32 h)
+{
+  for(int i = 0; i < MAXWIN; i++)
+    if(windows[i].used && !windows[i].parent && windows[i].khwnd == h)
+      return &windows[i];
+  return 0;
+}
 
 HWND
 CreateWindow(const char *cls, const char *title, uint style, int x, int y,
@@ -486,14 +431,18 @@ CreateWindow(const char *cls, const char *title, uint style, int x, int y,
   win->style = style;
   win->id = id;
   if(!parent && x == CW_USEDEFAULT){
-    x = 30 + cascade * 24;
-    y = 30 + cascade * 24;
-    cascade = (cascade + 1) % 6;
+    // Spread new windows out by process, since each has its own cascade.
+    static int cascade = -1;
+    if(cascade < 0)
+      cascade = getpid() % 7;
+    x = 24 + cascade * 26;
+    y = 16 + cascade * 22;
+    cascade = (cascade + 1) % 7;
   }
   if(!parent){
     int work = SH - GetSystemMetrics(SM_CYTASKBAR);
     if(x + w > SW) x = SW - w > 0 ? SW - w : 0;
-    if(y + h > work) y = work - h > 0 ? work - h : 0;
+    if(y + h > work && !(style & WS_TOPMOST)) y = work - h > 0 ? work - h : 0;
   }
   win->rc.left = x;
   win->rc.top = y;
@@ -506,9 +455,6 @@ CreateWindow(const char *cls, const char *title, uint style, int x, int y,
     while(*pp)
       pp = &(*pp)->next;
     *pp = win;
-  } else {
-    top[ntop++] = win;
-    raise_window(win);
   }
   if(SendMessage(win, WM_CREATE, 0, (LPARAM)param) < 0){
     DestroyWindow(win);
@@ -516,13 +462,30 @@ CreateWindow(const char *cls, const char *title, uint style, int x, int y,
   }
   if(!valid(win))
     return 0;
-  if(win->visible){
+  if(!parent){
+    // The kernel object is created after WM_CREATE so that the children
+    // exist before the first WM_PAINT arrives.
+    struct w32_create cr;
+    memset(&cr, 0, sizeof(cr));
+    cr.x = x; cr.y = y; cr.w = w; cr.h = h;
+    cr.style = (win->visible ? W32S_VISIBLE : 0) |
+               (HASCAP(style) ? W32S_CAPTION : 0) |
+               ((style & WS_TOPMOST) ? W32S_TOPMOST : 0) |
+               ((style & WS_BOTTOM) ? W32S_BOTTOM : 0) |
+               ((style & WS_NOTASKBAR) ? W32S_NOTASKBAR : 0) |
+               ((style & WS_MENU_INTERNAL) ? W32S_MENU : 0);
+    scopy(cr.title, win->text ? win->text : "", sizeof(cr.title));
+    win->khwnd = (uint32)k(W32_CREATE, (long)&cr, 0, 0);
+    if(win->khwnd == 0 || win->khwnd == (uint32)-1){
+      win->khwnd = 0;
+      DestroyWindow(win);
+      return 0;
+    }
+    if(HASCAP(style) && win->visible)
+      active_top = win;
+  } else if(win->visible){
     damage_window(win);
-    if(!parent && HASCAP(style))
-      SetActiveWindow(win);
   }
-  if(!parent)
-    shell_notify();
   return win;
 }
 
@@ -535,9 +498,6 @@ purge(HWND w)
   for(int i = 0; i < MAXTIMER; i++)
     if(timers[i].hwnd == w)
       timers[i].hwnd = 0;
-  for(int i = 0; i < MAXWATCH; i++)
-    if(watches[i].hwnd == w)
-      watches[i].hwnd = 0;
 }
 
 int
@@ -545,7 +505,8 @@ DestroyWindow(HWND w)
 {
   if(!valid(w))
     return 0;
-  damage_window(w);
+  if(w->parent)
+    damage_window(w);
   while(w->child)
     DestroyWindow(w->child);
   SendMessage(w, WM_DESTROY, 0, 0);
@@ -557,36 +518,19 @@ DestroyWindow(HWND w)
       pp = &(*pp)->next;
     if(*pp)
       *pp = w->next;
-  } else {
-    top_remove(w);
+    HWND t = toplevel(w);
+    if(t && t->focus == w)
+      t->focus = 0;
+  } else if(w->khwnd){
+    k(W32_DESTROY, w->khwnd, 0, 0);
   }
   purge(w);
-  if(focus == w || (focus && toplevel(focus) == w))
-    focus = 0;
-  if(capture == w) capture = 0;
-  if(popup == w){
-    popup = 0;
-    if(valid(popup_prev_focus) && popup_prev_focus != w)
-      focus = popup_prev_focus;
-    shell_notify();             // e.g. pop the Start button back up
-  }
-  if(drag_win == w) drag_win = 0;
-  if(nc_button_win == w) nc_button_win = 0;
+  if(capture == w || (capture && toplevel(capture) == w)) capture = 0;
+  if(popup == w) popup = 0;
+  if(active_top == w) active_top = 0;
   free(w->text);
   free(w->ctl);
-  int was_top = !w->parent;
   w->used = 0;
-  if(active == w){
-    active = 0;
-    for(int i = ntop - 1; i >= 0; i--)
-      if(HASCAP(top[i]->style) && top[i]->visible &&
-         !top[i]->minimized){
-        SetActiveWindow(top[i]);
-        break;
-      }
-  }
-  if(was_top)
-    shell_notify();
   return 1;
 }
 
@@ -595,25 +539,13 @@ ShowWindow(HWND w, int show)
 {
   if(!valid(w))
     return 0;
-  if(!w->parent && HASCAP(w->style)){
+  if(!w->parent){
     w->visible = 1;
     w->minimized = !show;
-    damage_window(w);
-    if(show)
-      SetActiveWindow(w);
-    else if(active == w){
-      active = 0;
-      if(focus && toplevel(focus) == w)
-        focus = 0;
-      for(int i = ntop - 1; i >= 0; i--)
-        if(HASCAP(top[i]->style) && top[i]->visible &&
-           !top[i]->minimized){
-          SetActiveWindow(top[i]);
-          break;
-        }
-    }
-    shell_notify();
+    if(w->khwnd)
+      k(W32_SHOW, w->khwnd, show, 0);
   } else {
+    damage_window(w);
     w->visible = show != 0;
     damage_window(w);
   }
@@ -625,13 +557,18 @@ MoveWindow(HWND w, int x, int y, int cx, int cy, int repaint)
 {
   if(!valid(w))
     return 0;
+  (void)repaint;
+  if(!w->parent){
+    struct w32_rect r = { x, y, x + cx, y + cy };
+    w->rc.left = x; w->rc.top = y; w->rc.right = x + cx; w->rc.bottom = y + cy;
+    return k(W32_MOVE, w->khwnd, (long)&r, 0) == 0;
+  }
   damage_window(w);
   w->rc.left = x;
   w->rc.top = y;
   w->rc.right = x + cx;
   w->rc.bottom = y + cy;
   damage_window(w);
-  (void)repaint;
   return 1;
 }
 
@@ -641,12 +578,11 @@ SetWindowText(HWND w, const char *s)
   if(!valid(w))
     return 0;
   SendMessage(w, WM_SETTEXT, 0, (LPARAM)s);
-  if(!w->parent)
-    shell_notify();
+  if(!w->parent && w->khwnd)
+    k(W32_SETTEXT, w->khwnd, (long)(s ? s : ""), 0);
   return 1;
 }
 
-struct edit;
 static int edit_get(HWND w, char *buf, int max);
 static int edit_len(HWND w);
 
@@ -699,46 +635,53 @@ SetWindowLong(HWND w, int i, long v)
   return old;
 }
 
+// Keyboard focus: per top-level window, as each process only ever sees the
+// keys the kernel routes to its active window.
+HWND
+GetFocus(void)
+{
+  if(valid(popup))
+    return popup;
+  if(!valid(active_top))
+    return 0;
+  return valid(active_top->focus) ? active_top->focus : active_top;
+}
+
 HWND
 SetFocus(HWND w)
 {
-  HWND old = focus;
-  if(w && !valid(w))
-    return old;
+  if(!valid(w))
+    return 0;
+  HWND t = toplevel(w), old = t->focus;
   if(old == w)
     return old;
-  focus = w;
+  t->focus = w;
   if(valid(old)){
     SendMessage(old, WM_KILLFOCUS, (WPARAM)w, 0);
     damage_window(old);
   }
-  if(w){
-    SendMessage(w, WM_SETFOCUS, (WPARAM)old, 0);
-    damage_window(w);
-  }
+  SendMessage(w, WM_SETFOCUS, (WPARAM)old, 0);
+  damage_window(w);
   return old;
 }
 
-HWND GetFocus(void) { return focus; }
-HWND GetActiveWindow(void) { return active; }
+HWND
+GetActiveWindow(void)
+{
+  return valid(active_top) ? active_top : 0;
+}
 
 HWND
 SetActiveWindow(HWND w)
 {
-  HWND old = active;
+  HWND old = active_top;
   if(!valid(w))
     return old;
   w = toplevel(w);
-  raise_window(w);
-  if(old != w){
-    active = w;
-    if(valid(old))
-      damage_window(old);
-    damage_window(w);
-    if(!focus || toplevel(focus) != w)
-      SetFocus(w);
-    shell_notify();
-  }
+  if(w->khwnd)
+    k(W32_ACTIVATE, w->khwnd, 0, 0);
+  if(HASCAP(w->style) || (w->style & WS_BOTTOM))
+    active_top = w;
   return old;
 }
 
@@ -748,15 +691,34 @@ SetActiveWindow(HWND w)
 int
 PostMessage(HWND w, uint msg, WPARAM wp, LPARAM lp)
 {
+  // A top-level window's queue is the kernel's: that is also safe from
+  // another thread of this process (the console reader).
+  if(valid(w) && !w->parent && w->khwnd){
+    struct w32_msg m = { w->khwnd, msg, wp, lp };
+    return k(W32_POST, (long)&m, 0, 0) > 0;
+  }
   int next = (qtail + 1) % MAXQUEUE;
   if(next == qhead)
-    return 0;                   // queue full: drop, like a lost input event
+    return 0;
   queue[qtail].hwnd = w;
   queue[qtail].message = msg;
   queue[qtail].wParam = wp;
   queue[qtail].lParam = lp;
   qtail = next;
   return 1;
+}
+
+static void
+post_local(HWND w, uint msg, WPARAM wp, LPARAM lp)
+{
+  int next = (qtail + 1) % MAXQUEUE;
+  if(next == qhead)
+    return;
+  queue[qtail].hwnd = w;
+  queue[qtail].message = msg;
+  queue[qtail].wParam = wp;
+  queue[qtail].lParam = lp;
+  qtail = next;
 }
 
 LRESULT
@@ -770,8 +732,8 @@ SendMessage(HWND w, uint msg, WPARAM wp, LPARAM lp)
 void
 PostQuitMessage(int code)
 {
-  (void)code;
   quit_posted = 1;
+  k(W32_QUIT, code, 0, 0);
 }
 
 LRESULT
@@ -823,30 +785,62 @@ KillTimer(HWND w, int id)
   return 1;
 }
 
+// ---------------------------------------------------------------------------
+// Other processes' windows (the taskbar).
+
 int
-WinWatchFd(int fd, HWND w)
+WinEnumWindows(KWND *out, int max)
 {
-  for(int i = 0; i < MAXWATCH; i++)
-    if(!watches[i].hwnd){
-      watches[i].fd = fd;
-      watches[i].hwnd = w;
-      return 1;
-    }
-  return 0;
+  long n = k(W32_ENUM, (long)out, max, 0);
+  return n < 0 ? 0 : (int)n;
 }
 
-void
-WinUnwatchFd(int fd)
+int
+WinEnumAllWindows(KWND *out, int max)
 {
-  for(int i = 0; i < MAXWATCH; i++)
-    if(watches[i].hwnd && watches[i].fd == fd)
-      watches[i].hwnd = 0;
+  long n = k(W32_ENUM, (long)out, max, 1);
+  return n < 0 ? 0 : (int)n;
 }
 
-void
-WinSetTaskbar(HWND w)
+int
+KwndGetText(KWND h, char *buf, int max)
 {
-  taskbar = w;
+  long n = k(W32_GETTEXT, h, (long)buf, max);
+  if(n < 0 && max > 0)
+    buf[0] = 0;
+  return n < 0 ? 0 : (int)n;
+}
+
+int
+KwndGetInfo(KWND h, struct w32_info *info)
+{
+  return k(W32_GETINFO, h, (long)info, 0) == 0;
+}
+
+KWND
+KwndGetActive(void)
+{
+  long h = k(W32_GETACTIVE, 0, 0, 0);
+  return h < 0 ? 0 : (KWND)h;
+}
+
+void KwndActivate(KWND h) { k(W32_ACTIVATE, h, 0, 0); }
+void KwndShow(KWND h, int show) { k(W32_SHOW, h, show, 0); }
+
+void
+KwndPost(KWND h, uint msg, WPARAM wp, LPARAM lp)
+{
+  struct w32_msg m = { h, msg, wp, lp };
+  k(W32_POST, (long)&m, 0, 0);
+}
+
+KWND WinGetKwnd(HWND w) { return valid(w) ? toplevel(w)->khwnd : 0; }
+
+void
+WinSetShell(HWND w)
+{
+  if(valid(w) && w->khwnd)
+    k(W32_SETSHELL, w->khwnd, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -885,9 +879,10 @@ GetDC(HWND w)
 int
 ReleaseDC(HWND w, HDC dc)
 {
-  if(dc)
-    damage(&dc->clip);
-  (void)w;
+  // Drawing outside WM_PAINT is not supported on the shared screen: ask
+  // the kernel for a WM_PAINT of the window instead.
+  (void)dc;
+  InvalidateRect(w, 0, 1);
   return 1;
 }
 
@@ -1063,42 +1058,43 @@ paint_tree(HWND w, const RECT *parent_clip)
     paint_tree(c, &cclip);
 }
 
-static const char *cursor_img[] = {
-  "X           ", "XX          ", "X.X         ", "X..X        ",
-  "X...X       ", "X....X      ", "X.....X     ", "X......X    ",
-  "X.......X   ", "X........X  ", "X.........X ", "X......XXXXX",
-  "X...X..X    ", "X..XX..X    ", "X.X  X..X   ", "XX   X..X   ",
-  "X     X..X  ", "      X..X  ", "       XX   ",
-};
+
+// ---------------------------------------------------------------------------
+// Painting a top-level window when the kernel asks for it.
 
 static void
-compose(void)
+paint_toplevel(HWND w)
 {
-  RECT clip = dirty, screen = { 0, 0, SW, SH };
-  if(rect_empty(&clip))
+  struct w32_paint ps;
+  if(k(W32_BEGINPAINT, w->khwnd, (long)&ps, 0) < 0)
     return;
-  rect_intersect(&clip, &clip, &screen);
-  sfill(&clip, 0, 0, SW, SH, CLR_DESKTOP);
-  for(int i = 0; i < ntop; i++)
-    paint_tree(top[i], &clip);
-  if(valid(popup))
-    paint_tree(popup, &clip);   // popups sit above even topmost windows
-  if(mouse_on)
-    for(int r = 0; r < 19; r++)
-      for(int c = 0; c < 12; c++){
-        char p = cursor_img[r][c];
-        if(p != ' ')
-          sfill(&clip, mouse_x + c, mouse_y + r, mouse_x + c + 1,
-                mouse_y + r + 1, p == 'X' ? CLR_DKSHADOW : CLR_HILIGHT);
-      }
-  for(int y = clip.top; y < clip.bottom; y++)
-    memmove(fb + y * stride + clip.left, bb + y * SW + clip.left,
-            (clip.right - clip.left) * 4);
-  dirty.left = dirty.right = 0;
+  w->rc.left = ps.rc.left;
+  w->rc.top = ps.rc.top;
+  w->rc.right = ps.rc.right;
+  w->rc.bottom = ps.rc.bottom;
+  if(ps.nvis > 0){
+    RECT clip = { ps.rc.left + ps.update.left, ps.rc.top + ps.update.top,
+                  ps.rc.left + ps.update.right, ps.rc.top + ps.update.bottom };
+    RECT screen = { 0, 0, SW, SH };
+    rect_intersect(&clip, &clip, &screen);
+    active = ps.active ? w : 0;
+    paint_tree(w, &clip);
+    active = 0;
+    // Only the parts nobody covers reach the screen.
+    for(int i = 0; i < ps.nvis; i++){
+      RECT v = { ps.vis[i].left, ps.vis[i].top, ps.vis[i].right,
+                 ps.vis[i].bottom };
+      rect_intersect(&v, &v, &screen);
+      for(int y = v.top; y < v.bottom; y++)
+        memmove(fb + y * stride + v.left, bb + y * SW + v.left,
+                (v.right - v.left) * 4);
+    }
+  }
+  k(W32_ENDPAINT, w->khwnd, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
-// Input.
+// The message loop.
 
 static HWND
 deepest_child(HWND w, int x, int y)
@@ -1123,23 +1119,6 @@ deepest_child(HWND w, int x, int y)
   }
 }
 
-static HWND
-window_at(int x, int y)
-{
-  if(valid(popup)){
-    RECT r;
-    window_screen_rect(popup, &r);
-    if(pt_in(&r, x, y))
-      return popup;
-  }
-  for(int i = ntop - 1; i >= 0; i--){
-    HWND w = top[i];
-    if(w->visible && !w->minimized && pt_in(&w->rc, x, y))
-      return w;
-  }
-  return 0;
-}
-
 static LPARAM
 client_pos(HWND w, int x, int y)
 {
@@ -1148,315 +1127,105 @@ client_pos(HWND w, int x, int y)
   return MAKELPARAM(x - ox, y - oy);
 }
 
-static uint64 last_click_us;
-static HWND last_click_win;
-static int last_click_x, last_click_y;
-
+// A kernel message for one of our top-level windows: route it to the
+// window procedure that should see it (a child control for mouse and keys).
 static void
-mouse_button(int down)
+translate(struct w32_msg *km)
 {
-  int x = mouse_x, y = mouse_y;
-
-  if(!down){
-    if(drag_win){
-      drag_win = 0;
-      return;
+  HWND t = km->hwnd ? by_khwnd(km->hwnd) : 0;
+  if(!t)
+    return;
+  switch(km->message){
+  case W32M_PAINT:
+    paint_toplevel(t);
+    return;
+  case W32M_ACTIVATE:
+    if(km->wparam)
+      active_top = t;
+    else if(active_top == t)
+      active_top = 0;
+    return;
+  case W32M_CANCELMODE:
+    if(t == popup)
+      DestroyWindow(t);
+    return;
+  case W32M_MOUSEMOVE:
+  case W32M_LBUTTONDOWN:
+  case W32M_LBUTTONUP:
+  case W32M_LBUTTONDBLCLK:
+  case W32M_RBUTTONDOWN:
+  case W32M_MOUSEWHEEL: {
+    int sx = t->rc.left + LOWORD(km->lparam);
+    int sy = t->rc.top + HIWORD(km->lparam);
+    HWND target;
+    if(valid(capture) && toplevel(capture) == t &&
+       (km->message == W32M_MOUSEMOVE || km->message == W32M_LBUTTONUP))
+      target = capture;
+    else
+      target = deepest_child(t, sx, sy);
+    if(km->message == W32M_LBUTTONDOWN || km->message == W32M_LBUTTONDBLCLK){
+      if(target != popup)
+        SetFocus(target);
+      capture = target;
     }
-    if(nc_button_win){
-      HWND w = nc_button_win;
-      int which = nc_button;
-      RECT mn, cl;
-      nc_button_win = 0;
-      nc_button = 0;
-      damage_window(w);
-      caption_buttons(w, &mn, &cl);
-      if(which == 1 && pt_in(&mn, x, y))
-        ShowWindow(w, 0);
-      else if(which == 2 && pt_in(&cl, x, y))
-        PostMessage(w, WM_CLOSE, 0, 0);
-      return;
-    }
-    if(capture){
-      HWND c = capture;
+    post_local(target, km->message, km->wparam, client_pos(target, sx, sy));
+    if(km->message == W32M_LBUTTONUP)
       capture = 0;
-      PostMessage(c, WM_LBUTTONUP, 0, client_pos(c, x, y));
-    }
     return;
   }
-
-  // A click outside the open popup menu only closes it.
-  if(valid(popup)){
-    RECT r;
-    window_screen_rect(popup, &r);
-    if(!pt_in(&r, x, y)){
-      DestroyWindow(popup);
-      popup = 0;
-      return;
-    }
-  }
-  HWND w = window_at(x, y);
-  if(!w)
+  case W32M_KEYDOWN:
+  case W32M_CHAR: {
+    HWND target = t == popup ? t : (valid(t->focus) ? t->focus : t);
+    post_local(target, km->message, km->wparam, km->lparam);
     return;
-  if(w != popup && !(w->style & WS_TOPMOST))
-    SetActiveWindow(w);
-  else if(w != popup && HASCAP(w->style))
-    SetActiveWindow(w);
-
-  if(HASCAP(w->style)){
-    RECT cr, mn, cl;
-    client_screen_rect(w, &cr);
-    if(!pt_in(&cr, x, y)){
-      caption_buttons(w, &mn, &cl);
-      if(pt_in(&mn, x, y) || pt_in(&cl, x, y)){
-        nc_button_win = w;
-        nc_button = pt_in(&mn, x, y) ? 1 : 2;
-        damage_window(w);
-      } else if(y < w->rc.top + FRAME + CAPTION_H){
-        drag_win = w;
-        drag_dx = x - w->rc.left;
-        drag_dy = y - w->rc.top;
-      }
-      return;
-    }
   }
-  HWND t = deepest_child(w, x, y);
-  if(t != popup)
-    SetFocus(t);
-  uint64 now = clock_us();
-  int dbl = t == last_click_win && now - last_click_us < 450000 &&
-            x - last_click_x < 5 && last_click_x - x < 5 &&
-            y - last_click_y < 5 && last_click_y - y < 5;
-  last_click_us = dbl ? 0 : now;
-  last_click_win = t;
-  last_click_x = x;
-  last_click_y = y;
-  capture = t;
-  PostMessage(t, dbl ? WM_LBUTTONDBLCLK : WM_LBUTTONDOWN, 0,
-              client_pos(t, x, y));
+  }
+  post_local(t, km->message, km->wparam, km->lparam);   // WM_CLOSE etc.
 }
-
-static void
-mouse_move(int dx, int dy)
-{
-  RECT old = { mouse_x, mouse_y, mouse_x + 12, mouse_y + 19 };
-  damage(&old);
-  if(!mouse_on){
-    mouse_on = 1;
-    mouse_x = SW / 2;
-    mouse_y = SH / 2;
-  }
-  mouse_x += dx;
-  mouse_y += dy;
-  if(mouse_x < 0) mouse_x = 0;
-  if(mouse_y < 0) mouse_y = 0;
-  if(mouse_x >= SW) mouse_x = SW - 1;
-  if(mouse_y >= SH) mouse_y = SH - 1;
-  RECT now = { mouse_x, mouse_y, mouse_x + 12, mouse_y + 19 };
-  damage(&now);
-  if(drag_win){
-    int w = drag_win->rc.right - drag_win->rc.left;
-    int h = drag_win->rc.bottom - drag_win->rc.top;
-    int nx = mouse_x - drag_dx, ny = mouse_y - drag_dy;
-    if(ny < 0) ny = 0;
-    if(ny > SH - 30) ny = SH - 30;
-    if(nx > SW - 40) nx = SW - 40;
-    if(nx + w < 40) nx = 40 - w;
-    MoveWindow(drag_win, nx, ny, w, h, 1);
-    return;
-  }
-  HWND t = capture;
-  if(!t){
-    HWND w = window_at(mouse_x, mouse_y);
-    if(w)
-      t = deepest_child(w, mouse_x, mouse_y);
-  }
-  if(t)
-    PostMessage(t, WM_MOUSEMOVE, 0, client_pos(t, mouse_x, mouse_y));
-}
-
-// Linux key code -> ASCII.
-static const char keymap[] =
-  "\0\0331234567890-=\b\tqwertyuiop[]\r\0asdfghjkl;'`\0\\zxcvbnm,./";
-static const char shiftmap[] =
-  "\0\033!@#$%^&*()_+\b\tQWERTYUIOP{}\r\0ASDFGHJKL:\"~\0|ZXCVBNM<>?";
-
-static void
-key_event(int code, int down)
-{
-  if(code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT){ shift = down; return; }
-  if(code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL){ ctrl = down; return; }
-  if(!down)
-    return;
-  if(code == KEY_CAPSLOCK){ caps ^= 1; return; }
-  HWND t = valid(popup) ? popup : focus;
-  if(!valid(t))
-    return;
-  int vk = 0, ch = 0;
-  switch(code){
-  case KEY_UP: vk = VK_UP; break;
-  case KEY_DOWN: vk = VK_DOWN; break;
-  case KEY_LEFT: vk = VK_LEFT; break;
-  case KEY_RIGHT: vk = VK_RIGHT; break;
-  case KEY_SPACE: vk = ' '; ch = ' '; break;
-  case 111: vk = VK_DELETE; break;            // KEY_DELETE
-  case 102: vk = VK_HOME; break;              // KEY_HOME
-  case 107: vk = VK_END; break;               // KEY_END
-  default:
-    if(code > 0 && code < (int)sizeof(keymap) - 1 && keymap[code]){
-      char c = keymap[code];
-      int up = shift;
-      if(c >= 'a' && c <= 'z')
-        up ^= caps;
-      if(up)
-        c = shiftmap[code];
-      vk = (c >= 'a' && c <= 'z') ? c - 32 : c;
-      if(ctrl && (c | 0x20) >= 'a' && (c | 0x20) <= 'z')
-        c = (c | 0x20) - 'a' + 1;
-      ch = c;
-    }
-  }
-  if(vk)
-    PostMessage(t, WM_KEYDOWN, vk, 0);
-  if(ch)
-    PostMessage(t, WM_CHAR, (uchar)ch, 0);
-}
-
-static void
-input_scan(void)
-{
-  char path[] = "/dev/input/event0";
-  for(int i = 0; i < MAX_INPUT; i++){
-    if(infd[i] >= 0)
-      continue;
-    path[sizeof(path) - 2] = '0' + i;
-    infd[i] = open(path, O_RDONLY | O_NONBLOCK);
-    if(infd[i] >= 0)
-      ioctl(infd[i], EVIOCGRAB, 1);
-  }
-}
-
-static void
-input_read(int i)
-{
-  struct input_event ev[32];
-  int n = read(infd[i], ev, sizeof(ev));
-  if(n <= 0){
-    ioctl(infd[i], EVIOCGRAB, 0);
-    close(infd[i]);
-    infd[i] = -1;
-    return;
-  }
-  int dx = 0, dy = 0;
-  for(int k = 0; k < n / (int)sizeof(ev[0]); k++){
-    struct input_event *e = &ev[k];
-    if(e->type == EV_REL){
-      if(e->code == REL_X) dx += e->value;
-      else if(e->code == REL_Y) dy += e->value;
-      else if(e->code == REL_WHEEL){
-        HWND w = window_at(mouse_x, mouse_y);
-        if(w){
-          w = deepest_child(w, mouse_x, mouse_y);
-          PostMessage(w, WM_MOUSEWHEEL, e->value,
-                      client_pos(w, mouse_x, mouse_y));
-        }
-      }
-    } else if(e->type == EV_KEY){
-      if(e->code == BTN_LEFT || e->code == BTN_RIGHT){
-        if(dx || dy){ mouse_move(dx, dy); dx = dy = 0; }
-        if(!mouse_on)
-          mouse_move(0, 0);
-        if(e->code == BTN_LEFT)
-          mouse_button(e->value);
-        else if(e->value){
-          HWND w = window_at(mouse_x, mouse_y);
-          if(w){
-            w = deepest_child(w, mouse_x, mouse_y);
-            PostMessage(w, WM_RBUTTONDOWN, 0, client_pos(w, mouse_x, mouse_y));
-          }
-        }
-      } else if(e->code < BTN_LEFT){
-        key_event(e->code, e->value);
-      }
-    }
-  }
-  if(dx || dy)
-    mouse_move(dx, dy);
-}
-
-static uint64 last_scan;
 
 int
 GetMessage(MSG *m, HWND filter, uint min, uint max)
 {
   (void)filter; (void)min; (void)max;
   for(;;){
-    if(quit_posted){
-      m->hwnd = 0;
-      m->message = WM_QUIT;
-      return 0;
-    }
     while(qhead != qtail){
       *m = queue[qhead];
       qhead = (qhead + 1) % MAXQUEUE;
       if(valid(m->hwnd))
         return 1;
     }
-    // Timers.
-    uint64 now = clock_us(), next = now + 1000000;
+    if(quit_posted){
+      m->hwnd = 0;
+      m->message = WM_QUIT;
+      return 0;
+    }
+    uint64 now = clock_us(), next = 0;
     int fired = 0;
     for(int i = 0; i < MAXTIMER; i++){
       if(!timers[i].hwnd)
         continue;
       if(timers[i].next <= now){
-        PostMessage(timers[i].hwnd, WM_TIMER, timers[i].id, 0);
+        post_local(timers[i].hwnd, WM_TIMER, timers[i].id, 0);
         timers[i].next = now + timers[i].ms * 1000ULL;
         fired = 1;
       }
-      if(timers[i].next < next)
+      if(!next || timers[i].next < next)
         next = timers[i].next;
     }
     if(fired)
       continue;
-    if(now - last_scan > 2000000){
-      last_scan = now;
-      input_scan();
+    int timeout = -1;
+    if(next)
+      timeout = next > now ? (int)((next - now) / 1000) + 1 : 1;
+    struct w32_msg km;
+    long r = k(W32_GETMSG, (long)&km, timeout, 0);
+    if(r == 0 || r < 0){        // WM_QUIT, or the process is being killed
+      m->hwnd = 0;
+      m->message = WM_QUIT;
+      return 0;
     }
-    compose();
-
-    struct pollfd pfd[MAX_INPUT + MAXWATCH];
-    int map[MAX_INPUT + MAXWATCH], n = 0;
-    for(int i = 0; i < MAX_INPUT; i++)
-      if(infd[i] >= 0){
-        pfd[n].fd = infd[i];
-        pfd[n].events = POLLIN;
-        pfd[n].revents = 0;
-        map[n++] = i;
-      }
-    for(int i = 0; i < MAXWATCH; i++)
-      if(watches[i].hwnd){
-        pfd[n].fd = watches[i].fd;
-        pfd[n].events = POLLIN;
-        pfd[n].revents = 0;
-        map[n++] = 100 + i;
-      }
-    int timeout = (int)((next - now) / 1000);
-    if(timeout < 1)
-      timeout = 1;
-    if(timeout > 500)
-      timeout = 500;
-    poll(pfd, n, timeout);
-    for(int k = 0; k < n; k++){
-      if(!(pfd[k].revents & (POLLIN | POLLERR)))
-        continue;
-      if(map[k] < 100){
-        if(infd[map[k]] >= 0)
-          input_read(map[k]);
-      } else {
-        int i = map[k] - 100;
-        if(watches[i].hwnd)
-          PostMessage(watches[i].hwnd, WM_FDREADY, watches[i].fd, 0);
-      }
-    }
+    if(r == 1)
+      translate(&km);
   }
 }
 
@@ -1516,7 +1285,7 @@ ButtonProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
     if(*pressed){ t.left += 2; t.top += 2; }
     if(w->text)
       DrawText(dc, w->text, -1, &t, DT_CENTER);
-    if(focus == w){
+    if(GetFocus() == w){
       RECT f = { 4, 4, r.right - 4, r.bottom - 4 };
       for(int x = f.left; x < f.right; x += 2){
         SetPixel(dc, x, f.top, CLR_TEXT);
@@ -1809,7 +1578,7 @@ EditProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
         break;
       i++;                      // past '\n'
     }
-    if(focus == w && !ro){
+    if(GetFocus() == w && !ro){
       int row, col;
       edit_rowcol(e, e->caret, &row, &col);
       int cx = 3 + (col - (multi ? 0 : e->left)) * FONT_W;
@@ -1974,7 +1743,7 @@ ListBoxProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
       int i = l->top + k;
       RECT row = { 0, k * LB_ROW, width, (k + 1) * LB_ROW };
       if(i == l->sel){
-        FillRect(dc, &row, focus == w ? CLR_SELECT : CLR_SHADOW);
+        FillRect(dc, &row, GetFocus() == w ? CLR_SELECT : CLR_SHADOW);
         SetTextColor(dc, CLR_HILIGHT);
       } else {
         SetTextColor(dc, CLR_TEXT);
@@ -2004,6 +1773,7 @@ ListBoxProc(HWND w, uint msg, WPARAM wp, LPARAM lp)
   }
   return DefWindowProc(w, msg, wp, lp);
 }
+
 
 // POPUP MENU -----------------------------------------------------------
 struct menu {
@@ -2134,8 +1904,8 @@ TrackPopupMenu(const char **items, int n, int x, int y, HWND owner,
   if(y + h > SH) y -= h;        // no room below (the Start button): open upward
   if(y < 0) y = 0;
   if(x + w > SW) x = SW - w;
-  HWND m = CreateWindow("#menu", "", WS_POPUP | WS_TOPMOST | WS_NOTASKBAR,
-                        x, y, w, h, 0, 0, 0);
+  HWND m = CreateWindow("#menu", "", WS_POPUP | WS_TOPMOST | WS_NOTASKBAR |
+                        WS_VISIBLE | WS_MENU_INTERNAL, x, y, w, h, 0, 0, 0);
   if(!m)
     return 0;
   struct menu *st = malloc(sizeof(*st));
@@ -2149,12 +1919,7 @@ TrackPopupMenu(const char **items, int n, int x, int y, HWND owner,
   st->base = base_id;
   st->owner = owner;
   m->ctl = st;
-  top_remove(m);                // painted separately, above everything
-  popup = m;
-  m->visible = 1;
-  damage_window(m);
-  popup_prev_focus = focus;
-  focus = m;
+  popup = m;                    // the kernel sends it the keys while open
   return m;
 }
 
@@ -2275,22 +2040,15 @@ WinInit(void)
     WNDCLASS wc = { builtin[i].name, builtin[i].proc, builtin[i].bg, 0 };
     RegisterClass(&wc);
   }
-  input_scan();
-  last_scan = clock_us();
-  RECT all = { 0, 0, SW, SH };
-  damage(&all);
   return 0;
 }
 
 void
 WinExit(void)
 {
-  for(int i = 0; i < MAX_INPUT; i++)
-    if(infd[i] >= 0){
-      ioctl(infd[i], EVIOCGRAB, 0);
-      close(infd[i]);
-      infd[i] = -1;
-    }
-  for(int y = 0; y < SH; y++)
-    memset(fb + y * stride, 0, SW * 4);
+  // Destroying our windows lets the kernel repaint what they covered; the
+  // kernel would do the same when the process exits.
+  for(int i = 0; i < MAXWIN; i++)
+    if(windows[i].used && !windows[i].parent)
+      DestroyWindow(&windows[i]);
 }

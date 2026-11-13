@@ -10,6 +10,7 @@
 #include <kernel/page.h>
 #include <kernel/sched.h>
 #include <kernel/camera.h>
+#include <kernel/win32k.h>
 #include <kernel/defs.h>
 #include <kernel/mm.h>
 #include <kernel/slab.h>
@@ -1547,6 +1548,7 @@ exit(int status)
   release(&wait_lock);
 
   net_udp_closeproc(p->pid);
+  win32k_exit(p->tgid);         // its windows and message queue
 
   // The thread group is gone.  If no CLONE_VM sharer (a vfork parent)
   // remains either, write dirty MAP_SHARED pages back and drop the

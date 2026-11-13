@@ -16,6 +16,7 @@
 #include <kernel/defs.h>
 #include <kernel/device.h>
 #include <kernel/input.h>
+#include <kernel/win32k.h>
 #include <kernel/usb.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
@@ -102,7 +103,8 @@ was_down(struct usbkbd_state *kbd, uchar code)
 static void
 kbd_tty(struct usbkbd_state *kbd, int c)
 {
-  if(!input_grabbed(kbd->input))
+  // Nor while the window manager has a session: keys go to windows.
+  if(!input_grabbed(kbd->input) && !win32k_owns_input())
     consoleintr(c);
 }
 

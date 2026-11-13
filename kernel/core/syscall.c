@@ -153,6 +153,7 @@ extern uint64 sys_getrandom(void);
 extern uint64 sys_rename(void);
 extern uint64 sys_clone(void);
 extern uint64 sys_clone_flags(void);
+extern uint64 sys_win32k(void);
 extern uint64 sys_texit(void);
 extern uint64 sys_tjoin(void);
 extern uint64 sys_gettid(void);
@@ -277,6 +278,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_poll]          sys_poll,
 [SYS_ioctl]         sys_ioctl,
 [SYS_clone_flags]   sys_clone_flags,
+[SYS_win32k]        sys_win32k,
 };
 
 void

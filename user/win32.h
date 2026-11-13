@@ -96,6 +96,8 @@ typedef struct {
 #define WM_PAINT         0x000F
 #define WM_CLOSE         0x0010
 #define WM_QUIT          0x0012
+#define WM_ACTIVATE      0x0006
+#define WM_CANCELMODE    0x001F
 #define WM_KEYDOWN       0x0100
 #define WM_CHAR          0x0102
 #define WM_COMMAND       0x0111
@@ -107,7 +109,7 @@ typedef struct {
 #define WM_RBUTTONDOWN   0x0204
 #define WM_MOUSEWHEEL    0x020A
 #define WM_USER          0x0400
-#define WM_FDREADY       (WM_USER + 0x100)  // wParam = fd (WinWatchFd)
+#define WM_FDREADY       (WM_USER + 0x100)  // app-defined: data ready
 #define WM_SHELLHOOK     (WM_USER + 0x101)  // to the taskbar: windows changed
 
 // Virtual keys (WM_KEYDOWN wParam).
@@ -214,16 +216,25 @@ int     GetTextWidth(const char *s);         // pixels (fixed 8x16 font)
 #define FONT_CY 16
 
 // xv6 extensions
-int     WinInit(void);                       // open fb0 + input; 0 on success
+int     WinInit(void);                       // map fb0; 0 on success
 void    WinExit(void);
-int     WinWatchFd(int fd, HWND hwnd);       // post WM_FDREADY when readable
-void    WinUnwatchFd(int fd);
-// Enumerate taskbar-visible top-level windows, in creation order.
-int     WinEnumTopLevel(HWND *out, int max);
 // Pop up a menu of items (NULL = separator) at screen x,y.  The chosen
 // index arrives at owner as WM_COMMAND(base_id + index).
 HWND    TrackPopupMenu(const char **items, int n, int x, int y, HWND owner,
                        int base_id);
-void    WinSetTaskbar(HWND hwnd);            // the work area ends above it
+
+// Top-level windows of any process, by kernel handle (the shell's view).
+typedef uint32 KWND;
+struct w32_info;
+int     WinEnumWindows(KWND *out, int max);  // taskbar windows, creation order
+int     WinEnumAllWindows(KWND *out, int max);
+int     KwndGetText(KWND h, char *buf, int max);
+int     KwndGetInfo(KWND h, struct w32_info *info);
+KWND    KwndGetActive(void);
+void    KwndActivate(KWND h);                // restore if minimized
+void    KwndShow(KWND h, int show);
+void    KwndPost(KWND h, uint msg, WPARAM wp, LPARAM lp);
+KWND    WinGetKwnd(HWND w);
+void    WinSetShell(HWND w);                 // receive WM_SHELLHOOK
 
 #endif

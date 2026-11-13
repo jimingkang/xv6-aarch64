@@ -93,6 +93,7 @@ int epoll_ctl(int, int, int, struct epoll_event*);
 int epoll_wait(int, struct epoll_event*, int, int);
 int fcntl(int, int, ...);
 int pty_open(int*);
+long win32k(int, long, long, long);
 int getrandom(void*, int);
 int rename(const char*, const char*);
 struct sched_info;

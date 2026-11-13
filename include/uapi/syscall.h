@@ -97,5 +97,6 @@
 #define SYS_umount        93
 #define SYS_msync         94
 #define SYS_clone_flags   95  // Linux clone(flags, stack, ptid, tls, ctid)
+#define SYS_win32k        96  // window manager services (see uapi/win32k.h)
 
 #endif

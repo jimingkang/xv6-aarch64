@@ -145,6 +145,8 @@ int fcntl(int fd, int command, ...)
   return SC3(fcntl, I(fd), I(command), I(argument));
 }
 int pty_open(int *fds) { return SC1(pty_open, P(fds)); }
+long win32k(int op, long a1, long a2, long a3)
+{ return SC4(win32k, I(op), a1, a2, a3); }
 int getrandom(void *buf, int size) { return SC2(getrandom, P(buf), I(size)); }
 int rename(const char *oldpath, const char *newpath)
 { return SC2(rename, P(oldpath), P(newpath)); }
