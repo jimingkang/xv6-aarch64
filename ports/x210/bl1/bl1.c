@@ -82,8 +82,38 @@ static uint32 dram_size=BOARD_DRAM_SIZE;
 
 void bl1_boot(uint32 entry, uint32 machid, uint32 atags) __attribute__((noreturn));
 
+/* Stage LEDs. Tiny210: LED1-4 on GPJ2[0:3], active low (FriendlyARM
+   mini210/tiny210 BSP). LED n lit = stage n reached:
+     1 BL1 running   2 PLLs set   3 DDR OK   4 kernel loaded, jumping
+   At start all four blink 3 times; a halt blinks the current stage. */
+#define GPJ2CON (GPIO+0x280)
+#define GPJ2DAT (GPIO+0x284)
+static int stage;
+static void delay(uint32 n) { for(volatile uint32 i=0;i<n;i++) ; }
+static void leds(uint32 on) {          /* bit k = LED k+1 */
+#ifdef BOARD_TINY210
+  REG(GPJ2DAT)=(REG(GPJ2DAT)&~0xfU)|(~on&0xfU);
+#else
+  (void)on;
+#endif
+}
+static void led_stage(int n) { stage=n; leds((1U<<n)-1); }
+static void led_init(void) {
+#ifdef BOARD_TINY210
+  REG(GPJ2CON)=(REG(GPJ2CON)&~0xffffU)|0x1111;  /* GPJ2[0:3] outputs */
+#endif
+  for(int i=0;i<3;i++) { leds(0xf); delay(0x200000); leds(0); delay(0x200000); }
+}
+
+/* Bounded wait: a UART that never drains (no clock) must not hang BL1. */
+static int uart_dead;
+static void uart_drain(void) {
+  for(uint32 n=0; !(REG(UART+UTRSTAT)&4); n++)    /* transmitter empty */
+    if(n==0x200000) { uart_dead=1; return; }
+}
 static void uputc(int c) {
-  while(!(REG(UART+UTRSTAT)&4)) ;     /* transmitter empty */
+  if(uart_dead) return;
+  uart_drain();
   REG(UART+UTXH)=(uchar)c;
 }
 static void uputs(const char *s) { while(*s) { if(*s=='\n') uputc('\r'); uputc(*s++); } }
@@ -101,21 +131,7 @@ static void putdec(uint32 v) {
 }
 static void die(const char *why) {
   uputs("BL1: "); uputs(why); uputs(", halted\n");
-  for(;;) asm volatile("wfi");
-}
-
-/* Stage LEDs. Tiny210: LED1-4 on GPJ2[0:3], active low (FriendlyARM
-   mini210/tiny210 BSP). LED n lit = stage n reached:
-     1 BL1 running   2 PLLs set   3 DDR OK   4 kernel loaded, jumping */
-#define GPJ2CON (GPIO+0x280)
-#define GPJ2DAT (GPIO+0x284)
-static void led_stage(int n) {
-#ifdef BOARD_TINY210
-  if(n==1) REG(GPJ2CON)=(REG(GPJ2CON)&~0xffffU)|0x1111;  /* GPJ2[0:3] outputs */
-  REG(GPJ2DAT)=(REG(GPJ2DAT)&~0xfU)|(0xfU&~((1U<<n)-1)); /* LEDs 1..n on */
-#else
-  (void)n;
-#endif
+  for(;;) { leds((1U<<stage)-1); delay(0x400000); leds(0); delay(0x400000); }
 }
 
 static uint32 udiv(uint32 a, uint32 b) {   /* no hardware divide on Cortex-A8 */
@@ -161,16 +177,20 @@ static void power_hold(void) {
   REG(WTCON)=0;
 }
 
+static int pll_locked;
 static void clock_init(void) {
-  while(!(REG(UART+UTRSTAT)&4)) ;     /* let the last character finish */
+  uart_drain();                       /* let the last character finish */
   REG(CLK_SRC0)=0;                    /* everything from XXTI 24 MHz meanwhile */
   REG(APLL_LOCK)=0xFFFF;
   REG(MPLL_LOCK)=0xFFFF;
   REG(CLK_DIV0)=CLK_DIV0_VAL;
   REG(APLL_CON0)=PLL_EN|(125U<<16)|(3U<<8)|1;   /* 125*24/(3*2^0) = 1000 MHz */
   REG(MPLL_CON)=PLL_EN|(667U<<16)|(12U<<8)|1;   /* 667*24/(12*2^1) = 667 MHz */
-  while(!(REG(APLL_CON0)&PLL_LOCKED)) ;
-  while(!(REG(MPLL_CON)&PLL_LOCKED)) ;
+  /* Samsung's U-Boot just waits; poll LOCKED but never hang on it. */
+  for(uint32 n=0; !(REG(APLL_CON0)&PLL_LOCKED) && n<0x100000; n++) ;
+  for(uint32 n=0; !(REG(MPLL_CON)&PLL_LOCKED) && n<0x100000; n++) ;
+  pll_locked=(REG(APLL_CON0)&REG(MPLL_CON)&PLL_LOCKED)!=0;
+  delay(0x10000);
   /* APLL_SEL, MPLL_SEL = FOUT; MSYS from APLL, DSYS/PSYS from MPLL. */
   REG(CLK_SRC0)=0x00000011;
 }
@@ -281,6 +301,7 @@ static void load_kernel(struct uimage_info *ui) {
 void bl1_main(void) {
   struct uimage_info ui;
   power_hold();
+  led_init();
   led_stage(1);
   /* Console first, at whatever clocks the iROM left, so that a wrong PLL
      setup can be told apart from a wrong terminal/baud setting. */
@@ -288,11 +309,15 @@ void bl1_main(void) {
   uputs("\n\nxv6 BL1 for " BOARD_NAME "\n");
   uputs("BL1: iROM clocks: CLK_SRC0 "); puthex(REG(CLK_SRC0)); uputs(" CLK_DIV0 "); puthex(REG(CLK_DIV0));
   uputs(" PCLK_PSYS "); putdec(uart_pclk); uputs(" Hz\n");
+  int early_dead=uart_dead;
   clock_init();
   uart_baud();
+  uart_dead=0;                        /* retry the console on the new clocks */
+  if(early_dead) uputs("\nBL1: console did not drain on the iROM clocks\n");
   led_stage(2);
   uputs("BL1: PLLs set: APLL_CON0 "); puthex(REG(APLL_CON0)); uputs(" MPLL_CON "); puthex(REG(MPLL_CON));
-  uputs(" PCLK_PSYS "); putdec(uart_pclk); uputs(" Hz\n");
+  uputs(" PCLK_PSYS "); putdec(uart_pclk); uputs(" Hz");
+  uputs(pll_locked ? "\n" : " (LOCKED bit never set)\n");
   ddr_init();
   ddr_size();
   ddr_test();
