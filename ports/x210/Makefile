@@ -12,8 +12,20 @@ ARM_OBJCOPY ?= $(shell command -v arm-none-eabi-objcopy 2>/dev/null || command -
 HOST_CC ?= cc
 QEMU_ARM ?= qemu-system-arm
 TARGET_FLAGS ?= --target=arm-none-eabi
-# DRAM bank 1 as configured by the X210 U-Boot (PHYS_SDRAM_1).
-X210_DRAM_BASE ?= 0x30000000
+# S5PV210 board: tiny210 (FriendlyARM Tiny210, default) or x210 (九鼎 X210).
+# See board.h: DRAM base/size, console UART, machine id.
+S5PV210_BOARD ?= tiny210
+ifeq ($(S5PV210_BOARD),tiny210)
+BOARD_DEF = -DBOARD_TINY210
+X210_DRAM_BASE = 0x20000000
+BOARD_UART = 0xE2900000
+else ifeq ($(S5PV210_BOARD),x210)
+BOARD_DEF = -DBOARD_X210
+X210_DRAM_BASE = 0x30000000
+BOARD_UART = 0xE2900800
+else
+$(error S5PV210_BOARD must be tiny210 or x210)
+endif
 # Root file system blocks (1 KiB).
 X210_FSBLOCKS ?= 4096
 ifeq ($(QEMU_TEST),1)
@@ -22,8 +34,8 @@ EARLY_UART = 0x01C28000
 PLAT_FLAGS = -DX210_QEMU
 else
 KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(X210_DRAM_BASE) + 0x8000 )))
-EARLY_UART = 0xE2900800
-PLAT_FLAGS = -DX210_DRAM_BASE=$(X210_DRAM_BASE)
+EARLY_UART = $(BOARD_UART)
+PLAT_FLAGS = $(BOARD_DEF)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
@@ -102,13 +114,13 @@ $(BUILD)/kernel.elf: $(OBJS) $(P)/kernel.ld
 $(IMG).bin: $(BUILD)/kernel.elf $(P)/mkx210.py
 	$(ARM_OBJCOPY) -O binary $< $@
 	python3 $(P)/mkx210.py check-zimage $@ $(KERNEL_LOAD)
-# Legacy uImage (IH_OS_LINUX, load/entry 0x30008000): `bootm 30008000`.
+# Legacy uImage (IH_OS_LINUX, load/entry DRAM+0x8000), read by bl1 or `bootm`.
 $(IMG).uImage: $(IMG).bin $(P)/mkx210.py
 	python3 $(P)/mkx210.py uimage $< $@ $(KERNEL_LOAD)
-# Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART2/DDR, loads xv6.
-BL1FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(P)/bl1 -Wall -Wextra
+# Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
+BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(P) -I$(P)/bl1 -Wall -Wextra
 BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o
-$(BUILD)/bl1/%.o: $(P)/bl1/%.c $(P)/bl1/bl1lib.h
+$(BUILD)/bl1/%.o: $(P)/bl1/%.c $(P)/bl1/bl1lib.h $(P)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
 $(BUILD)/bl1/%.o: $(P)/bl1/%.S
@@ -131,11 +143,13 @@ $(BUILD)/bl1-hosttest: $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c $(P)/b
 	@mkdir -p $(@D)
 	$(HOST_CC) -Wall -I. -I$(P)/bl1 -o $@ $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c
 qemu: all
-	$(QEMU_ARM) -M cubieboard -m 512M -nographic -monitor none -kernel $(IMG).uImage -append "console=ttySAC2,115200 xv6test"
+	$(QEMU_ARM) -M cubieboard -m 512M -nographic -monitor none -kernel $(IMG).uImage -append "console=ttySAC0,115200 xv6test"
 check: $(BUILD)/bl1-hosttest
 	python3 $(P)/mkx210.py selftest
-	$(MAKE) -f $(P)/Makefile BUILD=build/x210 build/x210/xv6-x210.uImage build/x210/x210-sd.img
+	$(MAKE) -f $(P)/Makefile BUILD=build/x210 S5PV210_BOARD=$(S5PV210_BOARD) build/x210/xv6-x210.uImage build/x210/x210-sd.img
 	$(BUILD)/bl1-hosttest build/x210/xv6-x210.uImage
+	$(MAKE) -f $(P)/Makefile BUILD=build/x210-board-x210 S5PV210_BOARD=x210 build/x210-board-x210/xv6-x210.uImage build/x210-board-x210/x210-sd.img
+	$(BUILD)/bl1-hosttest build/x210-board-x210/xv6-x210.uImage
 	python3 $(P)/test_shell.py
 clean:
 	rm -rf $(BUILD)

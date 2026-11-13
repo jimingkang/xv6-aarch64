@@ -1,6 +1,6 @@
-/* 九鼎 X210 (Samsung S5PV210, Cortex-A8) platform glue.
-   Inherits from BL1/U-Boot: clocks (APLL 1 GHz, MPLL 667 MHz), DMC0/1 DDR2,
-   UART2 pinmux and 115200 8N1.
+/* S5PV210 (Cortex-A8) platform glue: FriendlyARM Tiny210 / 九鼎 X210.
+   Inherits from BL1/U-Boot: clocks (APLL 1 GHz, MPLL 667 MHz), DDR2,
+   console UART pinmux and 115200 8N1 (board.h).
    Initialises here: watchdog (off), VIC0-3, PWM timer 4 (10 ms tick).
    X210_QEMU builds the same kernel for QEMU's Cortex-A8 "cubieboard"
    (Allwinner A10 peripherals), the only Cortex-A8 machine QEMU has. */
@@ -25,21 +25,20 @@ _Static_assert(__builtin_offsetof(struct context,x30)==104, "ARM context LR slot
 _Static_assert(DRAM_BASE>=MAXVA, "DRAM must lie above the user window");
 #define REG(a) (*(volatile uint32*)(uintptr)(a))
 #define HZ_TICK 100      /* timer interrupts per second */
-#define MACH_SMDKV210 2456  /* machine id the X210 U-Boot passes in r1 */
 #ifdef X210_QEMU
 #define UART 0x01C28000  /* A10 UART0, 16550 with 4-byte stride */
 #define PIC 0x01C20400
 #define PIT 0x01C20C00
 #define TIMER_IRQ 22
-#define BOARD "QEMU cubieboard (Cortex-A8 stand-in for S5PV210 X210)"
+#define BOARD "QEMU cubieboard (Cortex-A8 stand-in for S5PV210)"
 #else
-#define UART UART0_PA    /* UART2, 0xE2900800 */
+#define UART UART0_PA    /* board.h console UART */
 #define CLKCON 0xE0100000
 #define PWM 0xE2500000
 #define WDT 0xE2700000
 #define VIC(n) (0xF2000000U + 0x100000U*(n))
 #define TIMER_IRQ TIMER0_IRQ  /* VIC0 bit 25: PWM timer 4 */
-#define BOARD "Jiuding X210 (Samsung S5PV210)"
+#define BOARD BOARD_NAME
 /* Samsung UART registers */
 #define UFCON 0x08
 #define UTRSTAT 0x10
@@ -238,8 +237,12 @@ static void read_bootparams(uint r2) {
 }
 
 static void boot_info(uint r0, uint machid, uint r2) {
+#ifdef X210_QEMU
+  printf("boot: r0=%x machid=%d r2=%x\n",r0,machid,r2);
+#else
   printf("boot: r0=%x machid=%d%s r2=%x\n",r0,machid,
-         machid==MACH_SMDKV210 ? " (SMDKV210)" : "",r2);
+         machid==BOARD_MACH ? " (" BOARD_MACH_NAME ")" : "",r2);
+#endif
   if(bootp.kind==0) {
     printf("boot: no ATAG list or DTB at r2 (plain `go`?), using defaults\n");
     return;

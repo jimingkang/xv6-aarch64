@@ -26,7 +26,7 @@ subprocess.run(["make", "-f", "ports/x210/Makefile", "BUILD=build/x210-qemu",
 proc = subprocess.Popen([qemu, "-M", "cubieboard", "-m", "512M",
                          "-nographic", "-monitor", "none",
                          "-kernel", f"{BUILD}/xv6-x210.uImage",
-                         "-append", "console=ttySAC2,115200 xv6test"],
+                         "-append", "console=ttySAC0,115200 xv6test"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 log = bytearray()
 
@@ -61,7 +61,7 @@ try:
     banner = expect(b"$ ")
     for token in (b"xv6 ARM32 / QEMU cubieboard", b"machid=4104 r2=40000100",
                   b"atags: at 40000100", b"atags: memory 40000000 + 512 MiB",
-                  b'atags: cmdline "console=ttySAC2,115200 xv6test"',
+                  b'atags: cmdline "console=ttySAC0,115200 xv6test"',
                   b"kernel 40008000-", b"DRAM 40000000-48000000"):
         if token not in banner:
             raise AssertionError(f"boot banner missing {token!r}:\n{banner.decode(errors='replace')}")

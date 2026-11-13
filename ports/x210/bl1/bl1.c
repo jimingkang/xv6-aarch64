@@ -1,22 +1,22 @@
-/* xv6 BL1 for the 九鼎 X210 (Samsung S5PV210, Cortex-A8): boots xv6 with
-   no U-Boot in between.
+/* xv6 BL1 for S5PV210 boards (FriendlyARM Tiny210, 九鼎 X210; board.h):
+   boots xv6 with no U-Boot in between.
 
      iROM (BL0) ──► this BL1 (SD sector 1, iRAM 0xD0020010)
-                ──► xv6 uImage (SD sector 49) copied to DDR 0x30007FC0,
-                    so its payload sits at 0x30008000
-                ──► jump with r0=0, r1=2456 (SMDKV210), r2=ATAGs @ 0x30000100
+                ──► xv6 uImage (SD sector 49) copied to DRAM+0x7FC0,
+                    so its payload sits at DRAM+0x8000
+                ──► jump with r0=0, r1=BOARD_MACH, r2=ATAGs @ DRAM+0x100
 
-   The board bring-up mirrors what the X210 BSP U-Boot does in
-   lowlevel_init/cpu_init.S (same register values):
-     PS_HOLD power latch, watchdog off, APLL 1000 MHz / MPLL 667 MHz with
-     MSYS 200/100, DSYS 166/83, PSYS 133/66.7 MHz, UART2 115200 8N1,
-     DMC0 DDR2 (2 x 1 Gbit x16 = 256 MiB at 0x30000000).
-   DMC1 (the other 256 MiB at 0x40000000) is left uninitialised: xv6 only
-   uses the first 128 MiB, and ATAG_MEM reports DMC0 only.
+   The bring-up mirrors Samsung's S5PV210 U-Boot lowlevel_init/cpu_init.S
+   (the base of both the FriendlyARM and the 九鼎 BSP U-Boot):
+     PS_HOLD latch, watchdog off, APLL 1000 MHz / MPLL 667 MHz with
+     MSYS 200/100, DSYS 166/83, PSYS 133/66.7 MHz, console UART 115200 8N1,
+     DMC0 DDR2 (512 MiB at 0x20000000 on Tiny210, 256 MiB at 0x30000000 on
+     X210). DMC1 is left uninitialised; ATAG_MEM reports DMC0 only.
    The SD copy uses the iROM's CopySDMMCtoMem (pointer at 0xD0037F98),
    reading from the channel the iROM booted from (0xD0037488). */
 #include "kernel/types.h"
 #include "bl1lib.h"
+#include "board.h"
 
 #define REG(a) (*(volatile uint32*)(uintptr)(a))
 
@@ -35,10 +35,9 @@
 #define PS_HOLD_CONTROL 0xE010E81CU
 /* GPIO */
 #define GPIO 0xE0200000U
-#define GPA1CON (GPIO+0x020)
 #define MP1_DRV(n) (GPIO+0x3CC+0x20*(n))   /* DMC0 pad drive strength */
-/* UART2 */
-#define UART 0xE2900800U
+/* Console UART (board.h) */
+#define UART BOARD_UART
 #define ULCON 0x00
 #define UCON 0x04
 #define UFCON 0x08
@@ -72,13 +71,14 @@
 typedef uint32 (*copy_sdmmc_fn)(uint32 ch, uint32 start, uint16 count, uint32 *dst, uint32 init);
 
 /* Layout shared with mkx210.py. */
-#define DRAM_BASE 0x30000000U
-#define DRAM_SIZE (256U<<20)          /* DMC0 */
+#define DRAM_BASE ((uint32)BOARD_DRAM_BASE)
 #define KERNEL_SECTOR 49U
-#define KERNEL_RUN 0x30008000U
+#define KERNEL_RUN (DRAM_BASE+0x8000)
 #define ATAG_ADDR (DRAM_BASE+0x100)
-#define MACH_SMDKV210 2456U
-#define CMDLINE "console=ttySAC2,115200 xv6 bl1"
+#define STR2(x) #x
+#define STR(x) STR2(x)
+#define CMDLINE "console=ttySAC" STR(BOARD_UART_N) ",115200 xv6 bl1"
+static uint32 dram_size=BOARD_DRAM_SIZE;
 
 void bl1_boot(uint32 entry, uint32 machid, uint32 atags) __attribute__((noreturn));
 
@@ -125,7 +125,7 @@ static void clock_init(void) {
 }
 
 static void uart_init(void) {
-  REG(GPA1CON)=(REG(GPA1CON)&~0xffU)|0x22;      /* GPA1[0:1] = UART2 RXD/TXD */
+  REG(BOARD_UART_GPIOCON)=(REG(BOARD_UART_GPIOCON)&~0xffU)|0x22;  /* RXD/TXD */
   REG(UART+UFCON)=0;
   REG(UART+UMCON)=0;
   REG(UART+ULCON)=3;                            /* 8N1 */
@@ -150,8 +150,7 @@ static void ddr_init(void) {
   REG(DMC0+PHYCONTROL0)=((st&0x3fc0)<<18)|0x00101003;
   REG(DMC0+CONCONTROL)=0x0FFF2010;            /* auto refresh off */
   REG(DMC0+MEMCONTROL)=0x00202400;            /* DDR2, 32-bit, 1 chip select, BL=4 */
-  /* chip_base 0x30, mask 0xF0 (256 MiB), linear, 10 col, 13 row, 8 banks */
-  REG(DMC0+MEMCONFIG0)=0x30F01313;
+  REG(DMC0+MEMCONFIG0)=BOARD_MEMCONFIG0;      /* base, size, rows/cols/banks */
   REG(DMC0+PRECHCONFIG)=0xFF000000;
   REG(DMC0+TIMINGAREF)=0x00000618;            /* 7.8 us refresh */
   REG(DMC0+TIMINGROW)=0x28233287;
@@ -175,9 +174,20 @@ static void ddr_init(void) {
   REG(DMC0+MEMCONTROL)=0x00202400;
 }
 
+/* If the chips have one row bit fewer than MEMCONFIG0 says, the upper half
+   aliases the lower half: fall back to half the size (xv6 uses 128 MiB). */
+static void ddr_size(void) {
+  volatile uint32 *lo=(uint32*)(uintptr)DRAM_BASE, *hi=(uint32*)(uintptr)(DRAM_BASE+dram_size/2);
+  *lo=0x11111111; *hi=0x22222222;
+  if(*lo!=0x11111111) {
+    uputs("BL1: warning: DDR above "); puthex(DRAM_BASE+dram_size/2);
+    uputs(" aliases the lower half, using the lower half only\n");
+    dram_size/=2;
+  }
+}
 /* Walk a few address lines and both ends of the bank. */
 static void ddr_test(void) {
-  static const uint32 off[]={0,4,0x100,0x1000,0x10000,0x100000,0x1000000,0x8000000,DRAM_SIZE-4};
+  uint32 off[]={0,4,0x100,0x1000,0x10000,0x100000,0x1000000,0x8000000,dram_size-4};
   const int n=sizeof(off)/sizeof(off[0]);
   for(int i=0;i<n;i++) REG(DRAM_BASE+off[i])=0x5A5A0000U^(uint32)i^off[i];
   for(int i=0;i<n;i++) {
@@ -203,7 +213,8 @@ static void load_kernel(struct uimage_info *ui) {
   if(bad) die(bad);
   if(ui->load!=KERNEL_RUN || ui->entry!=KERNEL_RUN) {
     uputs("BL1: uImage load "); puthex(ui->load); uputs(" entry "); puthex(ui->entry); uputc('\n');
-    die("uImage must load and start at 0x30008000");
+    uputs("BL1: expected "); puthex(KERNEL_RUN); uputc('\n');
+    die("uImage load/entry address does not match this board");
   }
   uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;
   uputs("BL1: \""); uputs(ui->name); uputs("\", "); putdec(ui->size); uputs(" bytes, ");
@@ -223,13 +234,14 @@ void bl1_main(void) {
   power_hold();
   clock_init();
   uart_init();
-  uputs("\n\nxv6 BL1 for X210 (S5PV210): APLL 1000 MHz, MPLL 667 MHz, PCLK_PSYS 66.7 MHz\n");
+  uputs("\n\nxv6 BL1 for " BOARD_NAME ": APLL 1000 MHz, MPLL 667 MHz, PCLK_PSYS 66.7 MHz\n");
   ddr_init();
+  ddr_size();
   ddr_test();
-  uputs("BL1: DMC0 DDR2 256 MiB at 0x30000000 OK\n");
+  uputs("BL1: DMC0 DDR2 "); putdec(dram_size>>20); uputs(" MiB at "); puthex(DRAM_BASE); uputs(" OK\n");
   load_kernel(&ui);
-  uint32 n=atag_build((uint32*)(uintptr)ATAG_ADDR,DRAM_BASE,DRAM_SIZE,CMDLINE);
+  uint32 n=atag_build((uint32*)(uintptr)ATAG_ADDR,DRAM_BASE,dram_size,CMDLINE);
   uputs("BL1: ATAGs at "); puthex(ATAG_ADDR); uputs(" ("); putdec(n); uputs(" bytes), starting xv6 at ");
   puthex(KERNEL_RUN); uputs("\n\n");
-  bl1_boot(KERNEL_RUN,MACH_SMDKV210,ATAG_ADDR);
+  bl1_boot(KERNEL_RUN,BOARD_MACH,ATAG_ADDR);
 }

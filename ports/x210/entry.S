@@ -5,8 +5,8 @@
      runs from DDR) -> `movi read kernel 30008000; bootm 30008000`
    On entry: SVC mode, IRQ/FIQ masked, MMU and D-cache off (U-Boot's
    cleanup_before_linux), I-cache may be on,
-     r0 = 0, r1 = machine type (2456 = SMDKV210 on X210),
-     r2 = ATAG list (0x30000100) or a DTB.
+     r0 = 0, r1 = machine type (board.h BOARD_MACH),
+     r2 = ATAG list (DRAM+0x100) or a DTB.
    The first 0x34 bytes form an ARM zImage header, so the raw image also
    boots through the Samsung U-Boot "Boot with zImage" path and `bootz`.
    Neither relocates: the image must sit at its link address. */
@@ -82,7 +82,7 @@ parked:
   wfi
   b parked
 
-/* Position-independent polled write to the U-Boot console UART. */
+/* Position-independent polled write to the console UART. */
 early_die:
   ldr r1, =EARLY_UART
 2: ldrb r2, [r0], #1
@@ -100,7 +100,7 @@ early_die:
   str r2, [r1, #0x20]     @ UTXH
 #endif
   b 2b
-msg_addr: .asciz "\r\nxv6: wrong load address; load the image at 0x30008000 (bootm 30008000)\r\n"
+msg_addr: .asciz "\r\nxv6: wrong load address; load the uImage at its header address (DRAM+0x8000)\r\n"
 msg_mode: .asciz "\r\nxv6: entered in USR mode; boot with bootm\r\n"
 msg_mmu:  .asciz "\r\nxv6: MMU still on; boot with bootm, not go\r\n"
 .balign 4

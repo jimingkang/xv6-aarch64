@@ -14,9 +14,9 @@ S5PV210 iROM (BL0) SD boot: read 16 KiB from sector 1 into iRAM at
 0xD0020000, verify the 16-byte header, run from 0xD0020010.
   0x0 BL1 size (16384)   0x4 reserved (0)
   0x8 checksum = sum of bytes 16..16383    0xC reserved (0)
-ports/x210/bl1 is that BL1: it sets up clocks, UART2 and DDR, then copies
+ports/x210/bl1 is that BL1: it sets up clocks, the console UART and DDR, then copies
 the xv6 uImage from sector 49 (where the BSP keeps BL2/U-Boot) to
-0x30007FC0 with the iROM's CopySDMMCtoMem and jumps to 0x30008000.
+DRAM+0x7FC0 with the iROM's CopySDMMCtoMem and jumps to DRAM+0x8000.
 """
 import struct
 import sys
@@ -45,7 +45,7 @@ def uimage_bytes(payload, load):
     # IH_OS_LINUX(5) IH_ARCH_ARM(2) IH_TYPE_KERNEL(2) IH_COMP_NONE(0):
     # bootm then uses the ARM Linux handoff (caches/MMU off, r2 = ATAGs).
     values = [0x27051956, 0, 0, len(payload), load, load,
-              zlib.crc32(payload), 5, 2, 2, 0, b"xv6 ARM32 X210 S5PV210"]
+              zlib.crc32(payload), 5, 2, 2, 0, b"xv6 ARM32 S5PV210"]
     fmt = ">7I4B32s"
     header = struct.pack(fmt, *values)
     values[1] = zlib.crc32(header)

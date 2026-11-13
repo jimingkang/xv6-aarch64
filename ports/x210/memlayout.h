@@ -1,17 +1,17 @@
-/* 九鼎 X210 (Samsung S5PV210, Cortex-A8) physical layout.
-   BL1/U-Boot have already initialised DMC0/DMC1. The X210 U-Boot maps
-   DRAM at 0x30000000 (bank 1) and 0x40000000 (bank 2), puts ATAGs at
-   0x30000100, and loads the kernel at 0x30008000. The kernel is linked at
-   that address and identity mapped; ATAG_MEM gives the usable DRAM top. */
+/* S5PV210 (Cortex-A8) boards: FriendlyARM Tiny210, 九鼎 X210.
+   BL1 (ports/x210/bl1) or U-Boot has already initialised DDR, put ATAGs at
+   DRAM+0x100 and loaded the kernel at DRAM+0x8000 (0x20008000 on Tiny210,
+   0x30008000 on X210). The kernel is linked there and identity mapped;
+   ATAG_MEM gives the usable DRAM top. */
+#ifndef X210_QEMU
+#include "board.h"
+#endif
 #ifdef X210_QEMU
 /* QEMU has no S5PV210 machine. The test build runs on the Cortex-A8
    "cubieboard" model whose DRAM starts at 0x40000000. */
 #define DRAM_BASE 0x40000000UL
 #else
-#ifndef X210_DRAM_BASE
-#define X210_DRAM_BASE 0x30000000
-#endif
-#define DRAM_BASE ((unsigned long)X210_DRAM_BASE)
+#define DRAM_BASE ((unsigned long)BOARD_DRAM_BASE)
 #endif
 #define KERNBASE 0UL
 #define KERNPA (DRAM_BASE + 0x8000UL)   /* Linux TEXT_OFFSET convention */
@@ -29,8 +29,12 @@ extern unsigned int x210_phystop;
 #define P2V(a) ((void*)(uintptr)(a))
 /* Unused by the ARM32 kernel-stack allocator (stacks are kalloc pages). */
 #define KSTACK(p) (0xC0000000UL + (p)*8192UL)
-#define UART0_PA 0xE2900800UL            /* UART2: X210 debug console */
-#define UART0_IRQ 44                     /* VIC1 bit 12 (unused: polled) */
+#ifdef X210_QEMU
+#define UART0_PA 0x01C28000UL
+#else
+#define UART0_PA ((unsigned long)BOARD_UART)  /* board console UART */
+#endif
+#define UART0_IRQ 42                     /* VIC1 bit 10+n (unused: polled) */
 #define PERIPHERAL_BASE_PA 0xE0000000UL
 #define TIMER0_IRQ 25                    /* VIC0 bit 25: PWM timer 4 */
-#define ARM32_UART_NAME "s5pv210-uart2"
+#define ARM32_UART_NAME "s5pv210-uart"

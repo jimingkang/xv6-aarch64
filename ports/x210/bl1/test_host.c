@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
   struct uimage_info ui;
   const char *bad = uimage_check(img, &ui);
   if(bad) { fprintf(stderr, "FAIL uimage_check: %s\n", bad); return 1; }
-  CHECK(ui.load == 0x30008000U && ui.entry == 0x30008000U);
+  CHECK(ui.load == ui.entry && (ui.load == 0x20008000U || ui.load == 0x30008000U));
   CHECK(UIMAGE_HDR + ui.size == n);
   CHECK(crc32(0, img + UIMAGE_HDR, ui.size) == ui.dcrc);
   img[UIMAGE_HDR + 100] ^= 1;
