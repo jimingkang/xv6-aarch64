@@ -1,0 +1,43 @@
+% Windows 风格窗口系统的软件边界与对象所有权。
+\begin{tikzpicture}[x=1mm,y=1mm,font=\scriptsize,
+  layer/.style={draw=structurecolor!70!black,rounded corners=2pt,align=center,
+    minimum height=12mm,inner sep=2pt},
+  own/.style={draw=gray!65,rounded corners=2pt,align=left,inner sep=2.5pt,
+    text width=39mm,minimum height=25mm},
+  call/.style={-{Stealth[length=1.7mm]},line width=.65pt,draw=structurecolor!75!black}]
+
+  \node[layer,fill=structurecolor!7,text width=31mm] (app) at (0,38)
+    {窗口应用\\\code{explorer/calc/notepad}\\\code{WNDPROC}};
+  \node[layer,fill=structurecolor!14,text width=36mm] (u32) at (44,38)
+    {\file{user/win32.c}\\USER32 + GDI32};
+  \node[layer,fill=orange!12,text width=26mm] (abi) at (88,38)
+    {\code{SYS\_win32k}\\\code{W32\_*}};
+  \node[layer,fill=structurecolor!23,text width=39mm] (k32) at (129,38)
+    {\file{win32k.c}\\窗口管理 + GDI + 合成};
+
+  \draw[call] (app.east) -- node[above,font=\tiny]{Win32 API} (u32.west);
+  \draw[call] (u32.east) -- (abi.west);
+  \draw[call] (abi.east) -- (k32.west);
+
+  \node[own,fill=structurecolor!5,anchor=north] (uo) at (44,26)
+    {\textbf{每个进程的用户对象}\\
+     \code{struct window *}（用户 HWND）\\
+     子控件树、WNDPROC、focus/capture\\
+     本地消息、timer、轻量 HDC\\
+     16 KiB GDI command batch};
+  \node[own,fill=structurecolor!13,anchor=north,text width=48mm] (ko) at (124,26)
+    {\textbf{内核全局对象}\\
+     \code{struct kwnd}（khwnd + generation）\\
+     owner tgid、矩形、标题、全局 Z 序\\
+     每进程消息队列、update region\\
+     每窗口 backing surface、screen shadow};
+  \draw[call,dashed] (u32.south) -- (uo.north);
+  \draw[call,dashed] (k32.south) -- (ko.north);
+
+  \node[layer,fill=green!10,text width=31mm] (input) at (88,-8)
+    {USB HID / input core\\\code{EV\_KEY, EV\_REL}};
+  \node[layer,fill=green!10,text width=31mm] (fb) at (146,-8)
+    {framebuffer\\\file{/dev/fb0}};
+  \draw[call] (input.north) -- node[right,font=\tiny]{raw input + workqueue} (ko.south west);
+  \draw[call] (ko.south east) -- node[right,font=\tiny]{compose} (fb.north);
+\end{tikzpicture}

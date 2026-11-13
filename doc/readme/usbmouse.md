@@ -115,9 +115,12 @@ kmod workqueue。不能在设备注册/总线匹配路径同步读文件，因�
 worker 会从根文件系统读取 `/lib/modules/usbmouse.ko`，然后调用
 `load_module_image()`。
 
-启动期间若 DWC2 在根文件系统挂载前就枚举到鼠标，自动加载请求可以先进入队列；
-kmod worker 在调度器开始运行后执行，此时启动 initcall 已完成根文件系统挂载。
-这正是代码将模块文件读取放到 kmod workqueue 的原因。
+启动期间若 DWC2 在根文件系统挂载前就枚举到鼠标，自动加载请求会先进入队列。
+注意 kmod worker 是内核线程，调度器一启动就会运行，而根文件系统要到第一个用户进程
+的 `forkret()` → `prepare_namespace()` 才挂载。所以 `kmod_load()` 在读文件前调用
+`wait_for_rootfs()`（`kernel/init/do_mounts.c`），睡眠到 `prepare_namespace()` 完成
+chroot 并置位 `rootfs_ready` 为止。没有这一步时，开机即插鼠标会在挂根之前
+`panic: getsb: device has no xv6 filesystem`（见 `readme_bug_fix.md`）。
 
 ## 4. ELF 模块加载与驱动绑定
 
@@ -125,6 +128,20 @@ kmod worker 在调度器开始运行后执行，此时启动 initcall 已完成�
 sections 在模块区中分配连续空间。随后复制 section、解析符号表、应用
 AArch64 RELA relocation，并同步指令缓存。未定义符号必须能在
 `kernel/drivers/base/export.c` 的导出符号表中找到，否则模块加载失败。
+
+重定位的位域必须与指令编码严格一致（`apply_rela()`）：
+
+| 类型 | 指令 | 写入字段 | 掩码 |
+|---|---|---|---|
+| `ADR_PREL_PG_HI21` | `adrp` | 页差 `(Page(S) - Page(P)) >> 12`，immlo bit[30:29]、immhi bit[23:5] | 页 `~0xfff`；`0x60000000`、`0x00ffffe0` |
+| `ADR_PREL_LO21` | `adr` | 字节差，同上两段 | `0x60000000`、`0x00ffffe0` |
+| `ADD_ABS_LO12_NC` | `add` | `S & 0xfff` → imm12 bit[21:10] | `0x003ffc00` |
+| `CALL26/JUMP26` | `bl/b` | 字差 bit[25:0] | `0x03ffffff` |
+
+早期实现把页掩码写成 `~0xff`、immhi 掩码写成 `0x001ffffe`（会清掉 Rd 的低位，把
+`adrp x2` 改成 `adrp x0`）、imm12 掩码写成 `0x00fff000`。症状是模块里的字符串常量
+指针为 NULL、寄存器被意外改写：`usbmouse.ko` 能 `module: loaded`，却从不打印
+`IRQ-driven boot mouse ready`。修正过程见 `readme_bug_fix.md`。
 
 模块映像中的 `.initcall.list` 保存模块描述符。加载器记录模块名、模块区范围和
 exit 函数，释放模块区 spinlock 后调用 init。释放锁后再运行 init 很重要：
@@ -137,7 +154,8 @@ bus 上已有的设备；因此即使 USB interface 先登记并触发了异步�
 驱动随后注册时仍会再次匹配并 probe 该 interface。无需用户手动执行 `insmod`。
 
 `usbmouse_probe()` 检查 Boot Mouse 接口和 interrupt-IN endpoint，然后设置 HID
-Boot Protocol/Idle，创建并注册 `input_dev`，填充 interrupt URB，最后提交给
+Boot Protocol/Idle，创建并注册 `input_dev`（`input_allocate_device()` 会先把复用的
+slab 对象清零，否则残留的 `registered/disconnected` 标志会让注册失败），填充 interrupt URB，最后提交给
 DWC2 HCD。后续报告由 channel 6 的 HCD 完成路径交给 URB completion；回调只排入
 `usbmouse_wq`，`usbmouse_rx_work()` 在进程上下文中比较按钮状态并上报按钮、
 相对 X/Y 与滚轮事件。channel 6 由 DWC2 的 interrupt-IN scheduler 在多个已提交
@@ -213,6 +231,8 @@ rmmod usbhid-mouse
 | `usbmouse: first report ...` | 首份有效鼠标报告已进入报告 worker |
 | `request_module: ... not found (root mounted?)` | 模块文件未进入正在使用的根文件系统，或路径/文件名不匹配 |
 | `unresolved symbol` | 模块引用的内核符号没有加入 `kernel/drivers/base/export.c` 导出表 |
+| 有 `module: loaded` 却没有 `boot mouse ready` | probe 失败：先确认模块重定位与 `input_dev` 清零修复已在内核中，再在 probe 各返回路径前打印 |
+| 开机即插鼠标 `panic: getsb ...` | kmod 在挂根之前读文件；需要 `wait_for_rootfs()` |
 
 如果模块文件在设备启动后才复制进根文件系统，先确认文件路径，再拔插鼠标以重新
 触发未绑定设备的注册流程；当前没有文件系统变更监视器或通用 `depmod/modprobe`。
@@ -225,6 +245,8 @@ rmmod usbhid-mouse
   模块，单模块 ELF section 数量也有限。
 - 可供模块引用的内核 API 必须显式加入 `kernel/drivers/base/export.c`。
 - 连接状态变化时当前会整体重置 DWC2 并重新枚举；USB 子设备模型仍是简化实现。
+- hub 各端口上的 boot HID 设备都会经 `dwc2_publish_hid()` 发布（键盘和鼠标分开插
+  也都可用），`usb_hid_child[]` 上限为 4 个接口；嵌套 hub 下仍只取第一个 HID 设备。
 - 多个 interrupt-IN URB 共用 channel 6 的轮转调度，当前请求槽上限为 4；这不是
   每个 USB endpoint 独占一个硬件 channel 的通用 HCD 调度器。
 - 用户态 `insmod` 走 `open/read -> init_module syscall -> load_module_image`；

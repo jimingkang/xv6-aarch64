@@ -948,3 +948,233 @@ readiness watcher (background)
 
 也就是仅把端口探测器放到后台，`make/QEMU` 始终留在终端前台进程组。该修复与 GDB
 断点检查是两个层次：前者保证按键能进入虚拟 UART；后者保证收到按键后 vCPU 仍在运行。
+
+## hdmi 分支干净 clone 无法编译内核
+
+### 现象
+
+`make kernel/kernel8-xv6_wifi.img` 停在：
+
+```text
+make: *** No rule to make target `kernel/drivers/media/i2c/i2c.o', needed by `kernel/kernel'.  Stop.
+```
+
+### 根因
+
+`.gitignore` 里的 `media/` 匹配任意层级目录，把 `kernel/drivers/media/` 下的
+`i2c.c`、`ov5647.c`、`unicam.c` 也排除在版本库之外。开发机工作区里有这些文件，
+所以一直能编译；换到 hdmi 分支（或干净 clone）后源文件不存在。
+
+### 修复
+
+cherry-pick mpi 分支上的提交 7d0d732：规则改为只忽略仓库根目录的 `/media/`，并把
+三份摄像头驱动源码纳入版本库。
+
+### 验证
+
+hdmi 分支上 `make -j8 kernel/kernel8-xv6_wifi.img fs.img qemu-sd-image` 通过。
+
+## Hub 上分开插的 USB 键盘和鼠标只有一个可用
+
+### 现象
+
+QEMU 加 `-device usb-kbd -device usb-mouse`（两者都挂在模拟 hub 上）时只出现
+`event0`；鼠标从未被枚举。真机上两个独立的 USB 设备同理，只有组合接收器（一个设备
+两个 HID 接口）能同时得到键盘和鼠标。
+
+### 根因
+
+`dwc2` 的 hub 端口扫描在找到**第一个** boot HID 设备后就 `break`，随后只为这一个
+地址发布 `usb_hid_child[]`。后面端口上的 HID 设备虽然完成了 `SET_ADDRESS`，却从未被
+配置和注册到 usb 总线。
+
+### 修复
+
+抽出 `dwc2_publish_hid(addr, mps, vid, pid)`：读配置描述符、为每个 boot HID 接口
+填一个 `usb_device`、`SET_CONFIGURATION`、`usb_device_register()`，结果**追加**到
+`usb_hid_child[]`。hub 扫描循环对每个端口上的 HID 设备都调用它并继续扫描；全部端口
+扫完后再启动 hub 监视。MT7601U 只在尚未发布 HID 时沿用原来的“找到即停”。
+
+### 验证
+
+QEMU：
+
+```text
+dwc2: HID boot keyboard intf 0 (627:1 addr 2) handed to usb bus
+dwc2: HID boot mouse intf 0 (627:1 addr 3) handed to usb bus
+input: USB HID Boot Keyboard registered as event0
+input: USB HID Boot Mouse registered as event1
+```
+
+## 开机时已插着鼠标：`panic: getsb: device has no xv6 filesystem`
+
+### 现象
+
+只要开机前鼠标已经插着（QEMU `-device usb-mouse`），内核在挂载根之前就 panic：
+
+```text
+hart 3 starting
+panic: getsb: device has no xv6 filesystem
+```
+
+### 根因
+
+DWC2 在 initcall 阶段就枚举到鼠标，`request_module("usb:c03s01p02")` 把装载任务排进
+kmod workqueue。kmod worker 是内核线程，**调度器一启动就会运行**，而根文件系统要到
+第一个用户进程的 `forkret()` → `prepare_namespace()` 才挂载。worker 此时执行
+`namei("/lib/modules/usbmouse.ko")`，查的是尚未就绪的根，最终走到 xv6fs 的
+`getsb()` 而 panic。`usbmouse.md` 原先认为“worker 运行时根已挂载”并不成立。
+
+### 修复
+
+`kernel/init/do_mounts.c` 新增 `wait_for_rootfs()`：`prepare_namespace()` 完成
+chroot 后置 `rootfs_ready` 并 `wakeup()`；`kmod_load()` 在读文件前调用
+`wait_for_rootfs()`，在此之前睡眠等待。
+
+### 验证
+
+QEMU 开机即带 usb-mouse：先打印 `VFS: root moved over rootfs ...`，随后
+`request_module: loading /lib/modules/usbmouse.ko`，不再 panic。
+
+## usbmouse.ko 加载成功但从不 probe 成功（模块重定位错误）
+
+### 现象
+
+```text
+request_module: loading /lib/modules/usbmouse.ko
+module: loaded usbhid-mouse (1912 bytes)
+```
+
+之后既没有 `usbmouse: IRQ-driven boot mouse ready`，也没有 `input: ... registered as
+event1`。在 `input_register_device()` 入口打印发现传进来的 `dev->name` 为 NULL；给模块
+里加 `printf` 调试时甚至触发 `kerneltrap`（ESR EC=0，PC 在模块区）。
+
+### 根因
+
+`kernel/drivers/base/module.c` 的 `apply_rela()` 有三处位掩码错误：
+
+1. `R_AARCH64_ADR_PREL_PG_HI21` 计算页差时用 `S & ~0xff`、`P & ~0xff`，正确的 4 KiB
+   页掩码是 `~0xfff`。S 和 P 在页内偏移不同时会算错页，字符串常量（`.rodata.str1.1`）
+   的地址就错了。
+2. 同一重定位写 immhi 字段时用掩码 `0x001ffffe`，而 immhi 位于 bit[23:5]，应为
+   `0x00ffffe0`。旧掩码会清掉 Rd 的低位：反汇编看到 `adrp x2, ...` 被改成了
+   `adrp x0, ...`，紧接着的 `stp x1, x2, [x0, #368]` 就写到了错误地址，
+   `input->name` 留为 NULL；`ADR_PREL_LO21` 同样有这个问题。
+3. `R_AARCH64_ADD_ABS_LO12_NC` 的 imm12 位于 bit[21:10]，掩码应为 `0x003ffc00`，
+   原来是 `0x00fff000`。
+
+这类错误只在特定的模块区布局下暴露，所以之前的 `insmod` 测试没有发现。
+
+### 修复
+
+三处掩码改为 `~0xfff`、`0x00ffffe0`、`0x003ffc00`。
+
+### 验证
+
+```text
+request_module: loading /lib/modules/usbmouse.ko
+input: USB HID Boot Mouse registered as event1
+usbmouse: IRQ-driven boot mouse ready ep=1 mps=4 interval=10
+module: loaded usbhid-mouse (1912 bytes)
+```
+
+真机（Pi 3B）上同样出现 `usbmouse: first report ...`，鼠标可用。
+
+## input 设备注册失败：slab 对象复用时未清零
+
+### 现象
+
+修复重定位之前，鼠标的 `input_register_device()` 还会因为
+`dev->registered || dev->disconnected` 为真而返回 -1。
+
+### 根因
+
+`input_allocate_device()` 直接返回 `kmem_cache_alloc()` 的对象，只初始化了锁、
+`refs` 和 `event_number`。slab 对象被复用时，前一个 `input_dev`（例如热拔掉的键盘）
+留下的 `registered`、`disconnected`、`dev.driver` 等字段仍在。`evdev_open()` 对
+`evdev_client` 也没有清零，`head/tail` 是旧值。
+
+### 修复
+
+`input_allocate_device()` 与 `evdev_open()` 分配后先 `memset(…, 0, sizeof(…))`。
+
+## win32k：拖动窗口一段时间后鼠标完全不动（真机）
+
+### 现象
+
+Pi 3B 上运行 `explorer` 桌面，鼠标能拖动窗口，但拖一会儿光标就不再移动；键盘
+仍有反应。QEMU 中无法复现。
+
+### 根因
+
+win32k 的全部窗口状态最初由一个**自旋锁** `lk` 保护，合成（`compose()` 把各窗口
+surface 写到 framebuffer）也在这个锁内完成。xv6 的 `acquire()` 会关中断，而写非缓存
+framebuffer 的大面积合成要数毫秒。这位用户的鼠标是 500 Hz（`interval=2`）全速设备，
+经 Pi 板载 hub 的 TT 走 split interrupt 传输；dwc2 在中断上下文里调度
+SSPLIT/CSPLIT，有严格的微帧时限。拖动时每个鼠标报告都触发一次大面积合成，中断被
+长时间关闭，CSPLIT 窗口错过后 channel 6 的中断传输停住，鼠标就再也没有报告。
+
+### 修复
+
+- 窗口状态改由可睡眠的 `struct mutex wm` 保护，合成在开中断下进行；
+- 消息环形队列单独用自旋锁 `qlk`，只在入队/出队/`sleep()` 时短暂持有；
+  `GetMessage` 在 `qlk` 上睡眠，用 `kick` 计数检测“放锁后、睡眠前”到达的消息或
+  重绘请求，避免丢失唤醒；
+- 输入 worker 先处理完整批原始事件再执行一次鼠标移动；拖动时新旧位置重叠则合并为
+  一次合成（见下一节）。
+
+### 验证
+
+QEMU：连续 80 次快速拖动后光标和窗口仍然响应；mmaptest、clonetest、ptytest 通过。
+**真机效果待用户在 Pi 3B 上确认。**
+
+## win32k：camview 盖住其他窗口时刷新慢、拖动有残影（真机）
+
+### 现象
+
+`camview` 视频窗口与其他窗口重叠时整体刷新变慢；拖动窗口时留下残影，光标拖尾。
+
+### 根因
+
+1. `/dev/fb0` 在内核中按 Normal non-cacheable 映射，每次写都是非缓存访问。最初的
+   `compose()` 直接在 framebuffer 上做画家算法：桌面、下层窗口、上层窗口依次覆盖，
+   同一像素被写多次；camview 每一帧都对自己的矩形做一次这样的合成，即使它被别的
+   窗口完全挡住；
+2. 500 Hz 鼠标的每个报告都触发一次“旧位置 + 新位置”的两次合成，处理积压导致残影；
+3. 光标用保存的底图擦除，底图在合成后可能已过期，留下光标印子。
+
+### 修复
+
+- 内核增加缓存的**影子屏** `shadow`：画家算法在影子屏里进行，framebuffer 的每个像素
+  只写一次（`shadow_to_fb()`）；光标擦除直接从影子屏复制，不再保存底图；
+- `EndPaint` 改为 `window_to_screen()`：只把窗口**未被上层窗口遮挡**的片段从其 surface
+  拷到影子屏和 framebuffer；被完全遮住的视频窗口每帧不写屏；
+- 输入事件合并（见上一节）。
+
+### 验证
+
+QEMU 截图正确；用户反馈 camview 刷新“看起来好点”，但随后发现下一节的闪烁。
+
+## win32k：camview 与终端重叠部分闪烁（真机，多核）
+
+### 现象
+
+camview 与 Command Prompt 窗口重叠的区域一闪一闪；QEMU 中连续截屏对比没有复现。
+
+### 根因
+
+GDI 命令（`W32_GDI`/`W32_BLIT`）直接光栅化到合成器读取的那块 surface，而且不持锁。
+camview 每帧的绘制顺序是“先按窗口类背景色填客户区，再 `SetDIBitsToDevice` 贴图”。
+Pi 3B 是四核：另一核上的合成（拖动、别的窗口 `EndPaint`）恰好在这两步之间读取该
+surface 时，就会把“只有背景色、还没贴图”的半成品显示出来。
+
+### 修复
+
+每个顶层窗口有前后两块 surface：`back` 接收 GDI 与位图命令，`EndPaint` 在 `wm` 锁内
+把本次绘制区域从 `back` 拷到 `surf`（前缓冲）再合成；合成器只读前缓冲。窗口改变尺寸
+时两块一起重新分配。
+
+### 验证
+
+QEMU：camview 在终端之上/之下两种 Z 序下连续截屏，重叠区无变化帧；回归测试通过。
+**真机效果待用户确认。**

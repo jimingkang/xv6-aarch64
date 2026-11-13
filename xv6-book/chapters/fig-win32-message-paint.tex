@@ -1,0 +1,40 @@
+% 从硬件输入到消息分派，以及从 invalidate 到 framebuffer 的两条链。
+\begin{tikzpicture}[x=1mm,y=-1mm,font=\scriptsize,
+  lane/.style={draw=gray!65,fill=gray!5,rounded corners=1.5pt,align=center,
+    text width=25mm,minimum height=8mm,inner sep=1.5pt},
+  flowstep/.style={draw=structurecolor!65!black,fill=structurecolor!8,
+    rounded corners=1.5pt,align=left,text width=31mm,minimum height=8mm,inner sep=1.5pt},
+  msg/.style={-{Stealth[length=1.5mm]},line width=.55pt,draw=structurecolor!75!black}]
+
+  \node[lane] (hid) at (0,0) {HID / input core};
+  \node[lane] (k32) at (38,0) {内核 win32k};
+  \node[lane] (u32) at (79,0) {用户态 win32.c};
+  \node[lane] (app) at (120,0) {应用 WNDPROC};
+  \node[lane] (surf) at (158,0) {surface / fb0};
+  \foreach \x in {0,38,79,120,158}
+    \draw[gray!45,dashed] (\x,5) -- (\x,113);
+
+  \node[flowstep] (raw) at (38,14) {\code{win32k\_input\_event()}\\raw ring + \code{queue\_work}};
+  \draw[msg] (0,10) -- node[above,font=\tiny]{EV\_KEY / EV\_REL} (raw.west);
+  \node[flowstep] (hit) at (38,30) {\code{input\_work\_fn()}\\合并移动、命中顶层窗口};
+  \draw[msg] (raw.south) -- (hit.north);
+  \node[flowstep] (post) at (38,46) {\code{post\_to(tgid, khwnd)}\\入队并 \code{wakeup(q)}};
+  \draw[msg] (hit.south) -- (post.north);
+  \node[flowstep] (get) at (79,46) {\code{GetMessage()}\\\code{W32\_GETMSG} 睡眠后被唤醒};
+  \draw[msg] (post.east) -- (get.west);
+  \node[flowstep] (trans) at (79,62) {\code{translate()}\\顶层坐标命中子控件/focus};
+  \draw[msg] (get.south) -- (trans.north);
+  \node[flowstep] (disp) at (120,62) {\code{DispatchMessage()}\\调用目标窗口过程};
+  \draw[msg] (trans.east) -- (disp.west);
+
+  \node[flowstep,fill=orange!9] (inv) at (120,80) {状态改变\\\code{InvalidateRect()}};
+  \draw[msg] (disp.south) -- (inv.north);
+  \node[flowstep,fill=orange!9] (upd) at (38,80) {\code{W32\_INVALIDATE}\\合并 \code{kwnd.upd}};
+  \draw[msg] (inv.west) -- (upd.east);
+  \node[flowstep,fill=orange!9] (paint) at (79,96) {队列空时合成 \code{WM\_PAINT}\\\code{paint\_tree()} + GDI batch};
+  \draw[msg] (upd.east) -- (paint.west);
+  \node[flowstep,fill=orange!9] (rast) at (120,96) {\code{W32\_GDI}\\裁剪并光栅化};
+  \draw[msg] (paint.east) -- (rast.west);
+  \node[flowstep,fill=orange!9] (comp) at (158,96) {\code{W32\_ENDPAINT}\\按 Z 序合成};
+  \draw[msg] (rast.east) -- (comp.west);
+\end{tikzpicture}

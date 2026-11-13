@@ -270,4 +270,26 @@ error; rearming}。也就是说 full-speed 复合设备在共享 ch6、经 TT �
 \reg{HCSPLT}/\reg{HCTSIZ}/\reg{HCCHAR} 一并 dump，以区分是 SET\_PROTOCOL 被 STALL、还是
 interrupt-IN 的 CSPLIT 窗口错过。
 
+\paragraph{后续定位：probe 为何失败.} 之后在 QEMU 中用两个独立的 HID 设备（\code{-device usb-kbd -device usb-mouse}）复现，得到了确定的结论，问题不在 ch6 调度，而在三处与 USB 无关的代码：
+
+\begin{enumerate}
+  \item \textbf{模块重定位.} \code{apply\_rela()} 处理 \code{R\_AARCH64\_ADR\_PREL\_PG\_HI21} 时页掩码写成 \code{\textasciitilde 0xff}（应为 \code{\textasciitilde 0xfff}），写 immhi 时掩码写成 \code{0x001ffffe}（应为 bit[23:5] 的 \code{0x00ffffe0}，旧值会清掉 Rd 低位，把 \code{adrp x2} 变成 \code{adrp x0}），\code{ADD\_ABS\_LO12\_NC} 的 imm12 掩码也错了（应为 \code{0x003ffc00}）。结果是模块中字符串常量指针为 NULL、寄存器被改写，\code{input\_register\_device()} 因 \code{dev->name == 0} 返回失败。
+  \item \textbf{slab 对象未清零.} \code{input\_allocate\_device()} 复用的对象带着上一个设备的 \code{registered/disconnected} 标志；\code{evdev\_open()} 的 \code{head/tail} 也是旧值。现在分配后先清零。
+  \item \textbf{挂根之前读 \file{.ko}.} kmod worker 是内核线程，调度器一启动就运行，早于 \code{forkret()} 中的 \code{prepare\_namespace()}；开机即插鼠标会在挂根前 \code{namei()}，同样落入 \code{getsb} panic。\code{kmod\_load()} 现在先调用 \code{wait\_for\_rootfs()} 睡眠到根就绪。
+\end{enumerate}
+
+此外，\code{dwc2} 原先在 hub 上找到第一个 HID 设备就停止扫描，分开插的键盘与鼠标只有一个可用；现在由 \code{dwc2\_publish\_hid()} 为每个端口上的 HID 设备发布接口。修正后 QEMU 中出现：
+
+\begin{txtcode}
+input: USB HID Boot Mouse registered as event1
+usbmouse: IRQ-driven boot mouse ready ep=1 mps=4 interval=10
+\end{txtcode}
+
+Pi~3B 真机上的鼠标（500\,Hz 全速设备）也完成了 probe 并收到首个报告：
+
+\begin{txtcode}
+usbmouse: IRQ-driven boot mouse ready ep=2 mps=20 interval=2
+usbmouse: first report buttons=0 x=0 y=1 wheel=0
+\end{txtcode}
+
 热插拔让设备和驱动可以在运行中来去，而 \file{.ko} 能被按需装载，前提是根文件系统上的 \file{/lib/modules} 可靠可读——上面日志里的 \code{getsb} panic 正是这一点出了问题。下一章就深入这块根文件系统背后的 ext2 驱动，看它怎样读写磁盘、怎样在断电后恢复一致。

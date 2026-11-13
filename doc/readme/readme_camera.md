@@ -817,6 +817,31 @@ SD 扇区事务，串口最后只看到 `sensor test pattern; fixed WB/level`，
 `preparing output`、`output opened` 和 `converting and writing`，从而明确区分截断、BMP 头写入
 以及图像转换阶段。
 
+### camview：窗口里的实时画面
+
+`user/camview.c` 是 win32k 桌面上的窗口程序（`explorer` 的桌面图标和开始菜单都有
+Camera，也可 `explorer camview &`）。它复用 camshot/camserver 的同一条图像管线，只把
+JPEG 编码换成按行输出 RGB 的 `camproc_rgb_raw()`：
+
+```text
+采集线程                                   窗口线程（消息循环）
+read(/dev/video0) -> RAW10 帧
+camproc_rgb_raw(half=1)                    WM_FDREADY: InvalidateRect(图像区)
+  黑电平 / 去马赛克 / 白平衡 / 电平 / gamma   WM_PAINT: SetDIBitsToDevice()
+  -> COLORREF 图像 pic[0|1] 交替写入             -> 内核 W32_BLIT 拷入窗口后缓冲
+PostMessage(WM_FDREADY)  ── 内核队列 ──>       EndPaint -> 前缓冲 -> 合成上屏
+```
+
+- 两块 320x240 的 COLORREF 图像交替写入，`latest` 指向最新一块；窗口来不及画时只显示
+  最新帧，`pending` 标志保证同一时刻最多排队一条 `WM_FDREADY`。
+- 线程间只用 `__atomic_load_n/__atomic_store_n`：用户态没有链接 outline-atomics 助手
+  （`__aarch64_ldadd4_rel` 等），不能用 `__atomic_add_fetch`/`exchange`。
+- 窗口下方有 Pause、白平衡开关和帧率；`/dev/video0` 打不开或连续 3 次读不到帧（QEMU
+  只有设备节点没有传感器）时自动切换到合成的 RGGB 测试画面，标题显示
+  `demo: no sensor`。`camview -d` 可强制使用测试画面。
+- camview 不再映射 `/dev/fb0`：视频只是窗口内容，可以被拖动、遮挡、最小化；被完全
+  遮住时内核不写屏。原来的全屏版本已被取代。
+
 ## 10. 测试
 
 ### 10.1 已经验证的

@@ -12,6 +12,7 @@
   \item SDIO 无线网卡 BCM43430/43455
   \item USB 无线网卡 MT7601U
   \item CSI-2 摄像头 OV5647：D-PHY、CSI-2 包、Unicam FIFO、DMA 双缓冲与帧通知，HTTP MJPEG 推流及其流水线提速
+  \item Windows 风格窗口系统：消息驱动、win32k、USER32/GDI 与窗口合成
 \end{introduction}
 
 第~\ref{chap:fs} 章的块设备只是众多设备中的一种。本章先搭两副“骨架”：设备模型回答设备、驱动和总线怎样互相找到，上下半部回答中断里来不及做的工作交给谁。然后按依赖关系依次看几类驱动：最早需要的串口控制台与 TTY；协议层次最多的 USB 键盘；只用来配置传感器的 I2C；网络协议栈和挂在它下面的两块无线网卡（一块走 SDIO，一块走 USB）；最后是把 I2C、DMA、中断和用户态图像处理串在一起的 CSI-2 摄像头。
@@ -3669,4 +3670,182 @@ static void raw_push(const struct raw_job *job) {
   摄像头驱动是全书最能体现“分层”价值的例子：mailbox、I2C、时钟、电源域、CSI-2 接收器、DMA、帧状态机、字符设备、用户态图像处理，每一层都可以单独验证。真机调试也正是这样一层层推进的：先看 mailbox 回读，再用 bit-bang 判断 I2C 故障在控制器内外，再用传感器内部彩条（\code{camshot -t 1}）验证 CSI-2 和 DMA，最后才看真实画面。
 \end{remark}
 
-本章的驱动都在内核里，它们最终服务的是用户程序：\code{sh} 从 TTY 读命令，\code{sshd} 经 socket 收发，\code{camserver} 用 \code{mmap} 取帧。下一章回到用户态，看这些程序怎样经系统调用、线程和 libc 用上内核提供的接口。
+\section{Windows 风格窗口系统：win32k、消息与 GDI}
+\label{sec:win32k}
+
+前面的驱动各自提供一类设备接口，而图形桌面要解决的是另一种问题：键盘、鼠标和 framebuffer 都是全局资源，多个进程却必须各自拥有窗口，并且不能直接覆盖别人的画面。工程中的 \file{kernel/drivers/video/win32k.c} 与 \file{user/win32.c} 借用 Windows NT 的分层思想，构造了一套最小的消息驱动窗口系统。
+
+它不是 Windows 二进制兼容层。这里的“Windows 风格”是指三条机制相似：应用用窗口过程处理消息；USER32/GDI32 风格的用户库负责控件与绘图 API；内核 win32k 负责跨进程共享且必须可信的窗口对象、输入路由和屏幕合成。完整的源码说明另见 \file{doc/readme/readme\_win32k.md}。
+
+\subsection{边界：哪些对象在用户态，哪些必须进内核}
+
+图~\ref{fig:win32-stack} 给出了对象所有权。窗口应用链接 \file{user/win32.o}，调用 \code{CreateWindow}、\code{GetMessage}、\code{DispatchMessage} 和 \code{TextOut} 等 API；用户库再通过一个多路复用的 \code{win32k(op,a1,a2,a3)} 系统调用进入内核。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{chapters/fig-win32-stack}}
+  \caption{xv6 Windows 风格窗口系统的软件分层与对象所有权。只有顶层窗口进入内核；子控件和窗口过程留在所属进程}
+  \label{fig:win32-stack}
+\end{figure}
+
+\paragraph{用户态对象.} \file{user/win32.c} 的 \code{HWND} 是指向 \code{struct window} 的本进程指针。该对象保存窗口类、\code{WNDPROC}、文字、样式、父子链、控件私有数据、焦点等。\code{BUTTON}、\code{STATIC}、\code{EDIT}、\code{LISTBOX} 和弹出菜单都是用户态子窗口，不占用内核窗口槽。
+
+\paragraph{内核对象.} 每个顶层窗口对应一个 \code{struct kwnd}，记录 owner tgid、屏幕矩形、标题、全局 Z 序、无效区域以及一块内核 backing surface。内核 \code{HWND}（用户结构中的 \code{khwnd}）不是指针，而是
+\[
+  \textit{khwnd}=(\textit{generation}\ll 8)\;|\;(\textit{slot}+1).
+\]
+低 8 位定位 \code{wins[MAXW]}，高位 generation 由 \code{index\_of()} 校验；槽被复用后，旧句柄不会错误地命中新窗口。
+
+只有顶层窗口进入内核，因为其位置、Z 序、激活状态和屏幕内容会影响别的进程；子控件只影响一个进程自己的客户区，由 USER32 在进程内管理即可。应用也不直接映射或写 \file{/dev/fb0}：它只能向自己的 backing surface 提交受检查的绘图命令，最终画面由内核合成。
+
+真实 Windows 中，\file{USER32.DLL} 提供窗口消息 API，\file{GDI32.DLL} 提供绘图 API，\file{win32k.sys} 实现内核 USER/GDI 服务，现代桌面再由独立的 DWM 进程合成。本工程把 USER32 与 GDI32 合并在 \file{user/win32.c}，又把简化合成器放进 \file{win32k.c}；这是教学化简，不是对 Windows ABI 的复刻。
+
+\subsection{创建窗口与系统调用服务表}
+
+用户态 \code{CreateWindow()} 先从 \code{windows[MAXWIN]} 取得一个对象，再同步发送 \code{WM\_CREATE}。应用通常在这里建立按钮、编辑框等子控件。只有 \code{WM\_CREATE} 成功后，顶层窗口才构造 \code{struct w32\_create} 并调用 \code{W32\_CREATE}。这样第一条 \code{WM\_PAINT} 到来时，整棵子控件树已经存在。
+
+内核 \code{sys\_create()} 分配 \code{kwnd} 和 $w\times h\times4$ 字节 surface，建立调用进程的消息队列，把窗口插入 Z 序并返回 \code{khwnd}。所有窗口服务共用一个 syscall 入口，\code{sys\_win32k()} 根据操作号分派：
+
+\begin{table}[htbp]
+  \centering
+  \caption{\code{SYS\_win32k} 的主要操作}
+  \label{tab:win32k-ops}
+  \small
+  \begin{tabularx}{\linewidth}{@{}lX@{}}
+    \toprule
+    类别 & 操作 \\
+    \midrule
+    生命周期 & \code{W32\_CREATE}、\code{DESTROY}、\code{SHOW}、\code{MOVE} \\
+    属性与 Z 序 & \code{SETTEXT}、\code{GETTEXT}、\code{GETINFO}、\code{ACTIVATE}、\code{ENUM} \\
+    消息 & \code{GETMSG}、\code{POST}、\code{QUIT}、\code{SETSHELL} \\
+    重绘 & \code{INVALIDATE}、\code{BEGINPAINT}、\code{ENDPAINT} \\
+    GDI & \code{GDI}、\code{BLIT}、\code{SCREEN} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+销毁、移动、改标题和绘制等操作都要满足 \code{kwnd.owner == myproc()->tgid}。进程退出时，\code{win32k\_exit(tgid)} 清除其窗口、队列和 surface，防止悬挂的全局对象。
+
+\subsection{消息驱动：等待，而不是轮询}
+
+窗口程序的主循环通常只有三行：
+
+\begin{ccode}
+MSG msg;
+while(GetMessage(&msg, 0, 0, 0))
+  DispatchMessage(&msg);
+\end{ccode}
+
+\code{DispatchMessage()} 根据 \code{msg.hwnd} 直接调用目标窗口的 \code{WNDPROC}。因此窗口过程是一个事件分派函数：\code{WM\_CREATE} 初始化，\code{WM\_COMMAND} 响应按钮，\code{WM\_CHAR} 处理字符，\code{WM\_PAINT} 绘图，\code{WM\_DESTROY} 结束程序。
+
+内核为每个 tgid 建立一个 \code{struct kq}，其中是 256 项环形队列。\code{post\_to()} 在队列自旋锁 \code{qlk} 内写入消息，再把 \code{q->kick} 加一并 \code{wakeup(q)}；连续的 \code{MOUSEMOVE} 和 \code{SHELLHOOK} 会合并，避免慢应用被过时的移动消息淹没。\code{sys\_getmsg()} 的顺序是：
+
+\begin{enumerate}
+  \item 队列有消息，\code{copyout()} 一项到用户态；
+  \item 队列为空、但某窗口有 update region，合成一条低优先级 \code{WM\_PAINT}；
+  \item 非阻塞或超时，返回 2；
+  \item 否则记下 \code{q->kick}，释放窗口锁 \code{wm}，在 \code{qlk} 下确认计数未变、队列仍空后 \code{sleep(q, \&qlk)}，等待新消息、无效区域或 delayed work 定时器唤醒。计数保证“放锁之后、睡眠之前”到达的事件不会丢失唤醒。
+\end{enumerate}
+
+所以“消息驱动”并不等于 CPU 不停检查消息。没有输入和重绘任务时，GUI 进程睡在内核队列上，不消耗时间片。
+
+\paragraph{异步与同步.} \code{PostMessage()} 是异步的：顶层消息经 \code{W32\_POST} 放入内核队列，子控件消息放入用户态本地队列。\code{SendMessage()} 是同步的，当前实现直接调用 \code{w->proc(...)}；它只适用于本进程对象，尚未实现 Windows 的跨进程同步消息。
+
+\subsection{输入如何找到 WNDPROC}
+
+图~\ref{fig:win32-msg-paint} 的上半段是输入调用链。USB 键盘或鼠标把 \code{EV\_KEY}/\code{EV\_REL} 交给 input core；\code{win32k\_input\_event()} 当时可能处在持锁的输入回调中，所以只写 raw ring 并 \code{queue\_work()}。真正的窗口逻辑由 \code{input\_work\_fn()} 在可调度上下文中执行。
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{\linewidth}{!}{\input{chapters/fig-win32-message-paint}}
+  \caption{上半：原始输入经内核顶层命中和用户态子控件路由成为 WNDPROC 调用；下半：状态变化经无效区域、\code{WM\_PAINT} 和 GDI 批处理成为屏幕像素}
+  \label{fig:win32-msg-paint}
+\end{figure}
+
+内核从全局 Z 序顶端向下执行 \code{window\_at()}，把鼠标送给命中的顶层窗口；键盘送给 active window。消息到达 \file{user/win32.c} 后，\code{translate()} 再用 \code{deepest\_child()}、focus 和 capture 选择进程内的具体子控件。这是两级路由：
+
+\begin{txtcode}
+全局、跨进程：屏幕坐标 -> 顶层 khwnd -> owner tgid    （内核）
+进程内：       顶层 HWND -> child/focus/capture -> WNDPROC（USER32）
+\end{txtcode}
+
+标题栏拖动、最小化/关闭按钮、弹出菜单的外部点击取消和鼠标光标属于非客户区行为，直接由内核处理。应用因此不能通过伪造本地子控件改变别的进程的 Z 序或输入归属。
+
+\subsection{无效区域与 \code{WM\_PAINT}}
+
+\code{InvalidateRect()} 不会立即绘图。用户库把子控件坐标换算成顶层窗口坐标，然后执行 \code{W32\_INVALIDATE}；内核的 \code{runion()} 将矩形并入 \code{kwnd.upd}。只有普通消息处理完、队列为空时，\code{sys\_getmsg()} 才合成 \code{WM\_PAINT}，所以输入比重绘优先。
+
+收到它后，\code{paint\_toplevel()} 完成一次绘制事务：
+
+\begin{enumerate}
+  \item \code{W32\_BEGINPAINT} 返回顶层矩形、update rectangle 和 active 状态；内核把 \code{upd} 转移到 \code{painting} 并清空待更新区；
+  \item \code{paint\_tree()} 先画窗口框架和客户区，再递归遍历可见子控件，并给各个 WNDPROC 发送 \code{WM\_PAINT}；
+  \item GDI 原语进入批缓冲，批满或遍历结束时用 \code{W32\_GDI} 提交；
+  \item \code{W32\_ENDPAINT} 将刚刚绘制的区域按 Z 序合成到屏幕；窗口第一次绘制时合成整个 surface。
+\end{enumerate}
+
+每个窗口保留完整 backing surface。因此窗口移动或从遮挡下重新露出时，内核通常只需重新合成已有像素，不必再次让应用 \code{WM\_PAINT}。这与保留式桌面 surface 的思想相似。
+
+\subsection{GDI：HDC、批处理、光栅化与合成}
+
+用户态 \code{struct dc} 是轻量绘图状态：目标 HWND、客户区原点、clip rectangle、文字色、背景色和背景模式。它不是 framebuffer 指针。\code{FillRect}、\code{FrameRect}、\code{TextOut}、\code{DrawText} 和 \code{DrawEdge} 把坐标转换到顶层窗口空间，再向 16 KiB \code{batch[]} 追加 \code{w32\_gdicmd}：
+
+\begin{ccode}
+struct w32_gdicmd {
+  unsigned short op, len;
+  int x0, y0, x1, y1;
+  uint32 color;
+  int clip_left, clip_top, clip_right, clip_bottom;
+  // GDI_TEXT 后面紧跟 4 字节对齐的文字
+};
+\end{ccode}
+
+内核目前实现两条批命令：\code{GDI\_FILL} 填矩形，\code{GDI\_TEXT} 用固定 8$\times$16 字体画字；\code{SetDIBitsToDevice()} 则先 flush 命令，再用 \code{W32\_BLIT} 复制 COLORREF 像素块。
+
+\code{sys\_gdi()} 将批限制在 32768 字节，\code{copyin()} 后检查句柄 generation 和 owner，再把每条命令同时裁剪到 command clip 与 surface 边界。Win32 的 \code{COLORREF} 是 \code{0x00BBGGRR}，\code{gdi\_pixel()} 根据 framebuffer 通道顺序转换后才写 surface。批处理既减少 syscall 次数，也阻止用户坐标或指针越过自己的窗口。
+
+全局 \code{z[]} 按从底到顶记录窗口。\code{compose()} 采用 painter's algorithm：先填桌面，再逐层复制可见 surface 到缓存的 shadow screen，最后把损坏矩形一次写入非缓存 framebuffer 并重画光标。\code{window\_to\_screen()} 会尽量只复制没有被更高窗口遮住的片段；碎片过多时退回完整 \code{compose()}。shadow 还能在擦除内核鼠标光标时恢复其下方像素。
+
+\subsection{并发：锁的划分与前后缓冲}
+
+最初的实现用一把自旋锁保护全部窗口状态，合成也在锁内进行。xv6 的 \code{acquire()} 会关中断，而写非缓存 framebuffer 的大面积合成要数毫秒；在 Pi~3B 上，经板载 hub 的 TT 以 split 事务轮询的 500\,Hz 鼠标因此不断错过 CSPLIT 时间窗口，拖动一阵后光标完全停住。现在的划分是：
+
+\begin{table}[htbp]
+  \centering
+  \caption{win32k 的三把锁}
+  \label{tab:win32k-locks}
+  \small
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    锁 & 类型 & 保护对象与理由 \\
+    \midrule
+    \code{wm} & 可睡眠 mutex & 窗口表、Z 序、激活/捕获/拖动状态、合成与 shadow；合成在开中断下进行 \\
+    \code{qlk} & 自旋锁 & 各进程消息环与 \code{kick}；\code{GetMessage} 在其上 \code{sleep()} \\
+    \code{rawlk} & 自旋锁 & 原始输入环；只在持设备锁的 input 回调里入队 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+加锁顺序固定为 \code{wm}$\rightarrow$\code{qlk}。输入 worker 先处理完一整批原始事件，再执行一次鼠标移动；拖动时新旧矩形重叠就合并为一次合成，避免高回报率鼠标触发每秒数百次合成。
+
+另一个只在多核真机上出现的问题是闪烁：GDI 命令原先直接写合成器读取的 surface，camview 每帧“先填背景、再贴图”，另一 CPU 上的合成若恰好落在两步之间，就把半成品显示出来。因此每个顶层窗口有前后两块 surface：
+
+\begin{txtcode}
+W32_GDI / W32_BLIT  ->  back            (绘制中, 合成器看不到)
+W32_ENDPAINT:  back[painting] -> surf   (front)  -> window_to_screen()
+compose() / window_to_screen() 只读 surf
+\end{txtcode}
+
+\code{W32\_GDI}/\code{W32\_BLIT} 光栅化时不持 \code{wm}：只有所有者会画、也只有所有者（或其退出）会释放 surface，而它画的是后缓冲。这些问题的现象、定位与验证记录在 \file{doc/readme/readme\_bug\_fix.md}。
+
+\subsection{实例与局限}
+
+以 \file{user/calc.c} 为例：\code{WinInit()} 注册内建控件；应用注册 \code{CalcProc}；\code{WM\_CREATE} 创建显示框和 16 个按钮；主线程睡在 \code{GetMessage()}；一次鼠标点击经过 input core、内核顶层命中和用户态 child hit test 到达 \code{ButtonProc}；按钮同步给父窗口发送 \code{WM\_COMMAND}；\code{CalcProc} 更新文字并使控件失效；最后低优先级 \code{WM\_PAINT} 生成 GDI 批、更新 surface 并合成画面。这样就贯通了
+\[
+ \text{输入}\rightarrow\text{消息队列}\rightarrow\text{WNDPROC}
+ \rightarrow\text{无效区域}\rightarrow\text{GDI 批}\rightarrow\text{surface}\rightarrow\text{屏幕}.
+\]
+
+当前实现仍有明确边界：顶层窗口、消息队列和用户窗口都是固定池；消息队列按 tgid 而不是每个 GUI 线程；本地或内核环形队列满时会丢消息；GDI 没有完整的 pen、brush、font、region 与设备对象表；每个窗口占前后两块 surface；surface 与合成都在 CPU/内核中，没有 GPU 加速和 alpha；合成器也没有像现代 Windows 那样独立成 DWM 进程。这些限制不妨碍它展示消息窗口系统最核心的控制流与权限边界。
+
+本章的驱动最终都服务于用户程序：\code{sh} 从 TTY 读命令，\code{sshd} 经 socket 收发，\code{camserver} 用 \code{mmap} 取帧，窗口应用则通过 USER32/GDI 风格库使用 input 与 framebuffer。下一章回到用户态，看这些程序怎样经系统调用、线程和 libc 用上内核提供的接口。
