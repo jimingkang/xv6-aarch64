@@ -1,76 +1,101 @@
 \relax 
 \providecommand\hyper@newdestlabel[2]{}
-\@writefile{toc}{\contentsline {chapter}{\numberline {第五章}进程调度}{45}{chapter.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {第五章}进程与调度}{64}{chapter.5}\protected@file@percent }
 \@writefile{lof}{\addvspace {10\p@ }}
 \@writefile{lot}{\addvspace {10\p@ }}
-\newlabel{chap:process}{{5}{45}{进程调度}{chapter.5}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5.1}进程由什么组成}{45}{section.5.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5.1}{\ignorespaces 一个进程的组成\relax }}{45}{figure.caption.24}\protected@file@percent }
-\newlabel{fig:proc}{{5.1}{45}{一个进程的组成\relax }{figure.caption.24}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1.1}\texttt  {\hyphenchar \font =-1 struct proc}}{45}{subsection.5.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1.2}两种现场}{46}{subsection.5.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5.2}动态进程表与内核栈}{46}{section.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5.3}第一个用户进程}{47}{section.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.1}initcode 做了什么}{47}{subsection.5.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.2}为什么需要 initcode}{48}{subsection.5.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.3}不用 initcode 的写法}{48}{subsection.5.3.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5.1}{\ignorespaces 保留 initcode 与在 \texttt  {\hyphenchar \font =-1 forkret} 中直接 exec\relax }}{49}{table.caption.25}\protected@file@percent }
-\newlabel{tab:initcode}{{5.1}{49}{保留 initcode 与在 \code {forkret} 中直接 exec\relax }{table.caption.25}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5.4}\texttt  {\hyphenchar \font =-1 fork()} 逐行解析}{49}{section.5.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5.2}{\ignorespaces \texttt  {\hyphenchar \font =-1 fork()} 的两条返回路径\relax }}{50}{figure.caption.26}\protected@file@percent }
-\newlabel{fig:fork}{{5.2}{50}{\code {fork()} 的两条返回路径\relax }{figure.caption.26}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.1}新进程的第一次运行}{50}{subsection.5.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.2}实例：fork 快照中的虚拟地址与物理页}{51}{subsection.5.4.2}\protected@file@percent }
-\newlabel{sec:fork-snapshot}{{5.4.2}{51}{实例：fork 快照中的虚拟地址与物理页}{subsection.5.4.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{一个进程：从虚拟地址到物理页.}{51}{figure.caption.27}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5.2}{\ignorespaces pid 17 的内核对象：虚拟地址与物理地址\relax }}{51}{table.caption.28}\protected@file@percent }
-\newlabel{tab:fork-kva}{{5.2}{51}{pid 17 的内核对象：虚拟地址与物理地址\relax }{table.caption.28}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5.3}{\ignorespaces pid 17 fork 刚完成：上半部分是虚拟地址视角，下半部分是物理页，箭头连接各对象所在的物理页\relax }}{52}{figure.caption.27}\protected@file@percent }
-\newlabel{fig:fork-pid17}{{5.3}{52}{pid 17 fork 刚完成：上半部分是虚拟地址视角，下半部分是物理页，箭头连接各对象所在的物理页\relax }{figure.caption.27}{}}
-\@writefile{toc}{\contentsline {paragraph}{context.sp 什么时候变.}{53}{table.caption.28}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5.4}{\ignorespaces 物理内存逐页：同一批物理页在 pid 16（t1）与 pid 17（t2）两次快照中的用途\relax }}{53}{figure.caption.29}\protected@file@percent }
-\newlabel{fig:fork-phys}{{5.4}{53}{物理内存逐页：同一批物理页在 pid 16（t1）与 pid 17（t2）两次快照中的用途\relax }{figure.caption.29}{}}
-\@writefile{toc}{\contentsline {paragraph}{两个进程：物理页的复用.}{53}{figure.caption.29}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{同一个进程：exec 之后与第一个系统调用.}{54}{figure.caption.30}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5.3}{\ignorespaces pid 17 内核栈中的三个位置（页内偏移）\relax }}{54}{table.caption.31}\protected@file@percent }
-\newlabel{tab:exec-ksp}{{5.3}{54}{pid 17 内核栈中的三个位置（页内偏移）\relax }{table.caption.31}{}}
-\@writefile{toc}{\contentsline {paragraph}{读图：用户地址怎样落到物理页.}{54}{table.caption.31}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{内核对象在哪个地址空间.}{54}{table.caption.31}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5.5}{\ignorespaces pid 17 执行 ls：exec 换上新映像（A）与第一个系统调用 open 返回（B）；内核栈按比例，下方物理页带页内偏移\relax }}{55}{figure.caption.30}\protected@file@percent }
-\newlabel{fig:exec-syscall}{{5.5}{55}{pid 17 执行 ls：exec 换上新映像（A）与第一个系统调用 open 返回（B）；内核栈按比例，下方物理页带页内偏移\relax }{figure.caption.30}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5.5}上下文切换与调度器}{56}{section.5.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.1}\texttt  {\hyphenchar \font =-1 swtch()}}{56}{subsection.5.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.2}context 中保存的值}{56}{subsection.5.5.2}\protected@file@percent }
-\newlabel{sec:context-values}{{5.5.2}{56}{context 中保存的值}{subsection.5.5.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{x30.}{56}{lstnumber.-72.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{sp.}{57}{lstnumber.-72.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{恢复.}{57}{lstnumber.-73.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.3}调度循环}{57}{subsection.5.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.4}调度对进程是透明的}{58}{subsection.5.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.5}谁触发调度}{58}{subsection.5.5.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.6}关中断与禁止抢占}{58}{subsection.5.5.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.7}如何选择下一个进程}{59}{subsection.5.5.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.8}跟踪一次时间片轮转}{59}{subsection.5.5.8}\protected@file@percent }
-\newlabel{sec:sched-trace}{{5.5.8}{59}{跟踪一次时间片轮转}{subsection.5.5.8}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5.6}\texttt  {\hyphenchar \font =-1 exec}、\texttt  {\hyphenchar \font =-1 exit} 与 \texttt  {\hyphenchar \font =-1 wait}}{60}{section.5.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.1}\texttt  {\hyphenchar \font =-1 exec}}{60}{subsection.5.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.2}\texttt  {\hyphenchar \font =-1 exit} 与 \texttt  {\hyphenchar \font =-1 wait}}{61}{subsection.5.6.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.3}在系统调用里睡眠不是异常}{61}{subsection.5.6.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5.7}睡眠、唤醒与同步原语}{62}{section.5.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.1}\texttt  {\hyphenchar \font =-1 sleep}/\texttt  {\hyphenchar \font =-1 wakeup}}{62}{subsection.5.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.2}内核 mutex 与 rw semaphore}{62}{subsection.5.7.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.3}用户态同步原语}{62}{subsection.5.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5.8}多核软实时调度}{63}{section.5.8}\protected@file@percent }
-\newlabel{sec:sched-rt}{{5.8}{63}{多核软实时调度}{section.5.8}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {5.4}{\ignorespaces 调度策略\relax }}{63}{table.caption.32}\protected@file@percent }
-\newlabel{tab:policy}{{5.4}{63}{调度策略\relax }{table.caption.32}{}}
-\@writefile{toc}{\contentsline {paragraph}{选择.}{63}{table.caption.32}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{抢占.}{63}{table.caption.32}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{节流.}{63}{table.caption.32}\protected@file@percent }
+\newlabel{chap:process}{{5}{64}{进程与调度}{chapter.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.1}进程由什么组成}{64}{section.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.1}{\ignorespaces 一个进程的组成\relax }}{64}{figure.caption.30}\protected@file@percent }
+\newlabel{fig:proc}{{5.1}{64}{一个进程的组成\relax }{figure.caption.30}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1.1}\texttt  {\hyphenchar \font =-1 struct proc}}{64}{subsection.5.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1.2}两种现场}{65}{subsection.5.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.2}动态进程表与内核栈}{65}{section.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.3}第一个用户进程}{66}{section.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.1}initcode 做了什么}{66}{subsection.5.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.2}为什么需要 initcode}{67}{subsection.5.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.3}不用 initcode 的写法}{67}{subsection.5.3.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5.1}{\ignorespaces 保留 initcode 与在 \texttt  {\hyphenchar \font =-1 forkret} 中直接 exec\relax }}{68}{table.caption.31}\protected@file@percent }
+\newlabel{tab:initcode}{{5.1}{68}{保留 initcode 与在 \code {forkret} 中直接 exec\relax }{table.caption.31}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.4}\texttt  {\hyphenchar \font =-1 fork()} 逐行解析}{68}{section.5.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.2}{\ignorespaces \texttt  {\hyphenchar \font =-1 fork()} 的两条返回路径\relax }}{69}{figure.caption.32}\protected@file@percent }
+\newlabel{fig:fork}{{5.2}{69}{\code {fork()} 的两条返回路径\relax }{figure.caption.32}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.1}新进程的第一次运行}{70}{subsection.5.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.2}回到用户态：\texttt  {\hyphenchar \font =-1 trapret} 中的中断竞争}{70}{subsection.5.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.3}实例：fork 快照中的虚拟地址与物理页}{71}{subsection.5.4.3}\protected@file@percent }
+\newlabel{sec:fork-snapshot}{{5.4.3}{71}{实例：fork 快照中的虚拟地址与物理页}{subsection.5.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{一个进程：从虚拟地址到物理页.}{71}{figure.caption.33}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5.2}{\ignorespaces pid 17 的内核对象：虚拟地址与物理地址\relax }}{71}{table.caption.34}\protected@file@percent }
+\newlabel{tab:fork-kva}{{5.2}{71}{pid 17 的内核对象：虚拟地址与物理地址\relax }{table.caption.34}{}}
+\@writefile{toc}{\contentsline {paragraph}{context.sp 什么时候变.}{71}{table.caption.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{两个进程：物理页的复用.}{71}{table.caption.34}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.3}{\ignorespaces pid 17 fork 刚完成：上半部分是虚拟地址视角，下半部分是物理页，箭头连接各对象所在的物理页\relax }}{72}{figure.caption.33}\protected@file@percent }
+\newlabel{fig:fork-pid17}{{5.3}{72}{pid 17 fork 刚完成：上半部分是虚拟地址视角，下半部分是物理页，箭头连接各对象所在的物理页\relax }{figure.caption.33}{}}
+\@writefile{toc}{\contentsline {paragraph}{同一个进程：exec 之后与第一个系统调用.}{73}{figure.caption.35}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5.3}{\ignorespaces pid 17 内核栈中的三个位置（页内偏移）\relax }}{73}{table.caption.36}\protected@file@percent }
+\newlabel{tab:exec-ksp}{{5.3}{73}{pid 17 内核栈中的三个位置（页内偏移）\relax }{table.caption.36}{}}
+\@writefile{toc}{\contentsline {paragraph}{读图：用户地址怎样落到物理页.}{73}{table.caption.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{内核对象在哪个地址空间.}{73}{table.caption.36}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.4}{\ignorespaces pid 17 执行 ls：exec 换上新映像（A）与第一个系统调用 open 返回（B）；内核栈按比例，下方物理页带页内偏移\relax }}{74}{figure.caption.35}\protected@file@percent }
+\newlabel{fig:exec-syscall}{{5.4}{74}{pid 17 执行 ls：exec 换上新映像（A）与第一个系统调用 open 返回（B）；内核栈按比例，下方物理页带页内偏移\relax }{figure.caption.35}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.5}clone 标志与 vfork}{75}{section.5.5}\protected@file@percent }
+\newlabel{sec:clone-flags}{{5.5}{75}{clone 标志与 vfork}{section.5.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.4}{\ignorespaces \texttt  {\hyphenchar \font =-1 struct proc} 指向的三个可共享对象\relax }}{75}{table.caption.37}\protected@file@percent }
+\newlabel{tab:clone-objs}{{5.4}{75}{\code {struct proc} 指向的三个可共享对象\relax }{table.caption.37}{}}
+\@writefile{toc}{\contentsline {paragraph}{用户接口.}{75}{figure.caption.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{共享描述符表.}{75}{figure.caption.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{vfork.}{75}{figure.caption.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{两个计数.}{75}{figure.caption.38}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.5}{\ignorespaces fork、线程和 vfork 各共享什么，以及 vfork 父进程何时醒来\relax }}{76}{figure.caption.38}\protected@file@percent }
+\newlabel{fig:clone-vfork}{{5.5}{76}{fork、线程和 vfork 各共享什么，以及 vfork 父进程何时醒来\relax }{figure.caption.38}{}}
+\@writefile{toc}{\contentsline {paragraph}{测试.}{76}{figure.caption.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.6}上下文切换与调度器}{76}{section.5.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.1}\texttt  {\hyphenchar \font =-1 swtch()}}{76}{subsection.5.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.2}context 中保存的值}{77}{subsection.5.6.2}\protected@file@percent }
+\newlabel{sec:context-values}{{5.6.2}{77}{context 中保存的值}{subsection.5.6.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{x30.}{77}{lstnumber.-101.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{sp.}{77}{lstnumber.-101.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{恢复.}{78}{lstnumber.-102.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.3}调度循环}{78}{subsection.5.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.4}把一次调度切换打印出来}{78}{subsection.5.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.5}调度对进程是透明的}{79}{subsection.5.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.6}谁触发调度}{79}{subsection.5.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.7}关中断与禁止抢占}{80}{subsection.5.6.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.8}如何选择下一个进程}{80}{subsection.5.6.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.9}跟踪一次时间片轮转}{81}{subsection.5.6.9}\protected@file@percent }
+\newlabel{sec:sched-trace}{{5.6.9}{81}{跟踪一次时间片轮转}{subsection.5.6.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6.10}实例：log8 中的调度、栈与 context}{81}{subsection.5.6.10}\protected@file@percent }
+\newlabel{sec:sched-log8}{{5.6.10}{81}{实例：log8 中的调度、栈与 context}{subsection.5.6.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{时间线.}{82}{figure.caption.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{fork 与 wait 的时序.}{82}{Item.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{时间片与空闲 CPU.}{82}{Item.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{中断用的是哪块栈.}{82}{Item.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{wakeup 与中断.}{82}{table.caption.40}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.6}{\ignorespaces log8：上部是按 CPU 分道的调度时间线（[81]--[329] 的 forktest 重复段已折叠）；中部是 8 次切换的内核栈和 \texttt  {\hyphenchar \font =-1 p->context}，红线表示 \texttt  {\hyphenchar \font =-1 context.sp}/\texttt  {\hyphenchar \font =-1 x29} 指向栈上的位置；底部是寄存器横向对比\relax }}{83}{figure.caption.39}\protected@file@percent }
+\newlabel{fig:sched-log8}{{5.6}{83}{log8：上部是按 CPU 分道的调度时间线（[81]--[329] 的 forktest 重复段已折叠）；中部是 8 次切换的内核栈和 \code {p->context}，红线表示 \code {context.sp}/\code {x29} 指向栈上的位置；底部是寄存器横向对比\relax }{figure.caption.39}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.5}{\ignorespaces 中断压在哪块栈上\relax }}{84}{table.caption.40}\protected@file@percent }
+\newlabel{tab:irq-stack}{{5.5}{84}{中断压在哪块栈上\relax }{table.caption.40}{}}
+\@writefile{toc}{\contentsline {paragraph}{context 的对比.}{84}{table.caption.40}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5.6}{\ignorespaces log8 中 8 次切换的 \texttt  {\hyphenchar \font =-1 p->context}（\texttt  {\hyphenchar \font =-1 ...} 表示省略了高位）\relax }}{84}{table.caption.41}\protected@file@percent }
+\newlabel{tab:ctx-log8}{{5.6}{84}{log8 中 8 次切换的 \code {p->context}（\code {...} 表示省略了高位）\relax }{table.caption.41}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.7}\texttt  {\hyphenchar \font =-1 exec}、\texttt  {\hyphenchar \font =-1 exit} 与 \texttt  {\hyphenchar \font =-1 wait}}{84}{section.5.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.1}\texttt  {\hyphenchar \font =-1 exec}}{84}{subsection.5.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.2}\texttt  {\hyphenchar \font =-1 exit} 与 \texttt  {\hyphenchar \font =-1 wait}}{85}{subsection.5.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7.3}在系统调用里睡眠不是异常}{86}{subsection.5.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.8}睡眠、唤醒与同步原语}{86}{section.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8.1}\texttt  {\hyphenchar \font =-1 sleep}/\texttt  {\hyphenchar \font =-1 wakeup}}{86}{subsection.5.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8.2}内核 mutex 与 rw semaphore}{87}{subsection.5.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8.3}用户态同步原语}{87}{subsection.5.8.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.9}多核软实时调度}{87}{section.5.9}\protected@file@percent }
+\newlabel{sec:sched-rt}{{5.9}{87}{多核软实时调度}{section.5.9}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.7}{\ignorespaces 调度策略\relax }}{87}{table.caption.42}\protected@file@percent }
+\newlabel{tab:policy}{{5.7}{87}{调度策略\relax }{table.caption.42}{}}
+\@writefile{toc}{\contentsline {paragraph}{选择.}{87}{table.caption.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{抢占.}{87}{table.caption.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{节流.}{88}{table.caption.42}\protected@file@percent }
 \@setckpt{chapters/05-process}{
-\setcounter{page}{64}
+\setcounter{page}{89}
 \setcounter{equation}{0}
-\setcounter{enumi}{8}
+\setcounter{enumi}{5}
 \setcounter{enumii}{0}
 \setcounter{enumiii}{0}
 \setcounter{enumiv}{0}
@@ -78,17 +103,17 @@
 \setcounter{mpfootnote}{0}
 \setcounter{part}{0}
 \setcounter{chapter}{5}
-\setcounter{section}{8}
+\setcounter{section}{9}
 \setcounter{subsection}{0}
 \setcounter{subsubsection}{0}
 \setcounter{paragraph}{0}
 \setcounter{subparagraph}{0}
-\setcounter{figure}{5}
-\setcounter{table}{4}
-\setcounter{Item}{39}
+\setcounter{figure}{6}
+\setcounter{table}{7}
+\setcounter{Item}{56}
 \setcounter{Hfootnote}{0}
 \setcounter{Hy@AnnotLevel}{0}
-\setcounter{bookmark@seq@number}{102}
+\setcounter{bookmark@seq@number}{132}
 \setcounter{parentequation}{0}
 \setcounter{blindtext}{1}
 \setcounter{Blindtext}{5}
