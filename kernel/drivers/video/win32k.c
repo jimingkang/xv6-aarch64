@@ -29,6 +29,7 @@
 #include "memlayout.h"
 #include "aarch64.h"
 #include <kernel/spinlock.h>
+#include <kernel/mutex.h>
 #include <kernel/sleeplock.h>
 #include <kernel/fs.h>
 #include <kernel/proc.h>
@@ -58,7 +59,10 @@ struct kwnd {
   struct w32_rect upd;          // pending repaint, window coordinates
   int minimized;
   uint seq;                     // creation order (taskbar)
-  uint32 *surf;                 // backing surface, sw x sh, fb pixel format
+  uint32 *surf;                 // backing surface, sw x sh, fb pixel format:
+                                // what the compositor shows (front)
+  uint32 *back;                 // GDI draws here between Begin/EndPaint;
+                                // EndPaint copies the painted area to surf
   int sw, sh;
   int painted;                  // the surface holds a complete picture
   struct w32_rect painting;     // update area handed out by BeginPaint
@@ -70,9 +74,17 @@ struct kq {
   struct w32_msg ring[QLEN];
   uint head, tail;
   struct delayed_work timer;    // ends a GETMSG timeout
+  uint kick;                    // bumped (under qlk) on every wake-up
 };
 
-static struct spinlock lk;
+// Locking.  wm (a sleepable mutex) protects the window state; composition
+// runs under it with interrupts enabled -- holding a spinlock there kept
+// IRQs off for milliseconds and starved the USB host's split-transaction
+// interrupts, which could stop the mouse.  qlk (a spinlock) protects only
+// the message rings, so GetMessage can sleep on a queue (xv6 sleep()
+// needs a spinlock) and kick counts close the lost-wakeup window.
+static struct mutex wm;
+static struct spinlock qlk;
 static struct kwnd wins[MAXW];
 static int z[MAXW], nz;         // bottom to top
 static struct kq queues[MAXQ];
@@ -195,13 +207,31 @@ queue_of(int tgid, int create)
   }
   if(!create || !free)
     return 0;
+  acquire(&qlk);
   free->used = 1;
   free->tgid = tgid;
   free->head = free->tail = 0;
+  release(&qlk);
   return free;
 }
 
-// Caller holds lk.  Consecutive mouse moves to one window are merged, as
+// Wake whoever sleeps in GetMessage on queue q (caller holds qlk).
+static void
+kick_locked(struct kq *q)
+{
+  q->kick++;
+  wakeup(q);
+}
+
+static void
+kick(struct kq *q)
+{
+  acquire(&qlk);
+  kick_locked(q);
+  release(&qlk);
+}
+
+// Caller holds wm.  Consecutive mouse moves to one window are merged, as
 // Windows does, so a slow application does not drown in motion events.
 static void
 post_to(int tgid, uint32 hwnd, uint32 msg, uint64 wp, long lp)
@@ -209,23 +239,26 @@ post_to(int tgid, uint32 hwnd, uint32 msg, uint64 wp, long lp)
   struct kq *q = queue_of(tgid, 1);
   if(!q)
     return;
+  acquire(&qlk);
   if(q->head != q->tail){
     struct w32_msg *last = &q->ring[(q->tail - 1) % QLEN];
     if(last->hwnd == hwnd && last->message == msg &&
        (msg == W32M_MOUSEMOVE || msg == W32M_SHELLHOOK)){
       last->wparam = wp;
       last->lparam = lp;
+      release(&qlk);
       return;
     }
   }
-  if(q->tail - q->head >= QLEN)
-    return;                     // full: drop, like a lost input event
-  struct w32_msg *m = &q->ring[q->tail++ % QLEN];
-  m->hwnd = hwnd;
-  m->message = msg;
-  m->wparam = wp;
-  m->lparam = lp;
-  wakeup(q);
+  if(q->tail - q->head < QLEN){   // full: drop, like a lost input event
+    struct w32_msg *m = &q->ring[q->tail++ % QLEN];
+    m->hwnd = hwnd;
+    m->message = msg;
+    m->wparam = wp;
+    m->lparam = lp;
+  }
+  kick_locked(q);
+  release(&qlk);
 }
 
 static void
@@ -247,9 +280,7 @@ timer_fn(struct work_struct *w)
 {
   struct kq *q = (struct kq *)((char *)w -
                   __builtin_offsetof(struct kq, timer.work));
-  acquire(&lk);
-  wakeup(q);
-  release(&lk);
+  kick(q);
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +359,7 @@ invalidate_screen_on(int i, struct w32_rect s)
   runion(&wins[i].upd, r);
   struct kq *q = queue_of(wins[i].owner, 0);
   if(q)
-    wakeup(q);
+    kick(q);
 }
 
 // The frame buffer is mapped non-cacheable, so every pixel written there is
@@ -518,11 +549,13 @@ destroy_locked(int i)
   nwin--;
   z_remove(i);
   // Drop messages still queued for it.
+  acquire(&qlk);
   for(int qi = 0; qi < MAXQ; qi++)
     if(queues[qi].used)
       for(uint k = queues[qi].head; k != queues[qi].tail; k++)
         if(queues[qi].ring[k % QLEN].hwnd == h)
           queues[qi].ring[k % QLEN].hwnd = 0;
+  release(&qlk);
   if(capture == i) capture = -1;
   if(dragw == i) dragw = -1;
   if(ncw == i) ncw = -1;
@@ -530,8 +563,11 @@ destroy_locked(int i)
   if(last_click_w == i) last_click_w = -1;
   if(was_shown)
     damage_screen(r);
-  kfree(wins[i].surf);          // after composing: nothing shows it now
-  wins[i].surf = 0;
+  if(wins[i].surf)
+    kfree(wins[i].surf);        // after composing: nothing shows it now
+  if(wins[i].back)
+    kfree(wins[i].back);
+  wins[i].surf = wins[i].back = 0;
   if(active == i){
     active = -1;
     activate_next();
@@ -797,11 +833,11 @@ input_work_fn(struct work_struct *work)
     acquire(&rawlk);
     if(rawh == rawt){
       release(&rawlk);
-      acquire(&lk);
+      mutex_lock(&wm);
       if(nwin > 0 && (pdx || pdy))
         mouse_move(pdx, pdy);
       pdx = pdy = 0;
-      release(&lk);
+      mutex_unlock(&wm);
       return;
     }
     type = raw[rawh % RAWQ].type;
@@ -810,7 +846,7 @@ input_work_fn(struct work_struct *work)
     rawh++;
     release(&rawlk);
 
-    acquire(&lk);
+    mutex_lock(&wm);
     if(nwin > 0){
       if(type == EV_REL){
         if(code == REL_X)
@@ -839,7 +875,7 @@ input_work_fn(struct work_struct *work)
         }
       }
     }
-    release(&lk);
+    mutex_unlock(&wm);
   }
 }
 
@@ -849,14 +885,17 @@ input_work_fn(struct work_struct *work)
 void
 win32k_exit(int tgid)
 {
-  acquire(&lk);
+  mutex_lock(&wm);
   for(int i = 0; i < MAXW; i++)
     if(wins[i].used && wins[i].owner == tgid)
       destroy_locked(i);
   struct kq *q = queue_of(tgid, 0);
-  if(q)
+  if(q){
+    acquire(&qlk);
     q->used = 0;
-  release(&lk);
+    release(&qlk);
+  }
+  mutex_unlock(&wm);
   if(q)
     cancel_delayed_work_sync(&q->timer);
 }
@@ -880,23 +919,27 @@ sys_create(uint64 uarg)
       return 0;
     fb_ok = 1;
   }
-  acquire(&lk);
+  mutex_lock(&wm);
   int i;
   for(i = 0; i < MAXW && wins[i].used; i++)
     ;
   if(i == MAXW || !queue_of(p->tgid, 1)){
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   }
   uint32 *surf = kmalloc((uint64)c.w * c.h * 4);   // zeroed
-  if(!surf){
-    release(&lk);
+  uint32 *back = surf ? kmalloc((uint64)c.w * c.h * 4) : 0;
+  if(!surf || !back){
+    if(surf)
+      kfree(surf);
+    mutex_unlock(&wm);
     return 0;
   }
   struct kwnd *w = &wins[i];
   uint gen = w->gen;
   memset(w, 0, sizeof(*w));
   w->surf = surf;
+  w->back = back;
   w->sw = c.w;
   w->sh = c.h;
   w->upd.right = c.w;           // everything needs a first paint
@@ -924,7 +967,7 @@ sys_create(uint64 uarg)
     active = i;
   shell_notify();
   uint32 h = hwnd_of(i);
-  release(&lk);
+  mutex_unlock(&wm);
   return h;
 }
 
@@ -938,18 +981,27 @@ sys_getmsg(uint64 uptr, int timeout_ms)
 
   if(timeout_ms > 0)
     deadline = workqueue_now() + (timeout_ms + 9) / 10;
-  acquire(&lk);
+  mutex_lock(&wm);
   struct kq *q = queue_of(p->tgid, 1);
   if(!q){
-    release(&lk);
+    mutex_unlock(&wm);
     return -1;
   }
   for(;;){
+    uint seen;
+    int got = 0;
+    acquire(&qlk);
     while(q->head != q->tail){
       m = q->ring[q->head++ % QLEN];
       if(m.hwnd == 0 && m.message != W32M_QUIT)
         continue;               // its window was destroyed
-      release(&lk);
+      got = 1;
+      break;
+    }
+    seen = q->kick;
+    release(&qlk);
+    if(got){
+      mutex_unlock(&wm);
       if(copyout(p->vm->pagetable, uptr, (char *)&m, sizeof(m)) < 0)
         return -1;
       return m.message == W32M_QUIT ? 0 : 1;
@@ -962,7 +1014,7 @@ sys_getmsg(uint64 uptr, int timeout_ms)
         m.message = W32M_PAINT;
         m.wparam = 0;
         m.lparam = 0;
-        release(&lk);
+        mutex_unlock(&wm);
         if(copyout(p->vm->pagetable, uptr, (char *)&m, sizeof(m)) < 0)
           return -1;
         return 1;
@@ -970,17 +1022,23 @@ sys_getmsg(uint64 uptr, int timeout_ms)
     }
     if(timeout_ms == 0 || p->killed ||
        (timeout_ms > 0 && workqueue_now() >= deadline)){
-      release(&lk);
+      mutex_unlock(&wm);
       return p->killed ? -1 : 2;            // 2: timed out, no message
     }
+    mutex_unlock(&wm);
     if(timeout_ms > 0 && !armed){
       uint64 now = workqueue_now();
       mod_delayed_work(&w32wq, &q->timer, deadline > now ? deadline - now : 1);
       armed = 1;
     }
-    sleep(q, &lk);
+    acquire(&qlk);
+    // Sleep unless something was posted or invalidated since we looked.
+    if(q->kick == seen && q->head == q->tail && !p->killed)
+      sleep(q, &qlk);
+    release(&qlk);
     if(timeout_ms > 0 && workqueue_now() < deadline)
       armed = 0;                // woken early; re-arm for the remainder
+    mutex_lock(&wm);
   }
 }
 
@@ -994,7 +1052,7 @@ sys_beginpaint(int i, uint64 uptr)
   ps.active = i == active;
   runion(&wins[i].painting, wins[i].upd);
   wins[i].upd.left = wins[i].upd.right = 0;
-  release(&lk);
+  mutex_unlock(&wm);
   if(copyout(myproc()->vm->pagetable, uptr, (char *)&ps, sizeof(ps)) < 0)
     return -1;
   return 0;
@@ -1027,16 +1085,16 @@ sys_gdi(uint32 h, uint64 ubuf, int len)
     kfree(buf);
     return -1;
   }
-  acquire(&lk);
+  mutex_lock(&wm);
   int i = index_of(h);
-  if(i < 0 || wins[i].owner != p->tgid || !wins[i].surf){
-    release(&lk);
+  if(i < 0 || wins[i].owner != p->tgid || !wins[i].back){
+    mutex_unlock(&wm);
     kfree(buf);
     return -1;
   }
-  uint32 *surf = wins[i].surf;
+  uint32 *surf = wins[i].back;  // off screen until EndPaint
   int sw = wins[i].sw, sh = wins[i].sh;
-  release(&lk);
+  mutex_unlock(&wm);
 
   int off = 0, n = 0;
   while(off + (int)sizeof(struct w32_gdicmd) <= len){
@@ -1098,15 +1156,15 @@ sys_blit(uint32 h, uint64 uarg)
   if(copyin(p->vm->pagetable, (char *)&b, uarg, sizeof(b)) < 0 ||
      b.w <= 0 || b.h <= 0 || b.w > 4096 || b.h > 4096 || b.pitch < b.w)
     return -1;
-  acquire(&lk);
+  mutex_lock(&wm);
   int i = index_of(h);
-  if(i < 0 || wins[i].owner != p->tgid || !wins[i].surf){
-    release(&lk);
+  if(i < 0 || wins[i].owner != p->tgid || !wins[i].back){
+    mutex_unlock(&wm);
     return -1;
   }
-  uint32 *surf = wins[i].surf;
+  uint32 *surf = wins[i].back;  // off screen until EndPaint
   int sw = wins[i].sw, sh = wins[i].sh;
-  release(&lk);
+  mutex_unlock(&wm);
 
   int cl = b.clip_left > 0 ? b.clip_left : 0;
   int ct = b.clip_top > 0 ? b.clip_top : 0;
@@ -1167,7 +1225,7 @@ sys_win32k(void)
     struct w32_msg m;
     if(copyin(p->vm->pagetable, (char *)&m, a1, sizeof(m)) < 0)
       return -1;
-    acquire(&lk);
+    mutex_lock(&wm);
     if(m.hwnd == 0)
       post_to(p->tgid, 0, m.message, m.wparam, m.lparam);
     else {
@@ -1175,24 +1233,24 @@ sys_win32k(void)
       if(i >= 0)
         post_to(wins[i].owner, m.hwnd, m.message, m.wparam, m.lparam);
     }
-    release(&lk);
+    mutex_unlock(&wm);
     return 1;
   }
   case W32_QUIT:
-    acquire(&lk);
+    mutex_lock(&wm);
     post_to(p->tgid, 0, W32M_QUIT, a1, 0);
-    release(&lk);
+    mutex_unlock(&wm);
     return 1;
   case W32_GETACTIVE: {
-    acquire(&lk);
+    mutex_lock(&wm);
     uint32 h = active >= 0 && wins[active].used ? hwnd_of(active) : 0;
-    release(&lk);
+    mutex_unlock(&wm);
     return h;
   }
   case W32_ENUM: {
     uint32 out[MAXW];
     int n = 0, max = (int)a2;
-    acquire(&lk);
+    mutex_lock(&wm);
     for(uint s = 1; s <= seqno && n < MAXW; s++)
       for(int i = 0; i < MAXW; i++)
         if(wins[i].used && wins[i].seq == s &&
@@ -1200,7 +1258,7 @@ sys_win32k(void)
                    (wins[i].style & W32S_VISIBLE) &&
                    !(wins[i].style & W32S_NOTASKBAR))))
           out[n++] = hwnd_of(i);
-    release(&lk);
+    mutex_unlock(&wm);
     if(n > max)
       n = max;
     if(n > 0 && copyout(p->vm->pagetable, a1, (char *)out, n * sizeof(uint32)) < 0)
@@ -1210,10 +1268,10 @@ sys_win32k(void)
   }
 
   // The rest name a window.
-  acquire(&lk);
+  mutex_lock(&wm);
   int i = index_of((uint32)a1);
   if(i < 0){
-    release(&lk);
+    mutex_unlock(&wm);
     return -1;
   }
   struct kwnd *w = &wins[i];
@@ -1223,7 +1281,7 @@ sys_win32k(void)
     if(!mine)
       break;
     destroy_locked(i);
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   case W32_SHOW:
     if(a2){
@@ -1245,7 +1303,7 @@ sys_win32k(void)
       }
     }
     shell_notify();
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   case W32_ACTIVATE:
     if(w->minimized){
@@ -1253,13 +1311,13 @@ sys_win32k(void)
       invalidate_screen_on(i, w->rc);
     }
     activate(i);
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   case W32_SETSHELL:
     if(!mine)
       break;
     shellw = i;
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   case W32_ENDPAINT: {
     if(!mine)
@@ -1273,10 +1331,18 @@ sys_win32k(void)
       r.right = w->sw;
       r.bottom = w->sh;
     }
+    // Double buffering: the compositor only ever reads the front surface,
+    // so it never shows a half-painted window (a background fill without
+    // the picture on top was the flicker in overlapping areas).
+    struct w32_rect wr = { 0, 0, w->sw, w->sh };
+    struct w32_rect cp = risect(r, wr);
+    for(int y = cp.top; y < cp.bottom; y++)
+      memmove(w->surf + y * w->sw + cp.left, w->back + y * w->sw + cp.left,
+              (cp.right - cp.left) * 4);
     r.left += w->rc.left; r.right += w->rc.left;
     r.top += w->rc.top; r.bottom += w->rc.top;
     window_to_screen(i, r);
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   }
   case W32_BEGINPAINT:
@@ -1288,10 +1354,10 @@ sys_win32k(void)
       break;
     struct w32_rect r;
     if(a2){
-      release(&lk);
+      mutex_unlock(&wm);
       if(copyin(p->vm->pagetable, (char *)&r, a2, sizeof(r)) < 0)
         return -1;
-      acquire(&lk);
+      mutex_lock(&wm);
       if((i = index_of((uint32)a1)) < 0)
         break;
       r.left += wins[i].rc.left; r.right += wins[i].rc.left;
@@ -1300,27 +1366,33 @@ sys_win32k(void)
       r = w->rc;
     }
     invalidate_screen_on(i, r);
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   }
   case W32_MOVE: {
     if(!mine)
       break;
     struct w32_rect r;
-    release(&lk);
+    mutex_unlock(&wm);
     if(copyin(p->vm->pagetable, (char *)&r, a2, sizeof(r)) < 0)
       return -1;
-    acquire(&lk);
+    mutex_lock(&wm);
     if((i = index_of((uint32)a1)) < 0 || rempty(&r))
       break;
     struct w32_rect old = wins[i].rc;
     int nw = r.right - r.left, nh = r.bottom - r.top;
     if(nw != wins[i].sw || nh != wins[i].sh){
       uint32 *ns = kmalloc((uint64)nw * nh * 4);
-      if(!ns)
+      uint32 *nb = ns ? kmalloc((uint64)nw * nh * 4) : 0;
+      if(!ns || !nb){
+        if(ns)
+          kfree(ns);
         break;
+      }
       kfree(wins[i].surf);
+      kfree(wins[i].back);
       wins[i].surf = ns;
+      wins[i].back = nb;
       wins[i].sw = nw;
       wins[i].sh = nh;
       wins[i].painted = 0;
@@ -1329,22 +1401,22 @@ sys_win32k(void)
       wins[i].upd.bottom = nh;
       struct kq *q = queue_of(wins[i].owner, 0);
       if(q)
-        wakeup(q);
+        kick(q);
     }
     wins[i].rc = r;
     compose(old);
     compose(r);
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   }
   case W32_SETTEXT: {
     if(!mine)
       break;
     char t[64];
-    release(&lk);
+    mutex_unlock(&wm);
     if(copyinstr(p->vm->pagetable, t, a2, sizeof(t)) < 0)
       return -1;
-    acquire(&lk);
+    mutex_lock(&wm);
     if((i = index_of((uint32)a1)) < 0)
       break;
     safestrcpy(wins[i].title, t, sizeof(wins[i].title));
@@ -1352,14 +1424,14 @@ sys_win32k(void)
     cap.bottom = cap.top + W32_FRAME + W32_CAPTION_H;
     invalidate_screen_on(i, cap);
     shell_notify();
-    release(&lk);
+    mutex_unlock(&wm);
     return 0;
   }
   case W32_GETTEXT: {
     char t[64];
     int max = (int)a3;
     safestrcpy(t, w->title, sizeof(t));
-    release(&lk);
+    mutex_unlock(&wm);
     if(max <= 0)
       return 0;
     if(max > (int)sizeof(t))
@@ -1377,20 +1449,21 @@ sys_win32k(void)
     info.owner = w->owner;
     info.minimized = w->minimized;
     info.active = i == active;
-    release(&lk);
+    mutex_unlock(&wm);
     if(copyout(p->vm->pagetable, a2, (char *)&info, sizeof(info)) < 0)
       return -1;
     return 0;
   }
   }
-  release(&lk);
+  mutex_unlock(&wm);
   return -1;
 }
 
 static void
 win32k_init(void)
 {
-  initlock(&lk, "win32k");
+  mutex_init(&wm, "win32k");
+  initlock(&qlk, "win32k-queues");
   initlock(&rawlk, "win32k-input");
   init_workqueue(&w32wq, "win32k", 1);
   init_work(&input_work, input_work_fn);
