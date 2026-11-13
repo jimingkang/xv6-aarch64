@@ -104,6 +104,56 @@ static void die(const char *why) {
   for(;;) asm volatile("wfi");
 }
 
+/* Stage LEDs. Tiny210: LED1-4 on GPJ2[0:3], active low (FriendlyARM
+   mini210/tiny210 BSP). LED n lit = stage n reached:
+     1 BL1 running   2 PLLs set   3 DDR OK   4 kernel loaded, jumping */
+#define GPJ2CON (GPIO+0x280)
+#define GPJ2DAT (GPIO+0x284)
+static void led_stage(int n) {
+#ifdef BOARD_TINY210
+  if(n==1) REG(GPJ2CON)=(REG(GPJ2CON)&~0xffffU)|0x1111;  /* GPJ2[0:3] outputs */
+  REG(GPJ2DAT)=(REG(GPJ2DAT)&~0xfU)|(0xfU&~((1U<<n)-1)); /* LEDs 1..n on */
+#else
+  (void)n;
+#endif
+}
+
+static uint32 udiv(uint32 a, uint32 b) {   /* no hardware divide on Cortex-A8 */
+  uint32 q=0, r=0;
+  if(!b) return 0;
+  for(int i=31;i>=0;i--) { r=(r<<1)|((a>>i)&1); if(r>=b) { r-=b; q|=1U<<i; } }
+  return q;
+}
+/* PCLK_PSYS from the live clock registers, as the kernel computes it:
+   MOUT_PSYS (CLK_SRC0[24]: SCLKMPLL or SCLKA2M) / (HCLK_PSYS_RATIO+1) /
+   (PCLK_PSYS_RATIO+1). Works for whatever the iROM left and after our PLLs. */
+static uint32 pclk_psys(void) {
+  const uint32 fin=24000000;
+  uint32 src0=REG(CLK_SRC0), div0=REG(CLK_DIV0), mout;
+  if(src0&(1U<<24)) {
+    uint32 apll=REG(APLL_CON0), m=(apll>>16)&0x3ff, pd=(apll>>8)&0x3f, sd=apll&7;
+    if(!(src0&1)) mout=fin;                     /* APLL_SEL = FINPLL */
+    else if(!pd || !sd) return 0;
+    else mout=udiv(fin,pd<<(sd-1))*m;
+    mout=udiv(mout,((div0>>4)&7)+1);                /* A2M */
+  } else if(src0&(1U<<4)) {
+    uint32 mpll=REG(MPLL_CON), m=(mpll>>16)&0x3ff, pd=(mpll>>8)&0x3f, sd=mpll&7;
+    if(!pd) return 0;
+    mout=udiv(fin,pd<<sd)*m;
+  } else mout=fin;
+  return udiv(udiv(mout,((div0>>24)&15)+1),((div0>>28)&7)+1);
+}
+static uint32 uart_pclk;
+static void uart_baud(void) {
+  static const uint16 slot[16]={0x0000,0x0080,0x0808,0x0888,0x2222,0x4924,0x4a52,0x54aa,
+                                0x5555,0xd555,0xd5d5,0xddd5,0xdddd,0xdfdd,0xdfdf,0xffdf};
+  uart_pclk=pclk_psys();
+  if(uart_pclk<1000000) uart_pclk=66700000;
+  uint32 t=udiv(uart_pclk+57600,115200);    /* = 16*(UBRDIV+1) + slots, rounded */
+  REG(UART+UBRDIV)=(t>>4)-1;
+  REG(UART+UDIVSLOT)=slot[t&15];
+}
+
 static void power_hold(void) {
   /* X210 has a soft power key: latch PS_HOLD high or the board turns off
      when the key is released. */
@@ -112,6 +162,7 @@ static void power_hold(void) {
 }
 
 static void clock_init(void) {
+  while(!(REG(UART+UTRSTAT)&4)) ;     /* let the last character finish */
   REG(CLK_SRC0)=0;                    /* everything from XXTI 24 MHz meanwhile */
   REG(APLL_LOCK)=0xFFFF;
   REG(MPLL_LOCK)=0xFFFF;
@@ -131,9 +182,7 @@ static void uart_init(void) {
   REG(UART+ULCON)=3;                            /* 8N1 */
   REG(UART+UCON)=5;                             /* PCLK, polled Rx/Tx */
   REG(UART+UINTM)=0xf;
-  /* PCLK_PSYS 66.7 MHz: 66.7e6/(115200*16) - 1 = 35.19 -> 35 + 3/16 */
-  REG(UART+UBRDIV)=35;
-  REG(UART+UDIVSLOT)=0x0888;
+  uart_baud();   /* 66.7 MHz after clock_init: UBRDIV 35, UDIVSLOT 0x0888 */
 }
 
 static void dmc_cmd(uint32 cmd) { REG(DMC0+DIRECTCMD)=cmd; }
@@ -232,14 +281,25 @@ static void load_kernel(struct uimage_info *ui) {
 void bl1_main(void) {
   struct uimage_info ui;
   power_hold();
-  clock_init();
+  led_stage(1);
+  /* Console first, at whatever clocks the iROM left, so that a wrong PLL
+     setup can be told apart from a wrong terminal/baud setting. */
   uart_init();
-  uputs("\n\nxv6 BL1 for " BOARD_NAME ": APLL 1000 MHz, MPLL 667 MHz, PCLK_PSYS 66.7 MHz\n");
+  uputs("\n\nxv6 BL1 for " BOARD_NAME "\n");
+  uputs("BL1: iROM clocks: CLK_SRC0 "); puthex(REG(CLK_SRC0)); uputs(" CLK_DIV0 "); puthex(REG(CLK_DIV0));
+  uputs(" PCLK_PSYS "); putdec(uart_pclk); uputs(" Hz\n");
+  clock_init();
+  uart_baud();
+  led_stage(2);
+  uputs("BL1: PLLs set: APLL_CON0 "); puthex(REG(APLL_CON0)); uputs(" MPLL_CON "); puthex(REG(MPLL_CON));
+  uputs(" PCLK_PSYS "); putdec(uart_pclk); uputs(" Hz\n");
   ddr_init();
   ddr_size();
   ddr_test();
+  led_stage(3);
   uputs("BL1: DMC0 DDR2 "); putdec(dram_size>>20); uputs(" MiB at "); puthex(DRAM_BASE); uputs(" OK\n");
   load_kernel(&ui);
+  led_stage(4);
   uint32 n=atag_build((uint32*)(uintptr)ATAG_ADDR,DRAM_BASE,dram_size,CMDLINE);
   uputs("BL1: ATAGs at "); puthex(ATAG_ADDR); uputs(" ("); putdec(n); uputs(" bytes), starting xv6 at ");
   puthex(KERNEL_RUN); uputs("\n\n");
