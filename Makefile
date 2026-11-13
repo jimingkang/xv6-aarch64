@@ -607,6 +607,11 @@ $U/_camserver: $U/camserver.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
 	$(OBJDUMP) -S $@ > $U/camserver.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camserver.sym
 
+$U/_camview: $U/camview.o $U/camproc.o $U/jpeg.o $(ULIB) $(USER_LINK_STAMP)
+	$(LD) $(LDFLAGS) $(USER_LD_MODE) -e main -o $@ $(filter-out $(USER_LINK_STAMP),$^)
+	$(OBJDUMP) -S $@ > $U/camview.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/camview.sym
+
 mkfs/mkfs: mkfs/mkfs.c mkfs/lsdir.c include/kernel/fs.h include/kernel/param.h
 	gcc -Werror -Wall -idirafter include -o mkfs/mkfs mkfs/mkfs.c mkfs/lsdir.c
 
@@ -667,6 +672,7 @@ UPROGS=\
 	$U/_zombie\
 	$U/_camshot\
 	$U/_camserver\
+	$U/_camview\
 	$U/_chrt\
 	$U/_taskset\
 	$U/_nice\

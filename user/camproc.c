@@ -241,6 +241,57 @@ camproc_jpeg_raw(uchar *dst, int cap, const struct cam_frame_hdr *hdr,
                          &conversion, written);
 }
 
+// Same pipeline as camproc_jpeg_raw(), but hand each finished output row to
+// row(arg, y, rgb, width) as packed R,G,B bytes instead of encoding a JPEG.
+// Used by camview to draw live frames on /dev/fb0.
+int
+camproc_rgb_raw(const struct cam_frame_hdr *hdr, const uchar *raw, int half,
+                int wb, void (*row)(void *, int, const uchar *, int),
+                void *arg)
+{
+  static uchar *line;
+  static int line_w;
+
+  if(hdr == 0 || raw == 0 || row == 0 || hdr->magic != CAM_MAGIC)
+    return -1;
+  W = hdr->width;
+  H = hdr->height;
+  if(W < 4 || H < 4 || W % 4 || H % 2 ||
+     hdr->data_bytes > CAM_SLOT_BYTES ||
+     hdr->bytesperline < W * 10 / 8 ||
+     hdr->data_bytes < hdr->bytesperline * H || set_bayer(hdr->format) < 0)
+    return -1;
+  if(px == 0 || px_size != W * H){
+    free(px);
+    px = malloc(W * H * sizeof(ushort));
+    px_size = px ? W * H : 0;
+    if(px == 0)
+      return -1;
+  }
+  int ow = half ? W / 2 : W, oh = half ? H / 2 : H;
+  if(line == 0 || line_w < ow){
+    free(line);
+    line = malloc(ow * 3);
+    line_w = line ? ow : 0;
+    if(line == 0)
+      return -1;
+  }
+
+  uint64 sum[3];
+  unpack_raw10_analyze(raw, hdr->bytesperline, sum);
+  uint gain_r, gain_b, level;
+  compute_wb_level(wb, sum, &gain_r, &gain_b, &level);
+  build_tone(gain_r, gain_b, level);
+  struct convert conversion = { half };
+  for(int y = 0; y < oh; y++){
+    uchar *p = line;
+    for(int x = 0; x < ow; x++, p += 3)
+      output_pixel(&conversion, x, y, &p[0], &p[1], &p[2]);
+    row(arg, y, line, ow);
+  }
+  return 0;
+}
+
 int
 camproc_jpeg(uchar *dst, int cap, const uchar *frame, int n,
              int half, int wb, int quality, uint *written)

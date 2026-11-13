@@ -19,4 +19,11 @@ int camproc_jpeg_raw(uchar *dst, int cap, const struct cam_frame_hdr *hdr,
                      const uchar *raw, int half, int wb, int quality,
                      uint *written);
 
+// Same pipeline, but deliver RGB rows (packed R,G,B bytes, width W or W/2
+// when half) to row() instead of encoding a JPEG.  Returns 0 on success.
+int camproc_rgb_raw(const struct cam_frame_hdr *hdr, const uchar *raw,
+                    int half, int wb,
+                    void (*row)(void *arg, int y, const uchar *rgb, int w),
+                    void *arg);
+
 #endif
