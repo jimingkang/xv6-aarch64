@@ -9,6 +9,7 @@ SECTIONS {
   . = ALIGN(4096);
   etext = .;
   .rodata : { *(.rodata .rodata.*) }
+  .initcall.list : { __initcall_start = .; KEEP(*(.initcall.list)) __initcall_end = .; }
   .data : { *(.data .data.*) }
   . = ALIGN(4096);
   .ramdisk : { KEEP(*(.ramdisk)) }

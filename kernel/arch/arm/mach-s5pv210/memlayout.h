@@ -37,4 +37,8 @@ extern unsigned int x210_phystop;
 #define UART0_IRQ 42                     /* VIC1 bit 10+n (unused: polled) */
 #define PERIPHERAL_BASE_PA 0xE0000000UL
 #define TIMER0_IRQ 25                    /* VIC0 bit 25: PWM timer 4 */
-#define ARM32_UART_NAME "s5pv210-uart"
+#define ARM32_UART_NAME "console"   /* kernel/console.c device; the UART driver is serial/samsung.c */
+/* LCD frame buffer: just above the memory handed to the page allocator. */
+#define S5PV210_USE_DRAM  (128U<<20)
+#define S5PV210_FB_OFFSET (128U<<20)
+#define S5PV210_FB_SIZE   (2U<<20)

@@ -1,10 +1,13 @@
 # Invoke from repository root: make -f ports/x210/Makefile
-# 九鼎 X210 (Samsung S5PV210, Cortex-A8). Shared ARM32 code lives in
-# kernel/arch/arm (including the DTB reader).
+# S5PV210 (Cortex-A8): FriendlyARM Tiny210 (default) / 九鼎 X210.
+# Layout follows rpi3-lock: shared ARM32 code in kernel/arch/arm, board code
+# in kernel/arch/arm/mach-s5pv210, drivers in kernel/drivers/<subsystem>
+# registered through module_init() (kernel/module.h).
 .DEFAULT_GOAL := all
 BUILD ?= build/x210
 P := ports/x210
 S := kernel/arch/arm
+MACH := kernel/arch/arm/mach-s5pv210
 ARM_CC ?= clang
 ARM_LD ?= $(shell command -v arm-none-eabi-ld 2>/dev/null || command -v aarch64-elf-ld 2>/dev/null || echo arm-none-eabi-ld)
 ARM_OBJCOPY ?= $(shell command -v arm-none-eabi-objcopy 2>/dev/null || command -v aarch64-elf-objcopy 2>/dev/null || echo arm-none-eabi-objcopy)
@@ -38,18 +41,22 @@ PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
-SHARED = vm syscall stubs runtime fdt
-OWN = platform atag
-ifneq ($(QEMU_TEST),1)
-OWN += lcd
+SHARED = vm syscall stubs runtime fdt initcall irq time
+OWN = setup atag devices
+ifeq ($(QEMU_TEST),1)
+DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/ramdisk_embed
+else
+DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
+  tty/serial/samsung video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed
 endif
-# LCD panel (lcd.c table): s70 (7", 800x480, default), h43, w50, a70.
+# LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
 S5PV210_LCD ?= s70
 LCD_INDEX = $(if $(filter s70,$(S5PV210_LCD)),0,$(if $(filter h43,$(S5PV210_LCD)),1,$(if $(filter w50,$(S5PV210_LCD)),2,$(if $(filter a70,$(S5PV210_LCD)),3,$(error S5PV210_LCD must be s70, h43, w50 or a70)))))
 OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
-   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
+  $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
+  $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
 COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
@@ -67,12 +74,15 @@ $(BUILD)/shared/%.o: $(S)/%.c
 $(BUILD)/shared/%.o: $(S)/%.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
-$(BUILD)/port/%.o: $(P)/%.c
+$(BUILD)/port/%.o: $(MACH)/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
-$(BUILD)/port/%.o: $(P)/%.S
+$(BUILD)/port/%.o: $(MACH)/%.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
+$(BUILD)/drivers/%.o: kernel/drivers/%.c
+	@mkdir -p $(@D)
+	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
 $(BUILD)/port/printf.o: kernel/printf.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
@@ -110,8 +120,8 @@ $(BUILD)/initcode-embed.S: $(BUILD)/initcode.bin
 	@printf '.section .rodata\n.global initcode,initcode_end\ninitcode:\n.incbin "$(BUILD)/initcode.bin"\ninitcode_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
 $(BUILD)/initcode-embed.o: $(BUILD)/initcode-embed.S
 	$(ARM_CC) $(FLAGS) -c $< -o $@
-$(BUILD)/kernel.elf: $(OBJS) $(P)/kernel.ld
-	$(ARM_LD) -m armelf --gc-sections -z max-page-size=4096 --defsym=KERNEL_LOAD=$(KERNEL_LOAD) -T $(P)/kernel.ld -Map $(BUILD)/kernel.map -o $@ $(OBJS)
+$(BUILD)/kernel.elf: $(OBJS) $(MACH)/kernel.ld
+	$(ARM_LD) -m armelf --gc-sections -z max-page-size=4096 --defsym=KERNEL_LOAD=$(KERNEL_LOAD) -T $(MACH)/kernel.ld -Map $(BUILD)/kernel.map -o $@ $(OBJS)
 # Raw image with an ARM zImage header (Samsung bootm "Boot with zImage", bootz).
 $(IMG).bin: $(BUILD)/kernel.elf $(P)/mkx210.py
 	$(ARM_OBJCOPY) -O binary $< $@
@@ -120,16 +130,16 @@ $(IMG).bin: $(BUILD)/kernel.elf $(P)/mkx210.py
 $(IMG).uImage: $(IMG).bin $(P)/mkx210.py
 	python3 $(P)/mkx210.py uimage $< $@ $(KERNEL_LOAD)
 # Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
-BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(P) -I$(P)/bl1 -Wall -Wextra
+BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
 BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o
-$(BUILD)/bl1/%.o: $(P)/bl1/%.c $(P)/bl1/bl1lib.h $(P)/board.h
+$(BUILD)/bl1/%.o: $(MACH)/bl1/%.c $(MACH)/bl1/bl1lib.h $(MACH)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
-$(BUILD)/bl1/%.o: $(P)/bl1/%.S
+$(BUILD)/bl1/%.o: $(MACH)/bl1/%.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
-$(BUILD)/bl1/bl1.elf: $(BL1OBJS) $(P)/bl1/bl1.ld
-	$(ARM_LD) -m armelf --gc-sections -T $(P)/bl1/bl1.ld -Map $(BUILD)/bl1/bl1.map -o $@ $(BL1OBJS)
+$(BUILD)/bl1/bl1.elf: $(BL1OBJS) $(MACH)/bl1/bl1.ld
+	$(ARM_LD) -m armelf --gc-sections -T $(MACH)/bl1/bl1.ld -Map $(BUILD)/bl1/bl1.map -o $@ $(BL1OBJS)
 $(BUILD)/bl1/bl1-code.bin: $(BUILD)/bl1/bl1.elf
 	$(ARM_OBJCOPY) -O binary $< $@
 # 16 KiB BL1 with the iROM header (size, checksum): SD sector 1.
@@ -140,11 +150,11 @@ $(BUILD)/x210-sd.img: $(BUILD)/bl1/bl1-code.bin $(IMG).uImage $(P)/mkx210.py
 	python3 $(P)/mkx210.py sdimg $@ $(BUILD)/bl1/bl1-code.bin $(IMG).uImage
 # Serial check BL1 (no kernel): prints a numbered line forever.
 UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o
-$(BUILD)/bl1/bl1-uarttest.o: $(P)/bl1/bl1.c $(P)/bl1/bl1lib.h $(P)/board.h
+$(BUILD)/bl1/bl1-uarttest.o: $(MACH)/bl1/bl1.c $(MACH)/bl1/bl1lib.h $(MACH)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -DBL1_UART_TEST -Wno-unused-function -c $< -o $@
-$(BUILD)/bl1/uarttest.elf: $(UTOBJS) $(P)/bl1/bl1.ld
-	$(ARM_LD) -m armelf --gc-sections -T $(P)/bl1/bl1.ld -o $@ $(UTOBJS)
+$(BUILD)/bl1/uarttest.elf: $(UTOBJS) $(MACH)/bl1/bl1.ld
+	$(ARM_LD) -m armelf --gc-sections -T $(MACH)/bl1/bl1.ld -o $@ $(UTOBJS)
 $(BUILD)/x210-uarttest.bin: $(BUILD)/bl1/uarttest.elf $(P)/mkx210.py
 	$(ARM_OBJCOPY) -O binary $< $(BUILD)/bl1/uarttest-code.bin
 	python3 $(P)/mkx210.py bl1 $(BUILD)/bl1/uarttest-code.bin $@
@@ -152,9 +162,9 @@ uarttest: $(BUILD)/x210-uarttest.bin
 bl1: $(BUILD)/x210-bl1.bin
 sdimg: $(BUILD)/x210-sd.img
 # Host build of the BL1 logic, checked against the real uImage.
-$(BUILD)/bl1-hosttest: $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c $(P)/bl1/bl1lib.h $(P)/atag.h
+$(BUILD)/bl1-hosttest: $(MACH)/bl1/test_host.c $(MACH)/bl1/bl1lib.c $(MACH)/atag.c $(MACH)/bl1/bl1lib.h $(MACH)/atag.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -Wall -I. -I$(P)/bl1 -o $@ $(P)/bl1/test_host.c $(P)/bl1/bl1lib.c $(P)/atag.c
+	$(HOST_CC) -Wall -I. -I$(MACH) -I$(MACH)/bl1 -o $@ $(MACH)/bl1/test_host.c $(MACH)/bl1/bl1lib.c $(MACH)/atag.c
 qemu: all
 	$(QEMU_ARM) -M cubieboard -m 512M -nographic -monitor none -kernel $(IMG).uImage -append "console=ttySAC0,115200 xv6test"
 check: $(BUILD)/bl1-hosttest
@@ -166,4 +176,4 @@ check: $(BUILD)/bl1-hosttest
 	python3 $(P)/test_shell.py
 clean:
 	rm -rf $(BUILD)
--include $(wildcard $(BUILD)/kernel/*.d $(BUILD)/port/*.d $(BUILD)/shared/*.d $(BUILD)/user/*.d)
+-include $(wildcard $(BUILD)/kernel/*.d $(BUILD)/port/*.d $(BUILD)/shared/*.d $(BUILD)/user/*.d $(BUILD)/drivers/*/*.d $(BUILD)/drivers/*/*/*.d)
