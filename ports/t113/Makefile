@@ -30,19 +30,26 @@ $(BUILD)/port/%.o: ports/t113/%.c
 $(BUILD)/port/%.o: ports/t113/%.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
+# Shared ARM32 code (kernel/arch/arm), used by every ARM32 port.
+$(BUILD)/port/%.o: kernel/arch/arm/%.c
+	@mkdir -p $(@D)
+	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
+$(BUILD)/port/%.o: kernel/arch/arm/%.S
+	@mkdir -p $(@D)
+	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/port/printf.o: kernel/printf.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/user/%.o: user/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
-$(BUILD)/user-runtime.o: ports/t113/runtime.c
+$(BUILD)/user-runtime.o: kernel/arch/arm/runtime.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -DXV6_USER_RUNTIME -c $< -o $@
-$(BUILD)/user/armcheck.o: ports/t113/armcheck.c
+$(BUILD)/user/armcheck.o: kernel/arch/arm/armcheck.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
-$(BUILD)/user/init.o: ports/t113/init.c
+$(BUILD)/user/init.o: kernel/arch/arm/init.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/user/_%: $(BUILD)/user/%.o $(ULIB)
@@ -56,7 +63,7 @@ $(BUILD)/ramdisk.S: $(BUILD)/fs.img
 	@printf '.section .ramdisk,"aw"\n.global ramdisk_start,ramdisk_end\nramdisk_start:\n.incbin "$(BUILD)/fs.img"\nramdisk_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
 $(BUILD)/ramdisk.o: $(BUILD)/ramdisk.S
 	$(ARM_CC) $(FLAGS) -c $< -o $@
-$(BUILD)/initcode.o: ports/t113/initcode.S
+$(BUILD)/initcode.o: kernel/arch/arm/initcode.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/initcode.elf: $(BUILD)/initcode.o

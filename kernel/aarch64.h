@@ -1,5 +1,5 @@
 #ifdef XV6_ARM32
-#include "../ports/t113/arm.h"
+#include "arch/arm/arm.h"
 #else
 #ifndef __ASSEMBLER__
 

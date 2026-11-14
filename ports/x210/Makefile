@@ -1,11 +1,10 @@
 # Invoke from repository root: make -f ports/x210/Makefile
 # 九鼎 X210 (Samsung S5PV210, Cortex-A8). Shared ARM32 code lives in
-# ports/t113; the DTB reader is shared with ports/am335x.
+# kernel/arch/arm (including the DTB reader).
 .DEFAULT_GOAL := all
 BUILD ?= build/x210
 P := ports/x210
-S := ports/t113
-A := ports/am335x
+S := kernel/arch/arm
 ARM_CC ?= clang
 ARM_LD ?= $(shell command -v arm-none-eabi-ld 2>/dev/null || command -v aarch64-elf-ld 2>/dev/null || echo arm-none-eabi-ld)
 ARM_OBJCOPY ?= $(shell command -v arm-none-eabi-objcopy 2>/dev/null || command -v aarch64-elf-objcopy 2>/dev/null || echo arm-none-eabi-objcopy)
@@ -39,7 +38,7 @@ PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
-SHARED = vm syscall stubs runtime
+SHARED = vm syscall stubs runtime fdt
 OWN = platform atag
 ifneq ($(QEMU_TEST),1)
 OWN += lcd
@@ -50,7 +49,7 @@ LCD_INDEX = $(if $(filter s70,$(S5PV210_LCD)),0,$(if $(filter h43,$(S5PV210_LCD)
 OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
-  $(BUILD)/port/fdt.o $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
+   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
 COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
@@ -74,9 +73,6 @@ $(BUILD)/port/%.o: $(P)/%.c
 $(BUILD)/port/%.o: $(P)/%.S
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
-$(BUILD)/port/fdt.o: $(A)/fdt.c
-	@mkdir -p $(@D)
-	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
 $(BUILD)/port/printf.o: kernel/printf.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@

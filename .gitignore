@@ -24,3 +24,4 @@ trace/
 kernel/buildinfo.c
 
 /build/
+!kernel/arch/arm/vectors.S

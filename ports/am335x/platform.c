@@ -15,7 +15,7 @@
 #include "kernel/buf.h"
 #include "kernel/file.h"
 #include "kernel/device.h"
-#include "fdt.h"
+#include "kernel/arch/arm/fdt.h"
 _Static_assert(sizeof(struct trapframe)==272, "ARM exception frame size");
 _Static_assert(__builtin_offsetof(struct trapframe,x30)==240, "ARM user LR slot");
 _Static_assert(__builtin_offsetof(struct trapframe,elr)==248, "ARM PC slot");

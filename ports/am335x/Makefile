@@ -1,9 +1,9 @@
 # Invoke from repository root: make -f ports/am335x/Makefile
-# BeagleBone Black (TI AM335x, Cortex-A8). Shared ARM32 code lives in ports/t113.
+# BeagleBone Black (TI AM335x, Cortex-A8). Shared ARM32 code lives in kernel/arch/arm.
 .DEFAULT_GOAL := all
 BUILD ?= build/am335x
 P := ports/am335x
-S := ports/t113
+S := kernel/arch/arm
 ARM_CC ?= clang
 ARM_LD ?= $(shell command -v arm-none-eabi-ld 2>/dev/null || command -v aarch64-elf-ld 2>/dev/null || echo arm-none-eabi-ld)
 ARM_OBJCOPY ?= $(shell command -v arm-none-eabi-objcopy 2>/dev/null || command -v aarch64-elf-objcopy 2>/dev/null || echo arm-none-eabi-objcopy)
@@ -22,8 +22,8 @@ PLAT_FLAGS =
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_AM335X -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
-SHARED = vm syscall stubs runtime
-OWN = platform fdt
+SHARED = vm syscall stubs runtime fdt
+OWN = platform
 OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
