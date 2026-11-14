@@ -234,6 +234,7 @@ struct mt7601u_device {
   int endpoints_ready;
   uint32 rx_frames;
   uint32 rx_mgmt, rx_datafr, rx_urbs;   // bring-up counters
+  uint32 rx_usb_err;                    // EP4 transfers that ended in an error
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
@@ -1447,6 +1448,7 @@ mt7601u_service(int service_rx, int service_state)
                                   rx_data, MT_RX_BUF_SIZE);
     } else if(got == -1 && rx_data) {
       rx_done = 1;
+      dev->rx_usb_err++;
       // Return a failed request's buffer to the ring; the remaining queued
       // buffers kept the endpoint live while this completion was handled.
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
@@ -1645,8 +1647,9 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
     tx_logged++;
     printf("mt7601u: data tx type=%x len=%d dst=%x:%x:%x:%x:%x:%x -> %d\n", type, length,
            ether[0], ether[1], ether[2], ether[3], ether[4], ether[5], result);
-    printf("mt7601u: rx so far: usb buffers %d, frames %d (mgmt %d data %d), dropped %d\n",
-           dev->rx_urbs, dev->rx_frames, dev->rx_mgmt, dev->rx_datafr, dev->rx_bad);
+    printf("mt7601u: rx so far: usb buffers %d, frames %d (mgmt %d data %d), dropped %d, usb errors %d\n",
+           dev->rx_urbs, dev->rx_frames, dev->rx_mgmt, dev->rx_datafr, dev->rx_bad,
+           dev->rx_usb_err);
   }
   return result;
 }

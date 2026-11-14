@@ -1489,6 +1489,18 @@ dhcp_send(int type, uint32 requested, uint32 server)
   return result;
 }
 
+// Give the CPU away until the next xv6 tick. The DHCP/ARP waits used to
+// spin here (the ARM "yield" hint does not schedule), so the receive
+// kworker only ran when this process's time slice ran out, and offers
+// could arrive too late. Only for process context without locks held.
+static void
+net_wait_tick(void)
+{
+  acquire(&tickslock);
+  sleep(&ticks, &tickslock);
+  release(&tickslock);
+}
+
 static int
 dhcp_wait(int wanted, uint32 seconds)
 {
@@ -1497,9 +1509,9 @@ dhcp_wait(int wanted, uint32 seconds)
     if(dhcp.type == wanted)
       return 0;
     netdev_poll_one(dhcp.dev);
-    asm volatile("yield" ::: "memory");
+    net_wait_tick();
   }
-  return -1;
+  return dhcp.type == wanted ? 0 : -1;
 }
 
 int
@@ -1565,7 +1577,7 @@ net_dhcp_dev(struct net_device *dev)
     uint64 deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * 2;
     while(arp_lookup(dev->gateway, dev) == 0 && r_cntvct_el0() < deadline){
       netdev_poll_one(dev);
-      asm volatile("yield" ::: "memory");
+      net_wait_tick();
     }
   }
   gateway_entry = arp_lookup(dev->gateway, dev);

@@ -506,10 +506,26 @@ ehci_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
   int r = (tok & TOK_ERRMASK) ? -1 : t->length - (int)TOK_LEFT(tok);
   qtd_free(t);
   if(tok & TOK_HALTED){
-    // a halted QH stops the whole queue: drop the rest, the driver re-arms
+    // A halted QH stops the whole queue. Flush it, then queue the other
+    // receive buffers again: the driver only re-arms the one returned
+    // here, so without this every error shrank the receive ring for good.
+    void *bufs[8];
+    int lens[8], nb = 0;
+    for(struct qtd *x = q->head; x && x != q->dummy && nb < 8; x = x->snext){
+      bufs[nb] = x->data;
+      lens[nb++] = x->length;
+    }
     async_stop();
     qh_flush(q, q->head);
     async_start();
+    for(int i = 0; i < nb; i++)
+      ehci_usb_bulk_rx_arm(udev, endpoint, bufs[i], lens[i]);
+    static int halt_logged;
+    if(halt_logged < 8){
+      halt_logged++;
+      printf("ehci: bulk ep%d in halted token=%x; %d receive buffers re-queued\n",
+             endpoint, tok, nb);
+    }
   }
   return r;
 }
