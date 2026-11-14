@@ -37,7 +37,8 @@ int main(int argc, char **argv)
   if(argc < 3){ fprintf(stderr, "usage: %s card.img xv6_tiny210.img [FS.IMG]\n", argv[0]); return 2; }
   card = slurp(argv[1], &card_len);
   uint32 part, spc;
-  if(fat_mount(rd, &part, &spc) < 0){ printf("FAIL: no FAT32\n"); return 1; }
+  static unsigned char secbuf[512];
+  if(fat_mount(rd, secbuf, &part, &spc) < 0){ printf("FAIL: no FAT32\n"); return 1; }
   printf("FAT32 at sector %u, %u sectors/cluster\n", part, spc);
   int bad = check("xv6_tiny210.img", argv[2]);
   bad |= check("XV6_TINY210.IMG", argv[2]);   /* case-insensitive */

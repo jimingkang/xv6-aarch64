@@ -304,7 +304,11 @@ static void load_kernel(struct uimage_info *ui) {
   uputs("BL1: SD channel "); putdec(ch); uputc('\n');
 
   uint32 first, size, part, spc;
-  int m=fat_mount(rd_sec,&part,&spc);
+  /* Sector buffer in DDR, 16 MiB above the kernel's load address. */
+  uint8 *secbuf=(uint8*)(uintptr)(DRAM_BASE+0x01000000);
+  uputs("BL1: reading MBR\n");
+  int m=fat_mount(rd_sec,secbuf,&part,&spc);
+  if(m<0) uputs("BL1: no FAT32 partition found\n");
   if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
   if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {
     uputs("BL1: loading " FAT_NAME " ("); putdec(size); uputs(" bytes) from FAT32\n");

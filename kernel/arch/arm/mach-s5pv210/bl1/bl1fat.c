@@ -3,17 +3,18 @@
 #include "kernel/types.h"
 #include "bl1fat.h"
 
-static uint8 sec[512] __attribute__((aligned(4)));
+static uint8 *sec;          /* 512-byte sector buffer supplied by the caller */
 static sec_read_fn rd_sec;
 static uint16 le16(const uint8 *p) { return p[0] | p[1] << 8; }
 static uint32 le32(const uint8 *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32)p[3] << 24; }
 static struct { uint32 fat_lba, data_lba, spc_shift, root; } fat;
 
 int
-fat_mount(sec_read_fn rd, uint32 *part_out, uint32 *spc_out)
+fat_mount(sec_read_fn rd, uint8 *buf, uint32 *part_out, uint32 *spc_out)
 {
   uint32 part = 0;
   rd_sec = rd;
+  sec = buf;
   if(rd_sec(0, sec, 1) < 0 || sec[510] != 0x55 || sec[511] != 0xaa)
     return -1;
   if(!(sec[0x52] == 'F' && sec[0x53] == 'A' && sec[0x54] == 'T')){   /* MBR, not a bare FAT32 volume */
