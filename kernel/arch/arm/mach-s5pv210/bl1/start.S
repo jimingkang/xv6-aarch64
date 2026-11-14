@@ -10,6 +10,12 @@
 _start:
   cpsid if
   ldr sp, =BL1_STACK_TOP
+  ldr r0, =bl1_vectors            @ our own exception vectors (VBAR)
+  mcr p15, 0, r0, c12, c0, 0
+  mrc p15, 0, r0, c1, c0, 0
+  bic r0, r0, #(1 << 13)          @ SCTLR.V = 0: vectors at VBAR
+  mcr p15, 0, r0, c1, c0, 0
+  isb
   ldr r0, =bl1_bss_start
   ldr r1, =bl1_bss_end
   mov r2, #0
@@ -19,6 +25,33 @@ _start:
   bl bl1_main
 2: wfi
   b 2b
+
+.balign 32
+bl1_vectors:
+  b .
+  b 1f
+  b 2f
+  b 3f
+  b 4f
+  b .
+  b 6f
+  b 7f
+1: mov r0, #1
+  b vec_common
+2: mov r0, #2
+  b vec_common
+3: mov r0, #3
+  b vec_common
+4: mov r0, #4
+  b vec_common
+6: mov r0, #6
+  b vec_common
+7: mov r0, #7
+vec_common:
+  mov r1, lr
+  ldr sp, =BL1_STACK_TOP - 0x1000  @ banked mode sp: a scratch area below the main stack
+  bl bl1_exception
+8: b 8b
 
 /* bl1_boot(entry, machid, atags): ARM Linux handoff, as bootm does it.
    SVC, IRQ/FIQ masked, MMU/D-cache off (never enabled here), I-cache off. */

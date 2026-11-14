@@ -131,6 +131,20 @@ static void putdec(uint32 v) {
   } while(v);
   uputs(b+i);
 }
+/* CPU exceptions (start.S vectors, VBAR): without them an abort would end
+   silently in the iROM's handler. */
+void bl1_exception(uint32 type, uint32 lr) {
+  static const char *names[8] = {"reset","undefined instruction","SVC","prefetch abort","data abort","?","IRQ","FIQ"};
+  uint32 dfar, dfsr, ifsr;
+  asm volatile("mrc p15, 0, %0, c6, c0, 0":"=r"(dfar));
+  asm volatile("mrc p15, 0, %0, c5, c0, 0":"=r"(dfsr));
+  asm volatile("mrc p15, 0, %0, c5, c0, 1":"=r"(ifsr));
+  uputs("\nBL1: CPU exception: "); uputs(names[type & 7]);
+  uputs(" lr="); puthex(lr); uputs(" dfar="); puthex(dfar);
+  uputs(" dfsr="); puthex(dfsr); uputs(" ifsr="); puthex(ifsr); uputs("\n");
+  for(;;) asm volatile("wfi");
+}
+
 static void die(const char *why) {
   uputs("BL1: "); uputs(why); uputs(", halted\n");
   for(;;) { leds((1U<<stage)-1); delay(0x400000); leds(0); delay(0x400000); }
@@ -296,8 +310,8 @@ static void timer3_start(void) {
   REG(PWM+0x08) = (REG(PWM+0x08) & ~(0xfU<<16)) | (1U<<19) | (1U<<16);
 }
 static uint64 timer3_now(void) { return 0xffffffffU - REG(PWM+0x38); }
-static void sd_log(const char *m, uint32 v) { uputs("BL1: "); uputs(m); uputc(' '); puthex(v); uputc('\n'); }
-static struct sdc_env bl1_env = { timer3_now, 1, sd_log };
+static void sd_log(const char *m, uint32 v) { uputs("BL1: "); uputs(m); uputc(' '); puthex(v); uputs("\n"); }
+static struct sdc_env bl1_env = { timer3_now, 1, sd_log, 3 };   /* trace the first transfers */
 
 /* Pins GPG<n>[6:0] (CLK, CMD, CD, DATA0-3), HSMMCn clock gate, SCLK_MMCn =
    24 MHz crystal; same as the kernel's board setup (devices.c). */

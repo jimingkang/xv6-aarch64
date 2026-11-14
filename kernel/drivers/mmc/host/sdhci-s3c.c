@@ -20,7 +20,7 @@ static struct spinlock sd_lock;
 
 static uint64 k_now(void) { return r_cntvct_el0(); }
 static void k_log(const char *m, uint32 v) { printf("%s %x\n", m, v); }
-static struct sdc_env kenv = { k_now, 0, k_log };
+static struct sdc_env kenv = { k_now, 0, k_log, 0 };
 static int card_init(void)
 {
   kenv.ticks_per_us = r_cntfrq_el0() / 1000000;

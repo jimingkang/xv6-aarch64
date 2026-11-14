@@ -51,7 +51,7 @@
 #define CMD_DATA   (1U << 5)
 
 static uintptr base;
-static const struct sdc_env *env;
+static struct sdc_env *env;
 static int sdhc;
 static uint32 rca;
 
@@ -162,7 +162,7 @@ app_command(int idx, uint32 arg, uint16 flags, uint32 *resp)
 }
 
 int
-sdc_init(uintptr regs, const struct sdc_env *e)
+sdc_init(uintptr regs, struct sdc_env *e)
 {
   uint32 r[4];
   base = regs;
@@ -240,13 +240,20 @@ sdc_transfer(uint32 lba, uint32 *buf, int write)
   w16(BLKSIZE, 512);
   w16(BLKCNT, 1);
   w16(TRNMOD, write ? 0 : (1U << 4));         // single block, PIO, read = card to host
+  int tr = env->trace > 0;
+  if(tr) { env->trace--; LOG(write ? "sd: CMD24, lba" : "sd: CMD17, lba", lba); }
   if(command(write ? 24 : 17, sdhc ? lba : lba * 512, RSP_48 | CMD_DATA, r) < 0)
     return -1;
+  if(tr) LOG("sd:   command done, r1", r[0]);
   uint16 want = write ? INT_BUF_WR : INT_BUF_RD;
   uint64 d = deadline_us(500000);
   while(!(r16(NORINTSTS) & (want | INT_ERROR)))
-    if(expired(d))
+    if(expired(d)){
+      LOG("sd: no data buffer, norintsts/prnsts", (uint32)r16(NORINTSTS) << 16 | (r32(PRNSTS) & 0xffff));
+      reset(2 | 4);
       return -1;
+    }
+  if(tr) LOG("sd:   buffer ready, norintsts", r16(NORINTSTS));
   if(r16(NORINTSTS) & INT_ERROR)
     goto err;
   w16(NORINTSTS, want);
@@ -254,13 +261,18 @@ sdc_transfer(uint32 lba, uint32 *buf, int write)
     if(write) w32(BDATA, buf[i]);
     else buf[i] = r32(BDATA);
   }
+  if(tr) LOG("sd:   data copied, first word", buf[0]);
   d = deadline_us(500000);
   while(!(r16(NORINTSTS) & (INT_XFER_DONE | INT_ERROR)))
-    if(expired(d))
+    if(expired(d)){
+      LOG("sd: no transfer complete, norintsts", r16(NORINTSTS));
+      reset(2 | 4);
       return -1;
+    }
   if(r16(NORINTSTS) & INT_ERROR)
     goto err;
   w16(NORINTSTS, INT_XFER_DONE);
+  if(tr) LOG("sd:   transfer complete", 0);
   return 0;
 err:
   LOG(write ? "sd: write error, errintsts" : "sd: read error, errintsts", r16(ERRINTSTS));
