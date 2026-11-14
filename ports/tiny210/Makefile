@@ -168,7 +168,7 @@ $(IMG).uImage: $(IMG).bin $(P)/mktiny210.py
 $(BUILD)/xv6_tiny210.img: $(IMG).uImage
 	cp $< $@
 # Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
-BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
+BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mno-unaligned-access -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
 BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o $(BUILD)/bl1/sdcore.o
 $(BUILD)/bl1/%.o: $(MACH)/bl1/%.c $(MACH)/bl1/bl1lib.h $(MACH)/bl1/bl1fat.h $(MACH)/board.h
 	@mkdir -p $(@D)

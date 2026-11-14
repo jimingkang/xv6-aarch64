@@ -14,6 +14,7 @@ _start:
   mcr p15, 0, r0, c12, c0, 0
   mrc p15, 0, r0, c1, c0, 0
   bic r0, r0, #(1 << 13)          @ SCTLR.V = 0: vectors at VBAR
+  bic r0, r0, #(1 << 1)           @ SCTLR.A = 0: the iROM leaves alignment checking on
   mcr p15, 0, r0, c1, c0, 0
   isb
   ldr r0, =bl1_bss_start
