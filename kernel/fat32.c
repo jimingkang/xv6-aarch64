@@ -47,6 +47,16 @@ static struct {
 } diskmap;
 
 static uchar scratch[SECTOR_SIZE];
+#ifdef XV6_ARM32
+// Tiny210: without a card, or without FS.IMG / a raw xv6 partition on it,
+// the root is the RAM disk linked into the kernel (drivers/block).
+static int use_embedded;
+void ramdisk_embed_rw(struct buf *b, int write);
+#define FAT32_NO_ROOT(msg) do { printf("xv6fs: %s; using the built-in RAM disk\n", msg); \
+                                use_embedded = 1; return; } while(0)
+#else
+#define FAT32_NO_ROOT(msg) panic(msg)
+#endif
 static struct spinlock fat32_lock;
 
 static uint16 le16(const uchar *p);
@@ -1379,7 +1389,7 @@ fat32init(void)
 {
   initlock(&fat32_lock, "fat32");
   if(sdsector(0, scratch, 0) < 0)
-    panic("fat32: sector 0");
+    FAT32_NO_ROOT("fat32: cannot read SD sector 0");
 
   // A superfloppy FAT32 volume has its BPB directly in sector zero.
   if(is_fat32_boot_sector(scratch)){
@@ -1388,7 +1398,7 @@ fat32init(void)
              diskmap.file_size);
       return;
     }
-    panic("xv6fs: FAT32 superfloppy has no FS.IMG");
+    FAT32_NO_ROOT("xv6fs: FAT32 superfloppy has no FS.IMG");
   }
 
   // Otherwise inspect the four DOS/MBR partition entries.
@@ -1457,11 +1467,14 @@ fat32init(void)
       printf("xv6fs: using FAT32 FS.IMG compatibility mapping\n");
       return;
     }
-    panic("xv6fs: no raw partition or FS.IMG");
+    FAT32_NO_ROOT("xv6fs: no raw xv6 partition or FS.IMG");
   }
 
   // QEMU development mode attaches fs.img itself as the SD card.
   diskmap.fat = 0;
+#ifdef XV6_ARM32
+  FAT32_NO_ROOT("fat32: no partition table");
+#endif
   printf("fat32: no FS.IMG container; using raw xv6 image\n");
 }
 
@@ -1488,6 +1501,12 @@ fat32rw(struct buf *b, int write)
 {
   if(!holdingsleep(&b->lock))
     panic("fat32rw: buf not locked");
+#ifdef XV6_ARM32
+  if(use_embedded){
+    ramdisk_embed_rw(b, write);
+    return;
+  }
+#endif
   if(b->blockno >= FSSIZE)
     panic("fat32rw: blockno too big");
 

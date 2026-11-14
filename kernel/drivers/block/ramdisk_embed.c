@@ -12,11 +12,19 @@
 extern uchar ramdisk_start[], ramdisk_end[];
 
 void
-fat32rw(struct buf *b, int write)
+ramdisk_embed_rw(struct buf *b, int write)
 {
   uint64 off = (uint64)b->blockno*BSIZE;
   if(b->dev != ROOTDEV || off+BSIZE > (uintptr)(ramdisk_end-ramdisk_start))
     panic("ramdisk bounds");
   if(write) memmove(ramdisk_start+(uintptr)off, b->data, BSIZE);
   else memmove(b->data, ramdisk_start+(uintptr)off, BSIZE);
+}
+
+// Boards without SD/FAT32 support use the RAM disk as the only root; with
+// kernel/fat32.c linked in, its fat32rw() takes over and falls back here.
+__attribute__((weak)) void
+fat32rw(struct buf *b, int write)
+{
+  ramdisk_embed_rw(b, write);
 }

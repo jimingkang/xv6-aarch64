@@ -273,6 +273,40 @@ mt7601u: transport and MCU ready; ...
 
 （若底板 USB-A 口经过 hub，会先出现 `ehci: hub 1: N ports`。）
 
+## 从 SD 卡 FAT32 分区引导（XV6.IMG、FS.IMG、/boot）
+
+启动链（找不到文件时自动退回旧方式）：
+
+```
+iROM → BL1（第 1 扇区）→ MBR → 第一个 FAT32 分区（类型 0x0b/0x0c）
+     → 根目录 XV6.IMG（内核 uImage）读到 DRAM+0x7FC0，校验 CRC，跳转
+       （没有 XV6.IMG：读第 49 扇区的原始镜像）
+内核 → SDHCI（iROM 启动所用的 HSMMC 通道）→ fat32init：
+       FAT32 根目录 FS.IMG 作为 xv6fs 根文件系统（可写，重启后保留）
+       （没有 FS.IMG：使用内核内置的 RAM 盘）
+init → FAT32 分区挂到 /boot（ls /boot 可列出）
+mt7601u → request_firmware("mt7601u.bin")：先读 FAT32 根目录，再用内置副本
+```
+
+- BL1 的 FAT32 读取在 `bl1/bl1fat.c`（只读根目录、8.3 文件名、512 字节扇区），
+  主机测试：`make -f ports/x210/Makefile fattest CARD=raw.img`。
+- SD 驱动 `kernel/drivers/mmc/host/sdhci-s3c.c`：PIO、轮询、4 位、24 MHz，
+  SCLK_MMC 取 24 MHz 晶振；通道号由 iROM 变量 0xD0037488 得出。
+- FAT32/FS.IMG/raw 分区逻辑沿用 `kernel/fat32.c`，挂载用 `kernel/vfs.c`。
+
+在 Mac 上准备卡（FAT32 分区挂在 `/Volumes/卷名`）：
+
+```sh
+make x210
+cp build/x210/xv6-x210.uImage /Volumes/卷名/XV6.IMG
+cp build/x210/fs.img          /Volumes/卷名/FS.IMG
+cp firmware/mt7601u.bin       /Volumes/卷名/mt7601u.bin
+diskutil unmountDisk /dev/diskN
+sudo dd if=build/x210/x210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需在 BL1 变化时
+```
+
+以后只改内核时，只需替换 FAT32 分区里的 XV6.IMG。
+
 ## BL1 格式
 
 S5PV210 iROM 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字节头后

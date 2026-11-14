@@ -16,6 +16,7 @@
 #include "kernel/drivers/video/fbdev/s3c-fb.h"
 #include "kernel/drivers/usb/dwc2/dwc2.h"
 #include "kernel/drivers/usb/host/ehci.h"
+#include "kernel/drivers/mmc/host/sdhci-s3c.h"
 #include "devices.h"
 
 #define MEM(a, sz, n) { (a), (a)+(sz)-1, IORESOURCE_MEM, n }
@@ -100,6 +101,25 @@ host_phy_init(void)
 }
 static struct ehci_platdata ehci_pdata = { host_phy_init };
 
+/* SD card: the HSMMC channel the iROM booted from (BL1 reads the same iROM
+   variable); channel 0 if unknown. Pins GPG<n>[6:0] = CLK, CMD, CD, DATA0-3
+   (function 2); SCLK_MMC<n> from the 24 MHz crystal (CLK_SRC4 = XXTI,
+   ratio 1), clock gate CLK_GATE_IP2 bit 16+n. */
+static int sd_channel;
+static void
+sd_setup(void)
+{
+  uint32 gpg = 0xE02001A0 + 0x20*sd_channel;
+  REG(gpg + 0x0) = (REG(gpg) & ~0x0fffffffU) | 0x02222222;   /* GPGnCON */
+  REG(gpg + 0x8) &= ~0x3fffU;                                 /* GPGnPUD: no pulls */
+  REG(gpg + 0xc) |= 0x3fffU;                                  /* GPGnDRV: 4x */
+  REG(0xE0100468) |= 1U << (16 + sd_channel);                 /* CLK_GATE_IP2: HSMMCn */
+  REG(0xE0100210) &= ~(0xfU << (4*sd_channel));               /* CLK_SRC4: MMCn = XXTI */
+  REG(0xE0100310) &= ~(0xfU << (4*sd_channel));               /* CLK_DIV4: MMCn ratio 1 */
+  REG(0xE0100280) |= 1U << sd_channel;                        /* CLK_SRC_MASK0: MMCn on */
+}
+static struct sdhci_s3c_platdata sd_pdata = { sd_setup };
+
 static struct device board_devices[] = {
   { .name = "s5pv210-clock", .resource = { MEM(0xE0100000, 0x10000, "clock") }, .nresource = 1 },
   { .name = "s3c2410-wdt",   .resource = { MEM(0xE2700000, 0x400, "wdt") }, .nresource = 1 },
@@ -111,6 +131,8 @@ static struct device board_devices[] = {
   /* USB-A host sockets: EHCI (high speed; OHCI for full/low speed is not
      driven yet). The OTG port (s3c-hsotg, DWC2 in host mode) is available
      with make S5PV210_USB_OTG=1. */
+  { .name = "s3c-sdhci", .driver_data = &sd_pdata,
+    .resource = { MEM(0xEB000000, 0x100000, "hsmmc") }, .nresource = 1 },
   { .name = "s5p-ehci", .driver_data = &ehci_pdata,
     .resource = { MEM(0xEC200000, 0x100000, "ehci"), IRQ(55, "uhost"), MEM(OTG_PHY, 0x1000, "usb-phy") },
     .nresource = 3 },
@@ -144,6 +166,25 @@ x210_map_devices(pagetable_t p)
       for(uint a = (uint)res->start & ~0xFFFFFU; a <= (uint)res->end; a += 0x100000)
         p[a>>20] = nc ? SECTION_NC(a) : SECTION_DEV(a);
     }
+}
+
+/* Called before the MMU is on with the iROM's boot-device variable
+   (0xD0037488: SD/MMC controller base it booted from). */
+void
+s5pv210_note_boot_device(uint32 irom_sd_base)
+{
+#ifndef X210_QEMU
+  if(irom_sd_base >= 0xEB000000U && irom_sd_base <= 0xEB300000U && !(irom_sd_base & 0xFFFFF))
+    sd_channel = (irom_sd_base - 0xEB000000U) >> 20;
+  for(uint i = 0; i < NDEVICES; i++)
+    if(strncmp(board_devices[i].name, "s3c-sdhci", 10) == 0){
+      board_devices[i].id = sd_channel;
+      board_devices[i].resource[0].start = 0xEB000000U + 0x100000U*sd_channel;
+      board_devices[i].resource[0].end = board_devices[i].resource[0].start + 0xFFFFF;
+    }
+#else
+  (void)irom_sd_base;
+#endif
 }
 
 void

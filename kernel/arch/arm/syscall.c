@@ -114,6 +114,8 @@ extern uint64 sys_vmdump(void);
 extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
 extern uint64 sys_ioctl(void);
+extern uint64 sys_mount(void);
+extern uint64 sys_rename(void);
 extern uint64 sys_udp_bind(void);
 extern uint64 sys_udp_unbind(void);
 extern uint64 sys_udp_send(void);
@@ -154,6 +156,10 @@ static uint64 (*calls[])(void) = {
   [SYS_mmap] = sys_mmap,
   [SYS_munmap] = sys_munmap,
   [SYS_ioctl] = sys_ioctl,
+#ifdef XV6_HAVE_VFS
+  [SYS_mount] = sys_mount,
+  [SYS_rename] = sys_rename,
+#endif
 #ifdef XV6_HAVE_NET
   [SYS_udp_bind] = sys_udp_bind,
   [SYS_udp_unbind] = sys_udp_unbind,

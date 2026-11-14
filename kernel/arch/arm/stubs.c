@@ -15,10 +15,12 @@ int net_tcp_close(int s) { (void)s;return -1; }
 int net_tcp_read(int s,uint64 a,int n,int f) { (void)s;(void)a;(void)n;(void)f;return -1; }
 int net_tcp_write(int s,uint64 a,int n,int f) { (void)s;(void)a;(void)n;(void)f;return -1; }
 #endif
+#ifndef XV6_HAVE_VFS
 int vfsopen(char *p,int m,struct vnode **v) { (void)p;(void)m;(void)v;return 0; }
 void vfsclose(struct vnode *v) { (void)v; }
 int vfsstat(struct vnode *v,struct stat *s) { (void)v;(void)s;return -1; }
 int vfsread(struct vnode *v,int u,uint64 a,uint o,uint n) { (void)v;(void)u;(void)a;(void)o;(void)n;return -1; }
 int vfswrite(struct vnode *v,int u,uint64 a,uint o,uint n) { (void)v;(void)u;(void)a;(void)o;(void)n;return -1; }
+#endif
 /* Boards without the MT7601U driver (the QEMU stand-in) still link sysnet. */
 __attribute__((weak)) int mt7601u_connect(const char *s,const char *p,int t) { (void)s;(void)p;(void)t; return -1; }

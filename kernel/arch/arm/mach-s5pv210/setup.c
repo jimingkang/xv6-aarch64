@@ -92,6 +92,10 @@ void x210_main(uint r0, uint machid, uint r2) {
      early base = the boot loader's console). */
   uartinit();
   uartputc_sync('\r'); uartputc_sync('\n');
+#ifndef X210_QEMU
+  /* MMU still off: iRAM is reachable; remember which SD channel booted. */
+  s5pv210_note_boot_device(*(volatile uint32*)0xD0037488U);
+#endif
   /* Read the boot parameters before kinit hands their pages out
      (they sit below the kernel and are never freed, but bounds come first). */
   read_bootparams(r2);
@@ -123,6 +127,13 @@ void x210_main(uint r0, uint machid, uint r2) {
   netinit();
   s5pv210_register_devices();
   do_initcalls();          /* drivers probe; interrupts stay off until scheduler() */
+#ifdef XV6_HAVE_VFS
+  /* Root: FS.IMG in the SD card's FAT32 partition (or a raw xv6 partition),
+     else the built-in RAM disk. The FAT32 volume itself is mounted at /boot
+     by init. */
+  fat32init();
+  vfsinit();
+#endif
   binit(); iinit(); fileinit(); userinit();
   scheduler();
 }

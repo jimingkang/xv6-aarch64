@@ -284,6 +284,14 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
     p = puthex(p, limit, V2P(etext));
     p = putstr(p, limit, "-");
     p = puthex(p, limit, V2P(end) - 1);
+#ifdef XV6_ARM32
+    p = putstr(p, limit, "\n");
+  } else {
+    p = putmap(p, limit, EXTMEM, PHYSTOP - 1, "System RAM");
+    p = putmap(p, limit, KERNPA, V2P(etext) - 1, "  Kernel code");
+    p = putmap(p, limit, V2P(etext), V2P(end) - 1, "  Kernel data/bss");
+  }
+#else
     p = putstr(p, limit, "\nRamdiskPA:      ");
     p = puthex(p, limit, RAMDISK_PA);
     p = putstr(p, limit, "-");
@@ -321,6 +329,7 @@ proc_memread(int iomem, uint64 off, void *dst, int n)
     p = putmap(p, limit, 0x40000000, 0x40000fff,
                "BCM2836/7 ARM-local interrupt/timer MMIO");
   }
+#endif
 
   len = p - buf;
   if(off >= (uint64)len)

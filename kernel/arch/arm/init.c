@@ -7,6 +7,10 @@ int main(void) {
   mknod("/dev/console",1,0);
   mknod("/dev/ttyS0",3,0);
   mknod("/dev/fb0",5,0);    /* FB: present when a framebuffer driver registered */
+  /* The SD card's FAT32 boot partition at /boot (kernels with the VFS). */
+  mkdir("/boot");
+  if(mount("sd0p1","/boot","fat32",0)==0)
+    printf("init: /boot is the SD card's FAT32 partition\n");
   if(tty_attach(0)<0) exit(1);
   if(open("/dev/ttyS0",O_RDWR)<0) exit(1);
   dup(0); dup(0);

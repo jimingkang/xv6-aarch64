@@ -16,6 +16,7 @@
    reading from the channel the iROM booted from (0xD0037488). */
 #include "kernel/types.h"
 #include "bl1lib.h"
+#include "bl1fat.h"
 #include "board.h"
 
 #define REG(a) (*(volatile uint32*)(uintptr)(a))
@@ -269,30 +270,57 @@ static void ddr_test(void) {
   }
 }
 
-static void load_kernel(struct uimage_info *ui) {
-  uint32 base=REG(IROM_SDMMC_BASE), ch=0;
-  if(base==0xEB000000U) ch=0;         /* SD0: on-board iNand */
-  else if(base==0xEB200000U) ch=2;    /* SD2: the SD card slot */
-  else { uputs("BL1: iROM boot channel "); puthex(base); uputc('\n'); die("not booted from SD/MMC"); }
-  copy_sdmmc_fn copy=(copy_sdmmc_fn)REG(IROM_COPY_SDMMC);
-  uint32 *dst=(uint32*)(uintptr)(KERNEL_RUN-UIMAGE_HDR);
-  uputs("BL1: SD channel "); putdec(ch); uputs(", xv6 at sector "); putdec(KERNEL_SECTOR); uputc('\n');
-  if(!copy(ch,KERNEL_SECTOR,1,dst,0)) die("SD read of the uImage header failed");
-  const char *bad=uimage_check((const uchar*)dst,ui);
+/* ---- kernel from the FAT32 partition ------------------------------------
+   The kernel uImage is looked up as XV6.IMG in the root directory of the
+   first FAT32 partition (MBR type 0x0b/0x0c, or a partitionless FAT32
+   volume). Only sector reads through the iROM routine are needed: MBR, the
+   boot sector, root directory clusters, FAT sectors and the file clusters.
+   Without such a file BL1 reads the raw image at sector 49 as before. */
+#define FAT_NAME "XV6     IMG"
+static copy_sdmmc_fn sd_copy;
+static uint32 sd_ch;
+static int rd_sec(uint32 lba, void *dst, uint32 n) { return sd_copy(sd_ch, lba, (uint16)n, (uint32*)dst, 0) ? 0 : -1; }
+
+static void check_header(struct uimage_info *ui) {
+  const char *bad=uimage_check((const uchar*)(uintptr)(KERNEL_RUN-UIMAGE_HDR),ui);
   if(bad) die(bad);
   if(ui->load!=KERNEL_RUN || ui->entry!=KERNEL_RUN) {
     uputs("BL1: uImage load "); puthex(ui->load); uputs(" entry "); puthex(ui->entry); uputc('\n');
     uputs("BL1: expected "); puthex(KERNEL_RUN); uputc('\n');
     die("uImage load/entry address does not match this board");
   }
-  uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;
-  uputs("BL1: \""); uputs(ui->name); uputs("\", "); putdec(ui->size); uputs(" bytes, ");
-  putdec(sectors); uputs(" sectors\n");
-  /* The iROM routine takes a 16-bit block count. */
-  for(uint32 done=0; done<sectors; ) {
-    uint32 n=sectors-done; if(n>0x8000) n=0x8000;
-    if(!copy(ch,KERNEL_SECTOR+done,(uint16)n,dst+done*128,0)) die("SD read of the kernel failed");
-    done+=n;
+  uputs("BL1: \""); uputs(ui->name); uputs("\", "); putdec(ui->size); uputs(" bytes\n");
+}
+
+static void load_kernel(struct uimage_info *ui) {
+  uint32 base=REG(IROM_SDMMC_BASE), ch=0;
+  if(base==0xEB000000U) ch=0;
+  else if(base==0xEB200000U) ch=2;
+  else { uputs("BL1: iROM boot channel "); puthex(base); uputc('\n'); die("not booted from SD/MMC"); }
+  sd_copy=(copy_sdmmc_fn)REG(IROM_COPY_SDMMC);
+  sd_ch=ch;
+  uint8 *dst=(uint8*)(uintptr)(KERNEL_RUN-UIMAGE_HDR);
+  uputs("BL1: SD channel "); putdec(ch); uputc('\n');
+
+  uint32 first, size, part, spc;
+  int m=fat_mount(rd_sec,&part,&spc);
+  if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
+  if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {
+    uputs("BL1: loading XV6.IMG ("); putdec(size); uputs(" bytes) from FAT32\n");
+    if(size < UIMAGE_HDR || fat_read(first,size,dst) < 0) die("FAT32 read of XV6.IMG failed");
+    check_header(ui);
+    if(UIMAGE_HDR+ui->size > size) die("XV6.IMG shorter than its uImage header says");
+  } else {
+    uputs("BL1: no XV6.IMG on FAT32, raw image at sector "); putdec(KERNEL_SECTOR); uputc('\n');
+    if(rd_sec(KERNEL_SECTOR,dst,1) < 0) die("SD read of the uImage header failed");
+    check_header(ui);
+    uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;
+    /* The iROM routine takes a 16-bit block count. */
+    for(uint32 done=0; done<sectors; ) {
+      uint32 n=sectors-done; if(n>0x8000) n=0x8000;
+      if(rd_sec(KERNEL_SECTOR+done,dst+done*512,n) < 0) die("SD read of the kernel failed");
+      done+=n;
+    }
   }
   if(crc32(0,(const uchar*)(uintptr)KERNEL_RUN,ui->size)!=ui->dcrc) die("kernel data CRC mismatch");
   uputs("BL1: data CRC OK\n");

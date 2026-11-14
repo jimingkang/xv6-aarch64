@@ -39,8 +39,8 @@ KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(X210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
-FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DXV6_HAVE_NET -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
-CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll sysnet
+FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DXV6_HAVE_NET $(if $(filter 1,$(QEMU_TEST)),,-DXV6_HAVE_VFS) -DFSSIZE_T113=$(X210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll sysnet $(if $(filter 1,$(QEMU_TEST)),,fat32 vfs ext2)
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
@@ -49,7 +49,7 @@ DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
   tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed \
-  usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
+  mmc/host/sdhci-s3c usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
 FIRMWARE = mt7601u
 endif
 # LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
@@ -67,7 +67,7 @@ ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUI
 IMG = $(BUILD)/xv6-x210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1 uarttest
+.PHONY: all clean qemu check sdimg bl1 uarttest fattest
 all: $(IMG).bin $(IMG).uImage $(BUILD)/x210-bl1.bin $(BUILD)/x210-sd.img
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
@@ -146,8 +146,8 @@ $(IMG).uImage: $(IMG).bin $(P)/mkx210.py
 	python3 $(P)/mkx210.py uimage $< $@ $(KERNEL_LOAD)
 # Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
 BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
-BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o
-$(BUILD)/bl1/%.o: $(MACH)/bl1/%.c $(MACH)/bl1/bl1lib.h $(MACH)/board.h
+BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o
+$(BUILD)/bl1/%.o: $(MACH)/bl1/%.c $(MACH)/bl1/bl1lib.h $(MACH)/bl1/bl1fat.h $(MACH)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
 $(BUILD)/bl1/%.o: $(MACH)/bl1/%.S
@@ -164,7 +164,7 @@ $(BUILD)/x210-bl1.bin: $(BUILD)/bl1/bl1-code.bin $(P)/mkx210.py
 $(BUILD)/x210-sd.img: $(BUILD)/bl1/bl1-code.bin $(IMG).uImage $(P)/mkx210.py
 	python3 $(P)/mkx210.py sdimg $@ $(BUILD)/bl1/bl1-code.bin $(IMG).uImage
 # Serial check BL1 (no kernel): prints a numbered line forever.
-UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o
+UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o
 $(BUILD)/bl1/bl1-uarttest.o: $(MACH)/bl1/bl1.c $(MACH)/bl1/bl1lib.h $(MACH)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -DBL1_UART_TEST -Wno-unused-function -c $< -o $@
@@ -174,6 +174,15 @@ $(BUILD)/x210-uarttest.bin: $(BUILD)/bl1/uarttest.elf $(P)/mkx210.py
 	$(ARM_OBJCOPY) -O binary $< $(BUILD)/bl1/uarttest-code.bin
 	python3 $(P)/mkx210.py bl1 $(BUILD)/bl1/uarttest-code.bin $@
 uarttest: $(BUILD)/x210-uarttest.bin
+# Host test of BL1's FAT32 reader on a raw card image (macOS example:
+#   hdiutil create -size 64m -fs "MS-DOS FAT32" -layout MBRSPUD -o card,
+#   copy XV6.IMG/FS.IMG in, hdiutil convert card.dmg -format UDTO -o card).
+$(BUILD)/bl1-fattest: $(MACH)/bl1/test_fat_host.c $(MACH)/bl1/bl1fat.c $(MACH)/bl1/bl1fat.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -Wall -I. -I$(MACH)/bl1 -o $@ $(MACH)/bl1/test_fat_host.c $(MACH)/bl1/bl1fat.c
+fattest: $(BUILD)/bl1-fattest
+	@test -n "$(CARD)" || { echo "usage: make -f ports/x210/Makefile fattest CARD=card.cdr"; exit 1; }
+	$(BUILD)/bl1-fattest $(CARD) $(IMG).uImage $(BUILD)/fs.img
 bl1: $(BUILD)/x210-bl1.bin
 sdimg: $(BUILD)/x210-sd.img
 # Host build of the BL1 logic, checked against the real uImage.
