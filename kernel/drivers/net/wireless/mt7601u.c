@@ -1342,6 +1342,14 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
     header += 2; // QoS control
   if(rxinfo & (1U << 14))
     header += 2; // hardware L2 padding
+  // Hardware-decrypted CCMP frames (RXINFO DECRYPT) keep the Protected bit
+  // and the 8-byte CCMP header (PN, key id) in front of the LLC/SNAP header;
+  // the MIC is already removed. Skip it, as Linux mt76 does.
+  if(fc & 0x4000){
+    if(!(rxinfo & (1U << 16)))
+      return;      // still encrypted: no key for it
+    header += 8;
+  }
   if(header + 8 > length)
     return;
   llc = frame + header;
