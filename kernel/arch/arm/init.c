@@ -10,6 +10,23 @@ int main(void) {
   if(tty_attach(0)<0) exit(1);
   if(open("/dev/ttyS0",O_RDWR)<0) exit(1);
   dup(0); dup(0);
+  /* With /etc/wifi.conf (ssid=, psk=) bring the network up in the
+     background: retry wifi until the USB adapter is ready, then DHCP. */
+  int cfd=open("/etc/wifi.conf",O_RDONLY);
+  if(cfd>=0) {
+    close(cfd);
+    if(fork()==0) {
+      char *wargs[]={"wifi",0}, *dargs[]={"dhcp","wlan0",0};
+      for(int tries=0; tries<10; tries++) {
+        int st=-1, pid=fork();
+        if(pid==0) { exec("/bin/wifi",wargs); exit(1); }
+        wait(&st);
+        if(st==0) { exec("/bin/dhcp",dargs); exit(1); }
+        sleep_ticks(30);
+      }
+      exit(1);
+    }
+  }
   char *args[]={"sh",0};
   for(;;) {
     printf("init: starting sh\n");

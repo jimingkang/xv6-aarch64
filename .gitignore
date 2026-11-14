@@ -25,3 +25,4 @@ kernel/buildinfo.c
 
 /build/
 !kernel/arch/arm/vectors.S
+ports/x210/wifi.conf

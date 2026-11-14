@@ -107,8 +107,13 @@ $(BUILD)/user/_%: $(BUILD)/user/%.o $(ULIB)
 $(BUILD)/mkfs: mkfs/mkfs.c kernel/fs.h kernel/types.h kernel/param.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -Wall -Werror -I. -DFSSIZE_T113=$(X210_FSBLOCKS) $< -o $@
-$(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS)
-	$(BUILD)/mkfs $@ $(UPROGS)
+# Optional Wi-Fi credentials, kept out of git (see .gitignore): a file with
+# "ssid=NAME" and "psk=PASSPHRASE" lines becomes /etc/wifi.conf, and init
+# then joins that network and runs DHCP on wlan0 at boot.
+WIFI_CONF ?= ports/x210/wifi.conf
+ETC_FILES = $(if $(filter 1,$(QEMU_TEST)),,$(wildcard $(WIFI_CONF)))
+$(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS) $(ETC_FILES)
+	$(BUILD)/mkfs $@ $(UPROGS) $(if $(ETC_FILES),--etc $(ETC_FILES))
 $(BUILD)/ramdisk.S: $(BUILD)/fs.img
 	@printf '.section .ramdisk,"aw"\n.global ramdisk_start,ramdisk_end\nramdisk_start:\n.incbin "$(BUILD)/fs.img"\nramdisk_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
 # Firmware blobs for request_firmware() (kernel/drivers/base/firmware.c).

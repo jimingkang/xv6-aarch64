@@ -145,7 +145,22 @@ main(int argc, char *argv[])
   strcpy(de.name, "..");
   iappend(binino, &de, sizeof(de));
 
+  // Files after "--etc" go to /etc (configuration), the rest to /bin.
+  uint etcino = 0, dirino = binino;
   for(i = 2; i < argc; i++){
+    if(strcmp(argv[i], "--etc") == 0){
+      if(etcino == 0){
+        etcino = ialloc(T_DIR);
+        bzero(&de, sizeof(de)); de.inum = xshort(etcino); strcpy(de.name, "etc");
+        iappend(rootino, &de, sizeof(de));
+        bzero(&de, sizeof(de)); de.inum = xshort(etcino); strcpy(de.name, ".");
+        iappend(etcino, &de, sizeof(de));
+        bzero(&de, sizeof(de)); de.inum = xshort(rootino); strcpy(de.name, "..");
+        iappend(etcino, &de, sizeof(de));
+      }
+      dirino = etcino;
+      continue;
+    }
     // get rid of "user/"
     char *shortname;
     if(strncmp(argv[i], "user/", 5) == 0)
@@ -173,11 +188,11 @@ main(int argc, char *argv[])
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, shortname, DIRSIZ);
-    iappend(binino, &de, sizeof(de));
+    iappend(dirino, &de, sizeof(de));
 
     // The bootstrap code enters user space with exec("init"), so /init is
     // the sole executable retained at the root.  All commands live in /bin.
-    int rootlink = strcmp(shortname, "init") == 0;
+    int rootlink = dirino == binino && strcmp(shortname, "init") == 0;
     if(rootlink){
       bzero(&de, sizeof(de));
       de.inum = xshort(inum);
@@ -209,6 +224,14 @@ main(int argc, char *argv[])
   off = ((off/BSIZE) + 1) * BSIZE;
   din.size = xint(off);
   winode(binino, &din);
+
+  if(etcino){
+    rinode(etcino, &din);
+    off = xint(din.size);
+    off = ((off/BSIZE) + 1) * BSIZE;
+    din.size = xint(off);
+    winode(etcino, &din);
+  }
 
   balloc(freeblock);
 
