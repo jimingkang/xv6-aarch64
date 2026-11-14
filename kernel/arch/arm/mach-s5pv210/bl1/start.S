@@ -26,6 +26,10 @@ _start:
 2: wfi
   b 2b
 
+/* VBAR needs a 32-byte aligned table. It lives in its own section placed
+   after .text (bl1.ld): aligning .text.start would move the entry point
+   off 0xD0020010, where the iROM jumps. */
+.section .bl1vectors,"ax"
 .balign 32
 bl1_vectors:
   b .
@@ -52,7 +56,9 @@ vec_common:
   ldr sp, =BL1_STACK_TOP - 0x1000  @ banked mode sp: a scratch area below the main stack
   bl bl1_exception
 8: b 8b
+.ltorg
 
+.section .text.start,"ax"
 /* bl1_boot(entry, machid, atags): ARM Linux handoff, as bootm does it.
    SVC, IRQ/FIQ masked, MMU/D-cache off (never enabled here), I-cache off. */
 .global bl1_boot
