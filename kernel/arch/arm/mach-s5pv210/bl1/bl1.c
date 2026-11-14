@@ -365,8 +365,9 @@ static void load_kernel(struct uimage_info *ui) {
   if(own_sd){
     uputs("BL1: reading MBR\n");
     m=fat_mount(rd_sec,secbuf,&part,&spc);
+    if(m<0) uputs("BL1: no FAT32 partition found\n");
   }
-  if(m<0) uputs("BL1: no FAT32 partition found\n");
+
   if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
   if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {
     uputs("BL1: loading " FAT_NAME " ("); putdec(size); uputs(" bytes) from FAT32\n");
