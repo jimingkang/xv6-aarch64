@@ -182,54 +182,6 @@ sync_destroy:
   mov r7, #SYS_sync_destroy
   svc #0
   pop {r7,pc}
-.global udp_bind
-udp_bind:
-  push {r7,lr}
-  mov r7, #SYS_udp_bind
-  svc #0
-  pop {r7,pc}
-.global udp_unbind
-udp_unbind:
-  push {r7,lr}
-  mov r7, #SYS_udp_unbind
-  svc #0
-  pop {r7,pc}
-.global udp_send
-udp_send:
-  push {r7,lr}
-  mov r7, #SYS_udp_send
-  svc #0
-  pop {r7,pc}
-.global udp_recv
-udp_recv:
-  push {r7,lr}
-  mov r7, #SYS_udp_recv
-  svc #0
-  pop {r7,pc}
-.global udp_tryrecv
-udp_tryrecv:
-  push {r7,lr}
-  mov r7, #SYS_udp_tryrecv
-  svc #0
-  pop {r7,pc}
-.global udp_recv_timeout
-udp_recv_timeout:
-  push {r7,lr}
-  mov r7, #SYS_udp_recv_timeout
-  svc #0
-  pop {r7,pc}
-.global icmp_send
-icmp_send:
-  push {r7,lr}
-  mov r7, #SYS_icmp_send
-  svc #0
-  pop {r7,pc}
-.global icmp_recv
-icmp_recv:
-  push {r7,lr}
-  mov r7, #SYS_icmp_recv
-  svc #0
-  pop {r7,pc}
 .global mount
 mount:
   push {r7,lr}
@@ -252,18 +204,6 @@ tty_set_foreground:
 vmdump:
   push {r7,lr}
   mov r7, #SYS_vmdump
-  svc #0
-  pop {r7,pc}
-.global wifi_connect
-wifi_connect:
-  push {r7,lr}
-  mov r7, #SYS_wifi_connect
-  svc #0
-  pop {r7,pc}
-.global net_dhcp
-net_dhcp:
-  push {r7,lr}
-  mov r7, #SYS_net_dhcp
   svc #0
   pop {r7,pc}
 .global tcp_listen
@@ -463,4 +403,86 @@ ioctl:
   mov r7, #SYS_ioctl
   svc #0
   pop {r7,pc}
+/* Network calls take up to six arguments: the 5th and 6th come from the
+   caller's stack into r4/r5 (unused ones are ignored by the kernel). */
+.global udp_bind
+udp_bind:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_bind
+  svc #0
+  pop {r4,r5,r7,pc}
+.global udp_unbind
+udp_unbind:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_unbind
+  svc #0
+  pop {r4,r5,r7,pc}
+.global udp_send
+udp_send:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_send
+  svc #0
+  pop {r4,r5,r7,pc}
+.global udp_recv
+udp_recv:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_recv
+  svc #0
+  pop {r4,r5,r7,pc}
+.global udp_tryrecv
+udp_tryrecv:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_tryrecv
+  svc #0
+  pop {r4,r5,r7,pc}
+.global udp_recv_timeout
+udp_recv_timeout:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_udp_recv_timeout
+  svc #0
+  pop {r4,r5,r7,pc}
+.global icmp_send
+icmp_send:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_icmp_send
+  svc #0
+  pop {r4,r5,r7,pc}
+.global icmp_recv
+icmp_recv:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_icmp_recv
+  svc #0
+  pop {r4,r5,r7,pc}
+.global wifi_connect
+wifi_connect:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_wifi_connect
+  svc #0
+  pop {r4,r5,r7,pc}
+.global net_dhcp
+net_dhcp:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_net_dhcp
+  svc #0
+  pop {r4,r5,r7,pc}
 .section .note.GNU-stack,"",%progbits

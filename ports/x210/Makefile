@@ -40,7 +40,7 @@ EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DXV6_HAVE_NET -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
-CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll
+CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll sysnet
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
@@ -61,7 +61,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
-COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest
+COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
 IMG = $(BUILD)/xv6-x210

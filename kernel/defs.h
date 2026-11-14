@@ -249,6 +249,7 @@ void            mt7601u_driver_exit(void);
 void            mt7601u_poll(void);
 void            mt7601u_rx_irq(void);
 void            mt7601u_pause(int);
+int             mt7601u_connect(const char*, const char*, int);
 
 // dwc2.c / usbnet.c
 void            dwc2_driver_init(void);

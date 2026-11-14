@@ -20,3 +20,5 @@ void vfsclose(struct vnode *v) { (void)v; }
 int vfsstat(struct vnode *v,struct stat *s) { (void)v;(void)s;return -1; }
 int vfsread(struct vnode *v,int u,uint64 a,uint o,uint n) { (void)v;(void)u;(void)a;(void)o;(void)n;return -1; }
 int vfswrite(struct vnode *v,int u,uint64 a,uint o,uint n) { (void)v;(void)u;(void)a;(void)o;(void)n;return -1; }
+/* Boards without the MT7601U driver (the QEMU stand-in) still link sysnet. */
+__attribute__((weak)) int mt7601u_connect(const char *s,const char *p,int t) { (void)s;(void)p;(void)t; return -1; }

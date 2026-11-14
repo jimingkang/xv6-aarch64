@@ -238,6 +238,8 @@ struct mt7601u_device {
   uint32 scan_seen;
   uint8 scan_channel;
   int target_found;
+  char want_ssid[33];       // set by mt7601u_connect(); empty: scan only
+  int want_ssid_len;
   uint8 target_bssid[6];
   uint16 target_capability;
   uint8 target_rsn_ie[MT_RSN_IE_MAX];
@@ -1245,11 +1247,10 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
            security_name[ap->security]);
     dev->scan_seen++;
   }
-  static const char target_ssid[] = "TP-Link_B114";
-  if(!dev->target_found && ssid_len == sizeof(target_ssid) - 1){
+  if(dev->want_ssid_len && !dev->target_found && ssid_len == dev->want_ssid_len){
     int match = 1;
     for(int i = 0; i < ssid_len; i++)
-      if(ssid[i] != (uint8)target_ssid[i]){
+      if(ssid[i] != (uint8)dev->want_ssid[i]){
         match = 0;
         break;
       }
@@ -1280,8 +1281,8 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
                          bssid1) < 0 ||
          mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, 0) < 0)
         printf("mt7601u: warning: cannot program target BSSID\n");
-      printf("mt7601u: target TP-Link_B114 found bssid=%x:%x:%x:%x:%x:%x channel=%d %s driver=WPA2-v3\n",
-             ap->bssid[0], ap->bssid[1], ap->bssid[2], ap->bssid[3],
+      printf("mt7601u: target %s found bssid=%x:%x:%x:%x:%x:%x channel=%d %s\n",
+             dev->want_ssid, ap->bssid[0], ap->bssid[1], ap->bssid[2], ap->bssid[3],
              ap->bssid[4], ap->bssid[5], ap->channel,
              security_name[ap->security]);
     }
@@ -1712,10 +1713,9 @@ mt7601u_probe(struct usb_device *udev)
     return -1;
   }
   mt7601u.scan_deadline = workqueue_now() + MT_SCAN_DWELL_JIFFIES;
-  // PBKDF2 is intentionally done during probe rather than from the 100-ms
-  // timer interrupt that receives EAPOL M1.
-  wpa_pbkdf2("Minghua123", "TP-Link_B114", mt7601u.pmk);
-  mt7601u.netdev.dev.name = "wlan1";
+  // The network to join comes from wifi_connect() (mt7601u_connect); until
+  // then the state machine only scans and lists access points.
+  mt7601u.netdev.dev.name = "wlan0";
   mt7601u.netdev.dev.parent = &udev->dev;
   mt7601u.netdev.ops = &mt7601u_netdev_ops;
   mt7601u.netdev.priv = &mt7601u;
@@ -1729,7 +1729,7 @@ mt7601u_probe(struct usb_device *udev)
                                mt_rx_buf[i], MT_RX_BUF_SIZE) < 0)
         printf("mt7601u: RX request %d submission failed\n", i);
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
-    printf("mt7601u: EP%d receive uses DWC2 IRQ with %d buffers\n",
+    printf("mt7601u: EP%d receive uses USB host IRQ with %d buffers\n",
            udev->bulk_in_ep, MT_RX_REQUESTS);
   queue_delayed_work(&mt7601u_wq, &mt7601u.state_work,
                      MT_SCAN_DWELL_JIFFIES);
@@ -1782,4 +1782,40 @@ void
 mt7601u_driver_exit(void)
 {
   usb_unregister_driver(&mt7601u_driver);
+}
+
+// wifi_connect(ssid, passphrase): derive the PMK here (PBKDF2, 4096 rounds,
+// too slow for interrupt context), aim the scan state machine at `ssid`,
+// and wait up to `timeout_ms` for the 4-way handshake. 0 when associated
+// and keyed, -1 otherwise (no such network, wrong passphrase, no device).
+int
+mt7601u_connect(const char *ssid, const char *passphrase, int timeout_ms)
+{
+  struct mt7601u_device *dev = &mt7601u;
+  int n = strlen(ssid);
+  if(!dev->used || n == 0 || n > 32)
+    return -1;
+  uint8 pmk[32];
+  wpa_pbkdf2((char*)passphrase, (char*)ssid, pmk);
+  acquire(&dev->lock);
+  memmove(dev->pmk, pmk, sizeof(pmk));
+  memmove(dev->want_ssid, ssid, n);
+  dev->want_ssid[n] = 0;
+  dev->want_ssid_len = n;
+  dev->target_found = 0;
+  dev->handshake_done = 0;
+  dev->link_state = MT_LINK_SCAN;
+  release(&dev->lock);
+  mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
+  printf("mt7601u: joining %s\n", dev->want_ssid);
+  uint64 end = r_cntvct_el0() + (uint64)r_cntfrq_el0() * timeout_ms / 1000;
+  while(r_cntvct_el0() < end){
+    if(dev->handshake_done)
+      return 0;
+    acquire(&tickslock);
+    sleep(&ticks, &tickslock);     // let the workqueue and RX run
+    release(&tickslock);
+  }
+  printf("mt7601u: %s: no handshake within %d ms\n", dev->want_ssid, timeout_ms);
+  return -1;
 }

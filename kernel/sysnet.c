@@ -105,9 +105,14 @@ sys_wifi_connect(void)
   // BCM43455 control requests and MT7601U scans are both bounded polling
   // transactions.  Do not let timer-driven USB channel changes stretch a
   // FullMAC BCDC response past its deadline.
+#ifdef XV6_ARM32
+  // Tiny210: the only Wi-Fi device is the MT7601U on USB.
+  result = mt7601u_connect(ssid, passphrase, 30000);
+#else
   mt7601u_pause(1);
   result = brcmfmac_connect(ssid, passphrase);
   mt7601u_pause(0);
+#endif
   return result;
 }
 
