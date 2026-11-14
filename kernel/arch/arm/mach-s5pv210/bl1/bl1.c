@@ -17,6 +17,7 @@
 #include "kernel/types.h"
 #include "bl1lib.h"
 #include "bl1fat.h"
+#include "kernel/drivers/mmc/host/sdcore.h"
 #include "board.h"
 
 #define REG(a) (*(volatile uint32*)(uintptr)(a))
@@ -280,7 +281,51 @@ static void ddr_test(void) {
 #define FAT_NAME "xv6_tiny210.img"
 static copy_sdmmc_fn sd_copy;
 static uint32 sd_ch;
-static int rd_sec(uint32 lba, void *dst, uint32 n) { return sd_copy(sd_ch, lba, (uint16)n, (uint32*)dst, 0) ? 0 : -1; }
+static int own_sd;            /* 1: our SDHCI PIO reads (sdcore.c), 0: iROM routine */
+static uint32 irom_reinit;    /* 1 once our init touched the controller */
+
+/* PWM timer 3 free-running at PCLK_PSYS/16 (the kernel programs it the
+   same way): the time base sdcore.c needs for delays and timeouts. */
+#define PWM 0xE2500000U
+static void timer3_start(void) {
+  REG(PWM+0x08) &= ~(0xfU<<16);
+  REG(PWM+0x00) &= ~(0xffU<<8);
+  REG(PWM+0x04) = (REG(PWM+0x04) & ~(0xfU<<12)) | (4U<<12);
+  REG(PWM+0x30) = 0xffffffffU;
+  REG(PWM+0x08) = (REG(PWM+0x08) & ~(0xfU<<16)) | (1U<<17);
+  REG(PWM+0x08) = (REG(PWM+0x08) & ~(0xfU<<16)) | (1U<<19) | (1U<<16);
+}
+static uint64 timer3_now(void) { return 0xffffffffU - REG(PWM+0x38); }
+static void sd_log(const char *m, uint32 v) { uputs("BL1: "); uputs(m); uputc(' '); puthex(v); uputc('\n'); }
+static struct sdc_env bl1_env = { timer3_now, 1, sd_log };
+
+/* Pins GPG<n>[6:0] (CLK, CMD, CD, DATA0-3), HSMMCn clock gate, SCLK_MMCn =
+   24 MHz crystal; same as the kernel's board setup (devices.c). */
+static void sd_pins_clock(uint32 ch) {
+  uint32 gpg = 0xE02001A0 + 0x20*ch;
+  REG(gpg) = (REG(gpg) & ~0x0fffffffU) | 0x02222222;
+  REG(gpg + 0x8) &= ~0x3fffU;
+  REG(gpg + 0xc) |= 0x3fffU;
+  REG(0xE0100468) |= 1U << (16 + ch);
+  REG(0xE0100210) &= ~(0xfU << (4*ch));
+  REG(0xE0100310) &= ~(0xfU << (4*ch));
+  REG(0xE0100280) |= 1U << ch;
+}
+
+static int rd_sec(uint32 lba, void *dst, uint32 n) {
+  if(!own_sd){
+    /* After a failed attempt of our own the controller was reset: ask the
+       iROM routine to initialise the card again (last argument). */
+    int ok = sd_copy(sd_ch, lba, (uint16)n, (uint32*)dst, irom_reinit) != 0;
+    if(ok) irom_reinit = 0;
+    return ok ? 0 : -1;
+  }
+  for(uint32 i = 0; i < n; i++)
+    if(sdc_transfer(lba + i, (uint32*)dst + 128*i, 0) < 0 &&
+       sdc_transfer(lba + i, (uint32*)dst + 128*i, 0) < 0)
+      return -1;
+  return 0;
+}
 
 static void check_header(struct uimage_info *ui) {
   const char *bad=uimage_check((const uchar*)(uintptr)(KERNEL_RUN-UIMAGE_HDR),ui);
@@ -302,12 +347,25 @@ static void load_kernel(struct uimage_info *ui) {
   sd_ch=ch;
   uint8 *dst=(uint8*)(uintptr)(KERNEL_RUN-UIMAGE_HDR);
   uputs("BL1: SD channel "); putdec(ch); uputc('\n');
+  /* The iROM copy routine reads the raw image fine but hangs on sector 0,
+     so the FAT32 path uses our own SDHCI code; the iROM routine stays the
+     fallback for the raw image at sector 49. */
+  timer3_start();
+  bl1_env.ticks_per_us = udiv(uart_pclk, 16000000U);
+  if(bl1_env.ticks_per_us == 0) bl1_env.ticks_per_us = 1;
+  sd_pins_clock(ch);
+  own_sd = sdc_init(0xEB000000U + 0x100000U*ch, &bl1_env) == 0;
+  irom_reinit = 1;
+  if(!own_sd) uputs("BL1: own SD init failed, using the iROM routine (raw image only)\n");
 
   uint32 first, size, part, spc;
   /* Sector buffer in DDR, 16 MiB above the kernel's load address. */
   uint8 *secbuf=(uint8*)(uintptr)(DRAM_BASE+0x01000000);
-  uputs("BL1: reading MBR\n");
-  int m=fat_mount(rd_sec,secbuf,&part,&spc);
+  int m=-1;
+  if(own_sd){
+    uputs("BL1: reading MBR\n");
+    m=fat_mount(rd_sec,secbuf,&part,&spc);
+  }
   if(m<0) uputs("BL1: no FAT32 partition found\n");
   if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
   if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {

@@ -49,7 +49,7 @@ DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
   tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed \
-  mmc/host/sdhci-s3c usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
+  mmc/host/sdhci-s3c mmc/host/sdcore usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
 FIRMWARE = mt7601u
 endif
 # LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
@@ -169,8 +169,11 @@ $(BUILD)/xv6_tiny210.img: $(IMG).uImage
 	cp $< $@
 # Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
 BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
-BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o
+BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o $(BUILD)/bl1/sdcore.o
 $(BUILD)/bl1/%.o: $(MACH)/bl1/%.c $(MACH)/bl1/bl1lib.h $(MACH)/bl1/bl1fat.h $(MACH)/board.h
+	@mkdir -p $(@D)
+	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
+$(BUILD)/bl1/sdcore.o: kernel/drivers/mmc/host/sdcore.c kernel/drivers/mmc/host/sdcore.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -c $< -o $@
 $(BUILD)/bl1/%.o: $(MACH)/bl1/%.S
@@ -187,7 +190,7 @@ $(BUILD)/tiny210-bl1.bin: $(BUILD)/bl1/bl1-code.bin $(P)/mktiny210.py
 $(BUILD)/tiny210-sd.img: $(BUILD)/bl1/bl1-code.bin $(IMG).uImage $(P)/mktiny210.py
 	python3 $(P)/mktiny210.py sdimg $@ $(BUILD)/bl1/bl1-code.bin $(IMG).uImage
 # Serial check BL1 (no kernel): prints a numbered line forever.
-UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o
+UTOBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1-uarttest.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o $(BUILD)/bl1/sdcore.o
 $(BUILD)/bl1/bl1-uarttest.o: $(MACH)/bl1/bl1.c $(MACH)/bl1/bl1lib.h $(MACH)/board.h
 	@mkdir -p $(@D)
 	$(ARM_CC) $(BL1FLAGS) -DBL1_UART_TEST -Wno-unused-function -c $< -o $@
