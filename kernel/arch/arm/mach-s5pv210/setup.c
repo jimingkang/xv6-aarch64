@@ -103,7 +103,15 @@ void x210_main(uint r0, uint machid, uint r2) {
   if((uintptr)end>=x210_phystop) x210_phystop=PGROUNDUP((uintptr)end)+(16U<<20);
   /* Turn the MMU on before the allocator runs, so LDREX/STREX in the
      spinlocks see Normal memory rather than MMU-off Strongly-ordered. */
-  kvminit(); kvminithart(); kinit1(end,P2V(PHYSTOP));
+  kvminit(); kvminithart();
+  /* Instruction cache and branch prediction on. D-cache stays off (DMA
+     buffers need no maintenance), but uncached instruction fetches were
+     most of the DRAM traffic and starved the USB host's DMA. exec()
+     invalidates the I-cache after loading a program (uvmsync_icache). */
+  { uint z=0, v; asm volatile("mcr p15, 0, %0, c7, c5, 0"::"r"(z):"memory");
+    asm volatile("mrc p15, 0, %0, c1, c0, 0":"=r"(v)); v |= (1U<<12)|(1U<<11);
+    asm volatile("mcr p15, 0, %0, c1, c0, 0"::"r"(v):"memory"); isb(); }
+  kinit1(end,P2V(PHYSTOP));
   device_init(); consoleinit(); ttyinit(); printfinit();
   printf("\nxv6 ARM32 / %s\n",BOARD);
   boot_info(r0,machid,r2);

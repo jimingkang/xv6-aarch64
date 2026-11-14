@@ -37,6 +37,7 @@
 #define HCSPARAMS   0x04
 #define HCCPARAMS   0x08
 #define INSNREG00   0x90        // Samsung: AHB burst enables (Linux ehci-exynos/s5p)
+#define INSNREG01   0x94        // Synopsys: packet buffer OUT [31:16] / IN [15:0] thresholds, dwords
 #define USBCMD      0x00
 #define USBSTS      0x04
 #define USBINTR     0x08
@@ -729,6 +730,13 @@ ehci_start(void)
   uint32 hcs = *(volatile uint32*)(cap + HCSPARAMS);
   nports = hcs & 0xf;
   *(volatile uint32*)(cap + INSNREG00) = (1U << 25) | (1U << 24) | (1U << 23) | (1U << 22);
+  // Start an OUT packet only once the whole 512-byte packet is in the HC's
+  // buffer (and drain IN in 512-byte units): with the default threshold the
+  // controller underran (qTD status Data Buffer Error) while the CPU, running
+  // uncached, kept the DRAM bus busy.
+  uint32 thr = *(volatile uint32*)(cap + INSNREG01);
+  *(volatile uint32*)(cap + INSNREG01) = (0x80U << 16) | 0x80U;
+  printf("ehci: INSNREG01 thresholds %x -> %x\n", thr, *(volatile uint32*)(cap + INSNREG01));
 
   wr(USBCMD, rd(USBCMD) & ~CMD_RUN);
   for(int i = 0; i < 100 && !(rd(USBSTS) & STS_HALTED); i++)
