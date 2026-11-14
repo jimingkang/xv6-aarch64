@@ -72,3 +72,6 @@
 #define SYS_bind         71
 #define SYS_listen       72
 #define SYS_lseek        73
+#define SYS_mmap         74
+#define SYS_munmap       75
+#define SYS_ioctl        76

@@ -5,6 +5,7 @@
 #include "kernel/spinlock.h"
 #include "kernel/proc.h"
 #include "kernel/defs.h"
+#include "kernel/mmap.h"
 /* Short-descriptor L1 roots must be 16 KiB aligned. A bounded root pool is
    separate from the 4 KiB allocator; each root is reclaimed on exit/exec. */
 #define ROOTS 256
@@ -136,8 +137,43 @@ void uvmfree(pagetable_t p,uint64 sz) {
   panic("arm root free");
 }
 void uvmclear(pagetable_t p,uint64 va) { pte_t *e=walk(p,va,0); if(!e) panic("uvmclear"); *e &= ~PTE_U; }
+/* mmap() window: user-accessible 1 MiB sections (L1 entries only, no L2
+   tables), so exit/exec drop them with the L1 root and fork copies the
+   entries: the child shares the same frames, as with MAP_SHARED. */
+#define SECTION_USER(pa,prot) ((uint32)(pa) | (1<<12) | ((prot)&PROT_WRITE ? (3<<10) : (2<<10)) | (1<<4) | 2)
+static int window_entry(pagetable_t p,uint64 va) { return (p[(uint)va>>20]&3)==2; }
+uint64 mmap_find_area(pagetable_t p,uint64 len) {
+  uint64 need=(len+MMAP_ALIGN-1)&~(MMAP_ALIGN-1);
+  if(!need) return 0;
+  for(uint64 va=MMAP_BASE; va+need<=MMAP_END; va+=MMAP_ALIGN) {
+    uint64 a;
+    for(a=va; a<va+need && !p[(uint)a>>20]; a+=MMAP_ALIGN) ;
+    if(a==va+need) return va;
+  }
+  return 0;
+}
+int remap_pfn_range(struct vm_area_struct *vma,uint64 va,uint64 pa,uint64 size,int prot) {
+  if((va|pa)&(MMAP_ALIGN-1)) return -1;
+  if(va<vma->vm_start || size>vma->vm_end-va) return -1;
+  for(uint64 off=0; off<size; off+=MMAP_ALIGN) {
+    if(vma->pagetable[(uint)(va+off)>>20]) return -1;
+    vma->pagetable[(uint)(va+off)>>20]=SECTION_USER(pa+off,prot);
+  }
+  flush_tlb();
+  return 0;
+}
+int munmap_area(pagetable_t p,uint64 va,uint64 len) {
+  if(va<MMAP_BASE || va&(MMAP_ALIGN-1) || len==0 || len>MMAP_END-va) return -1;
+  for(uint64 a=va; a<va+len; a+=MMAP_ALIGN)
+    if(window_entry(p,a)) p[(uint)a>>20]=0;
+  flush_tlb();
+  return 0;
+}
+
 int uvmcopy(pagetable_t old,pagetable_t n,uint64 sz) {
   uint64 a;
+  for(a=MMAP_BASE; a<MMAP_END; a+=MMAP_ALIGN)
+    if(window_entry(old,a)) n[(uint)a>>20]=old[(uint)a>>20];
   for(a=0;a<sz;a+=PGSIZE) {
     pte_t *e=walk(old,a,0); if(!e || !(*e&PTE_V)) panic("uvmcopy");
     void *m=kalloc(); if(!m) goto fail;

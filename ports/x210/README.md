@@ -3,6 +3,11 @@
 本移植按 S5PV210 的标准 iROM 启动方式进入 xv6，但不用 U-Boot：第二阶段
 由本仓库自带的 BL1（`kernel/arch/arm/mach-s5pv210/bl1`）完成。
 
+面向 Tiny210 驱动开发者的分层说明见
+[`doc/readme/tiny210/README.md`](../../doc/readme/tiny210/README.md)，其中分别说明
+启动与内存、中断、LCD/FIMD、当前内嵌文件系统以及 platform 驱动模型。本文件继续
+作为构建、SD 布局、烧录和上电操作手册。
+
 ## 代码组织（按 rpi3-lock 分支的驱动架构）
 
 ```
@@ -206,6 +211,34 @@ make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
 
 时序取自 FriendlyARM mini210/tiny210 BSP 的面板表（凭记录整理，未在实板
 核对）；背光由 LCD 模块自身控制，本驱动不调节。
+
+## /dev/fb0（ioctl + mmap）
+
+`file_operations` 增加了 Linux 风格的 `ioctl(f, cmd, arg)` 和 `mmap(f, vma)`，
+对应新系统调用 `ioctl(fd, cmd, arg)`、`mmap(addr, len, prot, flags, fd, off)`、
+`munmap(addr, len)`（`kernel/sysfile.c`，常量在 `kernel/mman.h`）。
+
+- 只支持字符设备的 `MAP_SHARED` 映射，地址由内核在 0x10000000–0x18000000 窗口里挑选
+  （`addr` 参数只作提示，被忽略）。驱动在 `mmap` 回调里调用 `remap_pfn_range()`。
+- ARM32 实现（`kernel/arch/arm/vm.c`）用 1 MiB 段描述符映射：物理地址和长度按
+  1 MiB 对齐，用户可读写、XN、Normal 非缓存。fork 时子进程继承同一段映射（共享帧），
+  exec/exit 随页表根一起丢弃，munmap 清除并刷 TLB。
+- mmap 区域不能作为 read/write 等系统调用的缓冲区（copyin/copyout 只认普通页）。
+
+帧缓冲核心 `kernel/drivers/video/fbdev/fbmem.c`：驱动填好 `struct fb_info` 后调用
+`register_framebuffer()`，得到 `/dev/fb0`（主设备号 5，init 会 mknod）：
+
+- `FBIOGET_VSCREENINFO` / `FBIOGET_FSCREENINFO`（`kernel/fb.h`，与 Linux 相同的
+  编号和字段顺序）：分辨率、32 bpp、XRGB8888 的通道偏移（红 16、绿 8、蓝 0）、行长、
+  缓冲区物理地址和长度；
+- `mmap(0, smem_len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0)`：直接得到帧缓冲；
+- 只要有进程打开着 /dev/fb0，文本控制台（fbcon）就暂停绘制，最后一个关闭时清屏恢复。
+
+实板上由 s3c-fb 注册（`s3c-fb`），QEMU 替身由 `simplefb` 注册一块普通内存，
+因此 `make x210-check` 会自动运行 `fbtest`：取得屏幕信息、mmap、画彩条和渐变并回读
+校验、fork 后子进程写入父进程能看到、munmap 后再访问会触发缺页并被终止。
+
+在板子上看效果：`fbtest 10`（画完保留 10 秒再退出，屏幕随后回到文本控制台）。
 
 ## BL1 格式
 

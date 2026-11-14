@@ -88,6 +88,9 @@ int socket(int, int, int);
 int bind(int, const void*, int);
 int listen(int, int);
 long lseek(int, long, int);
+void *mmap(void *addr, uint len, int prot, int flags, int fd, uint offset);
+int munmap(void *addr, uint len);
+int ioctl(int fd, unsigned long cmd, void *arg);
 
 // ulib.c
 int stat(const char*, struct stat*);

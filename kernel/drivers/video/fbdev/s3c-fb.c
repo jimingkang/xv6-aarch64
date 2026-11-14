@@ -18,6 +18,9 @@
 #include "kernel/clk.h"
 #include "s3c-fb.h"
 #include "fbcon.h"
+#include "fbdev.h"
+
+static struct fb_info s3c_fb_info = { .id = "s3c-fb", .bpp = 32, .has_fbcon = 1 };
 
 #define VIDCON0 0x000
 #define VIDCON1 0x004
@@ -91,7 +94,13 @@ s3c_fb_probe(struct device *dev)
          p->name, p->xres, p->yres, pclk, pclk/(htot*vtot), fbpa);
   for(volatile uint32 i = 0; i < 20000000; i++) ;   // show the bars a moment
   fbcon_register(fb, p->xres, p->yres);
-  return 0;
+  s3c_fb_info.phys = fbpa;
+  s3c_fb_info.size = dev->resource[1].end - dev->resource[1].start + 1;
+  s3c_fb_info.screen = fb;
+  s3c_fb_info.xres = p->xres;
+  s3c_fb_info.yres = p->yres;
+  s3c_fb_info.line_length = p->xres*4;
+  return register_framebuffer(&s3c_fb_info);
 }
 
 static struct device_driver s3c_fb_driver = { .name = "s3c-fb", .bus = &platform_bus, .probe = s3c_fb_probe };

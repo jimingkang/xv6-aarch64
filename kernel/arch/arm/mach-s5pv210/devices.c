@@ -24,6 +24,9 @@ static struct device board_devices[] = {
   { .name = "sun4i-intc",  .resource = { MEM(0x01C20400, 0x400, "intc") }, .nresource = 1 },
   { .name = "sun4i-timer", .resource = { MEM(0x01C20C00, 0x400, "timer"), IRQ(22, "timer0") }, .nresource = 2 },
   { .name = "sun4i-uart",  .resource = { MEM(0x01C28000, 0x400, "uart0") }, .nresource = 1 },
+  /* No display in QEMU: plain RAM, so /dev/fb0 and mmap() can be tested. */
+  { .name = "simple-framebuffer",
+    .resource = { MEM(DRAM_BASE + S5PV210_FB_OFFSET, S5PV210_FB_SIZE, "framebuffer") }, .nresource = 1 },
 };
 #else
 #define REG(a) (*(volatile uint32*)(uintptr)(a))

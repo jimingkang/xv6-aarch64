@@ -111,6 +111,9 @@ extern uint64 sys_tty_attach(void);
 extern uint64 sys_tty_set_foreground(void);
 extern uint64 sys_sched_yield(void);
 extern uint64 sys_vmdump(void);
+extern uint64 sys_mmap(void);
+extern uint64 sys_munmap(void);
+extern uint64 sys_ioctl(void);
 static uint64 (*calls[])(void) = {
   [SYS_fork] = sys_fork,
   [SYS_exit] = sys_exit,
@@ -138,6 +141,9 @@ static uint64 (*calls[])(void) = {
   [SYS_tty_set_foreground] = sys_tty_set_foreground,
   [SYS_sched_yield] = sys_sched_yield,
   [SYS_vmdump] = sys_vmdump,
+  [SYS_mmap] = sys_mmap,
+  [SYS_munmap] = sys_munmap,
+  [SYS_ioctl] = sys_ioctl,
 };
 void syscall(void) {
   struct proc *p=myproc(); uint n=p->trapframe->x7;

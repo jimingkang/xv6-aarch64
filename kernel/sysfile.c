@@ -20,6 +20,7 @@
 #include "epoll.h"
 #include "vfs.h"
 #include "socket.h"
+#include "mmap.h"
 
 static uint16
 net16(uint16 value)
@@ -839,4 +840,62 @@ bad:
   fileclose(master);
   fileclose(slave);
   return -1;
+}
+
+// ioctl(fd, cmd, arg): forwarded to the character device's driver.
+uint64
+sys_ioctl(void)
+{
+  struct file *f;
+  uint64 cmd, arg;
+
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &cmd) < 0 || argaddr(2, &arg) < 0)
+    return -1;
+  if(f->type != FD_DEVICE)
+    return -1;   // Linux: -ENOTTY
+  return chrdev_ioctl(f, cmd, arg);
+}
+
+// mmap(addr, len, prot, flags, fd, offset): MAP_SHARED mappings of device
+// files whose driver implements file_operations.mmap. The kernel picks the
+// address (addr is only a hint and is ignored); returns it, or -1.
+uint64
+sys_mmap(void)
+{
+  struct file *f;
+  uint64 addr, len, off;
+  int prot, flags;
+  struct proc *p = myproc();
+
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0 || argint(2, &prot) < 0 ||
+     argint(3, &flags) < 0 || argfd(4, 0, &f) < 0 || argaddr(5, &off) < 0)
+    return -1;
+  (void)addr;
+  if(len == 0 || !(flags & MAP_SHARED) || (off & (PGSIZE-1)) || f->type != FD_DEVICE)
+    return -1;
+  if(((prot & PROT_READ) && !f->readable) || ((prot & PROT_WRITE) && !f->writable))
+    return -1;   // Linux: -EACCES
+  struct vm_area_struct vma;
+  vma.pagetable = p->vm->pagetable;
+  vma.vm_start = mmap_find_area(vma.pagetable, len);
+  if(vma.vm_start == 0)
+    return -1;
+  vma.vm_end = vma.vm_start + ((len + MMAP_ALIGN - 1) & ~(MMAP_ALIGN - 1));
+  vma.vm_pgoff = off / PGSIZE;
+  vma.vm_prot = prot;
+  if(chrdev_mmap(f, &vma) < 0){
+    munmap_area(vma.pagetable, vma.vm_start, vma.vm_end - vma.vm_start);
+    return -1;
+  }
+  return vma.vm_start;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr, len;
+
+  if(argaddr(0, &addr) < 0 || argaddr(1, &len) < 0)
+    return -1;
+  return munmap_area(myproc()->vm->pagetable, addr, (len + MMAP_ALIGN - 1) & ~(MMAP_ALIGN - 1));
 }

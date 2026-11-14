@@ -304,6 +304,24 @@ chrdev_write(int major, int user_src, uint64 src, int n)
   return fops->write(user_src, src, n);
 }
 
+int
+chrdev_ioctl(struct file *f, uint64 cmd, uint64 arg)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0 || fops->ioctl == 0)
+    return -1;   // Linux: -ENOTTY
+  return fops->ioctl(f, cmd, arg);
+}
+
+int
+chrdev_mmap(struct file *f, struct vm_area_struct *vma)
+{
+  struct file_operations *fops = chrdev_fops(f->major);
+  if(fops == 0 || fops->mmap == 0)
+    return -1;   // Linux: -ENODEV
+  return fops->mmap(f, vma);
+}
+
 static char *
 putstr(char *p, char *end, char *s)
 {

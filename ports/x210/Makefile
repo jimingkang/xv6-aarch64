@@ -44,10 +44,11 @@ CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile s
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
-DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/ramdisk_embed
+DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/ramdisk_embed \
+  video/fbdev/fbmem video/fbdev/simplefb
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
-  tty/serial/samsung video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed
+  tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed
 endif
 # LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
 S5PV210_LCD ?= s70
@@ -57,7 +58,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
-COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest
+COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
 IMG = $(BUILD)/xv6-x210

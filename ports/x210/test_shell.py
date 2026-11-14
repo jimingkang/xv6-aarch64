@@ -82,7 +82,9 @@ try:
     command("stressfs", b"read", timeout=30)
     command("echo AFTER_STRESS", b"\r\nAFTER_STRESS\r\n")
     command("echo one; echo two", b"\r\ntwo\r\n")
-    print("PASS: Cortex-A8 bootm/ATAG handoff (r1/r2, ATAG_MEM, ATAG_CMDLINE) at DRAM+0x8000, init/sh, fork/exec/wait, pipes, redirection, directories, timer sleep, user isolation/fault recovery, fork growth/reaping and filesystem stress")
+    command("fbtest", b"fbtest: OK", faults=True)
+    command("echo AFTER_FB", b"\r\nAFTER_FB\r\n")
+    print("PASS: /dev/fb0 ioctl+mmap (fork-shared, munmap), Cortex-A8 bootm/ATAG handoff (r1/r2, ATAG_MEM, ATAG_CMDLINE) at DRAM+0x8000, init/sh, fork/exec/wait, pipes, redirection, directories, timer sleep, user isolation/fault recovery, fork growth/reaping and filesystem stress")
 finally:
     proc.terminate()
     try:

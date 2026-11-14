@@ -441,4 +441,26 @@ lseek:
   svc #0
   pop {r7,pc}
 
+/* mmap has six arguments: the EABI passes the 5th and 6th on the stack,
+   the kernel reads them from r4/r5. */
+.global mmap
+mmap:
+  push {r4,r5,r7,lr}
+  ldr r4, [sp, #16]
+  ldr r5, [sp, #20]
+  mov r7, #SYS_mmap
+  svc #0
+  pop {r4,r5,r7,pc}
+.global munmap
+munmap:
+  push {r7,lr}
+  mov r7, #SYS_munmap
+  svc #0
+  pop {r7,pc}
+.global ioctl
+ioctl:
+  push {r7,lr}
+  mov r7, #SYS_ioctl
+  svc #0
+  pop {r7,pc}
 .section .note.GNU-stack,"",%progbits

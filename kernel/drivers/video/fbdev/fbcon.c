@@ -7,7 +7,8 @@
 #include "font8x16.h"
 
 static uint32 *fb;
-static uint32 xres, cols, rows, cx, cy;
+static uint32 xres, yres, cols, rows, cx, cy;
+static int paused;
 static const uint32 fg = 0x00e0e0e0, bg = 0x00102040;
 
 static void
@@ -33,16 +34,26 @@ glyph(uint32 col, uint32 row, int ch)
 void
 fbcon_register(uint32 *buf, uint32 w, uint32 h)
 {
-  fb = buf; xres = w;
+  fb = buf; xres = w; yres = h;
   cols = w/FONT_W; rows = h/FONT_H; cx = cy = 0;
   fill(0, 0, w, h, bg);
   printf("fbcon: %dx%d text console\n", cols, rows);
 }
 
 void
+fbcon_pause(int pause)
+{
+  paused = pause;
+  if(!pause && fb){
+    fill(0, 0, xres, yres, bg);
+    cx = cy = 0;
+  }
+}
+
+void
 fbcon_putc(int c)
 {
-  if(!fb) return;
+  if(!fb || paused) return;
   if(c == '\n') { cx = 0; cy++; }
   else if(c == '\r') cx = 0;
   else if(c == '\b' || c == 0x7f) { if(cx) { cx--; glyph(cx, cy, ' '); } }

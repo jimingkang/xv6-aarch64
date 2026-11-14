@@ -6,6 +6,7 @@ int main(void) {
   mkdir("/dev");
   mknod("/dev/console",1,0);
   mknod("/dev/ttyS0",3,0);
+  mknod("/dev/fb0",5,0);    /* FB: present when a framebuffer driver registered */
   if(tty_attach(0)<0) exit(1);
   if(open("/dev/ttyS0",O_RDWR)<0) exit(1);
   dup(0); dup(0);

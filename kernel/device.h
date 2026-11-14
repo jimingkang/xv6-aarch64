@@ -18,6 +18,7 @@ struct resource {
 };
 
 struct file;
+struct vm_area_struct;
 
 // Character-device operations.  read/write are the original stateless hooks
 // (console, tty).  Drivers that need per-open state set the optional
@@ -31,6 +32,13 @@ struct file_operations {
   int (*open)(struct file *f);
   void (*release)(struct file *f);
   int (*fread)(struct file *f, int user_dst, uint64 dst, int n);
+  // Linux-style ioctl: cmd and arg straight from the system call; arg is
+  // usually a user pointer the driver copyout()s to / copyin()s from.
+  int (*ioctl)(struct file *f, uint64 cmd, uint64 arg);
+  // Linux-style mmap: the core has chosen vma->vm_start/vm_end; the driver
+  // checks vma->vm_pgoff and the length and installs its frames with
+  // remap_pfn_range() (kernel/mman.h).
+  int (*mmap)(struct file *f, struct vm_area_struct *vma);
 };
 
 struct device;
@@ -76,6 +84,8 @@ int chrdev_open(struct file *f);
 void chrdev_release(struct file *f);
 int chrdev_read(struct file *f, int user_dst, uint64 dst, int n);
 int chrdev_write(int major, int user_src, uint64 src, int n);
+int chrdev_ioctl(struct file *f, uint64 cmd, uint64 arg);
+int chrdev_mmap(struct file *f, struct vm_area_struct *vma);
 int device_format(char *buf, int max);
 
 #endif

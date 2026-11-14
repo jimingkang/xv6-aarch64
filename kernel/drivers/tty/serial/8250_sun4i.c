@@ -17,7 +17,7 @@ static uintptr base = EARLY_UART;
 
 void uartinit(void) { REG(LCR) &= ~128U; REG(IER) = 0; }
 int uartgetc(void) { return (REG(LSR) & 1) ? (int)(REG(RBR) & 255) : -1; }
-void uartputc_sync(int c) { while(!(REG(LSR) & 32)) ; REG(RBR) = (uchar)c; }
+void uartputc_sync(int c) { while(!(REG(LSR) & 32)) {} REG(RBR) = (uchar)c; }
 void uartputc(int c) { uartputc_sync(c); }
 void uartintr(void) { int c; while((c = uartgetc()) >= 0) consoleintr(c); }
 void boot_uart_mark(int c) { (void)c; }
