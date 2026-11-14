@@ -65,6 +65,8 @@ struct usb_device {
   uint8 bulk_in_ep;
   uint8 bulk_in_ep2;
   uint8 bulk_out_ep;
+  uint8 bulk_out_eps[8];    // every bulk OUT endpoint, descriptor order
+  uint8 n_bulk_out;
   uint16 bulk_in_max_packet;
   uint16 bulk_out_max_packet;
   uint8 bulk_in_toggle;

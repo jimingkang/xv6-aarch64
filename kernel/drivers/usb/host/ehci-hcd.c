@@ -580,6 +580,7 @@ parse_config(struct usb_device *u, uint8 *c, int total)
         else if(u->bulk_in_ep2 == 0) u->bulk_in_ep2 = addr & 0xf;
       } else if(attr == 2){
         if(u->bulk_out_ep == 0){ u->bulk_out_ep = addr & 0xf; u->bulk_out_max_packet = mps; }
+        if(u->n_bulk_out < sizeof(u->bulk_out_eps)) u->bulk_out_eps[u->n_bulk_out++] = addr & 0xf;
       } else if(attr == 3 && (addr & 0x80) && u->interrupt_in_ep == 0){
         u->interrupt_in_ep = addr & 0xf;
         u->interrupt_in_max_packet = mps;
@@ -681,9 +682,9 @@ enumerate(int speed, int hub, int port, int depth)
   nedev++;
   printf("ehci: %s-speed device %x:%x class %d at address %d (hub %d port %d)\n",
          speed_name[speed], u->vendor, u->product, u->class, addr, hub, port);
-  printf("ehci:   bulk in %d,%d/%d out %d/%d intr in %d\n", u->bulk_in_ep,
+  printf("ehci:   bulk in %d,%d/%d out %d/%d (%d OUT endpoints) intr in %d\n", u->bulk_in_ep,
          u->bulk_in_ep2, u->bulk_in_max_packet, u->bulk_out_ep, u->bulk_out_max_packet,
-         u->interrupt_in_ep);
+         u->n_bulk_out, u->interrupt_in_ep);
   if(u->class == 9){
     hub_ports(u, depth);
     return;
