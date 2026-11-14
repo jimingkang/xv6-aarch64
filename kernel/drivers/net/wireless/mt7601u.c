@@ -237,6 +237,7 @@ struct mt7601u_device {
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
+  uint32 scan_rounds;      // full 1..11 sweeps, for the join-timeout report
   uint8 scan_channel;
   int target_found;
   char want_ssid[33];       // set by mt7601u_connect(); empty: scan only
@@ -1522,6 +1523,8 @@ mt7601u_service(int service_rx, int service_state)
   if(service_state && !dev->target_found &&
      (long)(now - dev->scan_deadline) >= 0){
     int next = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
+    if(next == 1)
+      dev->scan_rounds++;
     if(mt7601u_set_channel(dev, next) < 0)
       printf("mt7601u: channel switch to %d failed\n", next);
     dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
@@ -1859,27 +1862,61 @@ mt7601u_connect(const char *ssid, const char *passphrase, int timeout_ms)
   int n = strlen(ssid);
   if(!dev->used || n == 0 || n > 32)
     return -1;
-  uint8 pmk[32];
-  wpa_pbkdf2((char*)passphrase, (char*)ssid, pmk);
+  // A retry for the network we are already joining must not restart the
+  // join: the state machine keeps running after a timed-out wifi_connect(),
+  // and resetting it here threw away a link that was about to complete.
   acquire(&dev->lock);
-  memmove(dev->pmk, pmk, sizeof(pmk));
-  memmove(dev->want_ssid, ssid, n);
-  dev->want_ssid[n] = 0;
-  dev->want_ssid_len = n;
-  dev->target_found = 0;
-  dev->handshake_done = 0;
-  dev->link_state = MT_LINK_SCAN;
+  int same = dev->want_ssid_len == n && memcmp(dev->want_ssid, ssid, n) == 0;
+  if(same && dev->handshake_done){
+    release(&dev->lock);
+    printf("mt7601u: already associated with %s\n", dev->want_ssid);
+    return 0;
+  }
+  int in_progress = same && dev->target_found;
   release(&dev->lock);
-  mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
-  printf("mt7601u: joining %s\n", dev->want_ssid);
-  uint64 end = r_cntvct_el0() + (uint64)r_cntfrq_el0() * timeout_ms / 1000;
-  while(r_cntvct_el0() < end){
+  if(!in_progress){
+    uint8 pmk[32];
+    wpa_pbkdf2((char*)passphrase, (char*)ssid, pmk);
+    acquire(&dev->lock);
+    memmove(dev->pmk, pmk, sizeof(pmk));
+    memmove(dev->want_ssid, ssid, n);
+    dev->want_ssid[n] = 0;
+    dev->want_ssid_len = n;
+    dev->target_found = 0;
+    dev->handshake_done = 0;
+    dev->link_state = MT_LINK_SCAN;
+    dev->scan_rounds = 0;
+    release(&dev->lock);
+    mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
+    printf("mt7601u: joining %s\n", dev->want_ssid);
+  } else {
+    printf("mt7601u: %s: join already in progress, waiting\n", dev->want_ssid);
+  }
+  uint64 hz = (uint64)r_cntfrq_el0();
+  uint64 end = r_cntvct_el0() + hz * timeout_ms / 1000;
+  int extended = 0;
+  for(;;){
     if(dev->handshake_done)
       return 0;
+    uint64 now = r_cntvct_el0();
+    if(now >= end){
+      // AP found late in the window: give auth/assoc/WPA2 15 s more, once.
+      if(dev->target_found && !extended){
+        extended = 1;
+        end = now + hz * 15;
+        printf("mt7601u: %s found late; waiting 15 s more for the handshake\n",
+               dev->want_ssid);
+        continue;
+      }
+      break;
+    }
     acquire(&tickslock);
     sleep(&ticks, &tickslock);     // let the workqueue and RX run
     release(&tickslock);
   }
-  printf("mt7601u: %s: no handshake within %d ms\n", dev->want_ssid, timeout_ms);
+  printf("mt7601u: %s: no handshake within %d ms (state %d, found %d, channel %d, "
+         "sweeps %d, mgmt frames %d, usb rx %d)\n", dev->want_ssid, timeout_ms,
+         dev->link_state, dev->target_found, dev->scan_channel, dev->scan_rounds,
+         dev->mgmt_frames, dev->rx_urbs);
   return -1;
 }
