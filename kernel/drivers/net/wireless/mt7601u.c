@@ -1391,6 +1391,14 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
        (rxinfo & (MT_RXINFO_CRCERR | MT_RXINFO_ICVERR |
                   MT_RXINFO_MICERR))){
       dev->rx_bad++;
+      static int bad_logged;
+      if(dev->handshake_done && bad_logged < 10){   // bring-up trace
+        bad_logged++;
+        printf("mt7601u: rx drop rxinfo=%x (crc=%d icv=%d mic=%d) mpdu=%d avail=%d fc=%x\n",
+               rxinfo, !!(rxinfo & MT_RXINFO_CRCERR), !!(rxinfo & MT_RXINFO_ICVERR),
+               !!(rxinfo & MT_RXINFO_MICERR), mpdu_len, available,
+               mpdu_len > 1 && mpdu_len <= available ? mt_get16(frame) : 0);
+      }
     } else {
       dev->rx_frames++;
       if(((mt_get16(frame) >> 2) & 3) == 0)
