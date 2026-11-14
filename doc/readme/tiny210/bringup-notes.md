@@ -200,7 +200,72 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
 - MT7601U 在 `ehci-enum` 内核线程里枚举，此时调度器、中断和定时器都已
   运行，FAT32 也已就绪。
 
-## 12. 经验小结
+## 12. 内核启动前的长时间停顿
+
+**现象**：BL1 打印 `starting xv6 at 0x20008000` 之后，要停好几秒内核才有输出。
+
+**原因**：初始化页分配器时，xv6 把 128 MiB 空闲内存每一页都填“垃圾值”
+（`kfree` 里的 `memset(va, 1, PGSIZE)`，用来发现悬空指针）。内核的
+`memset` 是逐字节循环，D-cache 又是关的，相当于对 DRAM 做了约 1.3 亿次
+未缓存的单字节写。
+
+**解决**（e1263cd）：`memset`/`memmove` 改成按对齐的 32 位字操作；
+`freerange()` 在启动时把从未用过的页交给分配器时跳过填充，之后正常
+`kfree` 仍然填充。
+
+## 13. Wi-Fi 扫描永远停在信道 1：延时任务从来不执行
+
+**现象**：扫描列出的 AP 全都是 `channel=1`；`wifi` 打印 `joining TP-Link_B114`
+后 30 秒超时，始终没有 `target ... found`。
+
+**原因**：workqueue 的延时任务（`queue_delayed_work`）靠
+`workqueue_timer_tick()` 推进 `work_jiffies`。树莓派的定时器中断会调用它，
+ARM32 移植时漏掉了，`work_jiffies` 一直是 0。于是 MT7601U 的 `state_work`
+（定时换信道、认证/关联超时重试）和 `wifi_connect` 安排的“立即开始连接”
+都永远不会触发。
+
+为什么系统其他部分完全正常：进程调度、`sleep()`、`uptime` 用的是另一套
+计时（`ticks` 和 `sched_tick()`，在 `arm32_timer_tick()` 里推进）；立即执行的
+`queue_work()`（例如 mt7601u 的收包 NAPI）也不依赖 `work_jiffies`。只有延时
+任务受影响，所以问题很隐蔽。
+
+**解决**（0bd029e）：`arm32_timer_tick()` 每个节拍（10 ms，与树莓派相同）
+调用一次 `workqueue_timer_tick()`。之后扫描覆盖 1–11 信道，在信道 9 找到
+TP-Link_B114，认证、关联成功，有一次 WPA2 四次握手完整完成。
+
+## 14. 超时后清理 QH 把数据 toggle 复位了
+
+**现象**：某个 bulk OUT 超时后重新连接，AP 反复发 M1，驱动反复回 M2
+（replay 计数递增），AP 始终收不到。
+
+**原因**：EHCI 驱动在超时后用 `qh_flush()` 清理 QH，把 overlay 的 token 整个
+清零，数据 toggle 也就回到了 DATA0。但设备端的 toggle 没变，于是之后每个
+包都被设备当成重发包，ACK 之后又悄悄丢弃。主机这边看来全部“发送成功”。
+
+**解决**（f649f28）：清理时只清除 Active/Halted/Ping，保留 DT 位；
+bulk OUT 的超时从 1 秒放宽到 3 秒，给 PING/NAK 中的设备更多时间。
+
+## 15. MT7601U 发送端点一直 NAK（排查中）
+
+**现象**：认证、关联、EAPOL 等前若干帧都能发出去，之后 EP8 的 bulk OUT
+一直不完成。qTD 状态 `0x80`（只有 Active），QH token 带 Ping 位，说明设备对
+PING 一直回 NAK，即设备侧发送缓冲没有腾出来。
+
+**尝试 1：换端点**（da79cff，已撤回）。MT7601U 有 6 个 bulk OUT
+（0x08、0x04、0x05、0x06、0x07、0x09）。参照 Linux mt7601u，0x08 是 MCU 带内命令
+端点，管理队列（QSEL_MGMT）对应第 6 个端点 0x09，于是把 802.11 帧改到 EP9。
+结果 EP9 从第一个认证帧就 NAK，比 EP8 更糟，说明在本驱动当前的初始化
+状态下这个推测不成立。USB core 现在会记录全部 bulk OUT 端点
+（`usb_device.bulk_out_eps[]`），方便后续继续试验。
+
+**尝试 2：读空 TX 状态 FIFO**（5ac8c59，待上板验证）。驱动从未读取
+`TX_STAT_FIFO_EXT`（0x1798）/`TX_STAT_FIFO`（0x1718），而 Linux 每次发送后都会读。
+推测 FIFO 满后 MAC 不再接收新帧，于是端点一直 NAK，与“前几帧正常、之后
+永远 NAK”的现象吻合。现在每发一帧就读空 FIFO，并打印前 8 条状态
+（`acked` / `not acked`）用于确认。
+
+## 16. 经验小结
+
 
 1. 先确认观察手段：串口终端设置、后台进程、LED 默认状态，都可能造成误判。
 2. 早期代码一定要有异常向量和逐步日志，否则所有问题看起来都是“卡死”。
@@ -210,3 +275,10 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
 5. iROM 留下的 CPU 状态（SCTLR.A、V 位、cache）要显式设成自己需要的值。
 6. 主机测试只能验证逻辑（FAT32 解析、CRC、ATAG），验证不了内存类型、
    对齐、时序这些硬件相关的问题。
+7. 从另一个平台移植代码时，要核对它依赖的“周期性调用”（定时器节拍里的
+   `workqueue_timer_tick()` 这类）是否都接上了，缺了往往不会崩溃，只会
+   让某些功能静静地失效。
+8. 出错恢复路径（超时、flush）本身也要正确：错误恢复时丢掉的协议状态
+   （USB 数据 toggle）会让之后所有“成功”的传输变成无声丢包。
+9. 不熟悉的硬件行为（端点用途、状态 FIFO）先对照 Linux 驱动，但改动要能
+   上板验证并且可以撤回，像第 15 节那样记录每一次尝试的结果。
