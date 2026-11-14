@@ -776,6 +776,30 @@ mt_mac_equal(uint8 *a, uint8 *b)
 
 // Submit one raw 802.11 frame through the MT7601U packet-DMA format:
 // TXINFO, TXWI, MPDU, four-byte alignment padding, and a trailing zero word.
+// Read and discard TX status entries (Linux mt7601u_tx_stat: TX_STAT_FIFO_EXT
+// then TX_STAT_FIFO until the valid bit clears). Left unread, the FIFO fills
+// after a handful of frames and the MAC stops taking new ones.
+#define MT_TX_STAT_FIFO     0x1718
+#define MT_TX_STAT_FIFO_EXT 0x1798
+static int tx_stat_logged;
+static void
+mt7601u_tx_stat_drain(struct mt7601u_device *dev)
+{
+  uint32 ext, stat;
+  int n = 0;
+  for(; n < 64; n++){
+    if(mt7601u_read32(dev->udev, MT_TX_STAT_FIFO_EXT, &ext) < 0 ||
+       mt7601u_read32(dev->udev, MT_TX_STAT_FIFO, &stat) < 0 ||
+       !(stat & 1))
+      break;
+    if(tx_stat_logged < 8){
+      tx_stat_logged++;
+      printf("mt7601u: tx status %x ext %x (%s)\n", stat, ext,
+             (stat >> 5) & 1 ? "acked" : "not acked");
+    }
+  }
+}
+
 static int
 mt7601u_tx_raw(struct mt7601u_device *dev, uint8 *frame, int frame_len,
                uint8 wcid, int hardware_iv)
@@ -803,12 +827,14 @@ mt7601u_tx_raw(struct mt7601u_device *dev, uint8 *frame, int frame_len,
   txwi->len_ctl = frame_len;      // MPDU byte count, packet id zero
   memmove(mt_tx_buf + MT_DMA_HDR_LEN + MT_TXWI_SIZE, frame, frame_len);
 
-  // 802.11 frames go to the WLAN DMA path, not the MCU's in-band command
-  // endpoint (OUT #0, 0x08): Linux mt7601u maps the management queue
-  // (QSEL_MGMT, as in this TXINFO) to OUT #5, the HCCA endpoint (0x09).
-  // Filling the command endpoint with frames makes it NAK for good.
-  int ep = dev->udev->n_bulk_out > 5 ? dev->udev->bulk_out_eps[5] : dev->udev->bulk_out_ep;
+  // OUT #0 (0x08), as the RPi version used; OUT #5 (0x09) NAKed from the
+  // first frame on the Tiny210. After each frame the TX status FIFO is
+  // drained (mt7601u_tx_stat_drain): the MAC stops transmitting, and the
+  // endpoint NAKs for good, once that FIFO is full.
+  int ep = dev->udev->bulk_out_ep;
   result = dev->udev->ops->bulk(dev->udev, ep, 0, mt_tx_buf, total);
+  if(result == total)
+    mt7601u_tx_stat_drain(dev);
   if(result != total){
     printf("mt7601u: TX bulk failed result=%d expected=%d mpdu=%d wcid=%d hwiv=%d\n",
            result, total, frame_len, wcid, hardware_iv);
@@ -1737,8 +1763,6 @@ mt7601u_probe(struct usb_device *udev)
            udev->bulk_in_ep, MT_RX_REQUESTS);
   queue_delayed_work(&mt7601u_wq, &mt7601u.state_work,
                      MT_SCAN_DWELL_JIFFIES);
-  printf("mt7601u: 802.11 TX on EP%d, MCU commands on EP%d\n",
-         udev->n_bulk_out > 5 ? udev->bulk_out_eps[5] : udev->bulk_out_ep, udev->bulk_out_ep);
   printf("mt7601u: transport and MCU ready; SoftMAC initialization pending\n");
   return 0;
 }
