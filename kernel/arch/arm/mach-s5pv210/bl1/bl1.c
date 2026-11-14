@@ -271,12 +271,13 @@ static void ddr_test(void) {
 }
 
 /* ---- kernel from the FAT32 partition ------------------------------------
-   The kernel uImage is looked up as XV6.IMG in the root directory of the
+   The kernel uImage is looked up as xv6_tiny210.img (long name, any case)
+   or its 8.3 alias in the root directory of the
    first FAT32 partition (MBR type 0x0b/0x0c, or a partitionless FAT32
    volume). Only sector reads through the iROM routine are needed: MBR, the
    boot sector, root directory clusters, FAT sectors and the file clusters.
    Without such a file BL1 reads the raw image at sector 49 as before. */
-#define FAT_NAME "XV6     IMG"
+#define FAT_NAME "xv6_tiny210.img"
 static copy_sdmmc_fn sd_copy;
 static uint32 sd_ch;
 static int rd_sec(uint32 lba, void *dst, uint32 n) { return sd_copy(sd_ch, lba, (uint16)n, (uint32*)dst, 0) ? 0 : -1; }
@@ -306,12 +307,12 @@ static void load_kernel(struct uimage_info *ui) {
   int m=fat_mount(rd_sec,&part,&spc);
   if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
   if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {
-    uputs("BL1: loading XV6.IMG ("); putdec(size); uputs(" bytes) from FAT32\n");
-    if(size < UIMAGE_HDR || fat_read(first,size,dst) < 0) die("FAT32 read of XV6.IMG failed");
+    uputs("BL1: loading " FAT_NAME " ("); putdec(size); uputs(" bytes) from FAT32\n");
+    if(size < UIMAGE_HDR || fat_read(first,size,dst) < 0) die("FAT32 read of " FAT_NAME " failed");
     check_header(ui);
-    if(UIMAGE_HDR+ui->size > size) die("XV6.IMG shorter than its uImage header says");
+    if(UIMAGE_HDR+ui->size > size) die(FAT_NAME " shorter than its uImage header says");
   } else {
-    uputs("BL1: no XV6.IMG on FAT32, raw image at sector "); putdec(KERNEL_SECTOR); uputc('\n');
+    uputs("BL1: no " FAT_NAME " on FAT32, raw image at sector "); putdec(KERNEL_SECTOR); uputc('\n');
     if(rd_sec(KERNEL_SECTOR,dst,1) < 0) die("SD read of the uImage header failed");
     check_header(ui);
     uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;

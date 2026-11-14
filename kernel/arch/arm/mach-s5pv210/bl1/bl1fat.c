@@ -49,9 +49,40 @@ fat_next(uint32 c)
   return le32(sec + 4*(c & 127)) & 0x0fffffff;
 }
 
-int
-fat_find(const char *name11, uint32 *first, uint32 *size)
+static char lc(char c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+
+/* name as an 8.3 short name ("XV6.IMG" -> "XV6     IMG"); 0 if it is not one. */
+static int
+short_name(const char *name, char out[11])
 {
+  int i = 0, n = 0;
+  for(int k = 0; k < 11; k++) out[k] = ' ';
+  for(; name[i] && name[i] != '.'; i++){
+    if(n == 8) return 0;
+    char c = name[i];
+    out[n++] = c >= 'a' && c <= 'z' ? c - 32 : c;
+  }
+  if(n == 0) return 0;
+  if(name[i] == '.'){
+    i++;
+    for(n = 8; name[i]; i++){
+      if(n == 11 || name[i] == '.') return 0;
+      char c = name[i];
+      out[n++] = c >= 'a' && c <= 'z' ? c - 32 : c;
+    }
+  }
+  return 1;
+}
+
+/* Find `name` in the root directory, by long (VFAT) name, case-insensitive,
+   or by its 8.3 short name; return first cluster and size. */
+int
+fat_find(const char *name, uint32 *first, uint32 *size)
+{
+  char sn[11], lfn[256];
+  int have_sn = short_name(name, sn), lfn_ok = 0, nlen = 0;
+  while(name[nlen]) nlen++;
+  for(int k = 0; k < 256; k++) lfn[k] = 0;
   for(uint32 c = fat.root; c >= 2 && c < 0x0ffffff8; c = fat_next(c))
     for(uint32 s = 0; s < (1U << fat.spc_shift); s++){
       if(rd_sec(cluster_lba(c) + s, sec, 1) < 0)
@@ -60,11 +91,33 @@ fat_find(const char *name11, uint32 *first, uint32 *size)
         const uint8 *d = sec + o;
         if(d[0] == 0)
           return -1;                         /* end of directory */
-        if(d[0] == 0xe5 || (d[11] & 0x0f) == 0x0f || (d[11] & 0x18))
-          continue;                          /* deleted, LFN, volume label, directory */
-        int i = 0;
-        while(i < 11 && d[i] == (uint8)name11[i]) i++;
-        if(i == 11){
+        if(d[0] == 0xe5){ lfn_ok = 0; continue; }
+        if((d[11] & 0x3f) == 0x0f){          /* VFAT long-name slot */
+          int ord = d[0] & 0x1f;
+          if(d[0] & 0x40){ for(int k = 0; k < 256; k++) lfn[k] = 0; lfn_ok = 1; }
+          if(ord == 0 || ord > 19){ lfn_ok = 0; continue; }
+          static const uint8 pos[13] = {1,3,5,7,9,14,16,18,20,22,24,28,30};
+          for(int k = 0; k < 13; k++){
+            uint16 ch = d[pos[k]] | d[pos[k]+1] << 8;
+            int at = (ord - 1)*13 + k;
+            if(at < 255) lfn[at] = ch == 0xffff ? 0 : (ch > 0x7e ? '?' : (char)ch);
+          }
+          continue;
+        }
+        if(d[11] & 0x18){ lfn_ok = 0; continue; }   /* volume label or directory */
+        int match = 0;
+        if(lfn_ok){
+          int k = 0;
+          while(k < nlen && lc(lfn[k]) == lc(name[k])) k++;
+          match = k == nlen && lfn[k] == 0;
+        }
+        if(!match && have_sn){
+          int k = 0;
+          while(k < 11 && d[k] == (uint8)sn[k]) k++;
+          match = k == 11;
+        }
+        lfn_ok = 0;
+        if(match){
           *first = (uint32)le16(d + 20) << 16 | le16(d + 26);
           *size = le32(d + 28);
           return 0;

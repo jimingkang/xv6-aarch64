@@ -68,7 +68,7 @@ IMG = $(BUILD)/xv6-x210
 
 .SECONDARY:
 .PHONY: all clean qemu check sdimg bl1 uarttest fattest
-all: $(IMG).bin $(IMG).uImage $(BUILD)/x210-bl1.bin $(BUILD)/x210-sd.img
+all: $(IMG).bin $(IMG).uImage $(BUILD)/xv6_tiny210.img $(BUILD)/x210-bl1.bin $(BUILD)/x210-sd.img
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
@@ -144,6 +144,9 @@ $(IMG).bin: $(BUILD)/kernel.elf $(P)/mkx210.py
 # Legacy uImage (IH_OS_LINUX, load/entry DRAM+0x8000), read by bl1 or `bootm`.
 $(IMG).uImage: $(IMG).bin $(P)/mkx210.py
 	python3 $(P)/mkx210.py uimage $< $@ $(KERNEL_LOAD)
+# The file BL1 loads from the FAT32 partition (same bytes as the uImage).
+$(BUILD)/xv6_tiny210.img: $(IMG).uImage
+	cp $< $@
 # Our own BL1 (no U-Boot): runs in iRAM, inits clocks/UART/DDR, loads xv6.
 BL1FLAGS = $(BOARD_DEF) $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -ffunction-sections -fdata-sections -I. -I$(MACH) -I$(MACH)/bl1 -Wall -Wextra
 BL1OBJS = $(BUILD)/bl1/start.o $(BUILD)/bl1/bl1.o $(BUILD)/bl1/bl1lib.o $(BUILD)/bl1/bl1fat.o
