@@ -1,6 +1,6 @@
 // "simple-framebuffer": a fixed, already scanned-out (or, under QEMU, just
 // reserved) buffer described entirely by its board resource, 640x480
-// XRGB8888. The X210_QEMU stand-in build uses it so that /dev/fb0, its
+// XRGB8888. The TINY210_QEMU stand-in build uses it so that /dev/fb0, its
 // ioctls and mmap() are exercised by the automatic test.
 #include "kernel/types.h"
 #include "kernel/aarch64.h"

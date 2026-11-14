@@ -1,12 +1,12 @@
 /* S5PV210 (Cortex-A8) boards: FriendlyARM Tiny210, 九鼎 X210.
-   BL1 (ports/x210/bl1) or U-Boot has already initialised DDR, put ATAGs at
+   BL1 (ports/tiny210/bl1) or U-Boot has already initialised DDR, put ATAGs at
    DRAM+0x100 and loaded the kernel at DRAM+0x8000 (0x20008000 on Tiny210,
    0x30008000 on X210). The kernel is linked there and identity mapped;
    ATAG_MEM gives the usable DRAM top. */
-#ifndef X210_QEMU
+#ifndef TINY210_QEMU
 #include "board.h"
 #endif
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
 /* QEMU has no S5PV210 machine. The test build runs on the Cortex-A8
    "cubieboard" model whose DRAM starts at 0x40000000. */
 #define DRAM_BASE 0x40000000UL
@@ -18,9 +18,9 @@
 #define KERNLINK KERNPA
 #define EXTMEM DRAM_BASE
 #ifndef __ASSEMBLER__
-extern unsigned int x210_phystop;
+extern unsigned int tiny210_phystop;
 #endif
-#define PHYSTOP ((uintptr)x210_phystop)
+#define PHYSTOP ((uintptr)tiny210_phystop)
 #define EARLYTOP PHYSTOP
 /* User space is [0, MAXVA). DRAM starts at 0x20000000 or 0x30000000 on
    S5PV210 boards, so the user window must end below it. */
@@ -29,7 +29,7 @@ extern unsigned int x210_phystop;
 #define P2V(a) ((void*)(uintptr)(a))
 /* Unused by the ARM32 kernel-stack allocator (stacks are kalloc pages). */
 #define KSTACK(p) (0xC0000000UL + (p)*8192UL)
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
 #define UART0_PA 0x01C28000UL
 #else
 #define UART0_PA ((unsigned long)BOARD_UART)  /* board console UART */

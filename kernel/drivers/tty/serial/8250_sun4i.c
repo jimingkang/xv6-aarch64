@@ -1,5 +1,5 @@
 // 16550-compatible UART with 32-bit register stride (Allwinner A10 UART0,
-// QEMU "cubieboard"), console UART of the X210_QEMU stand-in build.
+// QEMU "cubieboard"), console UART of the TINY210_QEMU stand-in build.
 #include "kernel/types.h"
 #include "kernel/aarch64.h"
 #include "kernel/param.h"

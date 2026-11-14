@@ -4,7 +4,7 @@
    kernel/drivers/ bind to them by name (platform bus) from do_initcalls().
    s5pv210_map_io() gives every MEM resource a kernel mapping.
 
-   X210_QEMU builds the same port for QEMU's Cortex-A8 "cubieboard",
+   TINY210_QEMU builds the same port for QEMU's Cortex-A8 "cubieboard",
    whose Allwinner A10 peripherals have their own drivers. */
 #include "kernel/types.h"
 #include "kernel/param.h"
@@ -22,7 +22,7 @@
 #define MEM(a, sz, n) { (a), (a)+(sz)-1, IORESOURCE_MEM, n }
 #define IRQ(i, n)     { (i), (i), IORESOURCE_IRQ, n }
 
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
 static struct device board_devices[] = {
   { .name = "sun4i-intc",  .resource = { MEM(0x01C20400, 0x400, "intc") }, .nresource = 1 },
   { .name = "sun4i-timer", .resource = { MEM(0x01C20C00, 0x400, "timer"), IRQ(22, "timer0") }, .nresource = 2 },
@@ -155,7 +155,7 @@ static struct device board_devices[] = {
 /* Called by kvminit() (kernel/arch/arm/vm.c): 1 MiB sections for every MEM
    resource; the frame buffer is Normal memory, the rest device memory. */
 void
-x210_map_devices(pagetable_t p)
+tiny210_map_devices(pagetable_t p)
 {
   for(uint i = 0; i < NDEVICES; i++)
     for(int r = 0; r < board_devices[i].nresource; r++){
@@ -173,7 +173,7 @@ x210_map_devices(pagetable_t p)
 void
 s5pv210_note_boot_device(uint32 irom_sd_base)
 {
-#ifndef X210_QEMU
+#ifndef TINY210_QEMU
   if(irom_sd_base >= 0xEB000000U && irom_sd_base <= 0xEB300000U && !(irom_sd_base & 0xFFFFF))
     sd_channel = (irom_sd_base - 0xEB000000U) >> 20;
   for(uint i = 0; i < NDEVICES; i++)

@@ -32,7 +32,7 @@ kernel/drivers/                      驱动都是 platform_driver，probe 时从
   video/fbdev/s3c-fb.c + fbcon.c     module_init      FIMD + 帧缓冲文本控制台
   block/ramdisk_embed.c              内嵌根文件系统
   irqchip/irq-sun4i.c、clocksource/timer-sun4i.c、tty/serial/8250_sun4i.c   QEMU 替身用
-ports/x210/                          构建脚本：Makefile、mkx210.py、test_shell.py、本说明
+ports/tiny210/                          构建脚本：Makefile、mktiny210.py、test_shell.py、本说明
 ```
 
 启动时串口会打印每个 initcall 和驱动 probe 的结果，例如
@@ -67,14 +67,14 @@ S5PV210 iROM (BL0) ──► xv6 BL1：SD 第 1 扇区，16 KiB，16 字节头 +
 ```
 
 BL1 交接给内核的方式与 U-Boot `bootm` 完全一样（ARM Linux 启动协议），
-所以同一个 `xv6-x210.uImage` 也能用 U-Boot 的 `bootm` 启动。
+所以同一个 `xv6-tiny210.uImage` 也能用 U-Boot 的 `bootm` 启动。
 
 **验证状态：尚未在实板上运行。**
 - QEMU 没有 S5PV210 机型，内核用同为 Cortex-A8 的 `cubieboard` 作替身测试：
   镜像链接在 DRAM+0x8000，QEMU 以 bootm 方式交接（ATAG 在 DRAM+0x100），
   完整 shell 测试通过。
 - BL1 中与硬件无关的部分（CRC-32、uImage 头检查、ATAG 生成）在主机上编译，
-  用两块板各自的 `xv6-x210.uImage` 和内核自己的 ATAG 解析器对照测试。
+  用两块板各自的 `xv6-tiny210.uImage` 和内核自己的 ATAG 解析器对照测试。
 - BL1 的时钟、DDR 时序、UART 寄存器值取自 Samsung S5PV210 U-Boot 的
   `lowlevel_init.S`/`cpu_init.S`（FriendlyARM 和九鼎的 BSP U-Boot 都基于它）；
   Tiny210 的 DDR 容量/行数按 512 MiB、14 位行地址配置，iROM 函数地址依据
@@ -84,25 +84,25 @@ BL1 交接给内核的方式与 U-Boot `bootm` 完全一样（ARM Linux 启动�
 ## 构建
 
 ```sh
-make x210                                   # Tiny210：build/x210/
-make -f ports/x210/Makefile S5PV210_BOARD=x210   # 九鼎 X210
-make x210-check     # 自检 + BL1 主机测试（两块板）+ QEMU cubieboard 测试
-make x210-qemu      # QEMU 交互运行内核
-make x210-clean
+make tiny210                                   # Tiny210：build/tiny210/
+make -f ports/tiny210/Makefile S5PV210_BOARD=x210   # 九鼎 X210
+make tiny210-check     # 自检 + BL1 主机测试（两块板）+ QEMU cubieboard 测试
+make tiny210-qemu      # QEMU 交互运行内核
+make tiny210-clean
 ```
 
-产物（`build/x210/`）：
+产物（`build/tiny210/`）：
 
 | 文件 | 用途 |
 | --- | --- |
-| `x210-sd.img` | 整卡原始镜像：BL1@1、xv6@49，第 0 扇区（MBR）留空 |
-| `x210-bl1.bin` | 16 KiB BL1（含 iROM 头），写到第 1 扇区 |
-| `xv6-x210.uImage` | xv6 内核 + 4 MiB 根文件系统，legacy uImage，写到第 49 扇区 |
-| `xv6-x210.bin` | 同一内核的裸镜像（带 zImage 头），给 U-Boot `bootz` 调试用 |
+| `tiny210-sd.img` | 整卡原始镜像：BL1@1、xv6@49，第 0 扇区（MBR）留空 |
+| `tiny210-bl1.bin` | 16 KiB BL1（含 iROM 头），写到第 1 扇区 |
+| `xv6-tiny210.uImage` | xv6 内核 + 4 MiB 根文件系统，legacy uImage，写到第 49 扇区 |
+| `xv6-tiny210.bin` | 同一内核的裸镜像（带 zImage 头），给 U-Boot `bootz` 调试用 |
 | `bl1/bl1.elf`、`bl1/bl1.map`、`kernel.elf`、`kernel.map` | 调试用 |
 
-换板子编译前先 `make x210-clean`（或用不同的 `BUILD=` 目录），
-否则旧的目标文件会混在一起。**不要把 `build/x210-qemu/` 的镜像写到卡上**。
+换板子编译前先 `make tiny210-clean`（或用不同的 `BUILD=` 目录），
+否则旧的目标文件会混在一起。**不要把 `build/tiny210-qemu/` 的镜像写到卡上**。
 
 ## SD 卡布局
 
@@ -123,7 +123,7 @@ make x210-clean
 原始区里原有的 BL1/U-Boot（例如 FriendlyARM superboot）会被覆盖。
 
 ```sh
-make x210
+make tiny210
 ```
 
 ```sh
@@ -131,7 +131,7 @@ diskutil unmountDisk /dev/disk4
 ```
 
 ```sh
-sudo dd if=build/x210/x210-sd.img of=/dev/rdisk4 bs=512 skip=1 seek=1
+sudo dd if=build/tiny210/tiny210-sd.img of=/dev/rdisk4 bs=512 skip=1 seek=1
 ```
 
 ```sh
@@ -142,8 +142,8 @@ diskutil eject /dev/disk4
 `skip=1 seek=1` 跳过第 0 扇区，分区表保持不变。也可以分两次写：
 
 ```sh
-sudo dd if=build/x210/x210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
-sudo dd if=build/x210/xv6-x210.uImage of=/dev/rdisk4 bs=512 seek=49
+sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
+sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 ```
 
 之后只改了内核时，只需重写第 49 扇区那一条。
@@ -187,7 +187,7 @@ macOS 上推荐直接用 `screen /dev/cu.usbserial-XXXX 115200`。用 minicom �
 约 7 个固定样式的乱码字符（例如 `` `J&?C?? ``）。也不要让多个 minicom/screen
 同时打开同一个串口，否则数据会被分抢，同样显示为乱码。
 
-`make -f ports/x210/Makefile uarttest` 生成 `x210-uarttest.bin`（只有 BL1，
+`make -f ports/tiny210/Makefile uarttest` 生成 `tiny210-uarttest.bin`（只有 BL1，
 写到第 1 扇区）：它按 Tiny210 U-Boot 的时钟和 UART 参数，每半秒输出一行
 `xv6 UART test ... line N`，LED 轮流亮，用来单独检查串口链路。
 
@@ -200,13 +200,13 @@ macOS 上推荐直接用 `screen /dev/cu.usbserial-XXXX 115200`。用 minicom �
 的全部输出（包括 shell）同时显示在屏上，8x16 字体，800x480 时为 100x30 字符。
 键盘输入仍然走串口。
 
-面板型号在编译时选择，换型号前先 `make x210-clean`：
+面板型号在编译时选择，换型号前先 `make tiny210-clean`：
 
 ```sh
-make -f ports/x210/Makefile S5PV210_LCD=s70   # 7" 800x480（默认）
-make -f ports/x210/Makefile S5PV210_LCD=h43   # 4.3" 480x272
-make -f ports/x210/Makefile S5PV210_LCD=w50   # 5" 800x480
-make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
+make -f ports/tiny210/Makefile S5PV210_LCD=s70   # 7" 800x480（默认）
+make -f ports/tiny210/Makefile S5PV210_LCD=h43   # 4.3" 480x272
+make -f ports/tiny210/Makefile S5PV210_LCD=w50   # 5" 800x480
+make -f ports/tiny210/Makefile S5PV210_LCD=a70   # 7" 800x480
 ```
 
 时序取自 FriendlyARM mini210/tiny210 BSP 的面板表（凭记录整理，未在实板
@@ -235,7 +235,7 @@ make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
 - 只要有进程打开着 /dev/fb0，文本控制台（fbcon）就暂停绘制，最后一个关闭时清屏恢复。
 
 实板上由 s3c-fb 注册（`s3c-fb`），QEMU 替身由 `simplefb` 注册一块普通内存，
-因此 `make x210-check` 会自动运行 `fbtest`：取得屏幕信息、mmap、画彩条和渐变并回读
+因此 `make tiny210-check` 会自动运行 `fbtest`：取得屏幕信息、mmap、画彩条和渐变并回读
 校验、fork 后子进程写入父进程能看到、munmap 后再访问会触发缺页并被终止。
 
 在板子上看效果：`fbtest 10`（画完保留 10 秒再退出，屏幕随后回到文本控制台）。
@@ -255,7 +255,7 @@ make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
 - 网络栈 `kernel/net.c`、`workqueue.c`、`epoll.c` 已编进 Tiny210 内核；
   wifi_connect/dhcp/ping 等系统调用和用户程序属于阶段 2，尚未接入。
 - OTG 口（DWC2 主机模式，`kernel/drivers/usb/dwc2/hcd.c`）也已移植，
-  `make -f ports/x210/Makefile S5PV210_USB_OTG=1` 启用。
+  `make -f ports/tiny210/Makefile S5PV210_USB_OTG=1` 启用。
 - 时钟源改为 PWM 定时器 3 自由计数（PCLK/16，32 位），关中断忙等时 udelay 也准确；
   定时器 4 仍是 100 Hz 节拍。
 
@@ -289,7 +289,7 @@ mt7601u → request_firmware("mt7601u.bin")：先读 FAT32 根目录，再用内
 ```
 
 - BL1 的 FAT32 读取在 `bl1/bl1fat.c`（只读根目录、支持 VFAT 长文件名和 8.3 名、512 字节扇区），
-  主机测试：`make -f ports/x210/Makefile fattest CARD=raw.img`。
+  主机测试：`make -f ports/tiny210/Makefile fattest CARD=raw.img`。
 - SD 驱动 `kernel/drivers/mmc/host/sdhci-s3c.c`：PIO、轮询、4 位、24 MHz，
   SCLK_MMC 取 24 MHz 晶振；通道号由 iROM 变量 0xD0037488 得出。
 - FAT32/FS.IMG/raw 分区逻辑沿用 `kernel/fat32.c`，挂载用 `kernel/vfs.c`。
@@ -297,12 +297,12 @@ mt7601u → request_firmware("mt7601u.bin")：先读 FAT32 根目录，再用内
 在 Mac 上准备卡（FAT32 分区挂在 `/Volumes/卷名`）：
 
 ```sh
-make x210
-cp build/x210/xv6_tiny210.img /Volumes/卷名/xv6_tiny210.img
-cp build/x210/fs.img          /Volumes/卷名/FS.IMG
+make tiny210
+cp build/tiny210/xv6_tiny210.img /Volumes/卷名/xv6_tiny210.img
+cp build/tiny210/fs.img          /Volumes/卷名/FS.IMG
 cp firmware/mt7601u.bin       /Volumes/卷名/mt7601u.bin
 diskutil unmountDisk /dev/diskN
-sudo dd if=build/x210/x210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需在 BL1 变化时
+sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需在 BL1 变化时
 ```
 
 以后只改内核时，只需替换 FAT32 分区里的 xv6_tiny210.img。
@@ -319,7 +319,7 @@ S5PV210 iROM 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字�
 | 0x8 | 校验和：第 16..16383 字节逐字节相加 |
 | 0xC | 保留 0 |
 
-`mkx210.py check-bl1` 也接受九鼎 BSP `mkx210` 的格式（大小字段为 `"S5PC"`）。
+`mktiny210.py check-bl1` 也接受九鼎 BSP `mkx210` 的格式（大小字段为 `"S5PC"`）。
 芯片没有烧写安全启动熔丝，iROM 只校验和、不验签。BL1 代码约 3.7 KiB，
 链接脚本保证它不超过 16 KiB−16 字节。
 
@@ -355,7 +355,7 @@ MMU 状态，出错时直接从控制台 UART 打印原因后停住。
 
 | 现象 | 可能原因 |
 | --- | --- |
-| 串口完全没输出 | 启动开关没拨到 SD、串口接错口、第 1 扇区没写对（用 `mkx210.py check-bl1` 检查） |
+| 串口完全没输出 | 启动开关没拨到 SD、串口接错口、第 1 扇区没写对（用 `mktiny210.py check-bl1` 检查） |
 | `DMC0 DLL did not lock` 或 `DDR mismatch` | DDR 参数与板上颗粒不符，把串口日志发回来 |
 | `aliases the lower half` 警告 | 颗粒行地址比配置少一位，已自动只用一半，不影响 xv6 |
 | `not booted from SD/MMC` | iROM 不是从 SD 启动的 |

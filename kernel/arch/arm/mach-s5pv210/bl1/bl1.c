@@ -71,7 +71,7 @@
 #define IROM_COPY_SDMMC 0xD0037F98U   /* CopySDMMCtoMem pointer */
 typedef uint32 (*copy_sdmmc_fn)(uint32 ch, uint32 start, uint16 count, uint32 *dst, uint32 init);
 
-/* Layout shared with mkx210.py. */
+/* Layout shared with mktiny210.py. */
 #define DRAM_BASE ((uint32)BOARD_DRAM_BASE)
 #define KERNEL_SECTOR 49U
 #define KERNEL_RUN (DRAM_BASE+0x8000)

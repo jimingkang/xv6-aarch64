@@ -1,7 +1,7 @@
 // request_firmware(): look for the blob on the SD card's FAT32 partition
 // first (the volume init mounts at /boot; a file at its root, e.g.
 // /boot/mt7601u.bin), then fall back to the copy linked into the kernel
-// (fw_<name>_start/end, see ports/x210/Makefile FIRMWARE).
+// (fw_<name>_start/end, see ports/tiny210/Makefile FIRMWARE).
 #include "kernel/types.h"
 #include "kernel/aarch64.h"
 #include "kernel/param.h"

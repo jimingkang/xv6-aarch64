@@ -14,7 +14,7 @@ S5PV210 iROM (BL0) SD boot: read 16 KiB from sector 1 into iRAM at
 0xD0020000, verify the 16-byte header, run from 0xD0020010.
   0x0 BL1 size (16384)   0x4 reserved (0)
   0x8 checksum = sum of bytes 16..16383    0xC reserved (0)
-ports/x210/bl1 is that BL1: it sets up clocks, the console UART and DDR, then copies
+ports/tiny210/bl1 is that BL1: it sets up clocks, the console UART and DDR, then copies
 the xv6 uImage from sector 49 (where the BSP keeps BL2/U-Boot) to
 DRAM+0x7FC0 with the iROM's CopySDMMCtoMem and jumps to DRAM+0x8000.
 """
@@ -136,7 +136,7 @@ def selftest():
     assert magic == 0x27051956 and size == len(kernel) and load == ep == 0x30008000
     assert dcrc == zlib.crc32(kernel)
     assert hcrc == zlib.crc32(u[:4] + b"\0\0\0\0" + u[8:64])
-    print("mkx210 selftest: BL1 header/checksum, mkx210 compatibility, SD layout BL1@1 / xv6@49, uImage OK")
+    print("mktiny210 selftest: BL1 header/checksum, mkx210 compatibility, SD layout BL1@1 / xv6@49, uImage OK")
 
 
 if __name__ == "__main__":

@@ -77,7 +77,7 @@ reset:
   mov r0, r8
   mov r1, r9
   mov r2, r10
-  bl x210_main
+  bl tiny210_main
 parked:
   wfi
   b parked
@@ -88,7 +88,7 @@ early_die:
 2: ldrb r2, [r0], #1
   cmp r2, #0
   beq parked
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
 3: ldr r3, [r1, #0x14]    @ 16550 LSR.THRE
   tst r3, #0x20
   beq 3b

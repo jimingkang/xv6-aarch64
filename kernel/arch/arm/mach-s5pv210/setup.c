@@ -8,7 +8,7 @@
    timer, UART, FIMD) bind to those devices and bring the hardware up.
    Inherits from BL1/U-Boot: clocks, DDR2, console UART pinmux, 115200 8N1.
 
-   X210_QEMU builds the same kernel for QEMU's Cortex-A8 "cubieboard"
+   TINY210_QEMU builds the same kernel for QEMU's Cortex-A8 "cubieboard"
    (Allwinner A10 peripherals, sun4i drivers), the only Cortex-A8 machine
    QEMU has. */
 #include "kernel/types.h"
@@ -30,7 +30,7 @@ _Static_assert(__builtin_offsetof(struct trapframe,x30)==240, "ARM user LR slot"
 _Static_assert(__builtin_offsetof(struct trapframe,elr)==248, "ARM PC slot");
 _Static_assert(__builtin_offsetof(struct context,x30)==104, "ARM context LR slot");
 _Static_assert(DRAM_BASE>=MAXVA, "DRAM must lie above the user window");
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
 #define BOARD "QEMU cubieboard (Cortex-A8 stand-in for S5PV210)"
 #else
 #define BOARD BOARD_NAME
@@ -42,7 +42,7 @@ _Static_assert(DRAM_BASE>=MAXVA, "DRAM must lie above the user window");
 _Static_assert(S5PV210_FB_OFFSET>=USE_DRAM, "LCD frame buffer overlaps the page allocator");
 
 extern char end[];
-uint x210_phystop = DRAM_BASE + USE_DRAM;
+uint tiny210_phystop = DRAM_BASE + USE_DRAM;
 static struct bootparams bootp;
 static struct fdt_info bootfdt;
 
@@ -68,7 +68,7 @@ static void read_bootparams(uint r2) {
 }
 
 static void boot_info(uint r0, uint machid, uint r2) {
-#ifdef X210_QEMU
+#ifdef TINY210_QEMU
   printf("boot: r0=%x machid=%d r2=%x\n",r0,machid,r2);
 #else
   printf("boot: r0=%x machid=%d%s r2=%x\n",r0,machid,
@@ -87,24 +87,24 @@ static void boot_info(uint r0, uint machid, uint r2) {
   if(bootp.initrd_size) printf("atags: initrd %x + %d bytes (ignored)\n",bootp.initrd_base,bootp.initrd_size);
 }
 
-void x210_main(uint r0, uint machid, uint r2) {
+void tiny210_main(uint r0, uint machid, uint r2) {
   /* The console UART works from the first instruction (serial driver's
      early base = the boot loader's console). */
   uartinit();
   uartputc_sync('\r'); uartputc_sync('\n');
-#ifndef X210_QEMU
+#ifndef TINY210_QEMU
   /* MMU still off: iRAM is reachable; remember which SD channel booted. */
   s5pv210_note_boot_device(*(volatile uint32*)0xD0037488U);
 #endif
   /* Read the boot parameters before kinit hands their pages out
      (they sit below the kernel and are never freed, but bounds come first). */
   read_bootparams(r2);
-  x210_phystop=DRAM_BASE+USE_DRAM;
+  tiny210_phystop=DRAM_BASE+USE_DRAM;
   for(int i=0;i<bootp.nmem;i++) {
     uint64 base=bootp.mem_base[i], top=base+bootp.mem_size[i];
-    if(base<=DRAM_BASE && top>DRAM_BASE && top<x210_phystop) x210_phystop=(uint)top;
+    if(base<=DRAM_BASE && top>DRAM_BASE && top<tiny210_phystop) tiny210_phystop=(uint)top;
   }
-  if((uintptr)end>=x210_phystop) x210_phystop=PGROUNDUP((uintptr)end)+(16U<<20);
+  if((uintptr)end>=tiny210_phystop) tiny210_phystop=PGROUNDUP((uintptr)end)+(16U<<20);
   /* Turn the MMU on before the allocator runs, so LDREX/STREX in the
      spinlocks see Normal memory rather than MMU-off Strongly-ordered. */
   kvminit(); kvminithart();
@@ -119,7 +119,7 @@ void x210_main(uint r0, uint machid, uint r2) {
   device_init(); consoleinit(); ttyinit(); printfinit();
   printf("\nxv6 ARM32 / %s\n",BOARD);
   boot_info(r0,machid,r2);
-  printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,x210_phystop);
+  printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,tiny210_phystop);
   printf("single CPU, ARMv7 MMU, embedded RAM disk\n");
   arm32_time_init();
   procinit();              /* before the drivers: some start kernel threads */

@@ -8,7 +8,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build/x210-qemu"
+BUILD = ROOT / "build/tiny210-qemu"
 qemu = os.environ.get("QEMU_ARM") or shutil.which("qemu-system-arm")
 if not qemu:
     fallback = Path("/opt/homebrew/opt/qemu/bin/qemu-system-arm")
@@ -16,7 +16,7 @@ if not qemu:
         qemu = str(fallback)
 if not qemu:
     raise SystemExit("qemu-system-arm is required (or set QEMU_ARM)")
-subprocess.run(["make", "-f", "ports/x210/Makefile", "BUILD=build/x210-qemu",
+subprocess.run(["make", "-f", "ports/tiny210/Makefile", "BUILD=build/tiny210-qemu",
                 "QEMU_TEST=1", "all"], cwd=ROOT, check=True,
                stdout=subprocess.DEVNULL)
 # QEMU has no S5PV210 machine. cubieboard is a Cortex-A8 board; the legacy
@@ -25,7 +25,7 @@ subprocess.run(["make", "-f", "ports/x210/Makefile", "BUILD=build/x210-qemu",
 # r2=ATAG list at DRAM+0x100 (ATAG_CORE, ATAG_MEM, ATAG_CMDLINE).
 proc = subprocess.Popen([qemu, "-M", "cubieboard", "-m", "512M",
                          "-nographic", "-monitor", "none",
-                         "-kernel", f"{BUILD}/xv6-x210.uImage",
+                         "-kernel", f"{BUILD}/xv6-tiny210.uImage",
                          "-append", "console=ttySAC0,115200 xv6test"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 log = bytearray()

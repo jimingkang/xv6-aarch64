@@ -1,5 +1,5 @@
-/* Hardware-independent parts of the X210 BL1 (also built on the host
-   by `mkx210 hosttest`): CRC-32, uImage header check, ATAG list. */
+/* Hardware-independent parts of the S5PV210 BL1 (also built on the host
+   by the BL1 host test): CRC-32, uImage header check, ATAG list. */
 #define UIMAGE_MAGIC 0x27051956U
 #define UIMAGE_HDR 64
 struct uimage_info { uint32 size, load, entry, dcrc; char name[33]; };

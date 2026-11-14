@@ -1,5 +1,5 @@
 // Allwinner A10 interrupt controller (QEMU "cubieboard"), IRQs 0..95.
-// Used by the X210_QEMU stand-in build of the S5PV210 port.
+// Used by the TINY210_QEMU stand-in build of the S5PV210 port.
 #include "kernel/types.h"
 #include "kernel/aarch64.h"
 #include "kernel/param.h"

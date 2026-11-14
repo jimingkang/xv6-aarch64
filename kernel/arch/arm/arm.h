@@ -10,7 +10,7 @@ static inline void dsb(void) { asm volatile("dsb sy" ::: "memory"); }
 static inline void flush_tlb(void) {
   uint z=0; dsb(); asm volatile("mcr p15, 0, %0, c8, c7, 0"::"r"(z):"memory"); dsb(); isb();
 }
-#if defined(XV6_AM335X) || defined(XV6_X210)
+#if defined(XV6_AM335X) || defined(XV6_TINY210)
 /* Cortex-A8 has no Generic Timer; the platform supplies a counter. */
 uint64 arm32_counter(void);
 uint arm32_counter_hz(void);

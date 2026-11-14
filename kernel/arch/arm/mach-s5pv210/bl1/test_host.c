@@ -1,5 +1,5 @@
 /* Host test of the BL1 logic that does not touch hardware:
-   CRC-32, uImage header check against the real xv6-x210.uImage, and the
+   CRC-32, uImage header check against the real xv6-tiny210.uImage, and the
    ATAG list BL1 builds, read back with the kernel's own parser. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +12,7 @@
 
 int main(int argc, char **argv) {
   CHECK(crc32(0, (const uchar*)"123456789", 9) == 0xCBF43926U);
-  if(argc != 2) { fprintf(stderr, "usage: %s xv6-x210.uImage\n", argv[0]); return 2; }
+  if(argc != 2) { fprintf(stderr, "usage: %s xv6-tiny210.uImage\n", argv[0]); return 2; }
   FILE *f = fopen(argv[1], "rb"); CHECK(f);
   static uchar img[32 << 20];
   size_t n = fread(img, 1, sizeof(img), f); fclose(f);

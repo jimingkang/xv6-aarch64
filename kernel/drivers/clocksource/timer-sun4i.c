@@ -1,5 +1,5 @@
 // Allwinner A10 timer 0 (QEMU "cubieboard") from the 24 MHz oscillator,
-// as tick and counter for the X210_QEMU stand-in build.
+// as tick and counter for the TINY210_QEMU stand-in build.
 #include "kernel/types.h"
 #include "kernel/aarch64.h"
 #include "kernel/param.h"
