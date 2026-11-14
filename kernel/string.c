@@ -3,11 +3,17 @@
 void*
 memset(void *dst, int c, uint n)
 {
-  char *cdst = (char *) dst;
-  int i;
-  for(i = 0; i < n; i++){
-    cdst[i] = c;
-  }
+  // Word stores for the bulk: with the D-cache off every store goes to
+  // DRAM, and byte-wise clearing of whole pages dominated boot time.
+  uchar *d = (uchar *) dst;
+  uchar b = c;
+  while(n && ((uintptr)d & 3)){ *d++ = b; n--; }
+  uint32 w = b | (uint32)b << 8 | (uint32)b << 16 | (uint32)b << 24;
+  uint32 *wd = (uint32 *) d;
+  for(; n >= 16; n -= 16, wd += 4){ wd[0] = w; wd[1] = w; wd[2] = w; wd[3] = w; }
+  for(; n >= 4; n -= 4) *wd++ = w;
+  d = (uchar *) wd;
+  while(n--) *d++ = b;
   return dst;
 }
 
@@ -35,17 +41,28 @@ memmove(void *dst, const void *src, uint n)
 
   if(n == 0)
     return dst;
-  
+
   s = src;
   d = dst;
   if(s < d && s + n > d){
     s += n;
     d += n;
+    if((((uintptr)s | (uintptr)d) & 3) == 0){
+      for(; n >= 4; n -= 4){ d -= 4; s -= 4; *(uint32*)d = *(const uint32*)s; }
+    }
     while(n-- > 0)
       *--d = *--s;
-  } else
+  } else {
+    if((((uintptr)s | (uintptr)d) & 3) == 0){
+      for(; n >= 16; n -= 16, d += 16, s += 16){
+        ((uint32*)d)[0] = ((const uint32*)s)[0]; ((uint32*)d)[1] = ((const uint32*)s)[1];
+        ((uint32*)d)[2] = ((const uint32*)s)[2]; ((uint32*)d)[3] = ((const uint32*)s)[3];
+      }
+      for(; n >= 4; n -= 4, d += 4, s += 4) *(uint32*)d = *(const uint32*)s;
+    }
     while(n-- > 0)
       *d++ = *s++;
+  }
 
   return dst;
 }

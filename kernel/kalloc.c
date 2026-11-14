@@ -24,6 +24,10 @@ struct {
   struct run *freelist;
 } kmem;
 
+// Junk-filling pages catches use-after-free; it is skipped while the boot
+// code hands the initial (never used) memory to the allocator.
+static int kfree_nofill;
+
 void
 kinit1(void *vstart, void *vend)
 {
@@ -44,6 +48,7 @@ freerange(void *vstart, void *vend)
   char *p;
   p = (char*)PGROUNDUP((uint64)vstart);
   int first = 1;
+  kfree_nofill = 1;
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE){
     if(first)
       boot_uart_mark('b');
@@ -53,6 +58,7 @@ freerange(void *vstart, void *vend)
       first = 0;
     }
   }
+  kfree_nofill = 0;
 }
 
 // Free the page of physical memory pointed at by v,
@@ -70,7 +76,8 @@ kfree(void *va)
   // Fill with junk to catch dangling refs.
   if(kmem.freelist == 0)
     boot_uart_mark('d');
-  memset(va, 1, PGSIZE);
+  if(!kfree_nofill)
+    memset(va, 1, PGSIZE);
   if(kmem.freelist == 0)
     boot_uart_mark('e');
 
