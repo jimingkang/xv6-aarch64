@@ -3,7 +3,7 @@
 
 #define DEVICE_NAME_MAX 32
 #define DEVICE_RES_MAX   4
-#define DEVICE_MAX      16
+#define DEVICE_MAX      32
 
 enum resource_type {
   IORESOURCE_MEM = 1,

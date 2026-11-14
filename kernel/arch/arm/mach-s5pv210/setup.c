@@ -110,9 +110,11 @@ void x210_main(uint r0, uint machid, uint r2) {
   printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,x210_phystop);
   printf("single CPU, ARMv7 MMU, embedded RAM disk\n");
   arm32_time_init();
+  procinit();              /* before the drivers: some start kernel threads */
+  workqueue_init();
+  netinit();
   s5pv210_register_devices();
   do_initcalls();          /* drivers probe; interrupts stay off until scheduler() */
-  procinit();
   binit(); iinit(); fileinit(); userinit();
   scheduler();
 }
@@ -144,4 +146,3 @@ void t113_fault(uint kind,uint lr,uint psr) {
   panic("ARM fault");
 }
 void send_resched_ipi(int cpu) { (void)cpu; }
-void net_udp_closeproc(int pid) { (void)pid; }

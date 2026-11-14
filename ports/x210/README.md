@@ -240,6 +240,39 @@ make -f ports/x210/Makefile S5PV210_LCD=a70   # 7" 800x480
 
 在板子上看效果：`fbtest 10`（画完保留 10 秒再退出，屏幕随后回到文本控制台）。
 
+## USB 与 MT7601U 无线网卡（阶段 1：枚举 + 固件加载）
+
+- `kernel/drivers/usb/host/ehci-hcd.c`：S5PV210 USB Host（底板 USB-A 口，EHCI
+  0xEC200000，IRQ 55）。异步调度环上每个端点一个 QH，qTD 用 dummy-qTD 方式追加；
+  提供 `usb_host_ops`（control/bulk/bulk_rx_arm/bulk_rx_complete），支持高速 hub，
+  hub 后的全速/低速设备走 split；根口上的全速/低速设备交给 OHCI（尚未驱动）。
+  枚举在 `ehci-enum` 内核线程里进行（需要中断和定时器已运行）。
+- Host PHY1 上电在 `mach-s5pv210/devices.c` 的 `host_phy_init()`（按 Linux
+  phy-s5pv210-usb2.c）。
+- `kernel/drivers/usb/core/usb.c`：USB 总线、URB；`kernel/drivers/net/wireless/mt7601u.c`
+  + `wpa_crypto.c`：从树莓派分支移植，固件改用 `request_firmware("mt7601u.bin")`，
+  固件 `firmware/mt7601u.bin` 链接进内核（`kernel/drivers/base/firmware.c`）。
+- 网络栈 `kernel/net.c`、`workqueue.c`、`epoll.c` 已编进 Tiny210 内核；
+  wifi_connect/dhcp/ping 等系统调用和用户程序属于阶段 2，尚未接入。
+- OTG 口（DWC2 主机模式，`kernel/drivers/usb/dwc2/hcd.c`）也已移植，
+  `make -f ports/x210/Makefile S5PV210_USB_OTG=1` 启用。
+- 时钟源改为 PWM 定时器 3 自由计数（PCLK/16，32 位），关中断忙等时 udelay 也准确；
+  定时器 4 仍是 100 Hz 节拍。
+
+QEMU 的 cubieboard 没有 USB 主机模型，这部分只能在实板上验证。预期串口输出：
+
+```text
+initcall: ehci-s5p (level 6)
+ehci: s5p-ehci at ec200000, enumeration deferred to ehci-enum
+ehci: 1 port(s), running, async schedule on
+ehci: port 0: high-speed device connected
+ehci: high-speed device 148f:7601 class 0 at address 1 (hub 0 port 0)
+mt7601u: firmware v... validated
+mt7601u: transport and MCU ready; ...
+```
+
+（若底板 USB-A 口经过 hub，会先出现 `ehci: hub 1: N ports`。）
+
 ## BL1 格式
 
 S5PV210 iROM 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字节头后

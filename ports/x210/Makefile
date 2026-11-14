@@ -37,10 +37,10 @@ PLAT_FLAGS = -DX210_QEMU
 else
 KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(X210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
-PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX)
+PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
-FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
-CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty
+FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_X210 -DXV6_HAVE_NET -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
@@ -48,7 +48,9 @@ DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/
   video/fbdev/fbmem video/fbdev/simplefb
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
-  tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed
+  tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed \
+  usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
+FIRMWARE = mt7601u
 endif
 # LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
 S5PV210_LCD ?= s70
@@ -57,7 +59,8 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
-  $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o
+  $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o \
+  $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
 COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
@@ -108,6 +111,12 @@ $(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS)
 	$(BUILD)/mkfs $@ $(UPROGS)
 $(BUILD)/ramdisk.S: $(BUILD)/fs.img
 	@printf '.section .ramdisk,"aw"\n.global ramdisk_start,ramdisk_end\nramdisk_start:\n.incbin "$(BUILD)/fs.img"\nramdisk_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
+# Firmware blobs for request_firmware() (kernel/drivers/base/firmware.c).
+$(BUILD)/firmware/%.S: firmware/%.bin
+	@mkdir -p $(@D)
+	@printf '.section .rodata\n.balign 4\n.global fw_$*_start,fw_$*_end\nfw_$*_start:\n.incbin "firmware/$*.bin"\nfw_$*_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
+$(BUILD)/firmware/%.o: $(BUILD)/firmware/%.S
+	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/ramdisk.o: $(BUILD)/ramdisk.S
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/initcode.o: $(S)/initcode.S

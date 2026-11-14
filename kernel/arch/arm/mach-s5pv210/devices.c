@@ -14,6 +14,8 @@
 #include "kernel/defs.h"
 #include "kernel/device.h"
 #include "kernel/drivers/video/fbdev/s3c-fb.h"
+#include "kernel/drivers/usb/dwc2/dwc2.h"
+#include "kernel/drivers/usb/host/ehci.h"
 #include "devices.h"
 
 #define MEM(a, sz, n) { (a), (a)+(sz)-1, IORESOURCE_MEM, n }
@@ -60,6 +62,44 @@ fb_setup_gpio(void)
 }
 static struct s3c_fb_platdata fb_pdata = { &panels[S5PV210_LCD_INDEX], fb_setup_gpio };
 
+/* USB OTG PHY (Linux arch/arm/mach-s5pv210/setup-usb-phy.c): enable PHY0
+   in USB_PHY_CONTROL, 24 MHz reference from XusbXTI, PHY out of power
+   down, then pulse PHY/link reset. Runs in the usb-enum thread. */
+#define OTG_PHY 0xEC100000U
+static void spin_us(uint us) { for(volatile uint i = 0; i < us*100; i++) ; }
+static void
+otg_phy_init(void)
+{
+  REG(0xE0100464) |= 1U << 16;                                /* CLK_GATE_IP1: USBOTG */
+  REG(0xE010E80C) |= 1;                                       /* USB_PHY_CONTROL: PHY0 */
+  REG(OTG_PHY + 0x04) = (REG(OTG_PHY + 0x04) & ~3U) | 3 | (1U << 4);  /* PHYCLK: 24 MHz, CLK_FORCE */
+  REG(OTG_PHY + 0x00) &= ~0x19U;                              /* PHYPWR: normal */
+  spin_us(1000);
+  REG(OTG_PHY + 0x08) = 7;                                    /* RSTCON: PHY, HCLK, PHYCLK */
+  spin_us(20);
+  REG(OTG_PHY + 0x08) = 0;
+  spin_us(1000);
+}
+static struct dwc2_platdata otg_pdata __attribute__((unused)) = { otg_phy_init };
+
+/* USB host PHY (PHY1, Linux drivers/phy/samsung/phy-s5pv210-usb2.c): host
+   isolation off in USB_PHY_CONTROL bit 1, 24 MHz reference, PHY1 out of
+   suspend/power-down (UPHYPWR bits 6, 7), reset PHY1 and the host link
+   (URSTCON bits 3, 4). Feeds the EHCI/OHCI pair behind the USB-A sockets. */
+static void
+host_phy_init(void)
+{
+  REG(0xE0100464) |= 1U << 17;                                /* CLK_GATE_IP1: USBHOST */
+  REG(0xE010E80C) |= 1U << 1;                                 /* USB_PHY_CONTROL: PHY1 */
+  REG(OTG_PHY + 0x04) = (REG(OTG_PHY + 0x04) & ~3U) | 3;      /* UPHYCLK: 24 MHz */
+  REG(OTG_PHY + 0x00) &= ~((1U << 6) | (1U << 7));            /* UPHYPWR: PHY1 on */
+  REG(OTG_PHY + 0x08) |= (1U << 3) | (1U << 4);               /* URSTCON: PHY1, host link */
+  spin_us(10);
+  REG(OTG_PHY + 0x08) &= ~((1U << 3) | (1U << 4));
+  spin_us(1000);
+}
+static struct ehci_platdata ehci_pdata = { host_phy_init };
+
 static struct device board_devices[] = {
   { .name = "s5pv210-clock", .resource = { MEM(0xE0100000, 0x10000, "clock") }, .nresource = 1 },
   { .name = "s3c2410-wdt",   .resource = { MEM(0xE2700000, 0x400, "wdt") }, .nresource = 1 },
@@ -68,6 +108,17 @@ static struct device board_devices[] = {
   { .name = "s5pv210-uart",  .id = BOARD_UART_N,
     .resource = { MEM(BOARD_UART, 0x400, "uart"), IRQ(42 + BOARD_UART_N, "uart") }, .nresource = 2 },
   { .name = "s5pv210-gpio",  .resource = { MEM(0xE0200000, 0x1000, "gpio") }, .nresource = 1 },
+  /* USB-A host sockets: EHCI (high speed; OHCI for full/low speed is not
+     driven yet). The OTG port (s3c-hsotg, DWC2 in host mode) is available
+     with make S5PV210_USB_OTG=1. */
+  { .name = "s5p-ehci", .driver_data = &ehci_pdata,
+    .resource = { MEM(0xEC200000, 0x100000, "ehci"), IRQ(55, "uhost"), MEM(OTG_PHY, 0x1000, "usb-phy") },
+    .nresource = 3 },
+#ifdef S5PV210_USB_OTG
+  { .name = "s3c-hsotg", .driver_data = &otg_pdata,
+    .resource = { MEM(0xEC000000, 0x100000, "otg"), IRQ(56, "otg"), MEM(OTG_PHY, 0x1000, "otg-phy") },
+    .nresource = 3 },
+#endif
   { .name = "s3c-fb", .driver_data = &fb_pdata,
     .resource = { MEM(0xF8000000, 0x10000, "fimd"),
                   MEM(DRAM_BASE + S5PV210_FB_OFFSET, S5PV210_FB_SIZE, "framebuffer") },
