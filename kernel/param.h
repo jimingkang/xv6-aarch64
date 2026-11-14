@@ -1,10 +1,6 @@
 // Process descriptors and kernel stacks are allocated on demand; there is no
 // fixed NPROC table.  Available physical memory is the practical limit.
-#ifdef XV6_ARM32
 #define NCPU 1  // single-core T113 bringup
-#else
-#define NCPU 4  // maximum number of CPUs
-#endif
 #define NOFILE       16  // open files per process
 #define NFILE       100  // open files per system
 #define NINODE       50  // maximum number of active i-nodes

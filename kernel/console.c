@@ -59,33 +59,13 @@ struct {
 
 static int uart_probe(struct device *dev);
 
-#ifdef XV6_ARM32
 #ifndef ARM32_UART_NAME
 #define ARM32_UART_NAME "t113-uart0"
 #endif
 static struct device uartdev = { .name = ARM32_UART_NAME };
-#else
-static struct device uartdev = {
-  .name = "bcm2837-mini-uart",
-  .id = 0,
-  .resource = {
-    { PERIPHERAL_BASE_PA + 0x215000, PERIPHERAL_BASE_PA + 0x215fff,
-      IORESOURCE_MEM, "AUX/Mini UART" },
-    { PERIPHERAL_BASE_PA + 0x200000, PERIPHERAL_BASE_PA + 0x2000ff,
-      IORESOURCE_MEM, "GPIO" },
-    { UART0_IRQ, UART0_IRQ, IORESOURCE_IRQ, "AUX IRQ" },
-  },
-  .nresource = 3,
-};
-
-#endif
 
 static struct device_driver uartdrv = {
-#ifdef XV6_ARM32
   .name = ARM32_UART_NAME,
-#else
-  .name = "bcm2837-mini-uart",
-#endif
   .probe = uart_probe,
 };
 

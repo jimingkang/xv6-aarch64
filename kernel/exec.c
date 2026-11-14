@@ -49,10 +49,8 @@ exec(char *path, char **argv)
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
   if(elf.magic != ELF_MAGIC
-#ifdef XV6_ARM32
      || elf.elf[0] != 1 || elf.elf[1] != 1 || elf.machine != 40
      || elf.phentsize != sizeof(struct proghdr)
-#endif
     )
     goto bad;
 
@@ -144,11 +142,7 @@ exec(char *path, char **argv)
   vm->execing = 0;
   release(&vm->lock);
   p->trapframe->elr = elf.entry;  // initial program counter = main
-#ifdef XV6_ARM32
   p->trapframe->spsr = 0x10; // ARM user mode, IRQ enabled.
-#else
-  p->trapframe->spsr = 0;    // AArch64 EL0.
-#endif
   p->trapframe->sp = sp; // initial stack pointer
   // Debug trace (normally disabled): installed entry point and user stack.
   // printf("exec: path=%s entry=%p sz=%p sp=%p\n",
