@@ -1,0 +1,783 @@
+% !TEX program = xelatex
+% Tiny210 MT7601U USB Wi-Fi 驱动架构详解（编译：tectonic -X compile main.tex）
+\documentclass[UTF8,zihao=-4,fontset=none]{ctexart}
+
+\usepackage[a4paper,top=22mm,bottom=22mm,left=20mm,right=20mm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs,longtable,tabularx,array}
+\usepackage{fancyvrb}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,backgrounds}
+
+\IfFontExistsTF{Songti SC}{
+  \setCJKmainfont[AutoFakeBold=2]{Songti SC}
+  \setCJKsansfont[AutoFakeBold=2]{Hiragino Sans GB}
+  \setCJKmonofont[AutoFakeBold=2]{Hiragino Sans GB}
+}{
+  \setCJKmainfont[AutoFakeBold=2]{FandolSong-Regular}
+  \setCJKsansfont[AutoFakeBold=2]{FandolHei-Regular}
+  \setCJKmonofont[AutoFakeBold=2]{FandolFang-Regular}
+}
+\IfFontExistsTF{Menlo}{\setmonofont[Scale=0.9]{Menlo}}{}
+
+\definecolor{tblue}{RGB}{17,91,122}
+\definecolor{tcyan}{RGB}{23,139,166}
+\definecolor{tred}{RGB}{155,45,55}
+\definecolor{tgreen}{RGB}{28,113,83}
+\definecolor{tamber}{RGB}{176,112,20}
+\definecolor{tgray}{RGB}{110,118,126}
+\definecolor{codebg}{RGB}{247,249,250}
+
+\hypersetup{unicode=true,colorlinks=true,linkcolor=tblue,urlcolor=tcyan,
+  pdftitle={Tiny210 MT7601U Wi-Fi 驱动架构}}
+
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.3em}
+\setlength{\emergencystretch}{3em}
+\renewcommand{\arraystretch}{1.2}
+
+\DefineVerbatimEnvironment{code}{Verbatim}{fontsize=\footnotesize,frame=single,
+  framesep=2mm,rulecolor=\color{tgray!50},xleftmargin=1mm}
+\DefineVerbatimEnvironment{logv}{Verbatim}{fontsize=\footnotesize,frame=leftline,
+  framerule=1.2pt,rulecolor=\color{tgreen},xleftmargin=2mm,formatcom=\color{tgreen!60!black}}
+\newcommand{\fn}[1]{\texttt{#1}}
+
+\tikzset{
+  box/.style={draw=#1,fill=#1!8,rounded corners=2pt,align=center,
+    font=\small,inner sep=4pt,minimum height=8mm},
+  box/.default=tblue,
+  layer/.style={draw=#1,fill=#1!8,rounded corners=2pt,minimum width=150mm,
+    minimum height=9mm,align=left,font=\small,text width=146mm},
+  arr/.style={-{Stealth[length=2.2mm]},thick,draw=tgray},
+  darr/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]},thick,draw=tgray},
+  lbl/.style={font=\scriptsize,fill=white,inner sep=1pt},
+}
+
+% ---- 简易时序图 --------------------------------------------------------
+% \seqhead{x}{name}{label}   \seqmsg{x1}{x2}{y}{text}   \seqself{x}{y}{text}
+\newcommand{\seqhead}[3]{%
+  \node[box=tblue,minimum width=22mm,font=\footnotesize] (#2) at (#1,0) {#3};}
+\newcommand{\seqline}[2]{\draw[dashed,tgray] (#1,-0.45) -- (#1,-#2);}
+\newcommand{\seqmsg}[4]{%
+  \draw[-{Stealth[length=2mm]},thick,tblue] (#1,-#3) -- node[above,font=\scriptsize,inner sep=1pt]{#4} (#2,-#3);}
+\newcommand{\seqret}[4]{%
+  \draw[-{Stealth[length=2mm]},thick,dashed,tgreen] (#1,-#3) -- node[above,font=\scriptsize,inner sep=1pt]{#4} (#2,-#3);}
+\newcommand{\seqself}[3]{%
+  \draw[-{Stealth[length=2mm]},thick,tamber] (#1,-#2) -- ++(0.35,0) -- ++(0,-0.3) -- ++(-0.35,0);
+  \node[right,font=\scriptsize,align=left] at (#1+0.4,-#2-0.15) {#3};}
+\newcommand{\seqnote}[4]{% x1 x2 y text
+  \node[draw=tamber,fill=tamber!10,font=\scriptsize,minimum width=#2cm-#1cm,
+    anchor=north west,inner sep=2pt] at (#1,-#3) {#4};}
+
+\title{\textbf{Tiny210 MT7601U USB Wi-Fi 驱动架构详解}\\[2mm]
+\large 分层结构 · USB 各层 · 802.11/WPA2 · 网络协议栈 · 调用链与实板日志}
+\author{xv6 Tiny210（S5PV210, ARMv7-A）移植}
+\date{2026 年 11 月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{概述}
+
+本文说明 Tiny210（S5PV210）上 xv6 的 USB Wi-Fi 链路：一个 MT7601U USB 网卡从插在
+SDK 底板 USB-A Host 口开始，到用 WPA2 连上 TP-Link\_B114 路由器、DHCP 拿到 IP 为止，
+每一层用的是哪个驱动、哪个函数，以及实板串口上对应打印哪一行日志。文中的日志都是
+2026-11-14 在实板上抓到的真实输出。Markdown 版见
+\fn{doc/readme/tiny210/wifi-architecture.md}。
+
+和 Linux 一样，整个链路按“谁只关心哪一层”切开：用户态只看到“连接 / DHCP / ping”；
+\fn{net.c} 只看到一个能收发 Ethernet 帧的 \fn{wlan0}；\fn{mt7601u.c} 把 Ethernet 帧
+翻译成 802.11 帧并管理连接状态；\fn{ehci-hcd.c} 只负责把字节按 USB 协议搬到设备的某个端点。
+
+\section{总体分层}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.6mm]
+\node[layer=tgray] (u) {\textbf{用户程序}\quad \fn{init}（读 /etc/wifi.conf）→ \fn{/bin/wifi}、\fn{/bin/dhcp wlan0}、\fn{/bin/ping}};
+\node[layer=tgray,below=of u] (s) {\textbf{系统调用}\quad \fn{usys.S}（r7=号, svc 0）→ \fn{sysnet.c}: \fn{sys\_wifi\_connect}、\fn{sys\_net\_dhcp}};
+\node[layer=tgreen,below=of s] (n) {\textbf{网络协议栈 L3/L4}\quad \fn{net.c}: ARP · IPv4 · 路由 · UDP · ICMP · TCP · DHCP 客户端};
+\node[layer=tgreen,below=of n] (d) {\textbf{网络设备层}\quad \fn{struct net\_device} “wlan0”，\fn{netdev\_xmit\_on} / \fn{net\_rx\_dev}，NAPI，workqueue};
+\node[layer=tamber,below=of d] (m) {\textbf{802.11 SoftMAC L2}\quad \fn{mt7601u.c}: 扫描 · 认证 · 关联 · WPA2 四次握手 · 802.11⇄Ethernet；\fn{wpa\_crypto.c}};
+\node[layer=tamber,below=of m] (ud) {\textbf{USB 设备驱动}\quad \fn{mt7601u\_driver}: id\_table 148f:7601，probe，固件下载，eFuse，MAC/BBP/RF 初始化};
+\node[layer=tblue,below=of ud] (c) {\textbf{USB core}\quad \fn{usb/core/usb.c}: usb\_bus，\fn{usb\_match}，\fn{usb\_device\_register}，\fn{struct usb\_host\_ops}};
+\node[layer=tblue,below=of c] (h) {\textbf{主机控制器 HCD}\quad \fn{usb/host/ehci-hcd.c}: 异步调度 QH/qTD，dummy 追加，Hub，split，IRQ};
+\node[layer=tred,below=of h] (p) {\textbf{平台/板级}\quad \fn{mach-s5pv210/devices.c}: s5p-ehci MEM 0xEC200000，IRQ 55，\fn{host\_phy\_init}};
+\node[layer=tred,below=of p] (hw) {\textbf{硬件}\quad USB PHY1 → USB2514 Hub → MT7601U（MCU+MAC+BBP+RF）→ 2.4 GHz → 路由器};
+\end{tikzpicture}
+\caption{Wi-Fi 链路分层}
+\end{figure}
+
+\begin{longtable}{p{24mm}p{48mm}p{78mm}}
+\toprule
+层 & 实现 & 与下一层的接口 \\ \midrule \endhead
+用户程序 & \fn{user/wifi.c}, \fn{dhcp.c}, \fn{ping.c} & 系统调用 \fn{wifi\_connect}、\fn{net\_dhcp}、\fn{icmp\_send} \\
+系统调用 & \fn{kernel/sysnet.c} & \fn{mt7601u\_connect()}、\fn{net\_dhcp\_dev()} \\
+协议栈 & \fn{kernel/net.c} & \fn{netdev\_xmit\_on()} / \fn{net\_rx\_dev()} \\
+网络设备 & \fn{register\_netdev}、NAPI、\fn{workqueue.c} & \fn{net\_device\_ops.start\_xmit} \\
+SoftMAC & \fn{mt7601u.c} + \fn{wpa\_crypto.c} & 厂商 USB 寄存器请求 + bulk 帧（TXWI/RXWI） \\
+USB 设备驱动 & \fn{mt7601u.c} 的 \fn{usb\_driver} & \fn{usb\_host\_ops}: control / bulk / bulk\_rx\_arm / bulk\_rx\_complete \\
+USB core & \fn{usb/core/usb.c} & \fn{usb\_device\_register()} \\
+HCD & \fn{usb/host/ehci-hcd.c} & 寄存器 + DMA 描述符 \\
+平台 & \fn{mach-s5pv210/devices.c} & platform device 资源 \\
+\bottomrule
+\end{longtable}
+
+\section{硬件连接}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.84,transform shape]
+\node[box=tblue,minimum width=24mm] (cpu) at (0,0) {Cortex-A8\\1 GHz};
+\node[box=tblue,minimum width=24mm] (ddr) at (0,-2.6) {DDR2 512 MiB\\0x20000000};
+\node[box=tblue,minimum width=26mm] (ehci) at (4.0,0) {EHCI\\0xEC200000};
+\node[box=tblue,minimum width=24mm] (vic) at (4.0,2.0) {VIC};
+\node[box=tblue,minimum width=26mm] (phy) at (4.0,-2.6) {USB PHY1 (Host)\\0xEC100000};
+\begin{scope}[on background layer]
+\node[draw=tblue,dashed,rounded corners,fit=(cpu)(ddr)(ehci)(vic)(phy),inner sep=4mm,
+  label={[tblue]above left:S5PV210 核心板}] {};
+\end{scope}
+\draw[darr] (cpu) -- node[lbl,above]{AHB} (ehci);
+\draw[darr] (ehci.south west) -- node[lbl,sloped,below,fill=none]{DMA} (ddr.north east);
+\draw[arr] (ehci) -- node[lbl,right]{IRQ 55} (vic);
+\draw[arr] (vic) -| (cpu);
+\draw[arr] (ehci) -- (phy);
+\node[box=tgreen,minimum width=26mm] (hub) at (9.2,-2.6) {SMSC USB2514\\4 口 HS Hub\\424:2514};
+\node[box=tgreen,minimum width=24mm] (usba) at (9.2,0) {USB-A 口\\(Hub 端口 3)};
+\begin{scope}[on background layer]
+\node[draw=tgreen,dashed,rounded corners,fit=(hub)(usba),inner sep=3mm,
+  label={[tgreen]above:SDK 底板}] {};
+\end{scope}
+\draw[darr] (phy) -- node[lbl,below,fill=none,align=center,yshift=-1mm]{USB 2.0 HS\\480 Mb/s} (hub);
+\draw[darr] (hub) -- (usba);
+\node[box=tamber,minimum width=28mm] (mt) at (13.4,0) {MT7601U\\148f:7601\\MCU+MAC+BBP+RF};
+\draw[darr] (usba) -- (mt);
+\node[box=tred,minimum width=28mm] (ap) at (13.4,-3.2) {TP-Link\_B114\\f0:09:0d:cb:b1:14\\信道 9, WPA2-CCMP\\网关 192.168.0.1};
+\draw[darr,dashed,tred] (mt) -- node[lbl,right,fill=none,align=left]{802.11n\\2.4 GHz} (ap);
+\end{tikzpicture}
+\caption{硬件连接}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em]
+\item 只走 EHCI（USB-A Host 口），不走 OTG 口。OTG 是 DWC2 控制器（0xEC000000，IRQ 56），
+  代码保留但默认不编（\fn{S5PV210\_USB\_OTG=1} 才启用）。
+\item SoC Host 只有 1 个根端口，SDK 底板上的 USB2514 Hub 扩出 4 口，网卡在 Hub 端口 3。
+  Hub 和网卡都是高速设备，不需要 split transaction。
+\item EHCI 是总线主设备，自己从 DDR 读 QH/qTD 描述符和数据。xv6 在 Tiny210 上关闭 D-cache，
+  不需要 cache 维护，但 CPU 访存慢、会和 EHCI 抢 DDR 带宽（见第 \ref{sec:bugs} 节）。
+\end{itemize}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+端点 & 方向 & 用途（本驱动） \\ \midrule
+EP0 & control & 厂商请求：读写 32 位寄存器、eFuse、FCE 固件 DMA 控制 \\
+0x84 (IN\#0) & bulk IN & 接收数据：RXWI + 802.11 帧（4 个 16 KiB 缓冲循环） \\
+0x85 (IN\#1) & bulk IN & MCU 命令响应 \\
+0x08 (OUT\#0) & bulk OUT & 固件下载、MCU 命令，以及本驱动所有 802.11 发送帧 \\
+0x04--0x07, 0x09 & bulk OUT & Linux 的 AC/管理队列；Tiny210 上 0x09 一开始就 NAK，不用 \\
+\bottomrule
+\end{tabular}
+\caption{MT7601U USB 端点（日志 \fn{bulk in 4,5/512 out 8/512}）}
+\end{table}
+
+\section{软件架构}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small]
+\node[box=tgray] (wifi) at (-3,0) {/bin/wifi};
+\node[box=tgray] (dhcp) at (0,0) {/bin/dhcp};
+\node[box=tgray] (ping) at (3,0) {/bin/ping};
+\node[box=tgray] (sys) at (0,-1.6) {sysnet.c\\sys\_wifi\_connect / sys\_net\_dhcp};
+\node[box=tgreen] (net) at (0,-3.2) {net.c 协议栈\\ARP IPv4 UDP ICMP TCP DHCP};
+\node[box=tgreen] (nd) at (0,-4.8) {net\_device wlan0\\NAPI + mt7601u\_wq};
+\node[box=tamber] (mt) at (0,-6.6) {mt7601u.c\\SoftMAC 状态机 / TX / RX};
+\node[box=tamber] (wpa) at (5.8,-6.3) {wpa\_crypto.c\\PBKDF2 PTK MIC AES-unwrap};
+\node[box=tamber] (fw) at (5.8,-7.8) {firmware.c\\request\_firmware};
+\node[box=tblue] (core) at (0,-8.4) {usb/core/usb.c\\usb\_bus 匹配};
+\node[box=tblue] (ehci) at (0,-10.2) {usb/host/ehci-hcd.c\\QH/qTD, Hub, IRQ};
+\node[box=tred] (plat) at (0,-12.0) {mach-s5pv210/devices.c\\s5p-ehci, host\_phy\_init};
+\node[box=tred] (time) at (5.8,-4.8) {arch/arm/time.c\\workqueue\_timer\_tick};
+\draw[arr] (wifi) |- (sys.west);
+\draw[arr] (dhcp) -- (sys);
+\draw[arr] (ping) |- (net.east);
+\draw[arr] (sys) -- (net);
+\draw[arr] (sys.west) ++(0,-0.2) -| (-4.6,-6.6) node[lbl,pos=0.75,left]{mt7601u\_connect} -- (mt.west);
+\draw[darr] (net) -- (nd);
+\draw[darr] (nd) -- node[lbl,right]{start\_xmit / net\_rx\_dev} (mt);
+\draw[arr] (mt.east) ++(0,0.25) -- (wpa.west);
+\draw[arr] (mt.east) ++(0,-0.25) -- (fw.west);
+\draw[arr] (time) -- node[lbl,above]{delayed work} (nd);
+\draw[arr] (core) -- node[lbl,right]{probe} (mt);
+\draw[arr] (ehci) -- node[lbl,right]{usb\_device\_register} (core);
+\draw[arr] (mt.south west) to[bend right=50] node[lbl,left]{udev->ops} (ehci.north west);
+\draw[arr] (plat) -- (ehci);
+\end{tikzpicture}
+\caption{软件架构与源文件}
+\end{figure}
+
+\subsection{执行上下文}
+
+\begin{longtable}{p{36mm}p{114mm}}
+\toprule
+上下文 & 做什么 \\ \midrule
+\fn{ehci-enum} 内核线程 & 启动 EHCI、上电端口、枚举 Hub 与网卡；在此线程中调用 \fn{mt7601u\_probe}（固件下载、射频初始化）。要等几百毫秒的复位/上电，所以不放在 initcall 里 \\
+EHCI 中断（IRQ 55） & \fn{ehci\_irq} 清 USBSTS，调用 \fn{mt7601u\_rx\_irq()} → \fn{napi\_schedule()}，只做排队 \\
+\fn{mt7601u\_wq} 线程 & NAPI：\fn{mt7601u\_napi\_poll} → \fn{mt7601u\_service(1,0)} 处理接收；\fn{state\_work}：\fn{mt7601u\_state\_worker} → \fn{mt7601u\_service(0,1)} 推进扫描/认证/关联/超时 \\
+时钟中断 100 Hz & \fn{arm32\_timer\_tick} → \fn{workqueue\_timer\_tick()}：到期 delayed work 入队 \\
+用户进程 & \fn{mt7601u\_connect} 设置目标后 \fn{sleep(\&ticks)} 等 \fn{handshake\_done}；dhcp/ping 在系统调用里发帧、等回包 \\
+\bottomrule
+\end{longtable}
+
+\section{USB 各层架构}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,node distance=5mm]
+\node[box=tamber,text width=140mm] (drv) {MT7601U 驱动：mt7601u\_read32 / write32 / tx\_raw / service};
+\node[box=tblue,text width=140mm,below=of drv] (ops) {struct usb\_host\_ops：control · bulk · bulk\_rx\_arm · bulk\_rx\_complete};
+\node[box=tblue,minimum width=36mm,below=of ops,xshift=-48mm] (c) {ehci\_usb\_control\\control\_qh\\SETUP/DATA/STATUS};
+\node[box=tblue,minimum width=36mm,below=of ops] (b) {ehci\_usb\_bulk\\bulk\_qh（同步）\\wait\_qtd 1 s/3 s};
+\node[box=tblue,minimum width=36mm,below=of ops,xshift=48mm] (r) {bulk\_rx\_arm\\bulk\_rx\_complete\\EP4 预挂 4 个 qTD};
+\node[box=tblue,text width=140mm,below=of b] (qa) {qh\_append：dummy qTD 追加法（硬件始终看到一致链表）；出错时 async\_stop → qh\_flush（保留 DT）→ async\_start};
+\node[box=tblue,text width=140mm,below=of qa] (ring) {异步调度环：head\_qh → ep0 QH(地址1) → ep0 QH(地址2) → EP4 IN QH → EP8 OUT QH → … → head\_qh};
+\node[box=tred,text width=140mm,below=of ring] (hc) {EHCI 硬件：按 QH 取 qTD，DMA 读写 DDR，产生 IN/OUT/PING 事务，完成后清 Active，IOC → USBINT → IRQ 55};
+\node[box=tred,text width=140mm,below=of hc] (phy) {PHY1 → USB2514 Hub → MT7601U};
+\draw[arr] (drv) -- (ops);
+\draw[arr] (ops) -- (c); \draw[arr] (ops) -- (b); \draw[arr] (ops) -- (r);
+\draw[arr] (c) -- (qa); \draw[arr] (b) -- (qa); \draw[arr] (r) -- (qa);
+\draw[arr] (qa) -- (ring); \draw[arr] (ring) -- (hc); \draw[darr] (hc) -- (phy);
+\end{tikzpicture}
+\caption{USB 软件分层}
+\end{figure}
+
+\subsection{平台层：PHY 与控制器启动}
+
+\fn{host\_phy\_init()}（参考 Linux \fn{phy-s5pv210-usb2.c}）：\fn{CLK\_GATE\_IP1}(0xE0100464) bit17 打开 USBHOST 时钟；
+\fn{USB\_PHY\_CONTROL}(0xE010E80C) bit1 解除 PHY1 隔离；PHY 寄存器块 0xEC100000 中 \fn{UPHYCLK} 选 24 MHz，
+\fn{UPHYPWR} 清 bit6/7 使 PHY1 上电，\fn{URSTCON} bit3/4 脉冲复位 PHY1 和 Host link。
+
+\fn{ehci\_start()}：
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item \fn{phy\_init()}；CAPLENGTH 得到操作寄存器基址，HCSPARAMS 得到端口数（1）。
+\item Samsung 私有寄存器 INSNREG00（burst 使能），\textbf{INSNREG01 = 0x00800080}（OUT/IN 阈值均为 512 字节）。
+\item 停止、复位控制器；建立异步环头 QH（H 位，halted overlay，指向自己）。
+\item \fn{ASYNCLIST = head\_qh}，\fn{USBINTR = USBINT|ERR}，\fn{USBCMD = RUN|ASE|ITC(1)}，\fn{CONFIGFLAG = 1}；端口上电，等 100 ms。
+\end{enumerate}
+\begin{logv}
+ehci: s5p-ehci at -13e00000, enumeration deferred to ehci-enum
+ehci: 1 port(s), running, async schedule on
+\end{logv}
+
+\subsection{HCD 层：QH/qTD 与 dummy 追加法}
+
+EHCI 异步调度是一个 QH（每端点一个）组成的环，每个 QH 下挂一串 qTD，每个 qTD 最多描述 5 个 4 KiB 页。
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{qh\_create(addr, ep, speed, mps, control, hub, port)}：填 epchar（地址、端点、速度、最大包长）、epcap（Hub 地址/端口），挂入环；初始挂一个不活动的 dummy qTD。
+\item \fn{qh\_append(q, first, last)}：把新传输第一个 qTD 的内容拷进当前 dummy，在尾部接新 dummy；先激活后续 qTD，最后才置第一个的 Active。无需停异步调度。
+\item \fn{wait\_qtd}：轮询最后一个 qTD 的 Active（IN 1 s，OUT 3 s，OUT 期间设备可 NAK/PING）。
+\item \fn{qh\_flush}：超时/出错时丢弃排队的 qTD，QH 重新指向 dummy，\textbf{保留 data toggle}。
+\item \fn{ehci\_usb\_bulk\_rx\_arm}：给 EP4 预挂带 IOC 的 IN qTD；\fn{ehci\_usb\_bulk\_rx\_complete} 从 \fn{q->head} 取已完成的 qTD。
+\item \fn{ehci\_irq}：USBSTS 的 USBINT/ERR 置位时调弱符号 \fn{mt7601u\_rx\_irq()}。
+\end{itemize}
+
+\subsection{枚举与 Hub}
+
+\fn{ehci\_enum\_thread} → \fn{ehci\_start} → \fn{root\_ports()}：根端口连接 → 端口复位 → \fn{enumerate(HS, 0, 0)}：
+地址 0 读设备描述符前 8 字节 → \fn{SET\_ADDRESS} → 读设备/配置描述符 → \fn{parse\_config} 记录端点 → \fn{SET\_CONFIGURATION}。
+类 9（Hub）→ \fn{hub\_ports()}：读 Hub 描述符，各口 \fn{PORT\_POWER}，有设备则 \fn{PORT\_RESET} 并 \fn{enumerate(HS, 1, 3)}；
+非 Hub → \fn{usb\_device\_register()} → usb 总线遍历驱动 \fn{id\_table} → \fn{mt7601u\_probe()}。
+\begin{logv}
+ehci: port 0: high-speed device connected
+ehci: high-speed device 424:2514 class 9 at address 1 (hub 0 port 0)
+ehci:   bulk in 0,0/0 out 0/0 intr in 1
+ehci: hub 1: 4 ports
+ehci: high-speed device 148f:7601 class 255 at address 2 (hub 1 port 3)
+ehci:   bulk in 4,5/512 out 8/512 intr in 0
+\end{logv}
+
+\subsection{USB core 与设备驱动接口}
+
+\begin{code}
+struct usb_host_ops {                       /* kernel/usb.h */
+  int (*control)(struct usb_device*, uint8 type, uint8 req, uint16 value,
+                 uint16 index, void *data, uint16 len);
+  int (*bulk)(struct usb_device*, int ep, int in, void *data, int len);
+  int (*bulk_rx_arm)(struct usb_device*, int ep, void *data, int len);
+  int (*bulk_rx_complete)(struct usb_device*, int ep, void **data);
+};
+\end{code}
+MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一份驱动也能挂在 DWC2（OTG）上。
+
+\section{MT7601U 硬件层}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.9,transform shape]
+\node[box=tblue] (usb) at (-0.6,0) {USB 设备控制器\\EP0 / IN 4,5 / OUT 4--9};
+\node[box=tblue] (dma) at (4.0,0) {USB DMA 引擎\\DMA 头 + TXWI/RXWI};
+\node[box=tamber] (mcu) at (8.8,1.4) {MCU\\ILM/DLM 固件};
+\node[box=tamber] (mac) at (8.8,-1.4) {MAC\\WCID/密钥表\\ACK 重传, TX 状态 FIFO};
+\node[box=tamber] (sec) at (8.8,-3.8) {AES-CCMP 引擎};
+\node[box=tgreen] (bbp) at (13.0,-1.4) {BBP 基带\\OFDM/CCK};
+\node[box=tgreen] (rf) at (13.0,1.4) {RF 收发\\2.4 GHz 信道 1--11};
+\node[box=tgray] (ef) at (4.0,-2.6) {eFuse\\MAC 地址、校准值};
+\draw[darr] (usb) -- (dma);
+\draw[darr] (dma) -- (mcu);
+\draw[darr] (dma) -- (mac);
+\draw[darr] (mac) -- (sec);
+\draw[darr] (mac) -- (bbp);
+\draw[darr] (bbp) -- (rf);
+\draw[darr] (mcu) -- node[lbl,above]{校准/命令} (rf);
+\draw[arr] (ef) -- (mac);
+\end{tikzpicture}
+\caption{MT7601U 芯片内部}
+\end{figure}
+
+\subsection{probe 时的初始化}
+
+\begin{longtable}{p{4mm}p{40mm}p{60mm}p{42mm}}
+\toprule
+\# & 函数 & 做什么 & 日志 \\ \midrule \endhead
+1 & \fn{read32}\newline (ASIC\_VERSION) & EP0 厂商请求读寄存器，确认 0x7601 & \fn{ASIC=76010001} \\
+2 & \fn{validate\_firmware} & \fn{request\_firmware}：读 /boot/mt7601u.bin，检查 ILM/DLM & \fn{firmware v0.1.0 build=7640} \\
+3 & \fn{load\_firmware}\newline → \fn{dma\_fw\_range}\newline → \fn{dma\_fw\_chunk} & 每块 14 KiB：EP0 \fn{WRITE\_FCE} 写 DMA 地址/长度，EP8 送 TXINFO+数据，\fn{CPU\_DESC\_IDX}+1，轮询 \fn{COM\_REG1} bit31；ILM 后 DLM，启动 MCU & \fn{ILM firmware upload ...}，\fn{MCU firmware running} \\
+4 & \fn{read\_eeprom}\newline → \fn{efuse\_read\_block} & eFuse 读 MAC、频偏、温度补偿 & \fn{mac=90:de:80:}\newline\fn{14:95:94} \\
+5 & \fn{basic\_hw\_init} & WLAN 时钟/PLL、BBP 就绪、RF 引导 & \fn{bootstrap ready; rx-ep=4} \\
+6 & \fn{mcu\_channel\_init} & MCU 命令走 EP8、响应走 EP5 & \fn{tx-ep=8 resp-ep=5} \\
+7 & \fn{full\_hw\_init} & MAC 44 项 / BBP 59 项 / RF 138 项，\fn{calibrate} & \fn{RF calibration complete} \\
+8 & \fn{set\_channel(1)} & 从信道 1 开始扫描 & \\
+9 & \fn{bulk\_rx\_arm} ×4 & EP4 挂 4 个 16 KiB 接收缓冲 & \fn{EP4 receive uses ...} \\
+10 & \fn{queue\_delayed\_work} & 启动状态机，每 0.5 s 换信道 & \fn{SoftMAC initialization pending} \\
+\bottomrule
+\end{longtable}
+
+\subsection{USB 上的帧格式}
+
+MT7601U 是 SoftMAC：802.11 帧由主机驱动组好，芯片只负责 PHY 头、调制、ACK、重传和可选的加解密。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+\def\f#1#2#3#4{\node[draw,fill=#4!12,minimum height=9mm,minimum width=#2mm,anchor=west,align=center] at (#1mm,0) {#3};}
+\node[anchor=west,font=\small\bfseries] at (0,0.9) {发送（mt7601u\_tx\_raw → EP8）};
+\f{0}{18}{DMA 头\\4B}{tblue}
+\f{18}{30}{TXWI 20B\\CCK1M ack wcid len}{tamber}
+\f{48}{70}{802.11 MPDU\\FC Dur A1 A2 A3 Seq | LLC/SNAP | 载荷}{tgreen}
+\f{118}{14}{填充}{tgray}
+\f{132}{14}{0\\4B}{tgray}
+\begin{scope}[yshift=-17mm]
+\node[anchor=west,font=\small\bfseries] at (0,0.9) {接收（EP4 缓冲中的一段）};
+\f{0}{18}{DMA 长度\\4B}{tblue}
+\f{18}{30}{RXWI 28B\\rxinfo ctl RSSI}{tamber}
+\f{48}{70}{802.11 MPDU\\FC ... | [QoS] [填充] CCMP 头 8B | LLC | 载荷}{tgreen}
+\f{118}{14}{填充}{tgray}
+\f{132}{14}{4B}{tgray}
+\end{scope}
+\end{tikzpicture}
+\caption{USB 帧封装}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{MT\_TXD\_PKT\_INFO\_80211}：载荷是原始 802.11 帧。\fn{WIV}（Without IV）置位表示不做硬件加密。
+  管理帧和握手前 EAPOL 置 WIV；\textbf{握手后数据帧不置 WIV，wcid=1}，MAC 用 WCID 1 的 TK 做 CCMP，自动插入 CCMP 头和 MIC。
+\item 发完后 \fn{mt7601u\_tx\_stat\_drain} 读空 TX\_STAT\_FIFO。
+\item RXINFO：bit8 CRC 错、bit9 ICV 错、bit10 MIC 错、bit14 L2 填充、\textbf{bit16 DECRYPT}、bit4 单播给我、bit5 组播、bit6 广播、bit7 本 BSS。
+  实板 \fn{rxinfo=1520e2} = DECRYPT+本 BSS+广播+组播+数据；\fn{112092} = DECRYPT+本 BSS+单播给我（ARP 回复）。
+\end{itemize}
+
+\subsection{WCID 与密钥表}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+寄存器区 & 地址 & 内容（\fn{mt7601u\_install\_ccmp\_keys}） \\ \midrule
+单播密钥表 & 0x8000 + WCID×32 & WCID 1（AP）的 TK = PTK[32..47] \\
+IV/EIV 表 & 0xA000 + WCID×8 & 初始 PN，KeyID 字节 0x20（ExtIV） \\
+WCID 属性 & 0xA800 + WCID×4 & cipher=4（AES-CCMP），pairwise=1 \\
+共享（组）密钥 & 0xAC00 + idx×32 & GTK（从 M3 解出） \\
+共享密钥模式 & 0xB000 & 每个 key index 4 位，填 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{802.11 与 WPA2：网卡如何和路由器通信}
+
+\subsection{连接状态机}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,node distance=12mm and 20mm,
+  st/.style={draw=tblue,fill=tblue!8,rounded corners=6pt,minimum width=28mm,minimum height=8mm,align=center}]
+\node[st] (scan) {SCAN};
+\node[st,right=of scan] (ap) {AUTH\_PENDING};
+\node[st,right=of ap] (as) {AUTH\_SENT};
+\node[st,below=of as] (sp) {ASSOC\_PENDING};
+\node[st,left=of sp] (ss) {ASSOC\_SENT};
+\node[st,left=of ss] (asd) {ASSOCIATED};
+\node[st,below=of asd,fill=tgreen!15,draw=tgreen] (run) {RUNNING\\wlan0 已注册};
+\draw[arr] (scan) to[loop above] node[lbl]{0.5 s 换信道} (scan);
+\draw[arr] (scan) -- node[lbl,above]{SSID 匹配} (ap);
+\draw[arr] (ap) -- node[lbl,above]{send\_auth} (as);
+\draw[arr] (as) to[bend right=30] node[lbl,above]{1 s 超时} (ap);
+\draw[arr] (as) -- node[lbl,right]{Auth seq2 ok} (sp);
+\draw[arr] (sp) -- node[lbl,above]{send\_assoc} (ss);
+\draw[arr] (ss) to[bend right=30] node[lbl,below]{超时} (sp);
+\draw[arr] (ss) -- node[lbl,above]{Assoc resp AID} (asd);
+\draw[arr] (asd) to[loop left] node[lbl,align=center]{M1→M2\\M3→M4} (asd);
+\draw[arr] (asd) -- node[lbl,right]{handshake\_done} (run);
+\draw[arr,dashed] (asd.south east) to[bend right=25] node[lbl,below]{5 s 无 M1} (sp.south west);
+\end{tikzpicture}
+\caption{mt7601u 连接状态机（\fn{mt7601u\_service}）}
+\end{figure}
+
+时间常量（jiffy=10 ms）：扫描驻留 50（0.5 s），响应超时 100（1 s），WPA 看门狗 500（5 s），认证/关联最多重试 3 次。
+状态机完全靠 delayed work 推进，所以必须有 \fn{workqueue\_timer\_tick()}。
+
+\subsection{各阶段帧}
+
+\begin{longtable}{p{10mm}p{17mm}p{40mm}p{36mm}p{38mm}}
+\toprule
+阶段 & 方向 & 802.11 帧 & 驱动函数 & 关键字段 \\ \midrule \endhead
+扫描 & AP→STA & Beacon (FC 0x0080) & \fn{rx\_mgmt} & SSID、DS 参数（信道）、RSN IE \\
+认证 & STA→AP & Authentication (0x00B0) & \fn{send\_auth} & Open System, seq 1 \\
+ & AP→STA & Authentication & \fn{rx\_mgmt} & seq 2, status 0 \\
+关联 & STA→AP & Assoc Request (0x0000) & \fn{send\_assoc} & SSID、速率、RSN IE 22 字节 \\
+ & AP→STA & Assoc Response (0x0010) & \fn{rx\_mgmt} & status 0, AID 1 \\
+M1 & AP→STA & Data+LLC+EAPOL-Key (0x888e) & \fn{rx\_data}→\fn{rx\_eapol} & ANonce, key-info 0x008a \\
+M2 & STA→AP & Data（未加密） & \fn{send\_m2} & SNonce、RSN IE、MIC \\
+M3 & AP→STA & Data & \fn{rx\_eapol} & MIC、Install、加密 GTK \\
+M4 & STA→AP & Data & \fn{send\_m4} & MIC \\
+数据 & 双向 & Data, Protected, CCMP & \fn{send\_llc}/\fn{rx\_data} & ToDS/FromDS、CCMP 头 \\
+\bottomrule
+\end{longtable}
+
+\subsection{WPA2-PSK 密钥推导（wpa\_crypto.c）}
+
+\begin{code}
+PMK    = PBKDF2-HMAC-SHA1(passphrase, SSID, 4096, 32)       wpa_pbkdf2     (mt7601u_connect)
+SNonce = PRF(PMK, ANonce, counter)                           wpa_make_snonce (收到 M1)
+PTK    = PRF-512(PMK, "Pairwise key expansion",
+                 min(AA,SPA)|max(AA,SPA)|min(AN,SN)|max(AN,SN))   wpa_derive_ptk
+  PTK[0..15]  = KCK -> EAPOL MIC (HMAC-SHA1 截 16 字节)      wpa_eapol_mic
+  PTK[16..31] = KEK -> 解 M3 中的 GTK (AES Key Wrap)        wpa_aes_unwrap
+  PTK[32..47] = TK  -> 写入芯片 WCID 1 密钥表，硬件 CCMP
+GTK    = AES-Unwrap(KEK, M3 Key Data) 中 00-0f-ac type 1 的 KDE -> 共享密钥表
+\end{code}
+
+\subsection{802.11 数据帧与 Ethernet 帧的转换}
+
+\begin{code}
+发送 mt7601u_send_llc:
+ Ethernet | DA | SA | type | payload |
+ 802.11   | FC=0x4108 Data,ToDS,Protected | Dur | A1=BSSID | A2=本机 | A3=DA | Seq |
+          | AA AA 03 00 00 00 | type | payload |      (CCMP 头/MIC 由硬件插入)
+接收 mt7601u_rx_data:
+ 802.11   | FC=0x4208 Data,FromDS,Protected | Dur | A1=DA | A2=BSSID | A3=SA | Seq |
+          | [QoS 2] | [L2 填充 2] | CCMP 头 8 | AA AA 03 00 00 00 | type | payload |
+ Ethernet | DA=A1 | SA=A3 | type | payload |  -> net_rx_dev(&wlan0)
+\end{code}
+\fn{type == 0x888e}（EAPOL）交给 \fn{mt7601u\_rx\_eapol}，其它在握手完成后交给协议栈。
+
+\section{网络协议层}
+
+\begin{longtable}{p{14mm}p{20mm}p{56mm}p{58mm}}
+\toprule
+层 & 协议 & 实现函数（net.c） & 本链路中的作用 \\ \midrule \endhead
+L2 设备 & net\_device & \fn{register\_netdev}, \fn{netdev\_find}, \fn{netdev\_xmit\_on}, \fn{net\_rx\_dev} & wlan0 对上层就是一块以太网卡 \\
+L2 & ARP & \fn{arp\_request}, \fn{arp\_rx}, \fn{arp\_lookup} & 解析网关 192.168.0.1 的 MAC（即 AP BSSID） \\
+L3 & IPv4/路由 & \fn{net\_output\_path}, \fn{route\_lookup}, \fn{checksum} & 选接口与下一跳 \\
+L4 & UDP & \fn{net\_udp\_send}, \fn{udp\_rx} & DHCP 67/68、DNS \\
+L4 & ICMP & \fn{net\_icmp\_send}, \fn{icmp\_rx} & ping \\
+L4 & TCP & \fn{tcp\_rx}, \fn{tcp\_send\_*} & socket 程序 \\
+应用 & DHCP & \fn{net\_dhcp\_dev}, \fn{dhcp\_send}, \fn{dhcp\_rx}, \fn{dhcp\_wait} & DISCOVER → OFFER → REQUEST → ACK \\
+\bottomrule
+\end{longtable}
+
+\fn{net\_rx\_dev} 分发：type 0x0806 → \fn{arp\_rx}；0x0800 → 校验 IP 头 → proto 1 \fn{icmp\_rx}、6 \fn{tcp\_rx}、
+17 且源 67/目的 68 → \fn{dhcp\_rx}，再交 \fn{udp\_rx}。
+
+\begin{code}
+DISCOVER 0.0.0.0:68 -> 255.255.255.255:67  dst ff:ff:ff:ff:ff:ff  (data tx type=800 len=342)
+OFFER    192.168.0.1:67 -> 广播             GTK 解密             (rxinfo=1520e2)
+REQUEST  广播，选项 50=192.168.0.219, 54=服务器
+ACK      -> 设置 ip_addr、网关、DNS，加默认路由
+ARP      who-has 192.168.0.1 (data tx type=806 len=42) -> reply 单播, PTK 解密 (rxinfo=112092)
+\end{code}
+
+\section{时序图}
+
+\subsection{枚举与固件下载}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\seqhead{0}{a}{ehci-enum}
+\seqhead{3}{b}{EHCI}
+\seqhead{6}{c}{USB2514}
+\seqhead{9}{d}{usb core}
+\seqhead{12}{e}{mt7601u.c}
+\seqhead{15}{f}{MT7601U}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{12.4}}
+\seqmsg{0}{3}{1.0}{ehci\_start: PHY, INSNREG01, RUN}
+\seqmsg{0}{3}{1.6}{root\_ports: PORTSC 复位}
+\seqmsg{0}{6}{2.2}{enumerate: SET\_ADDRESS 1}
+\seqmsg{0}{6}{2.8}{hub\_ports: PORT\_POWER/RESET(3)}
+\seqmsg{0}{15}{3.4}{enumerate(hub1,port3): SET\_ADDRESS 2, 描述符, SET\_CONFIG}
+\seqmsg{0}{9}{4.0}{usb\_device\_register}
+\seqmsg{9}{12}{4.6}{usb\_match → probe}
+\seqmsg{12}{15}{5.2}{EP0 read32 ASIC}
+\seqself{12}{5.3}{request\_firmware}
+\seqnote{12.2}{15.8}{5.95}{循环 ILM/DLM，每块 14 KiB}
+\seqmsg{12}{15}{7.0}{EP0 WRITE\_FCE 地址/长度}
+\seqmsg{12}{15}{7.6}{EP8 bulk OUT 固件}
+\seqret{15}{12}{8.2}{COM\_REG1 bit31 完成}
+\seqmsg{12}{15}{8.8}{启动 MCU}
+\seqmsg{12}{15}{9.4}{eFuse, MAC/BBP/RF 表, 校准}
+\seqmsg{12}{3}{10.0}{bulk\_rx\_arm(EP4) ×4}
+\seqself{12}{10.6}{queue\_delayed\_work}
+\end{tikzpicture}
+\caption{上电枚举与固件下载}
+\end{figure}
+
+\subsection{连接与 WPA2 四次握手}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\seqhead{0}{u}{/bin/wifi}
+\seqhead{3}{s}{connect}
+\seqhead{6}{w}{state\_work}
+\seqhead{9}{r}{RX/NAPI}
+\seqhead{12}{m}{MT7601U}
+\seqhead{15}{ap}{TP-Link}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{17.4}}
+\seqmsg{0}{3}{1.0}{wifi\_connect}
+\seqself{3}{1.4}{PBKDF2 → PMK}
+\seqmsg{3}{6}{2.2}{mod\_delayed\_work}
+\seqself{3}{2.6}{sleep(\&ticks)}
+\seqmsg{6}{12}{3.4}{set\_channel(n)}
+\seqret{15}{12}{4.0}{Beacon}
+\seqret{12}{9}{4.6}{EP4 → IRQ → NAPI}
+\seqself{9}{5.0}{rx\_mgmt: 找到 ch 9}
+\seqmsg{6}{12}{6.0}{send\_auth}
+\seqmsg{12}{15}{6.6}{Auth seq 1}
+\seqret{15}{9}{7.2}{Auth seq 2 ok}
+\seqmsg{6}{12}{7.8}{send\_assoc}
+\seqmsg{12}{15}{8.4}{Assoc Req (RSN)}
+\seqret{15}{9}{9.0}{Assoc Resp AID 1}
+\seqret{15}{9}{9.8}{EAPOL M1 (ANonce)}
+\seqself{9}{10.2}{SNonce, PTK}
+\seqmsg{9}{12}{11.0}{send\_m2}
+\seqmsg{12}{15}{11.6}{M2 (SNonce, MIC)}
+\seqret{15}{9}{12.2}{M3 (MIC, GTK)}
+\seqself{9}{12.6}{验 MIC, AES unwrap}
+\seqmsg{9}{12}{13.4}{install\_ccmp\_keys}
+\seqmsg{9}{12}{14.0}{send\_m4}
+\seqmsg{12}{15}{14.6}{M4}
+\seqself{9}{15.0}{handshake\_done, register\_netdev}
+\seqret{3}{0}{16.2}{0: wifi: associated}
+\end{tikzpicture}
+\caption{扫描、认证、关联与四次握手}
+\end{figure}
+
+\subsection{DHCP 与 ARP 数据路径}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\seqhead{0}{d}{/bin/dhcp}
+\seqhead{3}{n}{net.c}
+\seqhead{6}{m}{mt7601u.c}
+\seqhead{9}{e}{ehci-hcd.c}
+\seqhead{12}{h}{MT7601U}
+\seqhead{15}{ap}{AP/DHCP}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{12.2}}
+\seqmsg{0}{3}{1.0}{net\_dhcp → net\_dhcp\_dev}
+\seqself{3}{1.4}{dhcp\_send(DISCOVER)}
+\seqmsg{3}{6}{2.2}{netdev\_xmit\_on → net\_xmit}
+\seqself{6}{2.6}{send\_llc: Eth → 802.11}
+\seqmsg{6}{9}{3.4}{tx\_raw → bulk(EP8)}
+\seqmsg{9}{12}{4.0}{qTD DMA}
+\seqmsg{12}{15}{4.6}{CCMP 加密 Data (TK)}
+\seqret{15}{12}{5.4}{OFFER (GTK 加密)}
+\seqret{12}{9}{6.0}{解密 + RXWI → EP4}
+\seqret{9}{6}{6.6}{ehci\_irq → napi\_schedule}
+\seqself{6}{7.0}{rx\_parse → rx\_data 去 CCMP 头}
+\seqret{6}{3}{7.8}{net\_rx\_dev → dhcp\_rx}
+\seqmsg{3}{15}{8.6}{REQUEST（同发送路径）}
+\seqret{15}{3}{9.2}{ACK: 192.168.0.219}
+\seqmsg{3}{15}{10.0}{arp\_request(192.168.0.1)}
+\seqret{15}{3}{10.6}{ARP reply (PTK) → arp\_rx}
+\seqret{3}{0}{11.4}{返回 0}
+\end{tikzpicture}
+\caption{DHCP 与 ARP}
+\end{figure}
+
+\section{函数调用链与日志对照}
+
+\subsection{驱动注册与 probe}
+\begin{code}
+do_initcalls()
+ |- mt7601u_driver_init() -> usb_register_driver(&mt7601u_driver)   id_table 148f:7601...
+ `- ehci_probe("s5p-ehci") -> kthread ehci_enum_thread()
+     |- ehci_start(): host_phy_init(), INSNREG01=0x800080, RUN, ASE
+     `- root_ports()               "ehci: port 0: high-speed device connected"
+         `- enumerate(HS,0,0)      "ehci: high-speed device 424:2514 class 9 at address 1"
+             `- hub_ports()        "ehci: hub 1: 4 ports"
+                 `- enumerate(HS,1,3)
+                      "ehci: high-speed device 148f:7601 class 255 at address 2"
+                     |- parse_config()  "ehci:   bulk in 4,5/512 out 8/512 intr in 0"
+                     `- usb_device_register() -> usb_match() -> usb_probe()
+                         `- mt7601u_probe()   (见下)
+
+mt7601u_probe(udev)
+ |- mt7601u_read32() -> ops->control -> ehci_usb_control -> control_qh
+ |        "mt7601u: USB device 148f:7601 ASIC=76010001 MAC=76010500"
+ |- mt7601u_validate_firmware() -> request_firmware -> FAT32 /mt7601u.bin
+ |        "mt7601u: firmware v0.1.0 build=7640 size=45412 validated"
+ |- mt7601u_load_firmware() -> dma_fw_range() -> dma_fw_chunk()
+ |   `- ops->bulk(EP8) -> ehci_usb_bulk -> bulk_qh -> qh_append -> wait_qtd
+ |        "mt7601u: ILM firmware upload 14336/45316" ... "MCU firmware running"
+ |- mt7601u_read_eeprom() -> efuse_read_block()
+ |        "mt7601u: permanent mac=90:de:80:14:95:94"
+ |- basic_hw_init() / mcu_channel_init() / full_hw_init() -> calibrate()
+ |        "mt7601u: RF calibration complete; bulk endpoints ready"
+ |- set_channel(1), netif_napi_add(), init_delayed_work(state_work)
+ |- ehci_usb_bulk_rx_arm(EP4) x4
+ `- queue_delayed_work(state_work, 50)
+          "mt7601u: transport and MCU ready; SoftMAC initialization pending"
+\end{code}
+
+\subsection{接收路径}
+\begin{code}
+EHCI 完成 EP4 IN qTD (IOC)
+ `- IRQ 55 -> VIC -> ehci_irq()                         清 USBSTS
+     `- mt7601u_rx_irq() -> napi_schedule() -> queue_work(mt7601u_wq)
+        ... 工作队列线程 ...
+        napi_workfn() -> mt7601u_napi_poll(budget)
+         `- mt7601u_service(1, 0)
+             |- ops->bulk_rx_complete(EP4) = ehci_usb_bulk_rx_complete
+             |- mt7601u_rx_parse(buf, len)               逐段：DMA 长度 + RXWI
+             |   |- 管理帧 -> mt7601u_rx_mgmt()          Beacon / Auth / Assoc resp
+             |   `- 数据帧 -> mt7601u_rx_data(frame, len, rxinfo)
+             |        |- Protected 且 DECRYPT -> 跳过 CCMP 头 8 字节
+             |        |- type 0x888e -> mt7601u_rx_eapol()   M1 / M3
+             |        `- 其他 -> 组成 Ethernet 帧放入 dev->net_rx
+             |- ops->bulk_rx_arm(EP4, 同一缓冲)          重新挂回接收环
+             `- net_rx_dev(&wlan0) -> arp_rx / icmp_rx / dhcp_rx / udp_rx
+                    "arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14"
+\end{code}
+
+\subsection{连接：系统调用与状态机}
+\begin{code}
+init -> fork -> exec /bin/wifi (读 /etc/wifi.conf)
+ `- wifi_connect(ssid, psk)   [usys.S: r7=SYS_wifi_connect; svc 0]
+     `- sys_wifi_connect()                          "wifi: connecting to TP-Link_B114"
+         `- mt7601u_connect(ssid, psk, 30000)
+             |- wpa_pbkdf2(psk, ssid, pmk)
+             |- link_state=SCAN; mod_delayed_work()  "mt7601u: joining TP-Link_B114"
+             `- sleep(&ticks) until handshake_done
+
+arm32_timer_tick -> workqueue_timer_tick -> state_work 到期
+ `- mt7601u_state_worker() -> mt7601u_service(0, 1)
+     |- SCAN 超时  -> mt7601u_set_channel(next)
+     |- AUTH_PENDING  -> send_auth -> tx_mgmt -> tx_raw(wcid 0xff, WIV)
+     |                                   "mt7601u: authentication request sent"
+     `- ASSOC_PENDING -> send_assoc -> tx_mgmt -> tx_raw
+                                         "mt7601u: association request sent rsn=22 bytes"
+mt7601u_rx_mgmt():
+ |- Beacon SSID 匹配  "mt7601u: target TP-Link_B114 found bssid=f0:9:d:cb:b1:14 channel=9 WPA2"
+ |- Auth seq2 ok      "mt7601u: Open-System authentication accepted"
+ `- Assoc resp ok     "mt7601u: 802.11 associated aid=1; WPA2 handshake pending"
+mt7601u_rx_eapol():
+ |- M1: wpa_make_snonce, wpa_derive_ptk   "mt7601u: received WPA2 EAPOL M1 key-info=8a"
+ |   `- send_m2 -> wpa_eapol_mic -> send_llc(0x888e, enc=0) -> tx_raw(WCID 1, WIV)
+ |                                         "mt7601u: sent WPA2 EAPOL M2 replay=0001"
+ `- M3: 校验 MIC -> wpa_aes_unwrap(KEK) -> GTK
+     |- install_ccmp_keys()   TK->0x8000+32, IV->0xA000+8, attr->0xA800+4, GTK->0xAC00
+     |- send_m4 -> send_llc(enc=1)          "mt7601u: sent WPA2 EAPOL M4"
+     `- handshake_done=1                    "mt7601u: WPA2 four-way handshake complete"
+mt7601u_service -> register_netdev(&wlan0)  "mt7601u: wlan0 registered mac=90:de:80:14:95:94"
+mt7601u_connect 返回 0                      "wifi: associated"
+\end{code}
+
+\subsection{发送路径（DHCP）}
+\begin{code}
+init -> /bin/dhcp wlan0
+ `- net_dhcp("wlan0") -> sys_net_dhcp -> netdev_find -> net_dhcp_dev(dev)
+     `- dhcp_send(DISCOVER)
+         `- netdev_xmit_on(dev, frame, 342) -> ops->start_xmit = mt7601u_net_xmit()
+             `- mt7601u_send_llc(ff:ff.., 0x0800, enc=1)        FC=0x4108
+                 `- mt7601u_tx_raw(frame, n, MT_WCID_AP, hw_iv=1)  无 WIV -> 硬件 CCMP
+                     |- ops->bulk(EP8) -> ehci_usb_bulk -> bulk_qh -> qh_append -> wait_qtd(3 s)
+                     `- mt7601u_tx_stat_drain()
+                     "mt7601u: data tx type=800 len=342 dst=ff:ff:ff:ff:ff:ff -> 0"
+ OFFER (接收路径)    "mt7601u: data rx fc=4208 len=616 rxinfo=1520e2 a1=ff:ff:ff:ff:ff:ff"
+ REQUEST -> ACK      "dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1"
+ arp_request(gw)     "mt7601u: data tx type=806 len=42 dst=ff:ff:ff:ff:ff:ff -> 0"
+ arp_rx(reply)       "mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94"
+                     "arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14"
+\end{code}
+
+\subsection{完整实板日志（成功的一次）}
+\begin{logv}
+mt7601u: firmware v0.1.0 build=7640 size=45412 validated
+mt7601u: ILM firmware upload 14336/45316
+mt7601u: ILM firmware upload 45316/45316
+mt7601u: MCU firmware running
+mt7601u: EEPROM ver=d fae=0 country=ff freq=96 rssi=0,0 temp=-7 lna=0
+mt7601u: permanent mac=90:de:80:14:95:94
+mt7601u: MAC/BBP/RF bootstrap ready; rx-ep=4 data, 5 MCU
+mt7601u: MCU command channel ready tx-ep=8 resp-ep=5
+mt7601u: MAC register table initialized (44 entries)
+mt7601u: BBP register table initialized (59 entries)
+mt7601u: RF register table initialized (138 entries)
+mt7601u: RF calibration complete; bulk endpoints ready
+mt7601u: transport and MCU ready; SoftMAC initialization pending
+mt7601u: joining TP-Link_B114
+mt7601u: target TP-Link_B114 found bssid=f0:9:d:cb:b1:14 channel=9 WPA2
+mt7601u: authentication request sent
+mt7601u: Open-System authentication accepted
+mt7601u: association request sent rsn=22 bytes
+mt7601u: 802.11 associated aid=1; WPA2 handshake pending
+mt7601u: received WPA2 EAPOL M1 key-info=8a
+mt7601u: sent WPA2 EAPOL M2 replay=0001
+mt7601u: sent WPA2 EAPOL M4
+mt7601u: WPA2 four-way handshake complete
+mt7601u: wlan0 registered mac=90:de:80:14:95:94
+wifi: associated
+mt7601u: data tx type=800 len=342 dst=ff:ff:ff:ff:ff:ff -> 0
+mt7601u: rx so far: usb buffers 244, frames 244 (mgmt 236 data 8), dropped 0
+mt7601u: data rx fc=4208 len=616 rxinfo=1520e2 a1=ff:ff:ff:ff:ff:ff
+dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1
+mt7601u: data tx type=806 len=42 dst=ff:ff:ff:ff:ff:ff -> 0
+arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14
+mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94
+\end{logv}
+
+日志字段：\fn{key-info=8a} 即 0x008a = 版本 2 + Pairwise + ACK（M1）；\fn{fc=4208} = Data+FromDS+Protected，
+\fn{6208} 多 More Data，\fn{4a08} 多 Retry；\fn{rxinfo=1520e2} 的 bit16 DECRYPT=1；
+\fn{dropped 0} 表示没有 CRC/ICV/MIC 错误帧；\fn{-> 0} 表示 EP8 bulk OUT 整帧送达。
+
+\section{实板调试中的问题与所在层}\label{sec:bugs}
+
+\begin{longtable}{p{14mm}p{40mm}p{52mm}p{42mm}}
+\toprule
+层 & 现象 & 根因 & 修复 \\ \midrule \endhead
+HCD & 固件下载 \fn{bulk ep8 out 14344 bytes failed}，qTD 0xa0 & CPU 不开 cache 占满 DDR，EHCI 默认阈值下发包欠载 & INSNREG01=0x800080 + 开 I-cache（f9bfbc6） \\
+内核定时 & 扫描停在信道 1，30 s 无握手 & ARM32 时钟中断未调 \fn{workqueue\_timer\_tick()} & 在 \fn{arm32\_timer\_tick} 中调用（0bd029e） \\
+HCD & 握手后 EP8 永远 NAK & \fn{qh\_flush} 清零 data toggle，设备把新包当重传丢弃 & 保留 \fn{TOK\_DT}（f649f28） \\
+设备驱动 & 改 EP 0x09 后首帧即 NAK & OUT\#5 在本驱动初始化方式下不可用 & 回 EP 0x08 + 读空 TX 状态 FIFO（5ac8c59） \\
+802.11 & 握手成功但 \fn{dhcp: no offer} & 硬件解密后仍保留 Protected 位和 8 字节 CCMP 头，LLC 校验失败 & DECRYPT 时跳过 8 字节（b2326c2）→ DHCP 成功 \\
+\bottomrule
+\end{longtable}
+
+尚未完成：实板 ping 外网确认；去掉或开关化 \fn{data tx}、\fn{data rx}、\fn{rx so far}、\fn{rx drop} 调试打印。
+
+\end{document}
