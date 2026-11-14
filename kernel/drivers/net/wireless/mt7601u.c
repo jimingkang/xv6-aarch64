@@ -233,6 +233,7 @@ struct mt7601u_device {
   uint8 mcu_seq;
   int endpoints_ready;
   uint32 rx_frames;
+  uint32 rx_mgmt, rx_datafr, rx_urbs;   // bring-up counters
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
@@ -1401,10 +1402,13 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
       }
     } else {
       dev->rx_frames++;
-      if(((mt_get16(frame) >> 2) & 3) == 0)
+      if(((mt_get16(frame) >> 2) & 3) == 0){
+        dev->rx_mgmt++;
         mt7601u_rx_mgmt(dev, frame, mpdu_len);
-      else
+      } else {
+        dev->rx_datafr++;
         mt7601u_rx_data(dev, frame, mpdu_len, rxinfo);
+      }
     }
     offset += segment_len;
   }
@@ -1427,6 +1431,7 @@ mt7601u_service(int service_rx, int service_state)
                                             dev->udev->bulk_in_ep,
                                             &rx_data);
     if(got >= 0){
+      dev->rx_urbs++;
       rx_done = 1;
       if(got > 0)
         mt7601u_rx_parse(dev, rx_data, got);
@@ -1630,6 +1635,8 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
     tx_logged++;
     printf("mt7601u: data tx type=%x len=%d dst=%x:%x:%x:%x:%x:%x -> %d\n", type, length,
            ether[0], ether[1], ether[2], ether[3], ether[4], ether[5], result);
+    printf("mt7601u: rx so far: usb buffers %d, frames %d (mgmt %d data %d), dropped %d\n",
+           dev->rx_urbs, dev->rx_frames, dev->rx_mgmt, dev->rx_datafr, dev->rx_bad);
   }
   return result;
 }
