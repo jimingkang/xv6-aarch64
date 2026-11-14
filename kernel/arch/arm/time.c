@@ -5,6 +5,9 @@
 #include "kernel/spinlock.h"
 #include "kernel/defs.h"
 #include "kernel/arch/arm/time.h"
+#ifdef XV6_HAVE_NET
+#include "kernel/workqueue.h"
+#endif
 
 struct spinlock tickslock;
 uint ticks;
@@ -44,5 +47,8 @@ arm32_timer_tick(void)
     release(&tickslock);
   }
   uartintr();
+#ifdef XV6_HAVE_NET
+  workqueue_timer_tick();   // delayed work (jiffies = timer ticks, 10 ms)
+#endif
   sched_tick();
 }
