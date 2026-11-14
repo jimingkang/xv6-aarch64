@@ -76,7 +76,7 @@
 \title{\textbf{Tiny210 MT7601U USB Wi-Fi 驱动架构详解}\\[2mm]
 \large 分层结构 · USB 各层 · 802.11/WPA2 · 网络协议栈 · 调用链与实板日志}
 \author{xv6 Tiny210（S5PV210, ARMv7-A）移植}
-\date{2026 年 11 月}
+\date{2026 年 11 月（第 2 版：结合 rpi3-lock 分支 xv6-book 细化）}
 
 \begin{document}
 \maketitle
@@ -94,6 +94,33 @@ SDK 底板 USB-A Host 口开始，到用 WPA2 连上 TP-Link\_B114 路由器、D
 和 Linux 一样，整个链路按“谁只关心哪一层”切开：用户态只看到“连接 / DHCP / ping”；
 \fn{net.c} 只看到一个能收发 Ethernet 帧的 \fn{wlan0}；\fn{mt7601u.c} 把 Ethernet 帧
 翻译成 802.11 帧并管理连接状态；\fn{ehci-hcd.c} 只负责把字节按 USB 协议搬到设备的某个端点。
+
+\section{与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}\label{sec:rpi}
+
+rpi3-lock 分支的 xv6-book 第 7 章“USB 无线网卡：MT7601U”记录了同一颗网卡在树莓派 3B 上的驱动。
+Tiny210 的 \fn{mt7601u.c} 就是从那份驱动移植过来的：802.11 状态机、WPA2 密码学和 TXWI/RXWI 格式完全相同，
+不同的是下面的 USB 主机控制器、Hub、中断控制器和几处后来才修好的细节。
+
+\begin{longtable}{p{26mm}p{60mm}p{62mm}}
+\toprule
+项目 & RPi3（xv6-book） & Tiny210（本文） \\ \midrule \endhead
+CPU / 架构 & BCM2837，Cortex-A53，AArch64 & S5PV210，Cortex-A8，ARMv7-A（ARM32） \\
+USB 主机控制器 & Synopsys DWC2（OTG 控制器做主机），按“主机通道”（channel）调度 & 标准 EHCI（USB-A Host 口），按 QH/qTD 链表调度 \\
+端点到硬件的映射 & 端点固定绑定主机通道：ch0 控制，ch3 同步 bulk IN，ch4 异步 bulk IN（EP4×4 + EP5×1），ch5 bulk OUT & 每个端点一个 QH，挂在同一个异步环上；EP4 QH 下排 4 个 qTD \\
+板上 Hub & SMSC LAN9514（带以太网），网卡在端口 4，地址 3 & SMSC USB2514（纯 Hub），网卡在端口 3，地址 2 \\
+DMA 地址 & 总线地址要加 0xC0000000 别名 & 物理地址 = 虚拟地址，D-cache 关闭，不需要 cache 维护 \\
+中断控制器 & BCM2836 本地中断 + BCM2835 ARMCTRL & 4 个 PL192 VIC，EHCI 是 IRQ 55（VIC1 bit 23） \\
+probe 时机 & \fn{main()} 里同步执行，中断未开，等 EP5 应答时要同步读空 EP4 & 在 \fn{ehci-enum} 内核线程里执行，中断已开 \\
+换信道 & MCU 命令 \fn{RANDOM\_WRITE}（12 号）写 RF R17--R20 & 主机直接写 \fn{RF\_CSR\_CFG}（0x0500）间接端口 \\
+校准 & R、TXDCOC、BW×2、LOFT、TXIQ、RXIQ、DPD 共 8 条 + RXDC & R、TXDCOC、LOFT、TXIQ、RXIQ、DPD 共 6 条 \\
+接收队列 & 8 帧环形队列，锁外交付 & 单槽 \fn{net\_rx}，一个聚合包里多帧时只交付第一帧（待改进） \\
+deauth 处理 & 收到解除认证/关联后自动重连 & 尚未处理 \\
+网卡名 & \fn{wlan1}（\fn{wlan0} 是板载 BCM43455） & \fn{wlan0}（唯一的无线网卡） \\
+SSID/口令 & 早期写死在驱动里 & 来自 \fn{/etc/wifi.conf} → \fn{wifi\_connect()}；关联请求里残留的写死 SSID 已在本次修正 \\
+\bottomrule
+\end{longtable}
+
+两个版本最终的结果一样：DHCP 拿到 192.168.0.219、网关 192.168.0.1，ARP 解析出网关。
 
 \section{总体分层}
 
@@ -187,6 +214,84 @@ EP0 & control & 厂商请求：读写 32 位寄存器、eFuse、FCE 固件 DMA �
 \caption{MT7601U USB 端点（日志 \fn{bulk in 4,5/512 out 8/512}）}
 \end{table}
 
+\subsection{SoC 内部：USB Host 子系统}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.85,transform shape]
+\node[box=tblue] (cpu) at (0,0.7) {Cortex-A8\\I-cache 开 / D-cache 关};
+\node[box=tblue] (dmc) at (0,-3.0) {DMC0\\DDR2 0x20000000};
+\node[draw=tgray,fill=tgray!10,minimum width=8mm,minimum height=70mm,align=center] (bus) at (2.9,-1.1) {A\\X\\I\\/\\A\\H\\B};
+\node[box=tblue] (ehci) at (6.8,1.6) {EHCI 0xEC200000\\INSNREG cap+0x90/0x94};
+\node[box=tgray] (ohci) at (6.8,-0.2) {OHCI 0xEC300000\\全/低速，未用};
+\node[box=tblue] (vic) at (6.8,-2.0) {VIC1 0xF2100000\\IRQ 55 = VIC1 bit 23};
+\node[box=tamber] (clk) at (6.8,-4.0) {CMU：CLK\_GATE\_IP1\\0xE0100464 bit17\\USBHOST 时钟};
+\node[box=tred] (phy) at (13.4,0.7) {USB PHY 控制器\\0xEC100000\\UPHYPWR/UPHYCLK/URSTCON};
+\node[box=tamber] (pmu) at (13.4,-1.9) {PMU：USB\_PHY\_CONTROL\\0xE010E80C bit1\\PHY1 去隔离};
+\node[box=tred] (port) at (17.9,0.7) {PHY1\\D+/D-};
+\draw[darr] (cpu.east) -- (cpu.east -| bus.west);
+\draw[darr] (dmc.east) -- (dmc.east -| bus.west);
+\draw[darr] (bus.east |- ehci.west) -- node[lbl,above]{寄存器/DMA} (ehci.west);
+\draw[darr] (bus.east |- ohci.west) -- (ohci.west);
+\draw[arr] (vic.west) -- (bus.east |- vic.west);
+\draw[arr] (ehci.east) -- (phy.north west);
+\draw[arr] (ohci.east) -- (phy.south west);
+\draw[arr] ([yshift=-1mm]ehci.south east) -- ++(0.3,0) |- node[lbl,pos=0.3,right]{IRQ 55} (vic.east);
+\draw[arr] (pmu.north) -- (phy.south);
+\draw[darr] (phy) -- (port);
+\end{tikzpicture}
+\caption{S5PV210 内 USB Host 相关模块}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item EHCI 和 OHCI 共用 PHY1。高速设备由 EHCI 接管；全速/低速设备在根端口上要交给 OHCI（\fn{PORT\_OWNER}），
+  xv6 没写 OHCI 驱动，\fn{root\_ports()} 遇到时只打印“left to OHCI”。挂在高速 Hub 后面的全/低速设备则由 EHCI 用 split 事务访问。
+\item 时钟、隔离、上电、复位四个开关分别在 CMU、PMU 和 USB PHY 控制器里，都由 \fn{host\_phy\_init()} 打开（见 \ref{sec:phy}）。
+\item EHCI 是 AHB 主设备，自己读写 DDR 里的 QH/qTD 和数据缓冲；CPU 不开 D-cache，所以 EHCI 看到的内存就是 CPU 写的内存，
+  不需要 clean/invalidate。代价是 CPU 访存很慢，和 EHCI 抢 DDR 带宽（第 \ref{sec:bugs} 节的欠载问题）。
+\end{itemize}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+资源 & 值 & 在哪里用 \\ \midrule
+EHCI 寄存器 & 0xEC200000（1 MiB 段映射） & \fn{devices.c} 资源 0，\fn{ehci\_probe} \\
+EHCI 中断 & IRQ 55（VIC1 bit 23） & \fn{request\_irq(55, ehci\_irq)} \\
+USB PHY 控制器 & 0xEC100000 & \fn{host\_phy\_init} \\
+CLK\_GATE\_IP1 & 0xE0100464 bit17（USBHOST） & \fn{host\_phy\_init} \\
+USB\_PHY\_CONTROL & 0xE010E80C bit1（PHY1 去隔离） & \fn{host\_phy\_init} \\
+PHY 参考时钟 & 24 MHz（UPHYCLK = 3） & \fn{host\_phy\_init} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{板上：USB2514 Hub 与 USB-A 口}
+
+Tiny210 SDK 底板把 SoC 唯一的 Host 口接到一颗 SMSC USB2514（VID:PID 0424:2514，4 口高速 Hub），
+Hub 的 4 个下行口引到底板的 USB-A 插座，网卡插在下行口 3。Hub 自己是一个 USB 设备（类 9），
+所以枚举是两级的：先给 Hub 分配地址 1，再通过 Hub 的类请求逐口上电、复位，给网卡分配地址 2。
+VBUS 5 V 由底板电源经 Hub 的端口电源开关供给，xv6 不需要控制 GPIO（\fn{SET\_FEATURE(PORT\_POWER)} 由 Hub 执行）。
+
+Hub 和网卡都是高速设备，所以主机到网卡的包在 Hub 里只是转发（repeater），不经过事务转换器（TT），
+QH 的 \fn{epcap} 里不填 Hub 地址/端口。只有全/低速设备插在 Hub 后面时，\fn{qh\_create} 才填 split 目标。
+
+\subsection{电气与链路层：480 Mbit/s 上传的是什么}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{信号}：D+/D- 差分，高速模式 400 mV 摆幅、45 Ω 端接；比特用 NRZI 编码（0 = 翻转，1 = 不变），连续 6 个 1 后插一个 0（bit stuffing）。
+\item \textbf{包}：每个包以 32 位 SYNC 开头，8 位 PID（4 位 + 反码），然后是地址/数据和 CRC，最后 EOP。
+\item \textbf{速度协商（chirp）}：端口复位期间设备发 Chirp K，Hub/主机回 KJKJKJ，双方切到高速。
+  \fn{root\_ports()} 复位 50 ms 后看 \fn{PORTSC.PE}：EHCI 只有在高速握手成功时才置“端口使能”，所以 PE=1 就意味着高速设备；
+  Hub 后面的设备由端口状态 bit10（高速）/bit9（低速）区分，\fn{hub\_ports()} 读的就是这两位。
+\item \textbf{时间片}：高速以 125 µs 的微帧（microframe）为单位，每微帧开头主机发 SOF；一个微帧里最多可以跑 13 个 512 字节的 bulk 包。
+\end{itemize}
+
+\subsection{空口：网卡到路由器}
+
+MT7601U 是 1T1R 的 2.4 GHz 802.11b/g/n 芯片。TP-Link\_B114 在信道 9（中心频率 2452 MHz，20 MHz 带宽）。
+本驱动发出的所有帧都用 CCK 1 Mbit/s（TXWI \fn{rate\_ctl = 0}），这是最稳、但最慢的速率；接收方向芯片按 AP 实际使用的速率解调。
+ACK、重传、FCS（帧尾 4 字节 CRC-32）都由芯片硬件完成，主机看不到。
+
 \section{软件架构}
 
 \begin{figure}[H]
@@ -258,7 +363,7 @@ EHCI 中断（IRQ 55） & \fn{ehci\_irq} 清 USBSTS，调用 \fn{mt7601u\_rx\_ir
 \caption{USB 软件分层}
 \end{figure}
 
-\subsection{平台层：PHY 与控制器启动}
+\subsection{平台层：PHY 与控制器启动}\label{sec:phy}
 
 \fn{host\_phy\_init()}（参考 Linux \fn{phy-s5pv210-usb2.c}）：\fn{CLK\_GATE\_IP1}(0xE0100464) bit17 打开 USBHOST 时钟；
 \fn{USB\_PHY\_CONTROL}(0xE010E80C) bit1 解除 PHY1 隔离；PHY 寄存器块 0xEC100000 中 \fn{UPHYCLK} 选 24 MHz，
@@ -289,6 +394,214 @@ EHCI 异步调度是一个 QH（每端点一个）组成的环，每个 QH 下�
 \item \fn{ehci\_irq}：USBSTS 的 USBINT/ERR 置位时调弱符号 \fn{mt7601u\_rx\_irq()}。
 \end{itemize}
 
+\subsection{总线上的包与事务}
+
+USB 总线上被调度的最小单位是\textbf{事务}：主机发 Token 包声明“对哪个设备的哪个端点做什么”，接着是可选的 Data 包，
+最后由接收方回 Handshake 包。主机发起一切，设备只能应答。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+\def\pk#1#2#3#4{\node[draw,fill=#4!14,minimum height=8mm,minimum width=#2mm,anchor=west,align=center] at (#1mm,0) {#3};}
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Token};
+\pk{0}{14}{SYNC}{tgray}\pk{14}{24}{PID\\OUT/IN/SETUP/PING}{tamber}\pk{38}{26}{ADDR 7 位\\ENDP 4 位}{tblue}\pk{64}{12}{CRC5}{tgreen}\pk{76}{10}{EOP}{tred}
+\begin{scope}[yshift=-11mm]
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Data};
+\pk{0}{14}{SYNC}{tgray}\pk{14}{24}{PID\\DATA0/DATA1}{tamber}\pk{38}{50}{负载 0--512 B（高速 bulk）}{tblue}\pk{88}{14}{CRC16}{tgreen}\pk{102}{10}{EOP}{tred}
+\end{scope}
+\begin{scope}[yshift=-22mm]
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Handshake};
+\pk{0}{14}{SYNC}{tgray}\pk{14}{50}{PID：ACK / NAK / NYET / STALL}{tamber}\pk{64}{10}{EOP}{tred}
+\end{scope}
+\end{tikzpicture}
+\caption{USB 三种包（PID 本身带反码，所以不需要另加 CRC）}
+\end{figure}
+
+\begin{longtable}{p{20mm}p{24mm}p{100mm}}
+\toprule
+类别 & PID & 含义与本驱动中的位置 \\ \midrule \endhead
+Token & SETUP & 只用于 EP0，开始一次控制传输（枚举、MT7601U 寄存器读写） \\
+Token & OUT & 主机写端点：EP0 的数据/状态阶段，EP8 的固件、MCU 命令和 802.11 帧 \\
+Token & IN & 主机读端点：EP0 的数据阶段，EP4 接收帧，EP5 MCU 应答 \\
+Token & PING & 只用于高速 bulk/控制 OUT：先问端点有没有空间，再发数据。EHCI 在 qTD 的 Ping 状态位里自动处理 \\
+Data & DATA0 / DATA1 & 交替使用（data toggle），接收方据此识别重传的重复包。SETUP 恒为 DATA0 \\
+Handshake & ACK & 正确收到 \\
+Handshake & NAK & 暂时不能收/没有数据。是流控不是错误：EP4 空闲时设备对每个 IN 回 NAK，EHCI 按 QH 的 NAK reload 计数自动重试 \\
+Handshake & NYET & 高速 OUT：这个包收下了但下一个可能放不下，主机下一次先 PING \\
+Handshake & STALL & 端点出错停住，要软件 \fn{CLEAR\_FEATURE(HALT)}；qTD 上表现为 Halted \\
+\bottomrule
+\end{longtable}
+
+四种传输类型里本驱动用了两种：\textbf{控制传输}（EP0，可靠、双向、有 SETUP 阶段）和 \textbf{bulk 传输}（EP4/5/8，可靠、无时限、只用剩余带宽）。
+中断传输只在 Hub 的状态端点上有（xv6 不轮询它，没做热插拔），等时传输没用。
+
+\subsection{EHCI 数据结构：QH 与 qTD}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,scale=0.95,transform shape]
+\node[box=tgray,text width=25mm] (h) at (0,0) {head\_qh\\H=1，halted\\指向自己};
+\node[box=tblue,text width=25mm] (q1) at (3.6,0) {QH 地址1 EP0\\(USB2514)};
+\node[box=tblue,text width=25mm] (q2) at (7.2,0) {QH 地址2 EP0\\(MT7601U)};
+\node[box=tblue,text width=25mm] (q3) at (10.8,0) {QH 地址2\\EP4 IN};
+\node[box=tblue,text width=25mm] (q4) at (14.4,0) {QH 地址2\\EP8 OUT / EP5 IN};
+\draw[arr] (h) -- (q1);
+\draw[arr] (q1) -- (q2); \draw[arr] (q2) -- (q3); \draw[arr] (q3) -- (q4);
+\draw[arr] (q4.north) -- ++(0,0.5) -| node[lbl,pos=0.25]{horiz（异步环）} (h.north);
+\node[box=tgreen,text width=25mm] (t1) at (10.8,-1.8) {qTD 16 KiB\\Active, IOC};
+\node[box=tgreen,text width=25mm] (t2) at (10.8,-3.3) {qTD 16 KiB};
+\node[box=tgreen,text width=25mm] (t3) at (10.8,-4.8) {qTD 16 KiB};
+\node[box=tgreen,text width=25mm] (t4) at (10.8,-6.3) {qTD 16 KiB};
+\node[box=tgray,text width=25mm] (t5) at (10.8,-7.8) {dummy qTD\\不活动};
+\draw[arr] (q3) -- node[lbl,right]{next} (t1); \draw[arr] (t1) -- (t2); \draw[arr] (t2) -- (t3); \draw[arr] (t3) -- (t4); \draw[arr] (t4) -- (t5);
+\node[box=tgreen,text width=25mm] (o1) at (14.4,-1.8) {qTD OUT\\388 B（DHCP）};
+\node[box=tgray,text width=25mm] (o2) at (14.4,-3.3) {dummy};
+\draw[arr] (q4) -- (o1); \draw[arr] (o1) -- (o2);
+\node[box=tgreen,text width=25mm] (c1) at (7.2,-1.8) {SETUP 8 B};
+\node[box=tgreen,text width=25mm] (c2) at (7.2,-3.3) {DATA IN 4 B};
+\node[box=tgreen,text width=25mm] (c3) at (7.2,-4.8) {STATUS OUT 0 B, IOC};
+\node[box=tgray,text width=25mm] (c4) at (7.2,-6.3) {dummy};
+\draw[arr] (q2) -- (c1); \draw[arr] (c1) -- (c2); \draw[arr] (c2) -- (c3); \draw[arr] (c3) -- (c4);
+\end{tikzpicture}
+\caption{异步调度环：每个端点一个 QH，传输是挂在 QH 下的 qTD 链（图中为一次寄存器读和 EP4 的 4 个接收缓冲）}
+\end{figure}
+
+\begin{longtable}{p{14mm}p{30mm}p{104mm}}
+\toprule
+QH 字 & 字段 & 本驱动填的值（\fn{qh\_create}） \\ \midrule \endhead
+0 & horiz & 下一个 QH 的物理地址 | Typ=QH(bit1)。新 QH 插在 head\_qh 后面，一次对齐写完成发布 \\
+1 & epchar & [6:0] 设备地址；[11:8] 端点号；[13:12] 速度（2=高速）；[14] DTC（控制端点=1：toggle 取自 qTD）；[15] H（只有 head\_qh 置位）；[26:16] 最大包长（512 / EP0 64）；[27] 全/低速控制端点；[31:28] NAK 重载计数 8 \\
+2 & epcap & [22:16] Hub 地址、[29:23] Hub 端口（仅 split）；[31:30] Mult=1 \\
+3 & cur & 当前 qTD，HC 写 \\
+4--11 & overlay & HC 正在执行的 qTD 副本：next、alt、token、buf[0..4] \\
+12--16 & buf\_hi & 64 位扩展，HC 会回写，所以软件字段必须放在它后面 \\
+\bottomrule
+\end{longtable}
+
+\begin{longtable}{p{14mm}p{30mm}p{104mm}}
+\toprule
+token 位 & 名称 & 含义 \\ \midrule \endhead
+7 & Active & 1=交给 HC 执行；HC 完成后清零。\fn{wait\_qtd} 就是轮询这一位 \\
+6 & Halted & 出错停止（STALL、错误计数耗尽、babble），整个 QH 停住 \\
+5 & Data Buffer Error & 内存读写跟不上总线（欠载/溢出）。实板固件下载失败时就是 0xa0 = Active+这一位 \\
+4 / 3 / 2 & Babble / XactErr / Missed µframe & 设备多发、CRC/超时、split 错过微帧 \\
+0 & Ping state & 高速 OUT 处于 PING 状态 \\
+9:8 & PID & 0 OUT，1 IN，2 SETUP \\
+11:10 & CERR & 错误重试次数，填 3 \\
+15 & IOC & 完成时置 USBSTS.USBINT，产生中断 \\
+30:16 & Total Bytes & 要传的字节数；完成后剩余数，实际长度 = length − TOK\_LEFT \\
+31 & DT & data toggle \\
+\bottomrule
+\end{longtable}
+
+每个 qTD 有 5 个页指针，覆盖最多 5 个 4 KiB 页；\fn{qtd\_fill} 按缓冲起始页内偏移算出能放下的长度（≥ 16 KiB），所以一个 16 KiB 的接收缓冲或一块 14 KiB 的固件都只要一个 qTD。
+
+\subsection{EHCI 怎样执行异步调度}
+
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item \fn{USBCMD.ASE=1} 后，HC 从 \fn{ASYNCLIST} 指向的 head\_qh 开始，沿 \fn{horiz} 一圈圈地走 QH。
+\item 对每个 QH，看 overlay 的 token：不活动就沿 \fn{next} 取下一个 qTD 装进 overlay；活动就执行一次事务（IN/OUT/SETUP，按最大包长切包）。
+\item 设备回 NAK：HC 把 NAK 计数减一，计数用完就跳到下一个 QH，下一圈再试。所以 EP4 上挂着接收缓冲但没数据时，HC 会一直对 EP4 发 IN 并收到 NAK，不占 CPU。
+\item 一个 qTD 传完（或 IN 方向收到短包，长度不足 512）：HC 把 token 写回内存，清 Active，若有 IOC 则在当前微帧结束时置 \fn{USBSTS.USBINT}。
+\item 出错且 CERR 减到 0：置 Halted 和对应错误位，置 \fn{USBSTS.ERR}，这个 QH 停在原地，直到软件修复。
+\end{enumerate}
+
+\fn{qh\_append} 用 Linux 的 dummy 法追加传输：HC 永远停在一个不活动的 dummy qTD 上；追加时把新传输第一个 qTD 的内容复制进这个 dummy，
+在尾巴上接一个新 dummy，最后才把原 dummy 的 Active 置位。HC 下一次看这个 QH 时就会接着执行，软件不需要停异步调度，
+也就不用 Interrupt-on-Async-Advance 门铃。只有出错修复时才 \fn{async\_stop()} → \fn{qh\_flush()} → \fn{async\_start()}。
+
+\subsection{控制传输：MT7601U 的寄存器读写}
+
+控制传输由 3 个 qTD 组成（\fn{control\_qh}）：SETUP（8 字节，DATA0）→ 可选的 DATA（DATA1）→ 方向相反的 0 字节 STATUS（DATA1，IOC）。
+EP0 的 QH 置了 DTC，所以 toggle 来自每个 qTD 的 DT 位。读数据先落在对齐的 \fn{ctrl\_buf} 里再拷给调用者。
+MT7601U 的寄存器全靠厂商请求访问：
+
+\begin{table}[H]\centering\small
+\begin{tabular}{p{44mm}p{20mm}p{26mm}p{26mm}p{18mm}}
+\toprule
+操作 & bmRequest\-Type & bRequest & wValue & wIndex \\ \midrule
+读 32 位寄存器（DATA IN 4 B） & 0xC0 & 7 MULTI\_READ & 0 & 地址 \\
+写 32 位寄存器（\fn{write32\_req}） & 0x40 & 2 WRITE & 值低 16 位 / 高 16 位 & 地址 / 地址+2 \\
+写 FCE 寄存器（固件 DMA） & 0x40 & 0x42 WRITE\_FCE & 值 & 地址 \\
+复位 / 启动 MCU & 0x40 & 1 DEV\_MODE & 模式 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+以 probe 第一行日志 \fn{ASIC=76010001} 为例，总线上是：
+\begin{code}
+SETUP 事务:  SETUP(addr 2, EP0) | DATA0 C0 07 00 00 00 00 04 00 | ACK
+DATA  事务:  IN(addr 2, EP0)    | DATA1 01 00 01 76             | ACK     -> 0x76010001（小端）
+STATUS事务:  OUT(addr 2, EP0)   | DATA1 （0 字节）              | ACK
+\end{code}
+BBP 和 RF 寄存器不能直接寻址：要把“寄存器号 + 值 + 写位 + 忙位/KICK”写进 \fn{BBP\_CSR\_CFG}(0x101c) 或 \fn{RF\_CSR\_CFG}(0x0500)，
+再轮询忙位清零（\fn{mt7601u\_bbp\_write}、\fn{mt7601u\_rf\_write}）。一个 RF 写要 4--6 次控制传输，RF 表 138 项就是七八百次。
+
+\subsection{Bulk OUT：一帧怎样从内存到网卡}
+
+以 DHCP DISCOVER 为例（日志 \fn{data tx type=800 len=342}）：
+
+\begin{code}
+Ethernet 帧 342 B = 14 B 以太头 + 328 B (IP+UDP+BOOTP)
+802.11 MPDU = 24 B 头 + 8 B LLC/SNAP + 328 B = 360 B            mt7601u_send_llc
+EP8 包     = TXINFO 4 + TXWI 20 + MPDU 360 (+0 填充) + 4 B 0 = 388 B   mt7601u_tx_raw
+qTD        = OUT, 388 B, IOC, CERR 3                            bulk_qh -> qh_append
+总线       = [PING -> ACK] OUT + DATAx 388 B（短包，一个事务）+ ACK
+\end{code}
+
+固件块更大：14336 字节固件 + 首尾 8 字节 = 14344 字节，一个 qTD，在总线上是 28 个 512 字节包加一个 8 字节短包，DATA0/DATA1 交替。
+网卡内部缓冲满时对 OUT 回 NAK/NYET，EHCI 自动 PING 等待；\fn{bulk\_qh} 对 OUT 最多等 3 s（IN 1 s），超时就打印 QH/qTD 现场，
+停异步调度、\fn{qh\_flush}、重启。
+
+\subsection{Bulk IN：EP4 的接收环}
+
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item probe 末尾 \fn{bulk\_rx\_arm(EP4)} ×4：每次 \fn{qtd\_fill} 一个 16 KiB、IN、IOC 的 qTD，\fn{qh\_append} 到 EP4 的 QH。之后不等待。
+\item HC 反复对 EP4 发 IN；网卡没有帧时回 NAK。
+\item 网卡收到空中帧后，USB DMA 把一个或多个“DMA 长度 + RXWI + MPDU + 尾”段聚合成一次 bulk IN（\fn{USB\_DMA\_CFG} 里的聚合上限 0x80、超时 0x20），以短包结束。
+\item HC 写回 qTD token，清 Active，置 USBINT → IRQ 55（第 \ref{sec:irq} 节）。
+\item NAPI 里 \fn{ehci\_usb\_bulk\_rx\_complete} 从 \fn{q->head} 摘下最老的已完成 qTD，返回实际长度和缓冲地址；
+  \fn{mt7601u\_rx\_parse} 拆帧后，同一块缓冲立刻 \fn{bulk\_rx\_arm} 重新挂到队尾。
+\end{enumerate}
+4 个缓冲轮转，HC 处理一个完成的缓冲时，后面 3 个仍在接收，EP4 不会因为 CPU 没来得及处理而停。
+
+\subsection{MCU 命令与 EP5}
+
+MCU 命令和固件一样走 EP8，靠 TXINFO 区分（\fn{mt7601u\_mcu\_command}）：
+\begin{code}
+TXINFO = bit30 命令 | (2 << 27) 端口 CPU_TX | (cmd << 20) | (seq << 16) | 载荷长度
+例：FUN_SET(Q_SELECT=1)   cmd 1，不要应答 —— 此后应答从 EP5 送出
+    CALIBRATE(id, 0)      cmd 31，seq 1..15，在 EP5 上同步 bulk IN 等 16 B 应答，
+                          核对应答的 seq（bit16-19）和事件类型（bit20-23 = 0）
+\end{code}
+
+\subsection{枚举请求序列}
+
+\begin{longtable}{p{6mm}>{\raggedright\arraybackslash}p{72mm}>{\raggedright\arraybackslash}p{66mm}}
+\toprule
+\# & 请求（bmRequestType/bRequest） & 作用 \\ \midrule \endhead
+1 & 根端口复位 50 ms，看 PORTSC.PE & 高速握手成功 \\
+2 & 80/06 GET\_DESCRIPTOR(设备, 8 B) @地址 0 & 拿 bMaxPacketSize0 \\
+3 & 00/05 SET\_ADDRESS(1) & Hub 得到地址 1，之后用新 EP0 QH \\
+4 & 80/06 设备描述符 18 B，配置描述符 9 B 再全长 & VID:PID 0424:2514，类 9 \\
+5 & 00/09 SET\_CONFIGURATION & Hub 开始工作 \\
+6 & A0/06 GET\_DESCRIPTOR(Hub, 0x29) & 端口数 4、上电时间 \\
+7 & 23/03 SET\_FEATURE(PORT\_POWER) ×4 & 下行口上电 \\
+8 & A3/00 GET\_STATUS(端口) & bit0 连接；bit10 高速 \\
+9 & 23/01 CLEAR\_FEATURE\newline(C\_PORT\_CONNECTION)，\newline 23/03 SET\_FEATURE(PORT\_RESET) & 复位端口 3，轮询 bit4 复位结束、bit1 已使能 \\
+10 & 对端口 3 的设备重复 2--5，地址 2 & VID:PID 148f:7601，8 个 bulk 端点 \\
+11 & \fn{parse\_config} & 第一个 bulk IN=4，第二个=5，第一个 bulk OUT=8，记录全部 OUT \\
+12 & \fn{usb\_device\_register} → \fn{usb\_match} & 按 id\_table 绑定 mt7601u \\
+\bottomrule
+\end{longtable}
+
+\subsection{出错处理与 data toggle}
+
+\fn{TOK\_ERRMASK}（0x7c）覆盖 Halted、Buffer、Babble、XactErr、Missed。出错或超时后：
+\fn{async\_stop()} 清 ASE 并等 ASS 归零（HC 不再访问 QH）；\fn{qh\_flush()} 把未完成的 qTD 全部丢弃、QH 重新指向 dummy；
+\fn{async\_start()} 再打开。\fn{qh\_flush} 只清 token 里的 Active/Halted/Ping，\textbf{保留 DT 位}：设备那边的 toggle 没有复位，
+主机若从 DATA0 重新开始，设备会把下一个新包当成重传的旧包，回 ACK 却丢掉——实板“握手后 EP8 永远 NAK”就是这样来的（f649f28）。
+
 \subsection{枚举与 Hub}
 
 \fn{ehci\_enum\_thread} → \fn{ehci\_start} → \fn{root\_ports()}：根端口连接 → 端口复位 → \fn{enumerate(HS, 0, 0)}：
@@ -316,6 +629,91 @@ struct usb_host_ops {                       /* kernel/usb.h */
 };
 \end{code}
 MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一份驱动也能挂在 DWC2（OTG）上。
+
+\section{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}\label{sec:irq}
+
+接收是唯一由中断驱动的方向。思路和 Linux 一样：上半部（硬中断）只确认中断、登记“有活要干”，
+真正的 USB 收取、802.11 解析和协议处理放到内核线程里做，因为这些步骤要拿睡眠锁、可能等待 USB 传输。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,node distance=3.5mm]
+\node[box=tred,text width=58mm] (a1) {EHCI：EP4 qTD 完成，IOC → USBSTS.USBINT → IRQ 55};
+\node[box=tred,text width=58mm,below=of a1] (a2) {VIC1 bit 23 有效 → CPU IRQ 异常（CPSR.I=0 时）};
+\node[box=tred,text width=58mm,below=of a2] (a3) {\fn{vectors.S: irq\_entry}\\lr−4，在 IRQ 栈上暂存 r0--r12/lr/spsr，\\切到 SVC 模式，在内核栈上建 trapframe};
+\node[box=tred,text width=58mm,below=of a3] (a4) {\fn{t113\_irq(tf)} → \fn{arch\_handle\_irq()}};
+\node[box=tred,text width=58mm,below=of a4] (a5) {\fn{vic\_handle\_irq}：读 4 个 VIC 的 IRQSTATUS，\\对每个置位 bit 调 \fn{generic\_handle\_irq(32n+b)}，\\最后写 VICADDRESS};
+\node[box=tred,text width=58mm,below=of a5] (a6) {\fn{ehci\_irq}：读 USBSTS，写 1 清除（W1C）；\\USBINT/ERR → \fn{mt7601u\_rx\_irq()}};
+\node[box=tred,text width=58mm,below=of a6] (a7) {\fn{napi\_schedule}：scheduled=1（已排队则 missed=1）\\→ \fn{queue\_work(mt7601u\_wq)} → \fn{wakeup(wq)}};
+\node[box=tred,text width=58mm,below=of a7] (a8) {回到 \fn{t113\_irq}：若需要重新调度则 \fn{yield()}；\\\fn{restore\_tf} 返回被打断的代码};
+\foreach \a/\b in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6,a6/a7,a7/a8} \draw[arr] (\a) -- (\b);
+\node[box=tgreen,text width=62mm,right=14mm of a2] (b1) {kworker 线程（\fn{mt7601u\_wq}）被唤醒};
+\node[box=tgreen,text width=62mm,below=of b1] (b2) {\fn{napi\_workfn}：检查 enabled/scheduled，polls++};
+\node[box=tgreen,text width=62mm,below=of b2] (b3) {\fn{mt7601u\_napi\_poll(napi, budget=4)}\\循环调用 \fn{mt7601u\_service(1,0)}，直到无完成缓冲或用满预算};
+\node[box=tgreen,text width=62mm,below=of b3] (b4) {\fn{service}：持 \fn{dev->lock}\\\fn{bulk\_rx\_complete(EP4)} → \fn{rx\_parse} → \fn{rx\_mgmt}/\fn{rx\_data}\\→ \fn{bulk\_rx\_arm} 重挂；释放锁};
+\node[box=tgreen,text width=62mm,below=of b4] (b5) {锁外：\fn{net\_rx\_dev(\&wlan0, frame)}\\→ \fn{arp\_rx}/\fn{icmp\_rx}/\fn{dhcp\_rx}/\\\fn{udp\_rx}/\fn{tcp\_rx}\\→ 唤醒等待的系统调用（dhcp\_wait、ping、socket）};
+\node[box=tgreen,text width=62mm,below=of b5] (b6) {不足预算：\fn{napi\_complete\_done}\\missed=1 则再排一次，否则 scheduled=0};
+\foreach \a/\b in {b1/b2,b2/b3,b3/b4,b4/b5,b5/b6} \draw[arr] (\a) -- (\b);
+\draw[arr,dashed,tamber] (a7.east) -- ++(5mm,0) |- node[lbl,pos=0.25,right]{唤醒} (b1.west);
+\node[font=\small\bfseries,tred] at ($(a1.north)+(0,4mm)$) {上半部（中断上下文，关中断）};
+\node[font=\small\bfseries,tgreen] at ($(b1.north)+(0,4mm)$) {下半部（内核线程，可睡眠）};
+\end{tikzpicture}
+\caption{接收中断的上半部与下半部}
+\end{figure}
+
+\subsection{上半部为什么这么短}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{ehci\_irq} 只做 W1C 清 USBSTS 和 \fn{napi\_schedule}，不碰 qTD，不调 USB 传输。EHCI 中断不是电平保持型的“设备里还有数据”信号，
+  写 1 清掉状态位后线就撤销，所以不需要像 SDIO 卡中断那样先屏蔽、读空再打开（对比 xv6-book 的 BCM43455）。
+\item 下半部要拿 \fn{dev->lock}，解析管理帧和 EAPOL 时还会发起 USB 控制/bulk 传输（\fn{rx\_mgmt} 写 BSSID 寄存器、\fn{rx\_eapol} 发 M2/M4），这些要拿睡眠锁 \fn{xfer\_lock} 并等待 HC 完成，中断上下文里做不了。
+\item 中断返回前 \fn{t113\_irq} 检查 \fn{resched\_pending()}：被唤醒的 kworker 可以马上被调度，而不是等下一个时钟节拍。
+\end{itemize}
+
+\subsection{NAPI 的三个状态位}
+
+\begin{longtable}{p{24mm}p{124mm}}
+\toprule
+字段 & 作用 \\ \midrule \endhead
+\fn{scheduled} & 已经排进工作队列或正在跑。重复的中断不会重复排队 \\
+\fn{missed} & poll 正在跑时又来了中断：poll 结束时不清 scheduled，而是再排一次，防止“最后一个缓冲完成的中断”被吞掉 \\
+\fn{weight} & 每轮预算，等于接收缓冲数 4。用满预算说明可能还有数据，\fn{napi\_workfn} 直接再排队，不经过中断 \\
+\bottomrule
+\end{longtable}
+
+工作队列本身也有防重入：work 正在跑时再 \fn{queue\_work}，只置 \fn{rerun}，跑完后再排一次，同一个 work 不会并发执行。
+
+\subsection{时钟中断：状态机和超时的动力}
+
+\begin{code}
+PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
+   |- 每 10 次：ticks++，wakeup(&ticks)        mt7601u_connect 在这里 sleep 等握手
+   |- workqueue_timer_tick()                    work_jiffies++，到期的 delayed_work 入队
+   |      `- state_work 到期 -> mt7601u_wq -> mt7601u_state_worker -> mt7601u_service(0,1)
+   `- sched_tick()                              时间片
+\end{code}
+扫描换信道（0.5 s）、认证/关联超时（1 s）、M1 看门狗（5 s）都是 delayed work。0bd029e 之前 ARM32 的时钟中断没调
+\fn{workqueue\_timer\_tick()}，\fn{state\_work} 永不到期，所以扫描一直停在信道 1，握手 30 s 超时。
+
+\subsection{发送方向：没有中断}
+
+发送在调用者自己的上下文里同步完成：\fn{dhcp}/\fn{ping} 的系统调用、或 TCP 重传 work →
+\fn{netdev\_xmit\_on} → \fn{mt7601u\_net\_xmit}（持 \fn{dev->lock}）→ \fn{mt7601u\_tx\_raw} → \fn{ehci\_usb\_bulk}（持 \fn{xfer\_lock}）
+→ \fn{wait\_qtd} 轮询 Active 位直到 HC 完成。函数返回时帧已经进了网卡。OUT 的 qTD 也带 IOC，
+它触发的 USBINT 会顺便调度一次 NAPI，NAPI 发现 EP4 没有完成的缓冲就立即结束。
+
+\subsection{上下文与锁}
+
+\begin{longtable}{p{30mm}p{40mm}p{78mm}}
+\toprule
+锁 & 类型 & 保护什么 \\ \midrule \endhead
+\fn{ehci\_lock} & 自旋锁 & qTD 池分配、QH 的 qTD 队列（\fn{qh\_append}、\fn{rx\_complete} 摘头） \\
+\fn{xfer\_lock} & 睡眠锁 & 同一时刻只做一个同步控制/bulk 传输（共享 \fn{setup\_buf}/\fn{ctrl\_buf}） \\
+\fn{dev->lock} & 自旋锁 & MT7601U 连接状态、密钥、接收槽、TX 序号 \\
+\fn{napi->lock} & 自旋锁 & scheduled/missed/enabled \\
+\fn{wq->lock} & 自旋锁 & 工作队列链表 \\
+\bottomrule
+\end{longtable}
 
 \section{MT7601U 硬件层}
 
@@ -472,6 +870,165 @@ PTK    = PRF-512(PMK, "Pairwise key expansion",
   PTK[32..47] = TK  -> 写入芯片 WCID 1 密钥表，硬件 CCMP
 GTK    = AES-Unwrap(KEK, M3 Key Data) 中 00-0f-ac type 1 的 KDE -> 共享密钥表
 \end{code}
+
+\subsection{802.11 帧头}
+
+所有 802.11 帧都以同一个 MAC 头开始（多字节字段小端，\fn{mt\_put16}/\fn{mt\_get16}）：
+
+\begin{code}
+偏移  0  Frame Control 2 B     2  Duration 2 B（硬件填）
+      4  Address 1  6 B        10 Address 2  6 B       16 Address 3  6 B
+     22  Sequence Control 2 B（高 12 位序号，低 4 位分片号）  [24  QoS Control 2 B]
+\end{code}
+
+\begin{longtable}{p{22mm}p{40mm}p{86mm}}
+\toprule
+FC 位 & 含义 & 本驱动 \\ \midrule \endhead
+{[3:2]} & 类型：0 管理，1 控制，2 数据 & \fn{rx\_parse} 按此分流到 \fn{rx\_mgmt}/\fn{rx\_data} \\
+{[7:4]} & 子类型 & 管理：0 关联请求、1 关联应答、5 探测应答、8 Beacon、11 认证、10/12 解除关联/认证；数据：8 = QoS 数据 \\
+bit8 (0x0100) & ToDS & STA 发往 AP 的数据帧置位（0x0108） \\
+bit9 (0x0200) & FromDS & AP 发来的数据帧置位（日志 fc=4208） \\
+bit11 (0x0800) & Retry & 重传帧（日志 fc=4a08） \\
+bit13 (0x2000) & More Data & AP 缓存了更多帧（日志 fc=6208） \\
+bit14 (0x4000) & Protected & 帧体已加密（CCMP） \\
+\bottomrule
+\end{longtable}
+
+三个地址的含义取决于 ToDS/FromDS：
+
+\begin{table}[H]\centering\small
+\begin{tabular}{llll}
+\toprule
+帧 & A1（接收者） & A2（发送者） & A3 \\ \midrule
+管理帧（STA↔AP） & 目的 & 源 & BSSID \\
+数据 ToDS（STA→AP） & BSSID & 本机 SA & 最终目的 DA \\
+数据 FromDS（AP→STA） & DA（本机或组播） & BSSID & 原始源 SA \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{硬件替主机做的事}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{地址过滤与自动 ACK}：找到目标 AP 后，\fn{rx\_mgmt} 把 BSSID 写进 \fn{0x1010/0x1014}（MAC BSSID）和 WCID 1 的地址表 \fn{0x1800+8}，
+  MAC 收到发给本机的单播帧会在 SIFS（10 µs）内自动回 ACK。接收过滤 \fn{0x1400 = 0x17f97} 先放得很宽，好让扫描看到所有 Beacon。
+\item \textbf{发送}：芯片加 PHY 前导、算 FCS、等 AP 的 ACK，收不到就按重传计数重发；结果进 TX 状态 FIFO，\fn{tx\_stat\_drain} 每帧后读空。
+\item \textbf{Duration/NAV}：TXWI 让硬件填 Duration 字段。
+\item \textbf{加解密}：握手完成后的数据帧由 MAC 用 WCID 表里的密钥做 CCMP（见 \ref{sec:ccmp}）。
+\end{itemize}
+
+\subsection{扫描：Beacon 解析}
+
+Beacon/探测应答的帧体是 12 字节固定字段（时间戳 8、间隔 2、能力 2），之后是一串 IE（\fn{id, len, 内容}）。\fn{rx\_mgmt} 逐个解析：
+
+\begin{longtable}{p{14mm}p{30mm}p{104mm}}
+\toprule
+IE id & 名称 & 用途 \\ \midrule \endhead
+0 & SSID & 和 \fn{want\_ssid} 逐字节比较；长度 0 是隐藏网络（日志 \fn{ssid=<hidden>}） \\
+3 & DS Parameter Set & AP 实际所在信道（相邻信道也能听到 Beacon，所以以它为准） \\
+48 & RSN & 有它就是 WPA2；整段原样保存，关联请求和 M2 里要逐字节回送，防降级攻击 \\
+221 & 厂商（00:50:f2 type 1） & 老式 WPA \\
+\bottomrule
+\end{longtable}
+
+能力字段 bit4（Privacy）置位但无 RSN/WPA IE 即 WEP。TP-Link\_B114 的 RSN IE 为 22 字节（日志 \fn{rsn=22 bytes}），典型内容：
+\begin{code}
+30 14 | 01 00 | 00 0f ac 04 | 01 00 00 0f ac 04 | 01 00 00 0f ac 02 | 0c 00
+ id 长   版本1    组密码 CCMP    1 个成对密码 CCMP     1 个 AKM：PSK      RSN 能力
+\end{code}
+
+\subsection{认证与关联：逐字节}
+
+\begin{code}
+Authentication（STA->AP，30 B）  mt7601u_send_auth
+  b0 00 | 00 00 | A1=f0:09:0d:cb:b1:14 | A2=90:de:80:14:95:94 | A3=f0:09:0d:cb:b1:14 | seq
+  00 00 (算法 Open System) | 01 00 (事务序号 1) | 00 00 (状态)
+Authentication（AP->STA）：算法 0，事务序号 2，状态 0 = 成功      rx_mgmt subtype 11
+
+Association Request（STA->AP，74 B）  mt7601u_send_assoc
+  00 00 | 地址同上 | seq
+  能力 = (AP 能力 & 0x0531) | 0x0001(ESS)  | 监听间隔 0a 00
+  00 0c "TP-Link_B114"                        SSID IE（取自 wifi_connect 的参数）
+  01 08 82 84 8b 96 0c 12 18 24               速率 IE：1/2/5.5/11 Mb/s(基本) + 6/9/12/18
+  30 14 ...                                   AP 的 RSN IE 原样（22 B）
+  24 + 2 + 2 + 14 + 10 + 22 = 74
+Association Response（AP->STA）：能力 2 B | 状态 2 B | AID 2 B（高两位恒为 1，& 0x3fff = 1）
+\end{code}
+
+\subsection{EAPOL-Key 帧结构}
+
+四次握手的报文都是数据帧，帧体是 LLC/SNAP \fn{aa aa 03 00 00 00 88 8e} 加 EAPOL。EAPOL 头 4 字节（版本、类型 3=Key、长度），
+后面是 95 字节固定部分和可变的 key data：
+
+\begin{code}
+偏移  0  描述符类型 2(RSN)   1-2 key-info          3-4 密钥长度 16
+      5  重放计数器 8 B      13  nonce 32 B
+     45  EAPOL-Key IV 16 B   61  RSC 8 B             69  保留 8 B
+     77  MIC 16 B            93  key data 长度 2 B   95  key data
+\end{code}
+
+\begin{longtable}{p{18mm}p{40mm}p{90mm}}
+\toprule
+key-info 位 & 含义 & \\ \midrule \endhead
+0--2 & 描述符版本 & 2 = HMAC-SHA1 MIC + AES key wrap \\
+3 (0x0008) & Pairwise & 成对密钥 \\
+6 (0x0040) & Install & M3：装密钥 \\
+7 (0x0080) & ACK & 认证者要求应答（M1、M3） \\
+8 (0x0100) & MIC & MIC 有效（M2、M3、M4） \\
+9 (0x0200) & Secure & M3、M4 \\
+12 (0x1000) & Encrypted Key Data & M3 的 key data 用 KEK 包裹 \\
+\bottomrule
+\end{longtable}
+
+\fn{rx\_eapol} 的识别规则：\fn{(info \& 0x0088) == 0x0088} 且 MIC 位为 0 → M1（日志 0x008a）；\fn{(info \& 0x0188) == 0x0188} → M3。
+M2 的 key-info 是 \fn{0x0108 | 版本}，M4 是 \fn{0x0308 | 版本}。重放计数器由 AP 递增：M1 为 1，M2 原样回显（日志 \fn{replay=0001}），
+M3 为 2，M4 回显 M3 的值（\fn{m3\_replay}）。每收到一个结构正确的 EAPOL-Key，5 s 看门狗就往后推。
+
+\subsection{密码学细节（\fn{wpa\_crypto.c}，全部软件实现）}
+
+\begin{longtable}{p{28mm}p{120mm}}
+\toprule
+步骤 & 实现 \\ \midrule \endhead
+PMK & \fn{wpa\_pbkdf2}：PBKDF2-HMAC-SHA1(口令, SSID, 4096 轮)，输出 32 B 需要两个 20 B 块，共 8192 次 HMAC-SHA1。在 \fn{mt7601u\_connect} 里算一次，Cortex-A8 不开 D-cache 时要几秒 \\
+SNonce & \fn{wpa\_make\_snonce}：HMAC-SHA1(PMK, ANonce ‖ 计数器值 \fn{r\_cntvct\_el0()} 8 B) 取 20 B，末字节异或 0xa5 再算一次取 12 B，拼成 32 B。AP 重发同一个 ANonce 时复用旧 SNonce \\
+PTK & \fn{wpa\_derive\_ptk}：PRF-512 = 4 次 HMAC-SHA1(PMK, "Pairwise key expansion" ‖ 0 ‖ min(AA,SPA) ‖ max(AA,SPA) ‖ min(AN,SN) ‖ max(AN,SN) ‖ i)，i=0..3，拼成 64 B 取前 48 B \\
+KCK / KEK / TK & PTK[0..15] / [16..31] / [32..47] \\
+MIC & \fn{wpa\_eapol\_mic}：HMAC-SHA1(KCK, MIC 字段清零的整个 EAPOL 帧) 取前 16 B。M3 先把收到的 MIC 存起来、清零、重算、比较 \\
+GTK & \fn{wpa\_aes\_unwrap}：RFC 3394 AES Key Unwrap（KEK 做 AES-128 解密，6×n 轮，校验 A6A6A6A6A6A6A6A6），得到 RSN IE + GTK KDE \fn{dd len 00 0f ac 01 | keyid | 00 | GTK 16 B} \\
+\bottomrule
+\end{longtable}
+
+握手里不传任何密钥：AP 用同样的公式算出同一个 PTK，M2 的 MIC 验证通过就证明双方口令一致。
+
+\subsection{CCMP：数据帧加密（硬件完成）}\label{sec:ccmp}
+
+\begin{code}
+加密后的 MPDU:  MAC 头 24 B | CCMP 头 8 B | 密文（LLC + 载荷） | MIC 8 B | FCS 4 B
+CCMP 头:       PN0 PN1 | 00 | (KeyID<<6)|0x20(ExtIV) | PN2 PN3 PN4 PN5      PN = 48 位包序号
+Nonce:         优先级 1 B | A2 6 B | PN 6 B
+AAD:           MAC 头里会变的位（Retry、PwrMgt、MoreData、序号）清零后的字段
+算法:          AES-128-CCM，CTR 模式加密 + CBC-MAC 得到 8 B MIC
+\end{code}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{发送}：\fn{send\_llc(..., encrypted=1)} 在 FC 置 Protected（0x4108），\fn{tx\_raw(..., hardware\_iv=1)} 不置 WIV、用 WCID 1。
+  MAC 从 IV 表 \fn{0xA008} 取 PN（初值 1，每帧自动加一），插入 CCMP 头，用 TK 加密并追加 MIC。
+\item \textbf{接收}：单播用 WCID 1 的 TK 解密，组播/广播按 KeyID 用共享密钥槽里的 GTK。RXWI 的 DECRYPT 位（bit16）表示已解密，
+  MIC 已去掉，但 Protected 位和 8 字节 CCMP 头还在，\fn{rx\_data} 要跳过——这就是 b2326c2 修的 DHCP 问题。
+\item \textbf{M4 的顺序}：先用明文发 M4，再装密钥。AP 收到 M4 才装自己的密钥，加了密的 M4 它解不开。
+\end{itemize}
+
+\subsection{Tiny210 上尚未实现的部分}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{deauth/disassoc}：子类型 12/10 没有处理，AP 踢掉客户端后不会自动重连（RPi3 版已处理）。
+\item \textbf{组密钥更新}：AP 定期发的 Group Key Handshake（EAPOL-Key 1/2，非 Pairwise）没有处理，GTK 过期后组播/广播会解不开。
+\item \textbf{保活与省电}：不发 null-data 保活，不做 PS-Poll。
+\item \textbf{速率}：所有发送都用 CCK 1 Mbit/s。
+\item \textbf{切信道}：找到目标后没有显式切到 DS 参数 IE 给出的信道（RPi3 版会切）；实板上能连上是因为在信道 9 驻留时找到的。
+\item \textbf{接收队列}：单槽 \fn{net\_rx}，一个 USB 聚合包里有多个数据帧时只交付第一个；RPi3 版是 8 帧环。
+\item \textbf{锁}：\fn{mt7601u\_service} 持自旋锁 \fn{dev->lock} 时会经 \fn{rx\_mgmt}/\fn{rx\_eapol} 发起 USB 传输（拿睡眠锁 \fn{xfer\_lock}），单核且无竞争时不会出事，但不规范。
+\end{itemize}
 
 \subsection{802.11 数据帧与 Ethernet 帧的转换}
 
@@ -775,6 +1332,7 @@ HCD & 固件下载 \fn{bulk ep8 out 14344 bytes failed}，qTD 0xa0 & CPU 不开 
 HCD & 握手后 EP8 永远 NAK & \fn{qh\_flush} 清零 data toggle，设备把新包当重传丢弃 & 保留 \fn{TOK\_DT}（f649f28） \\
 设备驱动 & 改 EP 0x09 后首帧即 NAK & OUT\#5 在本驱动初始化方式下不可用 & 回 EP 0x08 + 读空 TX 状态 FIFO（5ac8c59） \\
 802.11 & 握手成功但 \fn{dhcp: no offer} & 硬件解密后仍保留 Protected 位和 8 字节 CCMP 头，LLC 校验失败 & DECRYPT 时跳过 8 字节（b2326c2）→ DHCP 成功 \\
+802.11 & 连其他 SSID 时关联被拒 & \fn{send\_assoc} 的 SSID IE 写死为 TP-Link\_B114 & 改用 \fn{want\_ssid}（本次修改，未上板） \\
 \bottomrule
 \end{longtable}
 

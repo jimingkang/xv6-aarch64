@@ -882,16 +882,15 @@ mt7601u_send_assoc(struct mt7601u_device *dev)
 {
   static const uint8 rates[] = { 0x82, 0x84, 0x8b, 0x96,
                                   0x0c, 0x12, 0x18, 0x24 };
-  static const char ssid[] = "TP-Link_B114";
   uint8 frame[192];
   int n = mt7601u_build_mgmt_header(dev, frame, 0x0000);
   uint16 capability = dev->target_capability & 0x0531;
   capability |= 0x0001;           // ESS
   mt_put16(frame + n, capability); n += 2;
   mt_put16(frame + n, 10); n += 2; // listen interval
-  frame[n++] = 0;
-  frame[n++] = sizeof(ssid) - 1;
-  memmove(frame + n, ssid, sizeof(ssid) - 1); n += sizeof(ssid) - 1;
+  frame[n++] = 0;                  // SSID element: the network wifi_connect() asked for
+  frame[n++] = dev->want_ssid_len;
+  memmove(frame + n, dev->want_ssid, dev->want_ssid_len); n += dev->want_ssid_len;
   frame[n++] = 1;
   frame[n++] = sizeof(rates);
   memmove(frame + n, rates, sizeof(rates)); n += sizeof(rates);
