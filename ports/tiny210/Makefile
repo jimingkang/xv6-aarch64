@@ -67,8 +67,28 @@ ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUI
 IMG = $(BUILD)/xv6-tiny210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1 uarttest fattest
+.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs
 all: $(IMG).bin $(IMG).uImage $(BUILD)/xv6_tiny210.img $(BUILD)/tiny210-bl1.bin $(BUILD)/tiny210-sd.img
+ifneq ($(QEMU_TEST),1)
+all: bootfs
+endif
+# Copy the boot files to the SD card's FAT32 partition when it is mounted
+# (default /Volumes/bootfs): the kernel and mt7601u.bin every time; FS.IMG
+# only if the card has none yet, because it is the board's writable root
+# (BOOTFS_FSIMG=1 overwrites it). cp -X keeps macOS ._ files off the card.
+# BL1 (sector 1) still needs: sudo dd if=$(BUILD)/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1
+TINY210_BOOTFS ?= /Volumes/bootfs
+BOOTFS_FSIMG ?= 0
+bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
+	@if [ -d "$(TINY210_BOOTFS)" ]; then \
+	  cp -X $(BUILD)/xv6_tiny210.img "$(TINY210_BOOTFS)/xv6_tiny210.img" && \
+	  cp -X firmware/mt7601u.bin "$(TINY210_BOOTFS)/mt7601u.bin" && \
+	  if [ ! -f "$(TINY210_BOOTFS)/FS.IMG" ] || [ "$(BOOTFS_FSIMG)" = 1 ]; then \
+	    cp -X $(BUILD)/fs.img "$(TINY210_BOOTFS)/FS.IMG" && echo "bootfs: FS.IMG written"; \
+	  else echo "bootfs: FS.IMG kept (the board's root; BOOTFS_FSIMG=1 replaces it)"; fi && \
+	  rm -f "$(TINY210_BOOTFS)/._xv6_tiny210.img" "$(TINY210_BOOTFS)/._mt7601u.bin" "$(TINY210_BOOTFS)/._FS.IMG" && \
+	  sync && echo "bootfs: xv6_tiny210.img and mt7601u.bin copied to $(TINY210_BOOTFS)"; \
+	else echo "bootfs: $(TINY210_BOOTFS) not mounted, nothing copied"; fi
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
