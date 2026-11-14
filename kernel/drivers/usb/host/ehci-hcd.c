@@ -35,6 +35,7 @@
 // Capability and operational registers (EHCI 1.0, sections 2.2 and 2.3).
 #define CAPLENGTH   0x00
 #define HCSPARAMS   0x04
+#define HCCPARAMS   0x08
 #define INSNREG00   0x90        // Samsung: AHB burst enables (Linux ehci-exynos/s5p)
 #define USBCMD      0x00
 #define USBSTS      0x04
@@ -83,24 +84,27 @@
 #define SPEED_LOW   1
 #define SPEED_HIGH  2
 
+// Hardware parts include the 64-bit addressing extension (EHCI appendix B:
+// buf_hi[5]). A controller with HCCPARAMS.64BIT reads and *writes back*
+// those words, so the software fields must come after them, as in Linux.
 struct qtd {
   volatile uint32 next, alt, token, buf[5];
-  // software fields (the HC only reads the first 32 bytes)
+  volatile uint32 buf_hi[5];
+  // software fields
   struct qtd *snext;
   void *data;
   int length;
   int inuse;
-  uint32 pad[4];
 } __attribute__((aligned(32)));
 
 struct qh {
   volatile uint32 horiz, epchar, epcap, cur;
   volatile uint32 next, alt, token, buf[5];   // transfer overlay
+  volatile uint32 buf_hi[5];
   // software fields
   struct qtd *dummy;      // terminal inactive qTD the HC is parked on
   struct qtd *head;       // oldest queued qTD (rx reaping)
   int in_ring;
-  uint32 pad[5];
 } __attribute__((aligned(32)));
 
 #define NQH  16
@@ -426,9 +430,14 @@ bulk_qh(struct qh *q, int endpoint, int in, void *data, int length)
     last = d;
   long long tok = wait_qtd(last, 1000000);
   if(tok < 0 || (tok & TOK_ERRMASK)){
-    if(tok >= 0 || !in)
+    if(tok >= 0 || !in){
       printf("ehci: bulk ep%d %s %d bytes failed token=%x\n", endpoint,
              in ? "in" : "out", length, tok < 0 ? 0xffffffffU : (uint32)tok);
+      printf("ehci:   qh %x epchar %x epcap %x cur %x next %x alt %x token %x buf0 %x\n",
+             phys(q), q->epchar, q->epcap, q->cur, q->next, q->alt, q->token, q->buf[0]);
+      printf("ehci:   qtd %x token %x buf0 %x; usbsts %x usbcmd %x\n",
+             phys(last), last->token, last->buf[0], rd(USBSTS), rd(USBCMD));
+    }
     async_stop();
     qh_flush(q, d);
     async_start();
@@ -749,8 +758,8 @@ ehci_start(void)
     if(hcs & (1U << 4))                   // PPC: per-port power control
       wr(PORTSC(p), (rd(PORTSC(p)) & ~PORT_W1C) | PORT_POWER);
   mdelay(100);                            // power good + device attach
-  printf("ehci: %d port(s), running, async schedule %s\n", nports,
-         (rd(USBSTS) & STS_ASS) ? "on" : "off");
+  printf("ehci: %d port(s), hccparams %x, running, async schedule %s\n", nports,
+         *(volatile uint32*)(cap + HCCPARAMS), (rd(USBSTS) & STS_ASS) ? "on" : "off");
   return 0;
 }
 
