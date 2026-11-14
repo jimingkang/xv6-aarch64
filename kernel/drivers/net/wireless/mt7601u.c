@@ -1331,6 +1331,12 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
   fc = mt_get16(frame);
   if(((fc >> 2) & 3) != 2)
     return;
+  static int rx_logged;
+  if(dev->handshake_done && rx_logged < 8){   // bring-up trace: first data frames seen
+    rx_logged++;
+    printf("mt7601u: data rx fc=%x len=%d rxinfo=%x a1=%x:%x:%x:%x:%x:%x\n", fc, length, rxinfo,
+           frame[4], frame[5], frame[6], frame[7], frame[8], frame[9]);
+  }
   if(((fc >> 4) & 8) != 0)
     header += 2; // QoS control
   if(rxinfo & (1U << 14))
@@ -1511,7 +1517,7 @@ mt7601u_service(int service_rx, int service_state)
   if(register_needed){
     if(register_netdev(&dev->netdev) == 0){
       dev->net_registered = 1;
-      printf("mt7601u: wlan1 registered mac=%x:%x:%x:%x:%x:%x\n",
+      printf("mt7601u: wlan0 registered mac=%x:%x:%x:%x:%x:%x\n",
              dev->mac[0], dev->mac[1], dev->mac[2], dev->mac[3],
              dev->mac[4], dev->mac[5]);
     } else {
@@ -1611,6 +1617,12 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
   result = mt7601u_send_llc(dev, ether, type, ether + 14,
                             length - 14, 1);
   release(&dev->lock);
+  static int tx_logged;
+  if(tx_logged < 6){            // bring-up trace: first data frames sent
+    tx_logged++;
+    printf("mt7601u: data tx type=%x len=%d dst=%x:%x:%x:%x:%x:%x -> %d\n", type, length,
+           ether[0], ether[1], ether[2], ether[3], ether[4], ether[5], result);
+  }
   return result;
 }
 
