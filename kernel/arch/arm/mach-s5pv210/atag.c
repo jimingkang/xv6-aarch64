@@ -1,7 +1,7 @@
 /* ARM Linux tagged list (Documentation/arch/arm/booting.rst, setup.h).
-   The X210 U-Boot (do_bootm_linux) writes ATAG_CORE, one ATAG_MEM per DRAM
+   BL1 (or a U-Boot do_bootm_linux) writes ATAG_CORE, one ATAG_MEM per DRAM
    bank, optional ATAG_SERIAL/REVISION/INITRD2, ATAG_CMDLINE and ATAG_NONE
-   at bi_boot_params = 0x30000100. Read before the MMU and allocator run. */
+   at DRAM+0x100 (0x20000100). Read before the MMU and allocator run. */
 #include "kernel/types.h"
 #include "atag.h"
 #define ATAG_NONE    0x00000000U

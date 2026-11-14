@@ -1,7 +1,6 @@
-/* S5PV210 (Cortex-A8) boards: FriendlyARM Tiny210, 九鼎 X210.
+/* FriendlyARM Tiny210 (S5PV210, Cortex-A8) physical layout.
    BL1 (ports/tiny210/bl1) or U-Boot has already initialised DDR, put ATAGs at
-   DRAM+0x100 and loaded the kernel at DRAM+0x8000 (0x20008000 on Tiny210,
-   0x30008000 on X210). The kernel is linked there and identity mapped;
+   DRAM+0x100 and loaded the kernel at DRAM+0x8000 (0x20008000). The kernel is linked there and identity mapped;
    ATAG_MEM gives the usable DRAM top. */
 #ifndef TINY210_QEMU
 #include "board.h"

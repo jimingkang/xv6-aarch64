@@ -1,5 +1,5 @@
 ifneq ($(filter tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg,$(MAKECMDGOALS)),)
-# S5PV210 (FriendlyARM Tiny210 default, 九鼎 X210): see ports/tiny210/README.md
+# FriendlyARM Tiny210 (Samsung S5PV210): see ports/tiny210/README.md
 .PHONY: tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg clean
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 tiny210 tiny210-qemu tiny210-check tiny210-bl1 tiny210-sdimg: clean

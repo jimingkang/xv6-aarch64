@@ -1,15 +1,12 @@
-/* 九鼎 X210 (S5PV210, Cortex-A8) entry, following the standard X210 boot
-   chain and the ARM Linux boot protocol that its U-Boot implements:
-     iROM (BL0) -> BL1 (SD sector 1, 16 KiB, header + checksum, runs in
-     iRAM at 0xD0020010: clocks, DDR) -> BL2 = U-Boot (SD sector 49,
-     runs from DDR) -> `movi read kernel 30008000; bootm 30008000`
-   On entry: SVC mode, IRQ/FIQ masked, MMU and D-cache off (U-Boot's
-   cleanup_before_linux), I-cache may be on,
+/* Tiny210 (S5PV210, Cortex-A8) kernel entry, after BL1 (or a U-Boot bootm):
+     iROM -> BL1 (SD sector 1, iRAM) -> xv6_tiny210.img from FAT32 or the
+     raw image at sector 49, loaded to DRAM+0x8000 (0x20008000)
+   On entry (ARM Linux boot protocol): SVC mode, IRQ/FIQ masked, MMU and
+   D-cache off, I-cache may be on,
      r0 = 0, r1 = machine type (board.h BOARD_MACH),
      r2 = ATAG list (DRAM+0x100) or a DTB.
    The first 0x34 bytes form an ARM zImage header, so the raw image also
-   boots through the Samsung U-Boot "Boot with zImage" path and `bootz`.
-   Neither relocates: the image must sit at its link address. */
+   boots with `bootz`. The image must sit at its link address. */
 .syntax unified
 .arm
 .section .text.entry,"ax"
@@ -41,8 +38,7 @@ reset:
   ldreq r0, =msg_mode     @ load address already verified
   beq early_die
   cps #0x13
-  /* bootm turns translation off. The X210 vendor U-Boot runs with its MMU
-     on, so a plain `go` arrives here with the MMU still enabled. */
+  /* BL1 and bootm hand over with translation off; a U-Boot `go` may not. */
   mrc p15, 0, r0, c1, c0, 0
   tst r0, #1
   ldrne r0, =msg_mmu

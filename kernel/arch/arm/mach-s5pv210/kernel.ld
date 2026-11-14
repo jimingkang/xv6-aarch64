@@ -1,4 +1,4 @@
-/* KERNEL_LOAD is passed by the Makefile (--defsym): DRAM+0x8000 (0x20008000 Tiny210, 0x30008000 X210),
+/* KERNEL_LOAD is passed by the Makefile (--defsym): DRAM+0x8000 (0x20008000),
    where ports/tiny210/bl1 (or a U-Boot bootm) places the kernel. */
 OUTPUT_ARCH(arm)
 ENTRY(_entry)

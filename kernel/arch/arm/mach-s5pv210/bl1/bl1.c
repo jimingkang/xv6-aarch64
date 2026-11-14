@@ -1,4 +1,4 @@
-/* xv6 BL1 for S5PV210 boards (FriendlyARM Tiny210, 九鼎 X210; board.h):
+/* xv6 BL1 for the FriendlyARM Tiny210 (Samsung S5PV210; board.h):
    boots xv6 with no U-Boot in between.
 
      iROM (BL0) ──► this BL1 (SD sector 1, iRAM 0xD0020010)
@@ -10,8 +10,8 @@
    (the base of both the FriendlyARM and the 九鼎 BSP U-Boot):
      PS_HOLD latch, watchdog off, APLL 1000 MHz / MPLL 667 MHz with
      MSYS 200/100, DSYS 166/83, PSYS 133/66.7 MHz, console UART 115200 8N1,
-     DMC0 DDR2 (512 MiB at 0x20000000 on Tiny210, 256 MiB at 0x30000000 on
-     X210). DMC1 is left uninitialised; ATAG_MEM reports DMC0 only.
+     DMC0 DDR2 (512 MiB at 0x20000000). DMC1 is left uninitialised;
+     ATAG_MEM reports DMC0 only.
    The SD copy uses the iROM's CopySDMMCtoMem (pointer at 0xD0037F98),
    reading from the channel the iROM booted from (0xD0037488). */
 #include "kernel/types.h"
@@ -93,17 +93,11 @@ void bl1_boot(uint32 entry, uint32 machid, uint32 atags) __attribute__((noreturn
 static int stage;
 static void delay(uint32 n) { for(volatile uint32 i=0;i<n;i++) ; }
 static void leds(uint32 on) {          /* bit k = LED k+1 */
-#ifdef BOARD_TINY210
   REG(GPJ2DAT)=(REG(GPJ2DAT)&~0xfU)|(~on&0xfU);
-#else
-  (void)on;
-#endif
 }
 static void led_stage(int n) { stage=n; leds((1U<<n)-1); }
 static void led_init(void) {
-#ifdef BOARD_TINY210
   REG(GPJ2CON)=(REG(GPJ2CON)&~0xffffU)|0x1111;  /* GPJ2[0:3] outputs */
-#endif
   for(int i=0;i<3;i++) { leds(0xf); delay(0x200000); leds(0); delay(0x200000); }
 }
 
@@ -187,8 +181,8 @@ static void uart_baud(void) {
 }
 
 static void power_hold(void) {
-  /* X210 has a soft power key: latch PS_HOLD high or the board turns off
-     when the key is released. */
+  /* Latch PS_HOLD high (boards with a soft power key turn off otherwise;
+     harmless on the Tiny210). */
   REG(PS_HOLD_CONTROL)|=0x301;
   REG(WTCON)=0;
 }

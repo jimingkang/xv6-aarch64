@@ -1,5 +1,5 @@
 # Invoke from repository root: make -f ports/tiny210/Makefile
-# S5PV210 (Cortex-A8): FriendlyARM Tiny210 (default) / 九鼎 X210.
+# FriendlyARM Tiny210 (Samsung S5PV210, Cortex-A8).
 # Layout follows rpi3-lock: shared ARM32 code in kernel/arch/arm, board code
 # in kernel/arch/arm/mach-s5pv210, drivers in kernel/drivers/<subsystem>
 # registered through module_init() (kernel/module.h).
@@ -14,20 +14,10 @@ ARM_OBJCOPY ?= $(shell command -v arm-none-eabi-objcopy 2>/dev/null || command -
 HOST_CC ?= cc
 QEMU_ARM ?= qemu-system-arm
 TARGET_FLAGS ?= --target=arm-none-eabi
-# S5PV210 board: tiny210 (FriendlyARM Tiny210, default) or x210 (九鼎 X210).
-# See board.h: DRAM base/size, console UART, machine id.
-S5PV210_BOARD ?= tiny210
-ifeq ($(S5PV210_BOARD),tiny210)
+# Board constants live in mach-s5pv210/board.h (DRAM, console UART, machine id).
 BOARD_DEF = -DBOARD_TINY210
 TINY210_DRAM_BASE = 0x20000000
 BOARD_UART = 0xE2900000
-else ifeq ($(S5PV210_BOARD),x210)
-BOARD_DEF = -DBOARD_X210
-TINY210_DRAM_BASE = 0x30000000
-BOARD_UART = 0xE2900800
-else
-$(error S5PV210_BOARD must be tiny210 or x210)
-endif
 # Root file system blocks (1 KiB).
 TINY210_FSBLOCKS ?= 4096
 ifeq ($(QEMU_TEST),1)
@@ -219,10 +209,8 @@ qemu: all
 	$(QEMU_ARM) -M cubieboard -m 512M -nographic -monitor none -kernel $(IMG).uImage -append "console=ttySAC0,115200 xv6test"
 check: $(BUILD)/bl1-hosttest
 	python3 $(P)/mktiny210.py selftest
-	$(MAKE) -f $(P)/Makefile BUILD=build/tiny210 S5PV210_BOARD=$(S5PV210_BOARD) build/tiny210/xv6-tiny210.uImage build/tiny210/tiny210-sd.img
+	$(MAKE) -f $(P)/Makefile BUILD=build/tiny210 build/tiny210/xv6-tiny210.uImage build/tiny210/tiny210-sd.img
 	$(BUILD)/bl1-hosttest build/tiny210/xv6-tiny210.uImage
-	$(MAKE) -f $(P)/Makefile BUILD=build/tiny210-board-x210 S5PV210_BOARD=x210 build/tiny210-board-x210/xv6-tiny210.uImage build/tiny210-board-x210/tiny210-sd.img
-	$(BUILD)/bl1-hosttest build/tiny210-board-x210/xv6-tiny210.uImage
 	python3 $(P)/test_shell.py
 clean:
 	rm -rf $(BUILD)

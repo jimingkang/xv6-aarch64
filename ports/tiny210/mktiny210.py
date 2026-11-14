@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot image helpers for the 九鼎 X210 (Samsung S5PV210) xv6 port.
+"""Boot image helpers for the FriendlyARM Tiny210 (Samsung S5PV210) xv6 port.
 
 check-zimage IMAGE LOADADDR      verify the ARM zImage header (bootz / Samsung bootm)
 uimage IMAGE OUTPUT LOADADDR     wrap IMAGE in a legacy U-Boot kernel header
@@ -28,7 +28,7 @@ BL1_SIZE = 16 * 1024
 BL1_HDR = 16
 SECTOR = 512
 BL1_SECTOR = 1          # iROM fixed location
-KERNEL_SECTOR = 49      # BL2 position on X210; bl1.c KERNEL_SECTOR
+KERNEL_SECTOR = 49      # raw fallback image (classic BL2 slot); bl1.c KERNEL_SECTOR
 KERNEL_MAX = 32 * 1024 * 1024   # bl1lib.c uimage_check limit
 
 

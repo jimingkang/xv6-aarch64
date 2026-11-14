@@ -1,4 +1,4 @@
-/* xv6 BL1 for the 九鼎 X210 (S5PV210): replaces U-Boot.
+/* xv6 BL1 for the FriendlyARM Tiny210 (S5PV210): replaces U-Boot.
    The iROM (BL0) copies 16 KiB from SD sector 1 to iRAM 0xD0020000,
    checks the 16-byte header and branches here, to 0xD0020010, in SVC mode
    with the MMU off. bl1_main() brings up power hold, clocks, UART2 and

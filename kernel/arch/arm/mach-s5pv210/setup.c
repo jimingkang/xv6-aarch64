@@ -1,4 +1,4 @@
-/* S5PV210 (Cortex-A8) board setup: FriendlyARM Tiny210 / 九鼎 X210
+/* FriendlyARM Tiny210 (S5PV210, Cortex-A8) board setup
    (the role of Linux's arch/arm/mach-s5pv210 + setup_arch()).
 
    Entered from entry.S with the ARM Linux boot registers. Reads the ATAG

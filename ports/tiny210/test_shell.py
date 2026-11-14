@@ -21,7 +21,7 @@ subprocess.run(["make", "-f", "ports/tiny210/Makefile", "BUILD=build/tiny210-qem
                stdout=subprocess.DEVNULL)
 # QEMU has no S5PV210 machine. cubieboard is a Cortex-A8 board; the legacy
 # uImage (IH_OS_LINUX) at DRAM+0x8000 and no -dtb make QEMU use the same
-# handoff as the X210 U-Boot bootm: MMU off, r0=0, r1=machine id,
+# handoff as BL1 / a U-Boot bootm: MMU off, r0=0, r1=machine id,
 # r2=ATAG list at DRAM+0x100 (ATAG_CORE, ATAG_MEM, ATAG_CMDLINE).
 proc = subprocess.Popen([qemu, "-M", "cubieboard", "-m", "512M",
                          "-nographic", "-monitor", "none",

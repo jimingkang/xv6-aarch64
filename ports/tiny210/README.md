@@ -1,4 +1,4 @@
-# S5PV210（FriendlyARM Tiny210 / 九鼎 X210）：不经 U-Boot 直接启动 xv6
+# FriendlyARM Tiny210（Samsung S5PV210）：不经 U-Boot 直接启动 xv6
 
 本移植按 S5PV210 的标准 iROM 启动方式进入 xv6，但不用 U-Boot：第二阶段
 由本仓库自带的 BL1（`kernel/arch/arm/mach-s5pv210/bl1`）完成。
@@ -43,15 +43,15 @@ QEMU 测试走的是同一套框架（sun4i 的 irqchip/clocksource/serial 驱�
 内核和用户态与 T113、AM335x 移植共用（进程、调度、文件系统、管道、shell、
 ARMv7 短描述符页表、异常向量）。
 
-支持两块板，板级差异都在 `mach-s5pv210/board.h`，用 `S5PV210_BOARD` 选择：
+板级常量在 `mach-s5pv210/board.h`：
 
-| | Tiny210（默认，`S5PV210_BOARD=tiny210`） | X210（`S5PV210_BOARD=x210`） |
-| --- | --- | --- |
-| 控制台 | UART0（SDK 底板 COM0），ttySAC0 | UART2，ttySAC2 |
-| DDR（DMC0） | 512 MiB @ 0x20000000，MEMCONFIG0 0x20E01323 | 256 MiB @ 0x30000000，MEMCONFIG0 0x30F01313 |
-| 内核运行地址 | 0x20008000 | 0x30008000 |
-| ATAG 地址 | 0x20000100 | 0x30000100 |
-| 机器号（r1） | 3466（MINI210） | 2456（SMDKV210） |
+| 项目 | Tiny210 |
+| --- | --- |
+| 控制台 | UART0（SDK 底板 COM0），ttySAC0 |
+| DDR（DMC0） | 512 MiB @ 0x20000000，MEMCONFIG0 0x20E01323 |
+| 内核运行地址 | 0x20008000 |
+| ATAG 地址 | 0x20000100 |
+| 机器号（r1） | 3466（MINI210） |
 
 ```
 S5PV210 iROM (BL0) ──► xv6 BL1：SD 第 1 扇区，16 KiB，16 字节头 + 校验和，
@@ -84,9 +84,8 @@ BL1 交接给内核的方式与 U-Boot `bootm` 完全一样（ARM Linux 启动�
 ## 构建
 
 ```sh
-make tiny210                                   # Tiny210：build/tiny210/
-make -f ports/tiny210/Makefile S5PV210_BOARD=x210   # 九鼎 X210
-make tiny210-check     # 自检 + BL1 主机测试（两块板）+ QEMU cubieboard 测试
+make tiny210           # build/tiny210/，并把内核/固件拷到 /Volumes/bootfs
+make tiny210-check     # 自检 + BL1 主机测试 + QEMU cubieboard 测试
 make tiny210-qemu      # QEMU 交互运行内核
 make tiny210-clean
 ```
@@ -150,11 +149,9 @@ sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 
 ## 上电
 
-- **Tiny210**：核心板从 NAND 启动是默认值。把 SDK 底板上的启动选择开关
-  拨到 SD 启动一侧（丝印一般是 `SDBOOT`，另一侧是 `NAND`），插卡上电。
-  串口接底板的 COM0（UART0，115200 8N1）。
-- **X210**：默认先从核心板 iNand 启动，iNand 中没有有效 BL1 时才尝试 SD2 卡槽。
-  串口接 UART2。
+核心板从 NAND 启动是默认值。把 SDK 底板上的启动选择开关拨到 SD 启动一侧
+（丝印一般是 `SDBOOT`，另一侧是 `NAND`），插卡上电。串口接底板的 COM0
+（UART0，115200 8N1）。
 
 BL1 会打印 iROM 从哪个 SD 通道启动（0 或 2），两种它都能处理。
 
@@ -240,7 +237,10 @@ make -f ports/tiny210/Makefile S5PV210_LCD=a70   # 7" 800x480
 
 在板子上看效果：`fbtest 10`（画完保留 10 秒再退出，屏幕随后回到文本控制台）。
 
-## USB 与 MT7601U 无线网卡（阶段 1：枚举 + 固件加载）
+## USB 与 MT7601U 无线网卡
+
+完整的硬件连接、initcall、USB 枚举、固件下载、SoftMAC、WPA2、收发路径及故障定位，
+参见 [`doc/readme/tiny210/wifi.md`](../../doc/readme/tiny210/wifi.md)。
 
 - `kernel/drivers/usb/host/ehci-hcd.c`：S5PV210 USB Host（底板 USB-A 口，EHCI
   0xEC200000，IRQ 55）。异步调度环上每个端点一个 QH，qTD 用 dummy-qTD 方式追加；
@@ -253,7 +253,8 @@ make -f ports/tiny210/Makefile S5PV210_LCD=a70   # 7" 800x480
   + `wpa_crypto.c`：从树莓派分支移植，固件改用 `request_firmware("mt7601u.bin")`，
   固件 `firmware/mt7601u.bin` 链接进内核（`kernel/drivers/base/firmware.c`）。
 - 网络栈 `kernel/net.c`、`workqueue.c`、`epoll.c` 已编进 Tiny210 内核；
-  wifi_connect/dhcp/ping 等系统调用和用户程序属于阶段 2，尚未接入。
+  `wifi_connect` 系统调用以及 `wifi`、`dhcp`、`ping` 等用户程序也已接入。
+  驱动完成 WPA2 握手后注册的接口名是 `wlan0`。
 - OTG 口（DWC2 主机模式，`kernel/drivers/usb/dwc2/hcd.c`）也已移植，
   `make -f ports/tiny210/Makefile S5PV210_USB_OTG=1` 启用。
 - 时钟源改为 PWM 定时器 3 自由计数（PCLK/16，32 位），关中断忙等时 udelay 也准确；
@@ -360,7 +361,7 @@ MMU 状态，出错时直接从控制台 UART 打印原因后停住。
 | `aliases the lower half` 警告 | 颗粒行地址比配置少一位，已自动只用一半，不影响 xv6 |
 | `not booted from SD/MMC` | iROM 不是从 SD 启动的 |
 | `no uImage magic` / `bad header CRC` | 第 49 扇区没写对 |
-| `uImage load/entry address does not match this board` | 用错了板子的镜像（Tiny210 是 0x20008000，X210 是 0x30008000） |
+| `uImage load/entry address does not match this board` | 镜像不是为 Tiny210 编的（应为 0x20008000） |
 | `kernel data CRC mismatch` | SD 读取出错或镜像写入不完整 |
 | BL1 正常但 xv6 无输出 | 把完整串口日志和 `kernel.map` 一起发回来 |
 | 出现 `$` 但键盘无响应 | 检查 `timer:` 一行的频率和 VIC0 第 25 位 |
@@ -369,5 +370,5 @@ MMU 状态，出错时直接从控制台 UART 打印原因后停住。
 DMC、VIC、PWM Timer、Watchdog、UART 章节）、S5PV210 iROM Application Note
 （BL1 头、校验和、设备拷贝函数）、Samsung S5PV210 U-Boot
 （`cpu/s5pc11x/s5pc110/cpu_init.S`、`board/samsung/smdkc110/lowlevel_init.S`）、
-FriendlyARM Tiny210/Mini210 BSP、九鼎 X210 BSP（`sd_fusing/mkx210.c`），
+FriendlyARM Tiny210/Mini210 BSP，九鼎 X210 BSP 的 `sd_fusing/mkx210.c`（BL1 头格式参考），
 Linux `Documentation/arch/arm/booting.rst`（ATAG 与入口寄存器）。
