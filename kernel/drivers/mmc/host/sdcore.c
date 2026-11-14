@@ -121,6 +121,8 @@ command(int idx, uint32 arg, uint16 flags, uint32 *resp)
       uint16 e = r16(ERRINTSTS);
       w16(NORINTSTS, 0xffff); w16(ERRINTSTS, 0xffff);
       reset(2 | 4);                            // CMD and DAT lines
+      if(idx != 8 && idx != 0)                 // CMD8 may legitimately time out (SD 1.x)
+        LOG("sd: error interrupt, CMD/errintsts", (uint32)idx << 16 | e);
       return e & 1 ? -2 : -1;                  // -2: command timeout (no card / not supported)
     }
     if(st & INT_CMD_DONE)
@@ -136,11 +138,15 @@ command(int idx, uint32 arg, uint16 flags, uint32 *resp)
     resp[0] = r32(RSPREG0); resp[1] = r32(RSPREG1);
     resp[2] = r32(RSPREG2); resp[3] = r32(RSPREG3);
   }
-  if((flags & 3) == 3){                        // busy: wait for transfer complete
+  if((flags & 3) == 3){
+    // R1b busy: done at Transfer Complete, or (controllers that do not
+    // raise it without data) once DAT0 is released high.
     d = deadline_us(500000);
-    while(!(r16(NORINTSTS) & (INT_XFER_DONE | INT_ERROR)))
-      if(expired(d))
+    while(!(r16(NORINTSTS) & (INT_XFER_DONE | INT_ERROR)) && !(r32(PRNSTS) & (1U << 20)))
+      if(expired(d)){
+        LOG("sd: busy never ended after CMD", idx);
         return -1;
+      }
     w16(NORINTSTS, INT_XFER_DONE);
   }
   return 0;
@@ -203,11 +209,20 @@ sdc_init(uintptr regs, const struct sdc_env *e)
     udelay(10000);
   }
   sdhc = (r[0] >> 30) & 1;
-  if(command(2, 0, RSP_136, r) < 0 || command(3, 0, RSP_48, r) < 0)
+  LOG(v2 ? "sd: SD 2.0 card, ocr" : "sd: SD 1.x card, ocr", r[0]);
+  if(command(2, 0, RSP_136, r) < 0){
+    LOG("sd: CMD2 (ALL_SEND_CID) failed", 0);
     return -1;
+  }
+  if(command(3, 0, RSP_48, r) < 0){
+    LOG("sd: CMD3 (SEND_RELATIVE_ADDR) failed", 0);
+    return -1;
+  }
   rca = r[0] >> 16;
-  if(command(7, rca << 16, RSP_48B, r) < 0)
+  if(command(7, rca << 16, RSP_48B, r) < 0){
+    LOG("sd: CMD7 (SELECT_CARD) failed, rca", rca);
     return -1;
+  }
   if(app_command(6, 2, RSP_48, r) == 0)        // 4-bit bus
     w8(HOSTCTL, r8(HOSTCTL) | 2);
   if(!sdhc)
