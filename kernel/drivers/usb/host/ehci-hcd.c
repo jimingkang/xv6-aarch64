@@ -288,7 +288,10 @@ qh_flush(struct qh *q, struct qtd *from)
     q->head = 0;
   q->next = phys(q->dummy);
   q->alt = LINK_T;
-  q->token = 0;           // clear halt; the DTC/QH toggle in token bit 31 resets to DATA0
+  // Clear Active/Halted/Ping but keep the data toggle: the device did not
+  // reset its toggle, and a DATA0/DATA1 mismatch makes it silently drop
+  // every following packet as a retransmission.
+  q->token &= TOK_DT;
   q->cur = 0;
 }
 
@@ -429,7 +432,8 @@ bulk_qh(struct qh *q, int endpoint, int in, void *data, int length)
     return -1;
   if(first == last)
     last = d;
-  long long tok = wait_qtd(last, 1000000);
+  // OUT: a busy device may NAK (PING) for a while; give it 3 s.
+  long long tok = wait_qtd(last, in ? 1000000 : 3000000);
   if(tok < 0 || (tok & TOK_ERRMASK)){
     if(tok >= 0 || !in){
       printf("ehci: bulk ep%d %s %d bytes failed token=%x\n", endpoint,
