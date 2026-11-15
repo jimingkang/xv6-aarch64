@@ -58,7 +58,7 @@ ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUI
 IMG = $(BUILD)/xv6-tiny210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs tftpboot FORCE
+.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs rootfs tftpboot FORCE
 all: $(IMG).bin $(IMG).uImage $(BUILD)/xv6_tiny210.img $(BUILD)/tiny210-bl1.bin $(BUILD)/tiny210-sd.img
 ifneq ($(QEMU_TEST),1)
 all: bootfs tftpboot
@@ -80,6 +80,28 @@ bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
 	  rm -f "$(TINY210_BOOTFS)/._xv6_tiny210.img" "$(TINY210_BOOTFS)/._mt7601u.bin" "$(TINY210_BOOTFS)/._FS.IMG" && \
 	  sync && echo "bootfs: xv6_tiny210.img and mt7601u.bin copied to $(TINY210_BOOTFS)"; \
 	else echo "bootfs: $(TINY210_BOOTFS) not mounted, nothing copied"; fi
+	@$(MAKE) -f $(P)/Makefile --no-print-directory rootfs
+# The root file system on the card's second partition (the kernel prefers a
+# primary, non-FAT partition with an xv6 superblock over FS.IMG): when the
+# card is mounted, find the disk that holds TINY210_BOOTFS and write fs.img
+# raw to its slice 2 -- only if that slice is not a FAT/Apple/EFI volume,
+# and only when fs.img changed since the last write (sudo asks once).
+ROOTFS_SLICE ?= 2
+rootfs: $(BUILD)/fs.img
+	@if [ ! -d "$(TINY210_BOOTFS)" ]; then echo "rootfs: $(TINY210_BOOTFS) not mounted, root partition not written"; exit 0; fi; \
+	disk=$$(diskutil info "$(TINY210_BOOTFS)" | awk '/Part of Whole:/ {print $$4}'); \
+	part=$${disk}s$(ROOTFS_SLICE); \
+	if [ -z "$$disk" ] || ! diskutil info $$part >/dev/null 2>&1; then \
+	  echo "rootfs: $$disk has no partition $(ROOTFS_SLICE); see ports/tiny210/README.md"; exit 0; fi; \
+	ptype=$$(diskutil info $$part | awk -F': *' '/Partition Type:/ {print $$2}'); \
+	case "$$ptype" in *FAT*|*DOS*|*Windows*|*Apple*|*EFI*|*NTFS*|*HFS*) \
+	  echo "rootfs: /dev/$$part is \"$$ptype\", not a raw root partition; not written"; exit 0;; esac; \
+	if cmp -s $(BUILD)/fs.img $(BUILD)/rootfs-written.img; then \
+	  echo "rootfs: /dev/$$part already holds this fs.img"; exit 0; fi; \
+	echo "rootfs: writing fs.img to /dev/r$$part ($$ptype; sudo)"; \
+	if sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m; then sync; \
+	  cp $(BUILD)/fs.img $(BUILD)/rootfs-written.img; echo "rootfs: done"; \
+	else echo "rootfs: not written (sudo/dd failed); run: sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m"; fi
 # The board's tftpclient fetches xv6_tiny210.img from here. The directory is
 # root's: copy directly when writable, else through sudo if it needs no
 # password, else say what to run once.

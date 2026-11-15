@@ -339,6 +339,21 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需
 
 以后只改内核时，只需替换 FAT32 分区里的 xv6_tiny210.img。
 
+## 根文件系统放在 SD 卡第 2 分区
+
+内核开机时先在 MBR 里找一个非 FAT 类型、且第 1 块是 xv6 超级块的主分区作为根文件系统
+（日志 `xv6fs: selected raw p2 ...`），找不到才退回 FAT32 里的 `FS.IMG`。
+
+`make tiny210` 在 SD 卡插着（`/Volumes/bootfs` 已挂载）时，会找到这张卡，把 `fs.img`
+原样写进它的第 2 分区（`/dev/rdiskNs2`，用 sudo，会问密码）：
+
+- 只写非 FAT/Apple/EFI 类型的分区（例如 Linux 0x83），防止写错盘。
+- fs.img 没变就不再写（与 `build/tiny210/rootfs-written.img` 比较）。
+- 分区号可用 `ROOTFS_SLICE=N` 改。
+
+卡上还没有第 2 分区时，在 FAT32 分区后面建一个至少 4 MiB 的 Linux 分区即可
+（macOS：`diskutil addPartition diskNs1 %Linux% %noformat% 64M`，或用 `fdisk -e`）。
+
 ## 不拔卡更新内核（tftpclient + reboot）
 
 板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核。`tftpclient` 和 `reboot` 都取自 rpi3-lock 分支。
