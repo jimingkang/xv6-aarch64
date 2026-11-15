@@ -99,6 +99,7 @@ fw_pread(struct fw_file *f, uint32 off, void *buf, uint32 len)
 #define MT_RSN_IE_MAX             66
 #define MT_NET_FRAME_MAX          1600
 #define MT_WCID_AP                1
+#define MT_N_WCIDS                128
 
 #define MT_TXD_PKT_INFO_80211     (1U << 19)
 #define MT_TXD_PKT_INFO_WIV       (1U << 24)
@@ -703,7 +704,23 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
              i, mt_bbp_init[i].reg);
       return -1;
     }
-  printf("mt7601u: BBP register table initialized (%d entries)\n",
+  // Linux mt7601u_init_hardware() (and the rpi3-BCM43430 driver): after the
+  // BBP table, clear the WCID address table (all ff), the shared-key mode
+  // registers, and set every WCID attribute to 1 (pairwise, no cipher,
+  // BSS 0). Power-up contents are undefined; a stray BSS index or key mode
+  // in these tables makes the MAC pick the wrong key or drop data frames,
+  // which is why some boots got no data at all after the handshake.
+  for(int i = 0; i < MT_N_WCIDS; i++)
+    if(mt7601u_write32(udev, 0x1800 + i * 8, 0xffffffff) < 0 ||
+       mt7601u_write32(udev, 0x1800 + i * 8 + 4, 0x00ffffff) < 0)
+      return -1;
+  for(int i = 0; i < 4; i++)
+    if(mt7601u_write32(udev, 0xb000 + i * 4, 0) < 0)
+      return -1;
+  for(int i = 0; i < MT_N_WCIDS * 2; i++)
+    if(mt7601u_write32(udev, 0xa800 + i * 4, 1) < 0)
+      return -1;
+  printf("mt7601u: BBP register table initialized (%d entries); WCID/key tables cleared\n",
          sizeof(mt_bbp_init) / sizeof(mt_bbp_init[0]));
 
   for(uint i = 0; i < sizeof(mt_rf_init) / sizeof(mt_rf_init[0]); i++)
@@ -983,8 +1000,10 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
                          iv, sizeof(iv)) < 0 ||
      mt7601u_read32(dev->udev, 0xa800 + MT_WCID_AP * 4, &attr) < 0)
     return -1;
-  // AES-CCMP cipher mode 4 and pairwise-key flag.
-  attr = (attr & ~0x0fU) | (4U << 1) | 1U;
+  // AES-CCMP cipher mode 4 and pairwise-key flag, BSS index 0. Written
+  // absolutely, not read-modify-write: a stale register read (seen on the
+  // RPi as 0x11009) must not leak unrelated bits into the attribute.
+  attr = (4U << 1) | 1U;
   if(mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, attr) < 0)
     return -1;
 
@@ -993,8 +1012,11 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
   if(mt7601u_write_bytes(dev->udev, shared, key, sizeof(key)) < 0 ||
      mt7601u_read32(dev->udev, 0xb000, &mode) < 0)
     return -1;
-  mode &= ~(0xfU << (4 * dev->gtk_index));
-  mode |= 4U << (4 * dev->gtk_index);
+  // BSS 0 owns the low 16 bits (4 key slots x 4 bits); only the current
+  // GTK slot is valid.
+  mode = 4U << (4 * dev->gtk_index);
+  printf("mt7601u: keys installed: PTK wcid=%d attr=%x, GTK idx=%d skey-mode=%x\n",
+         MT_WCID_AP, attr, dev->gtk_index, mode);
   return mt7601u_write32(dev->udev, 0xb000, mode);
 }
 
@@ -1148,6 +1170,31 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
     return;
   subtype = (fc >> 4) & 0xf;
   dev->mgmt_frames++;
+
+  // Deauthentication (12) / disassociation (10) from our AP (from the
+  // rpi3-BCM43430 driver): the AP dropped our state (reason 4 inactivity,
+  // 6/7 class 2/3 frame, 15 four-way timeout). Re-authenticate with the
+  // same BSS; wlan0 stays registered, data waits for the new handshake.
+  if((subtype == 12 || subtype == 10) && length >= 26 &&
+     mt_mac_equal(frame + 4, dev->mac) &&
+     mt_mac_equal(frame + 10, dev->target_bssid)){
+    printf("mt7601u: %s from AP reason=%d (link_state=%d handshake=%d)\n",
+           subtype == 12 ? "deauthentication" : "disassociation",
+           mt_get16(frame + 24), dev->link_state, dev->handshake_done);
+    if(dev->link_state >= MT_LINK_AUTH_SENT){
+      dev->handshake_done = 0;
+      dev->handshake_started = 0;
+      memset(dev->anonce, 0, sizeof(dev->anonce));
+      memset(dev->snonce, 0, sizeof(dev->snonce));
+      memset(dev->ptk, 0, sizeof(dev->ptk));
+      dev->link_state = MT_LINK_AUTH_PENDING;
+      dev->link_retries = 0;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
+      printf("mt7601u: reconnecting\n");
+    }
+    return;
+  }
 
   // Open-System Authentication response (transaction 2).
   if(subtype == 11 && length >= 30 &&
