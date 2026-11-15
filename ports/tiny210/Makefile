@@ -51,6 +51,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(if $(filter 1,$(QEMU_TEST)),$(BUILD)/ramdisk.o) $(BUILD)/initcode-embed.o \
+  $(BUILD)/version.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
 COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest evtest wifi dhcp ping tftpclient reboot windemo
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
@@ -192,6 +193,15 @@ $(BUILD)/initcode.bin: $(BUILD)/initcode.elf
 $(BUILD)/initcode-embed.S: $(BUILD)/initcode.bin
 	@printf '.section .rodata\n.global initcode,initcode_end\ninitcode:\n.incbin "$(BUILD)/initcode.bin"\ninitcode_end:\n.section .note.GNU-stack,"",%%progbits\n' > $@
 $(BUILD)/initcode-embed.o: $(BUILD)/initcode-embed.S
+	$(ARM_CC) $(FLAGS) -c $< -o $@
+# Build stamp printed at boot ("xv6: built ..."): regenerated whenever any
+# other kernel object (or the linker script) changed, so it is the time the
+# kernel was last rebuilt, with the git commit it came from.
+$(BUILD)/version.c: $(filter-out $(BUILD)/version.o,$(OBJS)) $(MACH)/kernel.ld
+	@mkdir -p $(@D)
+	@printf 'const char xv6_build_info[] = "%s (git %s)";\n' \
+	  "$$(date '+%Y-%m-%d %H:%M:%S')" "$$(git describe --always --dirty 2>/dev/null || echo unknown)" > $@
+$(BUILD)/version.o: $(BUILD)/version.c
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/kernel.elf: $(OBJS) $(MACH)/kernel.ld
 	$(ARM_LD) -m armelf --gc-sections -z max-page-size=4096 --defsym=KERNEL_LOAD=$(KERNEL_LOAD) -T $(MACH)/kernel.ld -Map $(BUILD)/kernel.map -o $@ $(OBJS)

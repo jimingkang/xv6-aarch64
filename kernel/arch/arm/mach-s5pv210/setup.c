@@ -88,6 +88,7 @@ static void boot_info(uint r0, uint machid, uint r2) {
   if(bootp.initrd_size) printf("atags: initrd %x + %d bytes (ignored)\n",bootp.initrd_base,bootp.initrd_size);
 }
 
+extern const char xv6_build_info[];   /* generated: build/<port>/version.c */
 void tiny210_main(uint r0, uint machid, uint r2) {
   /* The console UART works from the first instruction (serial driver's
      early base = the boot loader's console). */
@@ -119,6 +120,7 @@ void tiny210_main(uint r0, uint machid, uint r2) {
   kinit1(end,P2V(PHYSTOP));
   device_init(); consoleinit(); ttyinit(); printfinit();
   printf("\nxv6 ARM32 / %s\n",BOARD);
+  printf("xv6: built %s\n",xv6_build_info);
   boot_info(r0,machid,r2);
   printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,tiny210_phystop);
   printf("single CPU, ARMv7 MMU, embedded RAM disk\n");
