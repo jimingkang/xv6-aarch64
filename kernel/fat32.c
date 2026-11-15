@@ -47,13 +47,18 @@ static struct {
 } diskmap;
 
 static uchar scratch[SECTOR_SIZE];
-#ifdef XV6_ARM32
-// Tiny210: without a card, or without FS.IMG / a raw xv6 partition on it,
-// the root is the RAM disk linked into the kernel (drivers/block).
+#if defined(XV6_ARM32) && !defined(XV6_NO_EMBEDDED_ROOT)
+// Without a card, or without FS.IMG / a raw xv6 partition on it, the root
+// is the RAM disk linked into the kernel (drivers/block). Only the QEMU
+// stand-in build still links one; the Tiny210 kernel boots FS.IMG from SD.
 static int use_embedded;
 void ramdisk_embed_rw(struct buf *b, int write);
 #define FAT32_NO_ROOT(msg) do { printf("xv6fs: %s; using the built-in RAM disk\n", msg); \
                                 use_embedded = 1; return; } while(0)
+#elif defined(XV6_NO_EMBEDDED_ROOT)
+#define FAT32_NO_ROOT(msg) do { printf("xv6fs: %s\nxv6fs: the kernel has no built-in root file system: "\
+                                       "copy fs.img to the SD card's FAT32 partition as FS.IMG\n", msg); \
+                                panic("no root file system"); } while(0)
 #else
 #define FAT32_NO_ROOT(msg) panic(msg)
 #endif
@@ -1501,7 +1506,7 @@ fat32rw(struct buf *b, int write)
 {
   if(!holdingsleep(&b->lock))
     panic("fat32rw: buf not locked");
-#ifdef XV6_ARM32
+#if defined(XV6_ARM32) && !defined(XV6_NO_EMBEDDED_ROOT)
   if(use_embedded){
     ramdisk_embed_rw(b, write);
     return;

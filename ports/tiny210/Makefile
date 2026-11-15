@@ -29,7 +29,7 @@ KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(TINY210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
-FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET $(if $(filter 1,$(QEMU_TEST)),,-DXV6_HAVE_VFS) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET $(if $(filter 1,$(QEMU_TEST)),,-DXV6_HAVE_VFS -DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll sysnet $(if $(filter 1,$(QEMU_TEST)),,fat32 vfs ext2)
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
@@ -38,7 +38,7 @@ DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/
   video/fbdev/fbmem video/fbdev/simplefb
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
-  tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon block/ramdisk_embed \
+  tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon \
   mmc/host/sdhci-s3c mmc/host/sdcore usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
 FIRMWARE = mt7601u
 endif
@@ -49,7 +49,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/shared/,$(addsuffix .o,$(SHARED)) vectors.o swtch.o div.o) \
   $(addprefix $(BUILD)/port/,$(addsuffix .o,$(OWN)) entry.o) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
-  $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o \
+  $(BUILD)/port/printf.o $(if $(filter 1,$(QEMU_TEST)),$(BUILD)/ramdisk.o) $(BUILD)/initcode-embed.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
 COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping tftpclient reboot
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))

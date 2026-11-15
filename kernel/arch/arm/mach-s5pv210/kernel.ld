@@ -10,11 +10,13 @@ SECTIONS {
   etext = .;
   .rodata : { *(.rodata .rodata.*) }
   .initcall.list : { __initcall_start = .; KEEP(*(.initcall.list)) __initcall_end = .; }
-  .data : { *(.data .data.*) }
-  . = ALIGN(4096);
-  .ramdisk : { KEEP(*(.ramdisk)) }
-  . = ALIGN(16);
-  image_end = .;
+  /* Pad .data itself so objcopy -O binary emits the image up to image_end
+     (the Tiny210 kernel has no .ramdisk any more; only the QEMU build
+     links one, page-aligned). */
+  .data : { *(.data .data.*) . = ALIGN(16); }
+  data_end = .;
+  .ramdisk ALIGN(4096) : { KEEP(*(.ramdisk)) . = ALIGN(16); }
+  image_end = SIZEOF(.ramdisk) ? . : data_end;
   bss_start = .;
   .bss (NOLOAD) : { *(.bss .bss.* COMMON) }
   . = ALIGN(4096);

@@ -327,6 +327,8 @@ $ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD �
   也可以用 `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftpclient [IP[:端口] [文件名]]`。
 - 文件先下载到 `/boot/TFTP.TMP`，完整收到后才复制成 `/boot/<文件名>`。传输中断时，
   旧内核不会被破坏。
+- 内核不再内嵌 fs.img，只有约 200 KB，根文件系统只能来自 SD 卡上的 `FS.IMG`。卡上没有
+  FS.IMG 时，内核会打印提示后 panic。QEMU 替身没有 SD 卡，所以那一版仍然内嵌。
 - 不能用 tftpclient 更新 `FS.IMG`，因为它是正在挂载的根文件系统。`tftpclient`、`reboot` 这两个
   命令本身也在 FS.IMG 里，所以第一次要插卡执行一次 `make tiny210 BOOTFS_FSIMG=1`。
 - `tiny210-sd.img` 是整张卡的原始镜像，其中 BL1 在扇区 1。它不经过 FAT32，所以放进
