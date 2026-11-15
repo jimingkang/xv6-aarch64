@@ -75,3 +75,4 @@
 #define SYS_mmap         74
 #define SYS_munmap       75
 #define SYS_ioctl        76
+#define SYS_reboot       77

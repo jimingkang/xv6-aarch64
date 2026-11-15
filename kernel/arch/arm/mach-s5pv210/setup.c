@@ -165,3 +165,20 @@ void t113_fault(uint kind,uint lr,uint psr) {
   panic("ARM fault");
 }
 void send_resched_ipi(int cpu) { (void)cpu; }
+
+/* reboot(): S5PV210 software reset (SWRESET, 0xE0102000, in the mapped
+   clock-controller section): the whole chip resets and the iROM boots BL1
+   from the SD card again. FAT32 and xv6fs writes are synchronous (sdsector,
+   log commit), so nothing is left in a write-back cache. */
+uint64 sys_reboot(void) {
+#ifdef TINY210_QEMU
+  printf("reboot: not supported on the QEMU stand-in\n");
+  return -1;
+#else
+  printf("reboot: software reset\n");
+  for(volatile uint i=0;i<2000000;i++) ;        /* let the UART drain */
+  intr_off();
+  *(volatile uint32*)0xE0102000U = 1;
+  for(;;) ;
+#endif
+}

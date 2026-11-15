@@ -51,13 +51,13 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
-COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping
+COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping tftp reboot
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
 IMG = $(BUILD)/xv6-tiny210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs
+.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs tftp FORCE
 all: $(IMG).bin $(IMG).uImage $(BUILD)/xv6_tiny210.img $(BUILD)/tiny210-bl1.bin $(BUILD)/tiny210-sd.img
 ifneq ($(QEMU_TEST),1)
 all: bootfs
@@ -121,7 +121,20 @@ $(BUILD)/mkfs: mkfs/mkfs.c kernel/fs.h kernel/types.h kernel/param.h
 # "ssid=NAME" and "psk=PASSPHRASE" lines becomes /etc/wifi.conf, and init
 # then joins that network and runs DHCP on wlan0 at boot.
 WIFI_CONF ?= ports/tiny210/wifi.conf
-ETC_FILES = $(if $(filter 1,$(QEMU_TEST)),,$(wildcard $(WIFI_CONF)))
+# /etc/tftp.conf tells the board's tftp where `make tftp` serves build/tiny210:
+# this Mac's Wi-Fi/Ethernet address (override with TFTP_SERVER=a.b.c.d).
+TFTP_PORT ?= 6969
+TFTP_SERVER ?= $(shell for i in en0 en1 en2 en3; do ipconfig getifaddr $$i 2>/dev/null && break; done)
+TFTP_CONF = $(if $(TFTP_SERVER),$(BUILD)/etc/tftp.conf)
+ETC_FILES = $(if $(filter 1,$(QEMU_TEST)),,$(wildcard $(WIFI_CONF)) $(TFTP_CONF))
+$(BUILD)/etc/tftp.conf: FORCE
+	@mkdir -p $(@D)
+	@printf 'server=%s:%s\n' '$(TFTP_SERVER)' '$(TFTP_PORT)' > $@.new
+	@cmp -s $@.new $@ && rm -f $@.new || mv $@.new $@
+FORCE:
+# Serve build/tiny210 over TFTP (unprivileged port) for `tftp` on the board.
+tftp: all
+	python3 ports/tiny210/tftpserve.py $(BUILD) $(TFTP_PORT)
 $(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS) $(ETC_FILES)
 	$(BUILD)/mkfs $@ $(UPROGS) $(if $(ETC_FILES),--etc $(ETC_FILES))
 $(BUILD)/ramdisk.S: $(BUILD)/fs.img

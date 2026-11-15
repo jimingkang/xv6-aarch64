@@ -403,6 +403,12 @@ ioctl:
   mov r7, #SYS_ioctl
   svc #0
   pop {r7,pc}
+.global reboot
+reboot:
+  push {r7,lr}
+  mov r7, #SYS_reboot
+  svc #0
+  pop {r7,pc}
 /* Network calls take up to six arguments: the 5th and 6th come from the
    caller's stack into r4/r5 (unused ones are ignored by the kernel). */
 .global udp_bind
