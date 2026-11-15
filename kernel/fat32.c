@@ -915,18 +915,6 @@ setup_fat32(uint32 partition_lba, uint32 partition_sectors)
 
   uint32 first_cluster;
   uint32 file_size;
-  // tftpclient fs.img leaves a new root image as FS.NEW (FS.IMG cannot be
-  // replaced while it is mounted). Swap it in now, before the root is
-  // mounted: the rename points FS.IMG's directory entry at the new chain
-  // and frees the old one. A short file (interrupted copy) is ignored.
-  if(find_root_file(root, "FS      NEW", &first_cluster, &file_size) == 0){
-    if(file_size < FSSIZE * BSIZE)
-      printf("fat32: FS.NEW too small (%d bytes), ignored\n", file_size);
-    else if(fat32renamefile("/FS.NEW", "/FS.IMG") == 0)
-      printf("fat32: FS.NEW installed as FS.IMG (%d bytes)\n", file_size);
-    else
-      printf("fat32: cannot rename FS.NEW to FS.IMG\n");
-  }
   if(find_fsimg(root, &first_cluster, &file_size) < 0)
     return 0;
   if(file_size < FSSIZE * BSIZE){
