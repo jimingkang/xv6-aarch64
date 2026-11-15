@@ -100,9 +100,11 @@ rootfs: $(BUILD)/fs.img
 	if cmp -s $(BUILD)/fs.img $(BUILD)/rootfs-written.img; then \
 	  echo "rootfs: /dev/$$part already holds this fs.img"; exit 0; fi; \
 	echo "rootfs: writing fs.img to /dev/r$$part ($$ptype; sudo)"; \
-	if sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m; then sync; \
-	  cp $(BUILD)/fs.img $(BUILD)/rootfs-written.img; echo "rootfs: done"; \
-	else echo "rootfs: not written (sudo/dd failed); run: sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m"; fi
+	dd if=$(BUILD)/fs.img of=$(BUILD)/rootfs-sb.bin bs=1024 skip=1 count=1 2>/dev/null; \
+	if sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m && sync && \
+	   sudo dd if=/dev/r$$part bs=1024 skip=1 count=1 2>/dev/null | cmp -s - $(BUILD)/rootfs-sb.bin; then \
+	  cp $(BUILD)/fs.img $(BUILD)/rootfs-written.img; echo "rootfs: done (superblock read back OK)"; \
+	else echo "rootfs: NOT written or read-back mismatch; run: sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m"; fi
 # The board's tftpclient fetches xv6_tiny210.img from here. The directory is
 # root's: copy directly when writable, else through sudo if it needs no
 # password, else say what to run once.
