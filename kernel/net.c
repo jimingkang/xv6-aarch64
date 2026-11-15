@@ -1018,6 +1018,17 @@ arp_rx(struct net_device *dev, struct ethhdr *eth, int len)
      arp->plen != 4)
     return;
   arp_update(swap32(arp->spa), arp->sha, dev);
+  {
+    static int arp_logged;    // bring-up trace: ARP that concerns us
+    uint32 spa = swap32(arp->spa), tpa = swap32(arp->tpa);
+    if(arp_logged < 12 && (tpa == dev->ip_addr || swap16(arp->op) == ARP_OP_REPLY)){
+      arp_logged++;
+      printf("arp: rx %s %d.%d.%d.%d -> %d.%d.%d.%d\n",
+             swap16(arp->op) == ARP_OP_REPLY ? "reply" : "request",
+             spa >> 24, (spa >> 16) & 255, (spa >> 8) & 255, spa & 255,
+             tpa >> 24, (tpa >> 16) & 255, (tpa >> 8) & 255, tpa & 255);
+    }
+  }
   if(swap16(arp->op) == ARP_OP_REPLY)
     return;
   if(swap16(arp->op) != ARP_OP_REQUEST ||

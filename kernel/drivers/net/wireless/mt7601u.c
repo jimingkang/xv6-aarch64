@@ -235,6 +235,8 @@ struct mt7601u_device {
   uint32 rx_frames;
   uint32 rx_mgmt, rx_datafr, rx_urbs;   // bring-up counters
   uint32 rx_usb_err;                    // EP4 transfers that ended in an error
+  uint32 rx_ucast, rx_ucast_enc, rx_ucast_busy;  // data frames to our MAC: all,
+                                        // still encrypted, dropped (slot full)
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
@@ -1333,6 +1335,17 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
   fc = mt_get16(frame);
   if(((fc >> 2) & 3) != 2)
     return;
+  int to_me = mt_mac_equal(frame + 4, dev->mac);
+  if(to_me && dev->handshake_done){
+    dev->rx_ucast++;
+    static int ucast_logged;
+    if(ucast_logged < 8){     // bring-up trace: unicast frames, A3 = Ethernet source
+      ucast_logged++;
+      printf("mt7601u: unicast rx fc=%x len=%d rxinfo=%x src=%x:%x:%x:%x:%x:%x\n",
+             fc, length, rxinfo, frame[16], frame[17], frame[18], frame[19],
+             frame[20], frame[21]);
+    }
+  }
   static int rx_logged;
   if(dev->handshake_done && rx_logged < 8){   // bring-up trace: first data frames seen
     rx_logged++;
@@ -1347,8 +1360,11 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
   // and the 8-byte CCMP header (PN, key id) in front of the LLC/SNAP header;
   // the MIC is already removed. Skip it, as Linux mt76 does.
   if(fc & 0x4000){
-    if(!(rxinfo & (1U << 16)))
+    if(!(rxinfo & (1U << 16))){
+      if(to_me)
+        dev->rx_ucast_enc++;
       return;      // still encrypted: no key for it
+    }
     header += 8;
   }
   if(header + 8 > length)
@@ -1362,6 +1378,8 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
     mt7601u_rx_eapol(dev, llc + 8, length - header - 8);
     return;
   }
+  if(dev->handshake_done && dev->net_rx_len != 0 && to_me)
+    dev->rx_ucast_busy++;
   if(!dev->handshake_done || dev->net_rx_len != 0 ||
      length - header > MT_NET_FRAME_MAX - 6)
     return;
@@ -1650,6 +1668,8 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
     printf("mt7601u: rx so far: usb buffers %d, frames %d (mgmt %d data %d), dropped %d, usb errors %d\n",
            dev->rx_urbs, dev->rx_frames, dev->rx_mgmt, dev->rx_datafr, dev->rx_bad,
            dev->rx_usb_err);
+    printf("mt7601u: unicast to us %d (undecrypted %d, slot busy %d)\n",
+           dev->rx_ucast, dev->rx_ucast_enc, dev->rx_ucast_busy);
   }
   return result;
 }
