@@ -364,8 +364,12 @@ $ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD �
   旧内核不会被破坏。
 - 内核不再内嵌 fs.img，只有约 200 KB，根文件系统只能来自 SD 卡上的 `FS.IMG`。卡上没有
   FS.IMG 时，内核会打印提示后 panic。QEMU 替身没有 SD 卡，所以那一版仍然内嵌。
-- 不能用 tftpclient 更新 `FS.IMG`，因为它是正在挂载的根文件系统。`tftpclient`、`reboot` 这两个
-  命令本身也在 FS.IMG 里，所以第一次要插卡执行一次 `make tiny210 BOOTFS_FSIMG=1`。
+- 根文件系统也能这样更新：`tftpclient fs.img` 然后 `reboot`。FS.IMG 正挂载为根，不能在运行中
+  覆盖，所以新镜像先存成 `/boot/FS.NEW`，下次开机内核在挂载根之前把它换成 FS.IMG
+  （日志 `fat32: FS.NEW installed as FS.IMG`）。服务器上的文件名是 `tiny210_fs.img`，
+  避免和别的板子的 fs.img 冲突。
+- 服务器可以省略：`tftpclient`、`tftpclient fs.img`、`tftpclient 192.168.0.233 xv6_tiny210.img` 都行。
+- 只有第一次（板上还没有 tftpclient 时）需要插卡执行 `make tiny210 BOOTFS_FSIMG=1`。
 - `tiny210-sd.img` 是整张卡的原始镜像，其中 BL1 在扇区 1。它不经过 FAT32，所以放进
   /boot 不起作用。只有 BL1 变了，才需要插卡用 `dd` 写入。
 

@@ -25,6 +25,14 @@ static uint16 tftp_port = TFTP_PORT;
 // target only when complete, so a dropped transfer never leaves a half
 // kernel where BL1 will look for it.
 #define TFTP_TEMP "/boot/TFTP.TMP"
+// The root file system image. `tftpclient fs.img` fetches it under this
+// name (make tiny210 puts it in /private/tftpboot next to the kernel; a
+// plain fs.img there may belong to another board) and leaves it as
+// /boot/FS.NEW: FS.IMG is mounted as root and cannot be overwritten while
+// running, so the kernel swaps FS.NEW in at the next boot, before it
+// mounts the root.
+#define TFTP_FS_REMOTE "tiny210_fs.img"
+#define TFTP_FS_PENDING "/boot/FS.NEW"
 
 // Keep transfer buffers out of the small user call stack.  The client binds a
 // fixed UDP port, so only one active instance is supported anyway and
@@ -441,26 +449,53 @@ is_root_image(const char *name)
   return name[i] == 0;
 }
 
+// True when text is a dotted IPv4 address with an optional :port.
+static int
+looks_like_server(const char *text)
+{
+  char host[32];
+  uint32 address;
+  int n = 0;
+  while(text[n] && text[n] != ':' && n < (int)sizeof(host) - 1){
+    host[n] = text[n];
+    n++;
+  }
+  host[n] = 0;
+  return parse_ipv4(host, &address) == 0;
+}
+
+static void
+usage(void)
+{
+  printf("usage: tftpclient [server-ip[:port]] [file]\n");
+  printf("  file defaults to %s; fs.img updates the root file system at the next boot\n",
+         TFTP_DEFAULT_FILE);
+}
+
 int
 main(int argc, char **argv)
 {
   uint32 server;
   const char *server_name = conf_server();
   const char *remote_name = TFTP_DEFAULT_FILE;
-  int total;
+  int total, root_image = 0, arg = 1;
 
   if(argc > 3){
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]\n");
+    usage();
     exit(1);
   }
-  if(argc >= 2)
-    server_name = argv[1];
-  if(argc == 3)
-    remote_name = argv[2];
+  // tftpclient [server[:port]] [file]: the server may be left out.
+  if(arg < argc && looks_like_server(argv[arg]))
+    server_name = argv[arg++];
+  if(arg < argc)
+    remote_name = argv[arg++];
+  if(arg < argc){
+    usage();
+    exit(1);
+  }
   if(server_name == 0){
     printf("tftpclient: no server: give one, or put server=a.b.c.d in %s\n", TFTP_CONF);
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]   (default file %s)\n",
-           TFTP_DEFAULT_FILE);
+    usage();
     exit(1);
   }
   static char host[32];
@@ -480,15 +515,27 @@ main(int argc, char **argv)
   }
   if(parse_ipv4(host, &server) < 0){
     printf("tftpclient: invalid server IPv4 address: %s\n", server_name);
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]\n");
+    usage();
     exit(1);
   }
-  if(is_root_image(remote_name)){
-    printf("tftpclient: refusing to overwrite FS.IMG, the mounted root file system\n");
-    exit(1);
+  if(is_root_image(remote_name) || strcmp(remote_name, TFTP_FS_REMOTE) == 0){
+    root_image = 1;
+    remote_name = TFTP_FS_REMOTE;
   }
   total = download(server, remote_name);
-  if(total < 0 || install(remote_name, total) < 0)
+  if(total < 0)
+    exit(1);
+  if(root_image){
+    // FS.IMG is the mounted root: park the new image as FS.NEW.
+    if(rename(TFTP_TEMP, TFTP_FS_PENDING) < 0){
+      printf("tftpclient: cannot rename %s to %s\n", TFTP_TEMP, TFTP_FS_PENDING);
+      exit(1);
+    }
+    printf("tftpclient: root file system saved as %s (%d bytes); "
+           "run reboot to switch to it\n", TFTP_FS_PENDING, total);
+    exit(0);
+  }
+  if(install(remote_name, total) < 0)
     exit(1);
   exit(0);
 }

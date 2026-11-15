@@ -80,14 +80,17 @@ bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
 	  rm -f "$(TINY210_BOOTFS)/._xv6_tiny210.img" "$(TINY210_BOOTFS)/._mt7601u.bin" "$(TINY210_BOOTFS)/._FS.IMG" && \
 	  sync && echo "bootfs: xv6_tiny210.img and mt7601u.bin copied to $(TINY210_BOOTFS)"; \
 	else echo "bootfs: $(TINY210_BOOTFS) not mounted, nothing copied"; fi
-# The board's tftpclient fetches xv6_tiny210.img from here. The directory is
-# root's: copy directly when writable, else through sudo if it needs no
-# password, else say what to run once.
-tftpboot: $(BUILD)/xv6_tiny210.img
+# The board's tftpclient fetches xv6_tiny210.img (and, for `tftpclient
+# fs.img`, the root image as tiny210_fs.img -- a plain fs.img there may be
+# another board's) from here. The directory is root's: copy directly when
+# writable, else through sudo if it needs no password, else say what to run.
+tftpboot: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img
 	@if [ ! -d "$(TFTP_DIR)" ]; then echo "tftpboot: $(TFTP_DIR) does not exist, nothing copied"; \
-	elif cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null || \
-	     sudo -n cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null; then \
-	  echo "tftpboot: xv6_tiny210.img copied to $(TFTP_DIR)"; \
+	elif { cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" && \
+	       cp -X $(BUILD)/fs.img "$(TFTP_DIR)/tiny210_fs.img"; } 2>/dev/null || \
+	     { sudo -n cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" && \
+	       sudo -n cp -X $(BUILD)/fs.img "$(TFTP_DIR)/tiny210_fs.img"; } 2>/dev/null; then \
+	  echo "tftpboot: xv6_tiny210.img and tiny210_fs.img copied to $(TFTP_DIR)"; \
 	else echo "tftpboot: cannot write $(TFTP_DIR); run once: sudo chown $$(id -un) $(TFTP_DIR)"; fi
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
