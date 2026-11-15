@@ -82,6 +82,12 @@ bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
 	  sync && echo "bootfs: xv6_tiny210.img and mt7601u.bin copied to $(TINY210_BOOTFS)"; \
 	else echo "bootfs: $(TINY210_BOOTFS) not mounted, nothing copied"; fi
 	@$(MAKE) -f $(P)/Makefile --no-print-directory rootfs
+	@# Eject the card: the reader may cache writes (a raw partition write once
+	@# read back fine on the Mac yet the board saw an empty partition), and
+	@# eject flushes it. BOOTFS_EJECT=0 keeps the card mounted.
+	@if [ "$(BOOTFS_EJECT)" != 0 ] && [ -d "$(TINY210_BOOTFS)" ]; then \
+	  disk=$$(diskutil info "$(TINY210_BOOTFS)" | awk '/Part of Whole:/ {print $$4}'); \
+	  sync; diskutil eject $$disk >/dev/null && echo "bootfs: $$disk ejected, the card can be removed"; fi
 # The root file system on the card's second partition (the kernel prefers a
 # primary, non-FAT partition with an xv6 superblock over FS.IMG): when the
 # card is mounted, find the disk that holds TINY210_BOOTFS and write fs.img
