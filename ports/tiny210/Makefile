@@ -105,11 +105,14 @@ rootfs: $(BUILD)/fs.img
 # The board's tftpclient fetches xv6_tiny210.img from here. The directory is
 # root's: copy directly when writable, else through sudo if it needs no
 # password, else say what to run once.
-tftpboot: $(BUILD)/xv6_tiny210.img
+# User programs go to $(TFTP_DIR)/tiny210/<name> for `tftpclient NAME /bin`.
+tftpboot: $(BUILD)/xv6_tiny210.img $(UPROGS)
 	@if [ ! -d "$(TFTP_DIR)" ]; then echo "tftpboot: $(TFTP_DIR) does not exist, nothing copied"; \
 	elif cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null || \
 	     sudo -n cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null; then \
-	  echo "tftpboot: xv6_tiny210.img copied to $(TFTP_DIR)"; \
+	  mkdir -p "$(TFTP_DIR)/tiny210" && \
+	  for f in $(UPROGS); do n=$$(basename $$f); cp -X $$f "$(TFTP_DIR)/tiny210/$${n#_}"; done && \
+	  echo "tftpboot: xv6_tiny210.img and user programs (tiny210/) copied to $(TFTP_DIR)"; \
 	else echo "tftpboot: cannot write $(TFTP_DIR); run once: sudo chown $$(id -un) $(TFTP_DIR)"; fi
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)

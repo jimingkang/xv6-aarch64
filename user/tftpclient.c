@@ -25,6 +25,11 @@ static uint16 tftp_port = TFTP_PORT;
 // target only when complete, so a dropped transfer never leaves a half
 // kernel where BL1 will look for it.
 #define TFTP_TEMP "/boot/TFTP.TMP"
+// `tftpclient FILE DIR` (DIR other than /boot) fetches tiny210/FILE --
+// make tiny210 copies every user program to /private/tftpboot/tiny210/ --
+// into DIR/.tftp.tmp, then links it over DIR/FILE.
+#define TFTP_PROG_DIR "tiny210/"
+static char tftp_temp[TFTP_PATH_SIZE] = TFTP_TEMP;
 
 // Keep transfer buffers out of the small user call stack.  The client binds a
 // fixed UDP port, so only one active instance is supported anyway and
@@ -208,18 +213,16 @@ download(uint32 server, const char *remote_name)
   int start_ticks, last_progress = 0;
 
   memset(final_path, 0, TFTP_PATH_SIZE);
-  memmove(final_path, TFTP_TEMP, sizeof(TFTP_TEMP));
+  memmove(final_path, tftp_temp, strlen(tftp_temp) + 1);
   rrq_len = make_rrq(rrq, 256, remote_name);
   name_len = strlen(remote_name);
-  if(rrq_len < 0 || name_len == 0 ||
-     name_len + sizeof("/boot/") > TFTP_PATH_SIZE ||
-     strchr(remote_name, '/') != 0){
-    printf("tftpclient: invalid remote basename or filename is too long\n");
+  if(rrq_len < 0 || name_len == 0 || name_len > 200){
+    printf("tftpclient: invalid remote filename or filename is too long\n");
     return -1;
   }
   fd = open(final_path, O_WRONLY | O_CREATE | O_TRUNC);
   if(fd < 0){
-    printf("tftpclient: cannot create %s (check that /boot is mounted rw)\n",
+    printf("tftpclient: cannot create %s (does the directory exist and is it writable?)\n",
            final_path);
     return -1;
   }
@@ -359,23 +362,20 @@ download(uint32 server, const char *remote_name)
 failed:
   close(fd);
   udp_unbind(LOCAL_PORT);
-  printf("tftpclient: incomplete download left in %s; /boot/%s is unchanged\n",
-         final_path, remote_name);
+  printf("tftpclient: incomplete download left in %s; the target is unchanged\n",
+         final_path);
   return -1;
 }
 
-// Copy the finished download over /boot/<name> and check the length.
+// Copy the finished download over target and check the length.
 static int
-install(const char *remote_name, int total)
+install(const char *target, int total)
 {
-  char *target = tftp_final_path;
   int in, out, n, copied = 0;
-  memmove(target, "/boot/", sizeof("/boot/"));
-  memmove(target + sizeof("/boot/") - 1, remote_name, strlen(remote_name) + 1);
   printf("tftpclient: installing %s (replacing the old file can take a while)\n", target);
-  in = open(TFTP_TEMP, O_RDONLY);
+  in = open(tftp_temp, O_RDONLY);
   if(in < 0){
-    printf("tftpclient: cannot reopen %s\n", TFTP_TEMP);
+    printf("tftpclient: cannot reopen %s\n", tftp_temp);
     return -1;
   }
   out = open(target, O_WRONLY | O_CREATE | O_TRUNC);
@@ -398,7 +398,7 @@ install(const char *remote_name, int total)
     printf("tftpclient: copy to %s incomplete (%d of %d bytes)\n", target, copied, total);
     return -1;
   }
-  printf("tftpclient: installed %s (%d bytes); run reboot to boot it\n", target, copied);
+  printf("tftpclient: installed %s (%d bytes)\n", target, copied);
   return 0;
 }
 
@@ -441,26 +441,53 @@ is_root_image(const char *name)
   return name[i] == 0;
 }
 
+static void
+usage(void)
+{
+  printf("usage: tftpclient [server-ip[:port]] [file [dir]]\n");
+  printf("  tftpclient              kernel %s into /boot\n", TFTP_DEFAULT_FILE);
+  printf("  tftpclient windemo /bin program from tftpboot/%s on the server into /bin\n",
+         TFTP_PROG_DIR);
+}
+
+// True when text is a dotted IPv4 address with an optional :port.
+static int
+looks_like_server(const char *text)
+{
+  char host[32];
+  uint32 address;
+  int n = 0;
+  while(text[n] && text[n] != ':' && n < (int)sizeof(host) - 1){
+    host[n] = text[n];
+    n++;
+  }
+  host[n] = 0;
+  return parse_ipv4(host, &address) == 0;
+}
+
 int
 main(int argc, char **argv)
 {
   uint32 server;
   const char *server_name = conf_server();
-  const char *remote_name = TFTP_DEFAULT_FILE;
-  int total;
+  const char *file = TFTP_DEFAULT_FILE, *dir = "/boot";
+  static char remote[TFTP_PATH_SIZE], target[TFTP_PATH_SIZE];
+  int total, arg = 1;
 
-  if(argc > 3){
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]\n");
+  if(arg < argc && looks_like_server(argv[arg]))
+    server_name = argv[arg++];
+  if(arg < argc)
+    file = argv[arg++];
+  if(arg < argc)
+    dir = argv[arg++];
+  if(arg < argc || file[0] == 0 || strchr(file, '/') != 0 ||
+     strlen(file) + strlen(dir) + 12 > TFTP_PATH_SIZE){
+    usage();
     exit(1);
   }
-  if(argc >= 2)
-    server_name = argv[1];
-  if(argc == 3)
-    remote_name = argv[2];
   if(server_name == 0){
     printf("tftpclient: no server: give one, or put server=a.b.c.d in %s\n", TFTP_CONF);
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]   (default file %s)\n",
-           TFTP_DEFAULT_FILE);
+    usage();
     exit(1);
   }
   static char host[32];
@@ -480,15 +507,53 @@ main(int argc, char **argv)
   }
   if(parse_ipv4(host, &server) < 0){
     printf("tftpclient: invalid server IPv4 address: %s\n", server_name);
-    printf("usage: tftpclient [server-ip[:port] [remote-filename]]\n");
+    usage();
     exit(1);
   }
-  if(is_root_image(remote_name)){
-    printf("tftpclient: refusing to overwrite FS.IMG, the mounted root file system\n");
-    exit(1);
+
+  // Destination path, without a doubled slash for "/".
+  int dl = strlen(dir);
+  memmove(target, dir, dl + 1);
+  if(dl == 0 || target[dl - 1] != '/')
+    target[dl++] = '/';
+  memmove(target + dl, file, strlen(file) + 1);
+  int to_boot = strcmp(dir, "/boot") == 0 || strcmp(dir, "/boot/") == 0;
+
+  if(to_boot){
+    if(is_root_image(file)){
+      printf("tftpclient: refusing to overwrite FS.IMG; the root file system is "
+             "written to the card's second partition by make tiny210\n");
+      exit(1);
+    }
+    memmove(remote, file, strlen(file) + 1);
+    // tftp_temp stays /boot/TFTP.TMP (8.3, FAT32); copied over the target.
+    total = download(server, remote);
+    if(total < 0 || install(target, total) < 0)
+      exit(1);
+    if(strcmp(file, TFTP_DEFAULT_FILE) == 0)
+      printf("tftpclient: run reboot to boot the new kernel\n");
+    exit(0);
   }
-  total = download(server, remote_name);
-  if(total < 0 || install(remote_name, total) < 0)
+
+  // Any other directory (the xv6 root file system): fetch tiny210/FILE into
+  // DIR/.tftp.tmp, then replace DIR/FILE by a link, so an interrupted
+  // transfer never leaves a truncated program behind.
+  memmove(remote, TFTP_PROG_DIR, sizeof(TFTP_PROG_DIR));
+  memmove(remote + sizeof(TFTP_PROG_DIR) - 1, file, strlen(file) + 1);
+  memmove(tftp_temp, target, dl);
+  memmove(tftp_temp + dl, ".tftp.tmp", sizeof(".tftp.tmp"));
+  total = download(server, remote);
+  if(total < 0)
     exit(1);
+  unlink(target);
+  if(link(tftp_temp, target) == 0){
+    unlink(tftp_temp);
+    printf("tftpclient: installed %s (%d bytes)\n", target, total);
+    exit(0);
+  }
+  // Different file systems: copy instead.
+  if(install(target, total) < 0)
+    exit(1);
+  unlink(tftp_temp);
   exit(0);
 }
