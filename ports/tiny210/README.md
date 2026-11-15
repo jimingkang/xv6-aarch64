@@ -310,10 +310,14 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需
 
 ## 不拔卡更新内核（tftpclient + reboot）
 
-板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核。`tftpclient` 和 `reboot` 都取自 rpi3-lock 分支：
+板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核。`tftpclient` 和 `reboot` 都取自 rpi3-lock 分支。
+
+`make tiny210` 会把 `xv6_tiny210.img` 拷到 macOS 自带 TFTP 服务的目录 `/private/tftpboot`
+（UDP 69 端口）。这个目录属于 root，第一次需要执行一次：
 
 ```sh
-make tiny210-tftp          # 先构建，再在 UDP 6969 上提供 build/tiny210（不需要 sudo）
+sudo chown $(id -un) /private/tftpboot
+sudo launchctl load -F /System/Library/LaunchDaemons/tftp.plist   # tftpd 没开时才需要
 ```
 
 板子上：
@@ -323,8 +327,8 @@ $ tftpclient               # 默认：从 /etc/tftp.conf 里的服务器下载 x
 $ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD 卡启动；reboot -h 关机（拉低 PS_HOLD）
 ```
 
-- `/etc/tftp.conf`（`server=IP:6969`）由 `make tiny210` 用本机 en0–en3 的地址生成，
-  也可以用 `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftpclient [IP[:端口] [文件名]]`。
+- `/etc/tftp.conf`（`server=IP`）由 `make tiny210` 用本机 en0–en3 的地址生成，也可以用
+  `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftpclient [IP[:端口] [文件名]]`。
 - 文件先下载到 `/boot/TFTP.TMP`，完整收到后才复制成 `/boot/<文件名>`。传输中断时，
   旧内核不会被破坏。
 - 内核不再内嵌 fs.img，只有约 200 KB，根文件系统只能来自 SD 卡上的 `FS.IMG`。卡上没有

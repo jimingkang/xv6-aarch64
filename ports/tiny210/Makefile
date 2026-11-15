@@ -57,10 +57,10 @@ ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUI
 IMG = $(BUILD)/xv6-tiny210
 
 .SECONDARY:
-.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs tftp FORCE
+.PHONY: all clean qemu check sdimg bl1 uarttest fattest bootfs tftpboot FORCE
 all: $(IMG).bin $(IMG).uImage $(BUILD)/xv6_tiny210.img $(BUILD)/tiny210-bl1.bin $(BUILD)/tiny210-sd.img
 ifneq ($(QEMU_TEST),1)
-all: bootfs
+all: bootfs tftpboot
 endif
 # Copy the boot files to the SD card's FAT32 partition when it is mounted
 # (default /Volumes/bootfs): the kernel and mt7601u.bin every time; FS.IMG
@@ -79,6 +79,15 @@ bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
 	  rm -f "$(TINY210_BOOTFS)/._xv6_tiny210.img" "$(TINY210_BOOTFS)/._mt7601u.bin" "$(TINY210_BOOTFS)/._FS.IMG" && \
 	  sync && echo "bootfs: xv6_tiny210.img and mt7601u.bin copied to $(TINY210_BOOTFS)"; \
 	else echo "bootfs: $(TINY210_BOOTFS) not mounted, nothing copied"; fi
+# The board's tftpclient fetches xv6_tiny210.img from here. The directory is
+# root's: copy directly when writable, else through sudo if it needs no
+# password, else say what to run once.
+tftpboot: $(BUILD)/xv6_tiny210.img
+	@if [ ! -d "$(TFTP_DIR)" ]; then echo "tftpboot: $(TFTP_DIR) does not exist, nothing copied"; \
+	elif cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null || \
+	     sudo -n cp -X $(BUILD)/xv6_tiny210.img "$(TFTP_DIR)/" 2>/dev/null; then \
+	  echo "tftpboot: xv6_tiny210.img copied to $(TFTP_DIR)"; \
+	else echo "tftpboot: cannot write $(TFTP_DIR); run once: sudo chown $$(id -un) $(TFTP_DIR)"; fi
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@
@@ -121,20 +130,18 @@ $(BUILD)/mkfs: mkfs/mkfs.c kernel/fs.h kernel/types.h kernel/param.h
 # "ssid=NAME" and "psk=PASSPHRASE" lines becomes /etc/wifi.conf, and init
 # then joins that network and runs DHCP on wlan0 at boot.
 WIFI_CONF ?= ports/tiny210/wifi.conf
-# /etc/tftp.conf tells the board's tftpclient where `make tftp` serves build/tiny210:
+# make tiny210 also copies xv6_tiny210.img to macOS's built-in TFTP server
+# root (TFTP_DIR, port 69), and /etc/tftp.conf tells the board's tftpclient
 # this Mac's Wi-Fi/Ethernet address (override with TFTP_SERVER=a.b.c.d).
-TFTP_PORT ?= 6969
+TFTP_DIR ?= /private/tftpboot
 TFTP_SERVER ?= $(shell for i in en0 en1 en2 en3; do ipconfig getifaddr $$i 2>/dev/null && break; done)
 TFTP_CONF = $(if $(TFTP_SERVER),$(BUILD)/etc/tftp.conf)
 ETC_FILES = $(if $(filter 1,$(QEMU_TEST)),,$(wildcard $(WIFI_CONF)) $(TFTP_CONF))
 $(BUILD)/etc/tftp.conf: FORCE
 	@mkdir -p $(@D)
-	@printf 'server=%s:%s\n' '$(TFTP_SERVER)' '$(TFTP_PORT)' > $@.new
+	@printf 'server=%s\n' '$(TFTP_SERVER)' > $@.new
 	@cmp -s $@.new $@ && rm -f $@.new || mv $@.new $@
 FORCE:
-# Serve build/tiny210 over TFTP (unprivileged port) for `tftpclient` on the board.
-tftp: all
-	python3 ports/tiny210/tftpserve.py $(BUILD) $(TFTP_PORT)
 $(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS) $(ETC_FILES)
 	$(BUILD)/mkfs $@ $(UPROGS) $(if $(ETC_FILES),--etc $(ETC_FILES))
 $(BUILD)/ramdisk.S: $(BUILD)/fs.img

@@ -1,6 +1,6 @@
-ifneq ($(filter tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg tiny210-tftp,$(MAKECMDGOALS)),)
+ifneq ($(filter tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg,$(MAKECMDGOALS)),)
 # FriendlyARM Tiny210 (Samsung S5PV210): see ports/tiny210/README.md
-.PHONY: tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg tiny210-tftp clean
+.PHONY: tiny210 tiny210-qemu tiny210-check tiny210-clean tiny210-bl1 tiny210-sdimg clean
 ifneq ($(filter clean,$(MAKECMDGOALS)),)
 tiny210 tiny210-qemu tiny210-check tiny210-bl1 tiny210-sdimg: clean
 endif
@@ -18,8 +18,6 @@ tiny210-bl1:
 	$(MAKE) -f ports/tiny210/Makefile bl1
 tiny210-sdimg:
 	$(MAKE) -f ports/tiny210/Makefile sdimg
-tiny210-tftp:
-	$(MAKE) -f ports/tiny210/Makefile tftp
 else ifneq ($(filter am335x am335x-qemu am335x-check am335x-clean,$(MAKECMDGOALS)),)
 # BeagleBone Black (TI AM335x): see ports/am335x/README.md
 .PHONY: am335x am335x-qemu am335x-check am335x-clean clean
