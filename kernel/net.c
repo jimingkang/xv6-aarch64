@@ -1616,7 +1616,7 @@ net_output_path(uint32 destination, struct net_device **devp, uchar **macp)
     while((entry = arp_lookup(next_hop, route->dev)) == 0 &&
           r_cntvct_el0() < deadline){
       netdev_poll_one(route->dev);
-      asm volatile("yield" ::: "memory");
+      net_wait_tick();     // callers are syscalls without locks; let RX run
     }
   }
   if(entry == 0)
