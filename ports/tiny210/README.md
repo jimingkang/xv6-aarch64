@@ -348,7 +348,7 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需
 原样写进它的第 2 分区（`/dev/rdiskNs2`，用 sudo，会问密码）：
 
 - 只写非 FAT/Apple/EFI 类型的分区（例如 Linux 0x83），防止写错盘。
-- fs.img 没变就不再写（与 `build/tiny210/rootfs-written.img` 比较）。
+- 每次都写（4 MiB，约 1 秒），写前先卸载整张卡，写完读回超级块校验，最后推出卡。
 - 分区号可用 `ROOTFS_SLICE=N` 改。
 
 卡上还没有第 2 分区时，在 FAT32 分区后面建一个至少 4 MiB 的 Linux 分区即可

@@ -91,8 +91,9 @@ bootfs: $(BUILD)/xv6_tiny210.img $(BUILD)/fs.img firmware/mt7601u.bin
 # The root file system on the card's second partition (the kernel prefers a
 # primary, non-FAT partition with an xv6 superblock over FS.IMG): when the
 # card is mounted, find the disk that holds TINY210_BOOTFS and write fs.img
-# raw to its slice 2 -- only if that slice is not a FAT/Apple/EFI volume,
-# and only when fs.img changed since the last write (sudo asks once).
+# raw to its slice 2 -- only if that slice is not a FAT/Apple/EFI volume.
+# Always written (4 MiB, about a second): a "written" stamp once claimed a
+# write the card did not keep. The disk is unmounted first.
 ROOTFS_SLICE ?= 2
 rootfs: $(BUILD)/fs.img
 	@if [ ! -d "$(TINY210_BOOTFS)" ]; then echo "rootfs: $(TINY210_BOOTFS) not mounted, root partition not written"; exit 0; fi; \
@@ -103,13 +104,11 @@ rootfs: $(BUILD)/fs.img
 	ptype=$$(diskutil info $$part | awk -F': *' '/Partition Type:/ {print $$2}'); \
 	case "$$ptype" in *FAT*|*DOS*|*Windows*|*Apple*|*EFI*|*NTFS*|*HFS*) \
 	  echo "rootfs: /dev/$$part is \"$$ptype\", not a raw root partition; not written"; exit 0;; esac; \
-	if cmp -s $(BUILD)/fs.img $(BUILD)/rootfs-written.img; then \
-	  echo "rootfs: /dev/$$part already holds this fs.img"; exit 0; fi; \
 	echo "rootfs: writing fs.img to /dev/r$$part ($$ptype; sudo)"; \
 	dd if=$(BUILD)/fs.img of=$(BUILD)/rootfs-sb.bin bs=1024 skip=1 count=1 2>/dev/null; \
 	if sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m && sync && \
 	   sudo dd if=/dev/r$$part bs=1024 skip=1 count=1 2>/dev/null | cmp -s - $(BUILD)/rootfs-sb.bin; then \
-	  cp $(BUILD)/fs.img $(BUILD)/rootfs-written.img; echo "rootfs: done (superblock read back OK)"; \
+	  echo "rootfs: done (superblock read back OK)"; \
 	else echo "rootfs: NOT written or read-back mismatch; run: sudo dd if=$(BUILD)/fs.img of=/dev/r$$part bs=1m"; fi
 # The board's tftpclient fetches xv6_tiny210.img from here. The directory is
 # root's: copy directly when writable, else through sudo if it needs no
