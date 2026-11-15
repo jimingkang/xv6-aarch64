@@ -128,6 +128,11 @@ static struct device board_devices[] = {
   { .name = "s5pv210-uart",  .id = BOARD_UART_N,
     .resource = { MEM(BOARD_UART, 0x400, "uart"), IRQ(42 + BOARD_UART_N, "uart") }, .nresource = 2 },
   { .name = "s5pv210-gpio",  .resource = { MEM(0xE0200000, 0x1000, "gpio") }, .nresource = 1 },
+  /* Tiny210 SDK buttons: K1-K4 = GPH2[0:3]/EINT16-19,
+     K5-K8 = GPH3[0:3]/EINT24-27. EINT16-31 share VIC0 IRQ 16. */
+  { .name = "s5pv210-keys",
+    .resource = { MEM(0xE0200000, 0x1000, "gpio-eint"), IRQ(16, "eint16-31") },
+    .nresource = 2 },
   /* USB-A host sockets: EHCI (high speed; OHCI for full/low speed is not
      driven yet). The OTG port (s3c-hsotg, DWC2 in host mode) is available
      with make S5PV210_USB_OTG=1. */
@@ -151,12 +156,17 @@ static struct device board_devices[] = {
 
 #define SECTION_DEV(pa) ((pa) | (1<<10) | (1<<4) | 2)            /* priv RW, XN, strongly ordered */
 #define SECTION_NC(pa)  ((pa) | (1<<12) | (1<<10) | (1<<4) | 2)  /* priv RW, XN, Normal non-cacheable */
+#define SECTION_RAM(pa) ((pa) | (1<<12) | (1<<10) | 2)            /* priv RW, cached Normal memory */
 
 /* Called by kvminit() (kernel/arch/arm/vm.c): 1 MiB sections for every MEM
    resource; the frame buffer is Normal memory, the rest device memory. */
 void
 tiny210_map_devices(pagetable_t p)
 {
+  for(uint a = DRAM_BASE + S5PV210_GUI_OFFSET;
+      a < DRAM_BASE + S5PV210_GUI_OFFSET + S5PV210_GUI_SIZE;
+      a += 0x100000)
+    p[a>>20] = SECTION_RAM(a);
   for(uint i = 0; i < NDEVICES; i++)
     for(int r = 0; r < board_devices[i].nresource; r++){
       struct resource *res = &board_devices[i].resource[r];

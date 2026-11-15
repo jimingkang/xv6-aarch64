@@ -1,0 +1,40 @@
+\chapter{参考资料与源码入口}
+
+\section{硬件资料}
+
+\begin{itemize}
+  \item Samsung S5PV210 RISC Microprocessor User's Manual：Cortex-A8、VIC、PWM、
+        FIMD、USB Host、USB PHY、SDHCI 和 GPIO 寄存器的主要依据。
+  \item ARM Architecture Reference Manual ARMv7-A and ARMv7-R edition：异常模式、
+        CP15、short-descriptor 页表、内存属性和屏障指令。
+  \item USB 2.0 Specification 与 EHCI 1.0 Specification：控制传输、bulk endpoint、
+        QH/qTD、data toggle、hub 与 split transaction。
+  \item FriendlyARM Tiny210/Mini210 原理图与 BSP：DRAM、UART、LCD 面板和板级 pinmux。
+\end{itemize}
+
+\section{仓库入口}
+
+\begin{longtable}{@{}p{0.40\linewidth}p{0.54\linewidth}@{}}
+\toprule
+路径 & 内容 \\
+\midrule
+\endhead
+\path{ports/tiny210/Makefile} & ARM32 编译、BL1、uImage、根镜像与 bootfs 安装 \\
+\path{kernel/arch/arm/} & ARMv7 通用异常、IRQ、MMU、系统调用和上下文切换 \\
+\path{kernel/arch/arm/mach-s5pv210/} & Tiny210 启动、板级资源、BL1 与内存布局 \\
+\path{kernel/drivers/irqchip/irq-vic.c} & 四级 PL192 VIC 根中断控制器 \\
+\path{kernel/drivers/clocksource/samsung_pwm_timer.c} & PWM 时钟源和调度 tick \\
+\path{kernel/drivers/video/fbdev/} & FIMD、framebuffer 与 LCD 文本控制台 \\
+\path{kernel/drivers/mmc/host/} & S5PV210 SDHCI 与 SD/MMC 核心 \\
+\path{kernel/drivers/usb/host/ehci-hcd.c} & Tiny210 USB-A 的 EHCI host \\
+\path{kernel/drivers/net/wireless/mt7601u.c} & MT7601U 固件、SoftMAC、WPA2 与收发 \\
+\path{doc/readme/tiny210/} & 本书各章对应的可快速更新专题文档 \\
+\bottomrule
+\end{longtable}
+
+\section{阅读原则}
+
+寄存器值以芯片手册和实际板级连线为准；协议状态机以 USB、IEEE 802.11 和 WPA2
+规范为准；Linux 驱动适合用于理解完整生命周期，但不能直接假设其时钟、DMA、
+cache 或设备树条件在本项目中已经成立。遇到 QEMU 与真机结论不一致时，优先检查
+内存属性、cache 一致性、中断时序和外设复位顺序。

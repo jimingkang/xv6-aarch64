@@ -811,12 +811,16 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+  void win32k_exit(int) __attribute__((weak));
 
   if(p->is_thread)
     threadexit(status);
 
   if(p == initproc)
     panic("init exiting");
+
+  if(win32k_exit)
+    win32k_exit(p->tgid);
 
   // exit() is process-wide. Ask sibling threads to leave, then reap their
   // proc slots before publishing the leader as a zombie. Killed sleepers are

@@ -2,11 +2,14 @@
 #include "kernel/fcntl.h"
 
 #include "user/user.h"
+#define INPUT_MAJOR 4
 int main(void) {
   mkdir("/dev");
   mknod("/dev/console",1,0);
   mknod("/dev/ttyS0",3,0);
   mknod("/dev/fb0",5,0);    /* FB: present when a framebuffer driver registered */
+  mkdir("/dev/input");
+  mknod("/dev/input/event0",INPUT_MAJOR,0);
   /* The SD card's FAT32 boot partition at /boot (kernels with the VFS). */
   mkdir("/boot");
   if(mount("sd0p1","/boot","fat32",0)==0)

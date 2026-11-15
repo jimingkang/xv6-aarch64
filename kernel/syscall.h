@@ -76,3 +76,4 @@
 #define SYS_munmap       75
 #define SYS_ioctl        76
 #define SYS_reboot       77
+#define SYS_win32k       78

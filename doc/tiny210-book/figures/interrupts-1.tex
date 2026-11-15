@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{0.94\linewidth}{!}{\begin{tikzpicture}[node distance=5mm]
+  \node[hbox] (dev) {外设置 pending};
+  \node[box,right=of dev] (vic) {VIC0--VIC3\\选出 IRQ};
+  \node[box,right=of vic] (vec) {ARM IRQ 向量\\保存 trapframe};
+  \node[box,right=of vec] (root) {\texttt{arch\_handle\_irq()}\\根 irqchip};
+  \node[box,right=of root] (act) {\texttt{irq\_action[irq]}\\驱动 handler};
+  \node[hbox,right=of act] (ret) {清 pending\\恢复并返回};
+  \draw[arr] (dev)--(vic); \draw[arr] (vic)--(vec); \draw[arr] (vec)--(root);
+  \draw[arr] (root)--(act); \draw[arr] (act)--(ret);
+\end{tikzpicture}}
+\caption{Tiny210 IRQ 从硬件 pending 到驱动 handler 的调用链}
+\label{fig:tiny-irq-chain}
+\end{figure}

@@ -2,8 +2,9 @@
    boots xv6 with no U-Boot in between.
 
      iROM (BL0) ──► this BL1 (SD sector 1, iRAM 0xD0020010)
-                ──► xv6 uImage (SD sector 49) copied to DRAM+0x7FC0,
-                    so its payload sits at DRAM+0x8000
+                ──► MBR ──► first FAT32 partition ──► xv6_tiny210.img
+                    copied to DRAM+0x7FC0, so its uImage payload sits at
+                    DRAM+0x8000 (raw sector 49 is only a rescue fallback)
                 ──► jump with r0=0, r1=BOARD_MACH, r2=ATAGs @ DRAM+0x100
 
    The bring-up mirrors Samsung's S5PV210 U-Boot lowlevel_init/cpu_init.S
@@ -12,8 +13,10 @@
      MSYS 200/100, DSYS 166/83, PSYS 133/66.7 MHz, console UART 115200 8N1,
      DMC0 DDR2 (512 MiB at 0x20000000). DMC1 is left uninitialised;
      ATAG_MEM reports DMC0 only.
-   The SD copy uses the iROM's CopySDMMCtoMem (pointer at 0xD0037F98),
-   reading from the channel the iROM booted from (0xD0037488). */
+   The FAT32 path uses the small SDHCI PIO core shared with the kernel,
+   on the channel from which iROM booted (0xD0037488).  The iROM
+   CopySDMMCtoMem service (pointer at 0xD0037F98) remains available for
+   the raw-sector rescue path. */
 #include "kernel/types.h"
 #include "bl1lib.h"
 #include "bl1fat.h"

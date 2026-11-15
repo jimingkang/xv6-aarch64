@@ -7,6 +7,7 @@
  * leading fields of the two screeninfo structures, in Linux order. */
 #define FBIOGET_VSCREENINFO  0x4600
 #define FBIOGET_FSCREENINFO  0x4602
+#define FBIOPAN_DISPLAY      0x4606
 
 struct fb_fix_screeninfo {
   char id[16];

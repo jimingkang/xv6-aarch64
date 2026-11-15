@@ -1,0 +1,16 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=7mm]
+  \node[hbox] (board) {\texttt{devices.c}\\platform device + resource};
+  \node[box,right=18mm of board] (drv) {initcall\\\texttt{platform\_driver\_register()}};
+  \coordinate (mid) at ($(board)!0.5!(drv)$);
+  \node[box,below=of mid] (bus) {platform bus\\按 name 匹配};
+  \node[box,below=of bus] (probe) {\texttt{driver->probe(device)}\\MMIO、clock、IRQ、DMA};
+  \node[hbox,below left=7mm and 10mm of probe] (chr) {字符设备\\\texttt{file\_operations}};
+  \node[hbox,below right=7mm and 10mm of probe] (net) {网络设备\\\texttt{net\_device}};
+  \draw[arr] (board)--(bus); \draw[arr] (drv)--(bus); \draw[arr] (bus)--(probe);
+  \draw[arr] (probe)--(chr); \draw[arr] (probe)--(net);
+\end{tikzpicture}
+\caption{Tiny210 的 platform device/driver 分层与绑定}
+\label{fig:tiny-driver-model}
+\end{figure}

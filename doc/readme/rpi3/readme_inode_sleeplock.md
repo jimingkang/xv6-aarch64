@@ -15,7 +15,7 @@ ilock-login: before sleeplock locked=1 owner=1 valid=0
 login 子进程已经被调度，并且 `namei("/bin/login")` 已经找到 inode，但在
 `ilock(ip)` 中等待锁，因此不能继续读取 ELF 文件。
 
-最终定位到 [kernel/file.c](../kernel/file.c) 的普通 inode 读取分支漏掉了
+最终定位到 [kernel/file.c](../../../kernel/file.c) 的普通 inode 读取分支漏掉了
 `iunlock(f->ip)`：
 
 ```c

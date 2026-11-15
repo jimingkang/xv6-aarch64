@@ -92,6 +92,7 @@ void *mmap(void *addr, uint len, int prot, int flags, int fd, uint offset);
 int munmap(void *addr, uint len);
 int ioctl(int fd, unsigned long cmd, void *arg);
 int reboot(int cmd);
+long win32k(int op, long a1, long a2, long a3);
 
 // ulib.c
 int stat(const char*, struct stat*);

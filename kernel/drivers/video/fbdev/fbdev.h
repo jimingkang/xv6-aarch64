@@ -12,7 +12,16 @@ struct fb_info {
   uint32 *screen;         // kernel address of the buffer
   uint32 xres, yres, bpp, line_length;
   int has_fbcon;          // the text console draws here when nobody has it open
+  uint32 yoffset;         // currently scanned virtual line
+  int (*pan_display)(struct fb_info *, uint32 yoffset);
 };
 
 int register_framebuffer(struct fb_info *info);
+
+struct fb_kinfo {
+  uint32 *pixels;
+  int width, height, stride;
+  int rgb;
+};
+int fb_kernel_info(struct fb_kinfo *ki);
 #endif

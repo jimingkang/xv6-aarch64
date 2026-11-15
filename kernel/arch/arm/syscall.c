@@ -114,6 +114,7 @@ extern uint64 sys_vmdump(void);
 extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
 extern uint64 sys_ioctl(void);
+extern uint64 sys_win32k(void);
 // Board hook (mach-*/): ports without one return -1.
 extern uint64 sys_reboot(void) __attribute__((weak));
 extern uint64 sys_mount(void);
@@ -158,6 +159,7 @@ static uint64 (*calls[])(void) = {
   [SYS_mmap] = sys_mmap,
   [SYS_munmap] = sys_munmap,
   [SYS_ioctl] = sys_ioctl,
+  [SYS_win32k] = sys_win32k,
   [SYS_reboot] = sys_reboot,
 #ifdef XV6_HAVE_VFS
   [SYS_mount] = sys_mount,

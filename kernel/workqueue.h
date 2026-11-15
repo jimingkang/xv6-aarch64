@@ -41,6 +41,7 @@ void init_delayed_work(struct delayed_work *dwork,
                        void (*func)(struct work_struct *work));
 int queue_delayed_work(struct workqueue *wq, struct delayed_work *dwork,
                        uint64 delay);
+int schedule_delayed_work(struct delayed_work *dwork, uint64 delay);
 int mod_delayed_work(struct workqueue *wq, struct delayed_work *dwork,
                      uint64 delay);
 void cancel_delayed_work_sync(struct delayed_work *dwork);

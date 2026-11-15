@@ -38,6 +38,12 @@ extern unsigned int tiny210_phystop;
 #define TIMER0_IRQ 25                    /* VIC0 bit 25: PWM timer 4 */
 #define ARM32_UART_NAME "console"   /* kernel/console.c device; the UART driver is serial/samsung.c */
 /* LCD frame buffer: just above the memory handed to the page allocator. */
-#define S5PV210_USE_DRAM  (128U<<20)
-#define S5PV210_FB_OFFSET (128U<<20)
-#define S5PV210_FB_SIZE   (2U<<20)
+/* Cached win32k surfaces live in a private arena immediately before the
+ * LCD scan-out memory.  It is outside PHYSTOP and therefore cannot be
+ * handed out by kalloc(). */
+#define S5PV210_USE_DRAM   (112U<<20)
+#define S5PV210_GUI_OFFSET (112U<<20)
+#define S5PV210_GUI_SIZE   (16U<<20)
+/* Two complete 800x480x32 frames fit in this allocation. */
+#define S5PV210_FB_OFFSET  (128U<<20)
+#define S5PV210_FB_SIZE    (4U<<20)

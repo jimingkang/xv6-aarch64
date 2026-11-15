@@ -1,0 +1,195 @@
+\chapter{Tiny210 LCD、FIMD 与
+framebuffer}\label{tiny210-lcdfimd-ux4e0e-framebuffer}
+
+\section{数据通路}\label{ux6570ux636eux901aux8def}
+
+Tiny210 的 S5PV210 FIMD 是显示控制器。CPU 把像素写进 DDR
+framebuffer，FIMD 作为总线 master 周期性读取这块物理内存，再按面板时序从
+RGB 引脚输出：
+
+\input{figures/lcd-1}
+
+这里的``DMA''是 FIMD 自己读取 DDR，并没有单独启动通用 DMA 控制器。写入
+\passthrough{\lstinline!VIDW00ADD0B0/VIDW00ADD1B0!} 的是 framebuffer
+总线物理地址；当前恒等映射下， 内核指针数值与物理地址相同。
+
+\section{资源和内存}\label{ux8d44ux6e90ux548cux5185ux5b58}
+
+\href{../../../kernel/arch/arm/mach-s5pv210/devices.c}{\passthrough{\lstinline!devices.c!}}
+给 \passthrough{\lstinline!s3c-fb!} 提供：
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.18\linewidth}p{0.26\linewidth}p{0.50\linewidth}@{}}
+\toprule\noalign{}
+resource & 地址 & 作用 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+MEM 0 & \passthrough{\lstinline!0xF8000000..0xF800ffff!} & FIMD
+寄存器 \\
+MEM 1 & \passthrough{\lstinline!DRAM\_BASE + 128 MiB!}，大小 2 MiB &
+连续 framebuffer \\
+driver\_data & \passthrough{\lstinline!s3c\_fb\_platdata!} & 面板参数与
+GPIO setup 回调 \\
+\end{longtable}
+}
+
+Framebuffer 不由 \passthrough{\lstinline!kalloc()!} 动态分配，而是通过
+\href{../../../kernel/arch/arm/mach-s5pv210/memlayout.h}{\passthrough{\lstinline!memlayout.h!}}
+静态保留在页分配器 范围之外。\passthrough{\lstinline!setup.c!}
+的静态断言防止它和 kalloc 区重叠。
+
+800×480×4 = 1,536,000 字节，小于 2 MiB。映射属性为 privileged、Normal
+non-cacheable、XN，以避免 CPU cache 与 FIMD scanout 不一致。
+
+\section{面板选择}\label{ux9762ux677fux9009ux62e9}
+
+编译时用 \passthrough{\lstinline!S5PV210\_LCD!} 选择
+\passthrough{\lstinline!devices.c!} 的时序表：
+
+\begin{lstlisting}[language=sh]
+make -f ports/tiny210/Makefile S5PV210_BOARD=tiny210 S5PV210_LCD=s70
+make -f ports/tiny210/Makefile S5PV210_BOARD=tiny210 S5PV210_LCD=h43
+make -f ports/tiny210/Makefile S5PV210_BOARD=tiny210 S5PV210_LCD=w50
+make -f ports/tiny210/Makefile S5PV210_BOARD=tiny210 S5PV210_LCD=a70
+\end{lstlisting}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.18\linewidth}p{0.26\linewidth}p{0.50\linewidth}@{}}
+\toprule\noalign{}
+名称 & 分辨率 & 默认刷新率 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+S70（默认） & 800×480 & 60 Hz \\
+H43 & 480×272 & 60 Hz \\
+W50 & 800×480 & 60 Hz \\
+A70 & 800×480 & 60 Hz \\
+\end{longtable}
+}
+
+换面板后先 \passthrough{\lstinline!make tiny210-clean!}。这些参数来自
+FriendlyARM BSP；实际模组若只亮背光、 图像滚动或偏移，需要对照面板
+datasheet 核对 hfp/hbp/hsw、vfp/vbp/vsw 和极性。
+
+\section{probe 配置过程}\label{probe-ux914dux7f6eux8fc7ux7a0b}
+
+\href{../../../kernel/drivers/video/fbdev/s3c-fb.c}{\passthrough{\lstinline!s3c-fb.c!}}
+的 \passthrough{\lstinline!s3c\_fb\_probe()!} 按以下顺序执行：
+
+\begin{lstlisting}
+检查 xres*yres*4 是否装得进保留 framebuffer
+  -> fb_setup_gpio()
+       GPF0..GPF2 全部 function 2
+       GPF3[3:0] function 2
+       设置驱动强度
+       打开 FIMD gate
+       DISPLAY_CONTROL 路由到 RGB 输出
+  -> 从 clk_get_rate("hclk_dsys") 计算像素时钟分频
+  -> 关闭 VIDCON0，避免配置中输出半成品
+  -> 设置极性和水平/垂直时序
+  -> Window 0 = XRGB8888
+  -> 设置窗口坐标、大小和 line stride
+  -> 设置 framebuffer start/end 总线地址
+  -> 开 Window 0、ENVID、ENVID_F
+  -> CPU 写彩条测试
+  -> fbcon_register() 清屏并接管文本输出
+\end{lstlisting}
+
+关键寄存器关系：
+
+\begin{lstlisting}
+VIDW00ADD0B0 = framebuffer 起始物理地址
+VIDW00ADD1B0 = 起始 + xres*yres*4
+VIDW00ADD2   = PAGEWIDTH=xres*4, OFFSIZE=0
+WINCON0      = XRGB8888 + ENWIN
+VIDCON0      = pixel clock divider + ENVID/ENVID_F
+\end{lstlisting}
+
+像素时钟估算：
+
+\begin{lstlisting}
+htotal = xres + hfp + hbp + hsw
+vtotal = yres + vfp + vbp + vsw
+wanted_pclk = htotal * vtotal * refresh_hz
+actual_pclk = hclk_dsys / (CLKVAL + 1)
+\end{lstlisting}
+
+\section{LCD 文本控制台}\label{lcd-ux6587ux672cux63a7ux5236ux53f0}
+
+\href{../../../kernel/drivers/video/fbdev/fbcon.c}{\passthrough{\lstinline!fbcon.c!}}
+提供固定 8×16 字体、浅灰前景、
+深蓝背景和逐行滚屏。\passthrough{\lstinline!uartputc\_sync()!}
+每输出一个字符，也调用弱符号
+\passthrough{\lstinline!fbcon\_putc()!}，所以 framebuffer
+注册以后串口日志和 shell 输出会同步显示在 LCD。
+
+对于 800×480 面板，文本区是 100 列 × 30 行。输入仍来自串口，LCD
+本身不提供 键盘或触摸输入路径。
+
+\section{当前限制与改进方向}\label{ux5f53ux524dux9650ux5236ux4e0eux6539ux8fdbux65b9ux5411}
+
+当前实现：
+
+\begin{itemize}
+\tightlist
+\item
+  只使用 FIMD Window 0；
+\item
+  单 framebuffer，CPU 和 FIMD 同时访问；
+\item
+  没有 page flip、双缓冲、VSYNC IRQ；
+\item
+  没有
+  \passthrough{\lstinline!/dev/fb0!}、\passthrough{\lstinline!mmap()!}
+  或用户态绘图 ABI；
+\item
+  没有 dirty rectangle、硬件光标、overlay；
+\item
+  framebuffer 是 non-cacheable，CPU 大面积绘制较慢；
+\item
+  背光亮度/电源没有驱动管理。
+\end{itemize}
+
+建议的演进顺序：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  添加 framebuffer device 与 \passthrough{\lstinline!ioctl!} 查询模式。
+\item
+  提供只映射保留 framebuffer 的受限 \passthrough{\lstinline!mmap()!}。
+\item
+  在 2 MiB 足够时划分 front/back buffer，并实现 page flip；800×480×4
+  双缓冲 需要约 3 MiB，因此应先把保留区扩大到至少 4 MiB。
+\item
+  增加 FIMD VSYNC IRQ，在垂直消隐期切换缓冲，消除 tearing。
+\item
+  cache 打开后使用 coherent DMA 内存，或在交给 FIMD 前正确 clean cache。
+\end{enumerate}
+
+\section{故障定位}\label{ux6545ux969cux5b9aux4f4d}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+\toprule\noalign{}
+现象 & 检查 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+串口正常，LCD 全黑 & 面板供电/背光、FIMD
+gate、DISPLAY\_CONTROL、排线方向 \\
+背光亮但无图 & GPF pinmux、面板型号、framebuffer 地址、ENVID \\
+有图但滚动/偏移 & porch/sync/极性/像素时钟 \\
+彩条正确，文字不出现 & \passthrough{\lstinline!fbcon\_register()!}
+是否执行、串口输出是否经过 \passthrough{\lstinline!uartputc\_sync()!} \\
+花屏或越界 & 分辨率×4、ADD0/ADD1、PAGEWIDTH、framebuffer 保留大小 \\
+QEMU 没有 LCD 日志 & \passthrough{\lstinline!tiny210-qemu!}
+使用替代硬件模型，不编译
+\passthrough{\lstinline!s3c-fb.c!}，这是预期行为 \\
+\end{longtable}
+}

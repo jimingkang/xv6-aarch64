@@ -18,6 +18,9 @@
 #include "defs.h"
 #include "device.h"
 #include "input.h"
+#include "module.h"
+
+void win32k_input_event(uint16, uint16, int) __attribute__((weak));
 
 // Both live in a single kalloc() page.
 _Static_assert(sizeof(struct input_dev) <= PGSIZE, "input_dev too large");
@@ -82,6 +85,10 @@ input_queue_locked(struct input_dev *dev, uint16 type, uint16 code, int value)
 {
   for(struct evdev_client *c = dev->clients; c; c = c->next)
     evdev_pass_event(c, type, code, value);
+  /* The hook only appends to win32k's raw queue and schedules work; it does
+     not compose or sleep while the input spinlock is held. */
+  if(win32k_input_event && type != EV_SYN)
+    win32k_input_event(type, code, value);
   dev->sync_pending = !(type == EV_SYN && code == SYN_REPORT);
 }
 
@@ -332,3 +339,5 @@ input_sync(struct input_dev *dev)
     input_queue_locked(dev, EV_SYN, SYN_REPORT, 0);
   release(&dev->lock);
 }
+
+subsys_initcall("input", input_init);

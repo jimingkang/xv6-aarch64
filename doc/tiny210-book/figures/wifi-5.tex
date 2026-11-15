@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{\begin{tikzpicture}[node distance=5mm]
+  \node[hbox] (mt) {MT7601U\\bulk-IN complete};
+  \node[box,right=of mt] (irq) {EHCI IRQ55\\确认 qTD 状态};
+  \node[box,right=of irq] (napi) {\texttt{mt7601u\_rx\_irq}\\调度 NAPI work};
+  \node[box,right=of napi] (parse) {解析 RXWI / 802.11\\立即重提 RX buffer};
+  \node[box,right=of parse] (kind) {管理帧/EAPOL 驱动内处理\\数据帧重建 Ethernet};
+  \node[hbox,right=of kind] (net) {\texttt{net\_rx\_dev()}\\ARP/IP/UDP/TCP};
+  \draw[arr] (mt)--(irq); \draw[arr] (irq)--(napi); \draw[arr] (napi)--(parse);
+  \draw[arr] (parse)--(kind); \draw[arr] (kind)--(net);
+\end{tikzpicture}}
+\caption{Wi-Fi RX 从 EHCI 中断到 xv6 网络栈}
+\label{fig:tiny-wifi-rx}
+\end{figure}

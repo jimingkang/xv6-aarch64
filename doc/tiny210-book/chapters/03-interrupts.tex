@@ -1,0 +1,195 @@
+\chapter{Tiny210
+异常、中断与系统时钟}\label{tiny210-ux5f02ux5e38ux4e2dux65adux4e0eux7cfbux7edfux65f6ux949f}
+
+\section{硬件结构}\label{ux786cux4ef6ux7ed3ux6784}
+
+S5PV210 使用 4 个 PL192 VIC。当前驱动把它们展平成 128 条逻辑 IRQ：
+
+\begin{lstlisting}
+VIC0 @ 0xF2000000  bit 0..31  -> IRQ   0..31
+VIC1 @ 0xF2100000  bit 0..31  -> IRQ  32..63
+VIC2 @ 0xF2200000  bit 0..31  -> IRQ  64..95
+VIC3 @ 0xF2300000  bit 0..31  -> IRQ 96..127
+\end{lstlisting}
+
+当前系统节拍来自 PWM Timer 4（IRQ 25）。UART platform device 虽声明 IRQ
+\passthrough{\lstinline!42 + UART 编号!}，但串口驱动目前没有
+\passthrough{\lstinline!request\_irq()!}，输入由 timer tick 轮询。
+
+\section{从硬件到驱动 handler
+的调用链}\label{ux4eceux786cux4ef6ux5230ux9a71ux52a8-handler-ux7684ux8c03ux7528ux94fe}
+
+\input{figures/interrupts-1}
+
+\passthrough{\lstinline!t113\_irq()!} 这个名字是 ARM32
+多端口共用代码遗留的命名，并不表示 Tiny210 使用 T113
+中断控制器；真正的根控制器由
+\passthrough{\lstinline!set\_handle\_irq()!} 安装。
+
+\section{异常向量与
+trapframe}\label{ux5f02ux5e38ux5411ux91cfux4e0e-trapframe}
+
+\href{../../../kernel/arch/arm/vectors.S}{\passthrough{\lstinline!vectors.S!}}
+定义 8 个 ARM 低向量入口：
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.18\linewidth}p{0.26\linewidth}p{0.50\linewidth}@{}}
+\toprule\noalign{}
+偏移 & 异常 & 当前处理 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\passthrough{\lstinline!0x00!} & Reset & 不从这里启动，原地循环 \\
+\passthrough{\lstinline!0x04!} & Undefined &
+\passthrough{\lstinline!t113\_fault(kind=1)!} \\
+\passthrough{\lstinline!0x08!} & SVC & 保存 trapframe 后进入
+\passthrough{\lstinline!t113\_svc()!} \\
+\passthrough{\lstinline!0x0c!} & Prefetch abort &
+\passthrough{\lstinline!t113\_fault(kind=2)!} \\
+\passthrough{\lstinline!0x10!} & Data abort &
+\passthrough{\lstinline!t113\_fault(kind=3)!} \\
+\passthrough{\lstinline!0x18!} & IRQ &
+\passthrough{\lstinline!irq\_entry!} →
+\passthrough{\lstinline!t113\_irq()!} \\
+\end{longtable}
+}
+
+IRQ 硬件先进入独立的 banked IRQ stack。汇编保存最小现场后切到 SVC mode，
+在当前进程内核栈上构造统一的 272 字节
+\passthrough{\lstinline!struct trapframe!}，因此 IRQ 末尾可以安全 调用
+\passthrough{\lstinline!yield()!}。返回时
+\passthrough{\lstinline!restore\_tf!} 根据原 CPSR
+判断回用户态还是内核态。
+
+\section{VIC 初始化}\label{vic-ux521dux59cbux5316}
+
+\href{../../../kernel/drivers/irqchip/irq-vic.c}{\passthrough{\lstinline!irq-vic.c!}}
+通过 \passthrough{\lstinline!arch\_initcall("irq-vic", ...)!} 注册
+platform driver。probe 时：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  从 device resource 得到 VIC0 基址，按 1 MiB 间隔计算 VIC1..3。
+\item
+  \passthrough{\lstinline!VIC\_INTENCLEAR = \~0!}，清除 bootloader
+  遗留使能。
+\item
+  \passthrough{\lstinline!VIC\_SOFTINTCLEAR = \~0!}。
+\item
+  \passthrough{\lstinline!VIC\_INTSELECT = 0!}，全部配置为 IRQ 而非
+  FIQ。
+\item
+  \passthrough{\lstinline!set\_handle\_irq(vic\_handle\_irq, \&vic\_chip)!}
+  安装根分派器。
+\end{enumerate}
+
+\passthrough{\lstinline!request\_irq(irq, handler, data)!} 在全局
+\passthrough{\lstinline!irq\_desc[]!} 保存 handler，并通过
+\passthrough{\lstinline!vic\_chip.unmask()!} 设置相应
+\passthrough{\lstinline!VIC\_INTENABLE!} 位。当前接口没有 Linux 的
+shared IRQ、触发类型、线程化 IRQ、affinity 和
+\passthrough{\lstinline!free\_irq()!}。
+
+\section{PWM Timer 4}\label{pwm-timer-4}
+
+\href{../../../kernel/drivers/clocksource/samsung_pwm_timer.c}{\passthrough{\lstinline!samsung\_pwm\_timer.c!}}
+使用 \passthrough{\lstinline!pclk\_psys!}（正常约 66.7 MHz）：
+
+\begin{lstlisting}
+probe
+  -> 停 Timer 4
+  -> prescaler=0, divider=1/1
+  -> TCNTB4 = pclk_psys / HZ_TICK - 1
+  -> 清 pending，使能 Timer 4 IRQ
+  -> manual update
+  -> auto-reload + start
+  -> register_clocksource("pwm-timer4", ...)
+  -> request_irq(25, pwm_irq, NULL)
+\end{lstlisting}
+
+每个硬件 tick 调用 \passthrough{\lstinline!arm32\_timer\_tick()!}；每 10
+个子 tick 才增加一次 xv6 全局 \passthrough{\lstinline!ticks!} 并唤醒
+\passthrough{\lstinline!sleep(\&ticks)!} 的进程。每次硬件 tick 还会：
+
+\begin{itemize}
+\tightlist
+\item
+  调用 \passthrough{\lstinline!uartintr()!} 轮询 UART RX FIFO；
+\item
+  调用 \passthrough{\lstinline!sched\_tick()!}
+  更新进程时间片并设置重调度标志。
+\end{itemize}
+
+这意味着 timer/VIC 故障不只会停止时钟，也会表现为串口键盘无输入、sleep
+不返回、 进程不抢占。
+
+\section{中断启用时机与锁}\label{ux4e2dux65adux542fux7528ux65f6ux673aux4e0eux9501}
+
+\passthrough{\lstinline!\_entry!} 和
+\passthrough{\lstinline!x210\_main()!} 初始化阶段保持 IRQ
+屏蔽。驱动先完成 \passthrough{\lstinline!request\_irq()!} 和 VIC
+unmask；进入 \passthrough{\lstinline!scheduler()!} 后才由调度循环打开
+CPU IRQ。两层使能缺一不可：
+
+\begin{lstlisting}
+设备 pending
+  AND VIC_INTENABLE 对应位为 1
+  AND CPSR.I = 0
+  -> CPU 才进入 irq_entry
+\end{lstlisting}
+
+spinlock 的临界区会暂时关闭本 CPU 中断；中断 handler
+中不能调用可能睡眠的接口。 Timer handler 只做清
+pending、计数、唤醒、轮询字符和调度记账，没有长耗时工作。
+
+\section{新增 IRQ
+驱动的最小步骤}\label{ux65b0ux589e-irq-ux9a71ux52a8ux7684ux6700ux5c0fux6b65ux9aa4}
+
+\begin{lstlisting}[language=C]
+static void my_irq(int irq, void *data)
+{
+  struct mydev *d = data;
+  uint status = read_status(d);
+  clear_status(d, status);       // 必须清设备侧 pending
+  /* 只做短小、不可睡眠的工作 */
+}
+
+static int my_probe(struct device *dev)
+{
+  int irq = dev->resource[1].start;
+  setup_controller(dev);
+  return request_irq(irq, my_irq, dev->driver_data);
+}
+\end{lstlisting}
+
+同时在
+\href{../../../kernel/arch/arm/mach-s5pv210/devices.c}{\passthrough{\lstinline!devices.c!}}
+增加 \passthrough{\lstinline!IORESOURCE\_MEM!} 和
+\passthrough{\lstinline!IORESOURCE\_IRQ!}。当前没有
+\passthrough{\lstinline!free\_irq()!}，因此还不适合真正的
+运行时驱动卸载。
+
+\section{调试建议}\label{ux8c03ux8bd5ux5efaux8bae}
+
+\begin{itemize}
+\tightlist
+\item
+  没有任何 IRQ：检查 \passthrough{\lstinline!irqchip: 4 x PL192 VIC!}
+  是否出现、CPSR.I 是否清零。
+\item
+  Timer 不进：读
+  \passthrough{\lstinline!TINT\_CSTAT!}、\passthrough{\lstinline!TCNTO4!}，确认
+  PCLK 和 IRQ 25。
+\item
+  IRQ 风暴：设备 pending 未清，或 W1C 写法错误；先屏蔽对应 VIC 位定位。
+\item
+  串口能输出但不能输入：首先检查 timer 是否工作，因为当前 RX 依赖 timer
+  轮询。
+\item
+  只在 QEMU 正常：QEMU 使用
+  \passthrough{\lstinline!irq-sun4i.c!}/\passthrough{\lstinline!timer-sun4i.c!}，不能证明
+  VIC/PWM 正确。
+\end{itemize}

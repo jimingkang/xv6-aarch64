@@ -1,0 +1,418 @@
+\chapter{Tiny210 MT7601U USB Wi-Fi
+驱动}\label{tiny210-mt7601u-usb-wi-fi-ux9a71ux52a8}
+
+\section{当前支持范围}\label{ux5f53ux524dux652fux6301ux8303ux56f4}
+
+Tiny210 实板构建已经把以下组件连接成一条完整链路：
+
+\begin{lstlisting}
+S5PV210 USB Host PHY1
+  -> EHCI host controller（USB-A，0xEC200000，IRQ 55）
+  -> USB core / usb_bus
+  -> MT7601U USB driver
+  -> SoftMAC 扫描、Open-System 认证、关联
+  -> WPA2-PSK/CCMP 四次握手
+  -> net_device "wlan0"
+  -> Ethernet/ARP/IPv4/UDP/ICMP/TCP
+  -> DHCP、ping 和其他 socket 用户程序
+\end{lstlisting}
+
+默认目标是高速 USB MT7601U。QEMU \passthrough{\lstinline!cubieboard!}
+替身没有这套 USB host， \passthrough{\lstinline!tiny210-qemu!} 不会验证
+Wi-Fi；枚举、固件、射频和真实收发必须在 Tiny210 实板测试。
+
+主要源码：
+
+\begin{itemize}
+\tightlist
+\item
+  \href{../../../kernel/arch/arm/mach-s5pv210/devices.c}{\passthrough{\lstinline!devices.c!}}：PHY1、EHCI
+  resource。
+\item
+  \href{../../../kernel/drivers/usb/host/ehci-hcd.c}{\passthrough{\lstinline!ehci-hcd.c!}}：EHCI
+  枚举和 bulk 传输。
+\item
+  \href{../../../kernel/drivers/usb/core/usb.c}{\passthrough{\lstinline!usb.c!}}：USB
+  bus、driver 匹配和 URB 生命周期。
+\item
+  \href{../../../kernel/drivers/net/wireless/mt7601u.c}{\passthrough{\lstinline!mt7601u.c!}}：芯片、SoftMAC、WPA2
+  和 netdev。
+\item
+  \href{../../../kernel/drivers/net/wireless/wpa_crypto.c}{\passthrough{\lstinline!wpa\_crypto.c!}}：PBKDF2/PTK/MIC/AES
+  unwrap。
+\item
+  \href{../../../kernel/drivers/base/firmware.c}{\passthrough{\lstinline!firmware.c!}}：\passthrough{\lstinline!request\_firmware()!}。
+\item
+  \href{../../../kernel/net.c}{\passthrough{\lstinline!net.c!}}：net\_device、NAPI、ARP/IP/DHCP
+  和 socket 网络栈。
+\item
+  \href{../../../user/wifi.c}{\passthrough{\lstinline!wifi.c!}}：用户态连接命令。
+\end{itemize}
+
+\section{硬件与 USB 拓扑}\label{ux786cux4ef6ux4e0e-usb-ux62d3ux6251}
+
+默认使用 Tiny210 底板 USB-A 口：
+
+\input{figures/wifi-1}
+
+\passthrough{\lstinline!host\_phy\_init()!} 会：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  打开 USBHOST 时钟 gate；
+\item
+  解除 PHY1 isolation；
+\item
+  选择 24 MHz reference；
+\item
+  清 PHY1 suspend/power-down；
+\item
+  pulse PHY1 和 host link reset。
+\end{enumerate}
+
+EHCI device resource 是：
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+\toprule\noalign{}
+资源 & 值 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+EHCI MMIO & \passthrough{\lstinline!0xEC200000..0xEC2fffff!} \\
+IRQ & 55（\passthrough{\lstinline!uhost!}） \\
+USB PHY MMIO & \passthrough{\lstinline!0xEC100000..0xEC100fff!} \\
+\end{longtable}
+}
+
+根口上的 full/low-speed 设备需要 OHCI，当前没有 OHCI 驱动；高速 MT7601U
+可直接由 EHCI 管理。也可以通过
+\passthrough{\lstinline!S5PV210\_USB\_OTG=1!} 编入 OTG/DWC2 host
+device，但默认 Wi-Fi 路径是 USB-A/EHCI。
+
+\section{构建、firmware
+和配置文件}\label{ux6784ux5efafirmware-ux548cux914dux7f6eux6587ux4ef6}
+
+实板 \passthrough{\lstinline!ports/tiny210/Makefile!} 会编入：
+
+\begin{lstlisting}
+usb/core/usb
+usb/host/ehci-hcd
+usb/dwc2/hcd
+net/wireless/mt7601u
+net/wireless/wpa_crypto
+base/firmware
+net + workqueue + epoll + sysnet
+wifi + dhcp + ping 用户程序
+\end{lstlisting}
+
+固件文件必须存在于仓库的：
+
+\begin{lstlisting}
+firmware/mt7601u.bin
+\end{lstlisting}
+
+构建会把它链接到内核，并在 \passthrough{\lstinline!make tiny210!}
+时复制到已挂载的 FAT32 bootfs：
+
+\begin{lstlisting}
+/Volumes/bootfs/mt7601u.bin
+\end{lstlisting}
+
+\passthrough{\lstinline!request\_firmware("mt7601u.bin")!} 的优先级是：
+
+\begin{lstlisting}
+FAT32 根目录 /boot/mt7601u.bin
+  -> 找不到或不可读
+内核镜像中的 fw_mt7601u_start..fw_mt7601u_end
+\end{lstlisting}
+
+这样可以只替换 SD 卡上的固件进行测试，同时保留内置副本作为启动兜底。
+
+可选 Wi-Fi 配置文件默认位于：
+
+\begin{lstlisting}
+ports/tiny210/wifi.conf
+\end{lstlisting}
+
+内容：
+
+\begin{lstlisting}
+ssid=your-access-point
+psk=your-passphrase
+\end{lstlisting}
+
+该文件被 \passthrough{\lstinline!.gitignore!} 排除。构建发现它时，通过
+\passthrough{\lstinline!mkfs --etc!} 写入根文件系统的
+\passthrough{\lstinline!/etc/wifi.conf!}。不要把真实密码提交到仓库。
+
+\section{initcall、枚举与驱动匹配}\label{initcallux679aux4e3eux4e0eux9a71ux52a8ux5339ux914d}
+
+初始化顺序依靠 initcall level 和 order：
+
+\begin{lstlisting}
+netinit()                         注册 net bus
+subsys_initcall("usbcore")       注册 usb bus
+module_init_ord("mt7601u", 1)   注册 USB driver，建立 mt7601u_wq
+module_init_ord("ehci-s5p", 2)  probe EHCI，申请 IRQ55，创建 ehci-enum
+scheduler()                       CPU IRQ 打开，内核线程开始运行
+ehci-enum                         PHY/host 初始化并枚举设备
+\end{lstlisting}
+
+EHCI 枚举流程：
+
+\input{figures/wifi-2}
+
+MT7601U ID 表包含 \passthrough{\lstinline!148f:7601!} 以及多个 OEM
+VID:PID。USB core 使用 ID table 匹配，不依赖设备名。EHCI
+枚举在内核线程而不是 initcall 中完成，是因为端口上电、 reset
+和描述符事务会等待数百毫秒，需要调度器、timer 和 IRQ 已可用。
+
+\section{\texorpdfstring{\texttt{mt7601u\_probe()}
+初始化阶段}{mt7601u\_probe() 初始化阶段}}\label{mt7601u_probe-ux521dux59cbux5316ux9636ux6bb5}
+
+probe 的主要阶段如下：
+
+\input{figures/wifi-3}
+
+\subsection{控制传输}\label{ux63a7ux5236ux4f20ux8f93}
+
+MT7601U 寄存器不是 CPU MMIO。驱动通过 USB vendor control request 读写：
+
+\begin{lstlisting}
+mt7601u_read32/write32
+  -> udev->ops->control
+  -> EHCI EP0 SETUP/DATA/STATUS qTD
+  -> MT7601U vendor request
+\end{lstlisting}
+
+\subsection{固件下载}\label{ux56faux4ef6ux4e0bux8f7d}
+
+固件头给出 ILM/DLM 长度。驱动把数据按最大
+\passthrough{\lstinline!0x3800!} 字节分块，增加 FCE TXINFO， 通过
+bulk-OUT 下载：
+
+\begin{lstlisting}
+ILM: 目的地址从 64 B IVB 之后开始
+DLM: 目的地址 0x80000
+最后: DEV_MODE=0x12 携带 64 B IVB，启动 MCU
+\end{lstlisting}
+
+每块之后检查 FCE/MCU 状态，最后轮询
+\passthrough{\lstinline!MCU\_COM\_REG0 == 1!}。
+
+\subsection{eFuse
+和射频初始化}\label{efuse-ux548cux5c04ux9891ux521dux59cbux5316}
+
+驱动读取 256 字节 eFuse，获得永久 MAC、country、晶振 frequency
+offset、RSSI offset、参考温度和 LNA gain。随后初始化 MAC、BBP、RF
+表，并通过 MCU command endpoint 执行 R、TXDCOC、LOFT、TXIQ、RXIQ 和 DPD
+等校准。
+
+任何阶段失败都会使 probe 返回失败，\passthrough{\lstinline!wlan0!}
+不会出现。
+
+\section{扫描、认证和 WPA2
+状态机}\label{ux626bux63cfux8ba4ux8bc1ux548c-wpa2-ux72b6ux6001ux673a}
+
+\passthrough{\lstinline!/bin/wifi!} 最终调用：
+
+\begin{lstlisting}
+wifi_connect(ssid, psk)
+  -> SYS_wifi_connect
+  -> sys_wifi_connect()
+  -> mt7601u_connect(ssid, psk, 30000)
+\end{lstlisting}
+
+\passthrough{\lstinline!mt7601u\_connect()!} 在进程上下文执行 PBKDF2
+4096 轮生成 32 字节 PMK，然后设置 目标 SSID，唤醒
+\passthrough{\lstinline!mt7601u\_wq!} 的 delayed work，并睡眠等待最多 30
+秒。
+
+\input{figures/wifi-4}
+
+扫描在 2.4 GHz channel 1..11 间切换，每个 channel 解析 beacon/probe
+response， 最多保存 32 个 AP。WPA2 四次握手中：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  收到 M1：保存 ANonce，生成 SNonce，PMK 派生 PTK，发送 M2；
+\item
+  收到 M3：校验 MIC，AES unwrap key data，提取 GTK；
+\item
+  把 PTK/GTK 写进 MT7601U hardware key tables，启用 AES-CCMP；
+\item
+  发送 M4，设置 \passthrough{\lstinline!handshake\_done!}。
+\end{enumerate}
+
+当前实现面向 WPA2-PSK/CCMP。没有完整支持
+WPA3、802.1X/EAP、WEP、WPA-TKIP、 5 GHz、11n 高级速率控制或省电模式。
+
+\section{RX：IRQ + NAPI
+风格下半部}\label{rxirq--napi-ux98ceux683cux4e0bux534aux90e8}
+
+probe 会在数据 bulk-IN endpoint 预提交 4 个 16 KiB buffer。数据到达时：
+
+\input{figures/wifi-5}
+
+硬中断只确认 EHCI 状态并调度 NAPI work，不在 IRQ 上下文解析
+beacon、EAPOL 或 IP。 NAPI 每轮 budget 是 4；若一次用满
+budget，workqueue 会继续调度。状态机的 timeout 使用独立
+\passthrough{\lstinline!state\_work!}，因此 RX completion
+与协议定时器互不阻塞。
+
+\section{TX 与网络栈}\label{tx-ux4e0eux7f51ux7edcux6808}
+
+网络栈交给 \passthrough{\lstinline!mt7601u\_net\_xmit()!} 的是 Ethernet
+frame。驱动会：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  根据目标/源 MAC 和 EtherType 构造 802.11 ToDS header；
+\item
+  添加 LLC/SNAP；
+\item
+  关联后选择 AP 的 WCID；
+\item
+  握手完成后让硬件使用已安装的 CCMP key；
+\item
+  添加 MT7601U TXWI 和 USB DMA header；
+\item
+  通过 bulk-OUT 同步发送。
+\end{enumerate}
+
+RX 数据路径反向去掉 RXWI、802.11 header 和 LLC/SNAP，重建 Ethernet
+header 后调用
+\passthrough{\lstinline!net\_rx\_dev()!}。握手完成以前，普通数据 frame
+不会交给 IP 层。
+
+驱动注册的真实接口名是
+\passthrough{\lstinline!wlan0!}。当前一条日志仍写成
+\passthrough{\lstinline!wlan1 registered!}，这是日志
+字符串遗留，不代表存在第二个接口；DHCP 应使用
+\passthrough{\lstinline!wlan0!}。
+
+\section{自动连接和手工测试}\label{ux81eaux52a8ux8fdeux63a5ux548cux624bux5de5ux6d4bux8bd5}
+
+如果根文件系统有 \passthrough{\lstinline!/etc/wifi.conf!}，Tiny210
+\passthrough{\lstinline!/init!} 会后台重试连接最多 10 次；
+\passthrough{\lstinline!wifi!} 成功后执行：
+
+\begin{lstlisting}[language=sh]
+/bin/dhcp wlan0
+\end{lstlisting}
+
+手工连接：
+
+\begin{lstlisting}[language=sh]
+/bin/wifi YOUR_SSID YOUR_PASSPHRASE
+/bin/dhcp wlan0
+/bin/ping 192.168.0.1
+\end{lstlisting}
+
+也可直接让 \passthrough{\lstinline!wifi!} 读取配置：
+
+\begin{lstlisting}[language=sh]
+/bin/wifi
+/bin/dhcp wlan0
+\end{lstlisting}
+
+成功的关键日志顺序通常是：
+
+\begin{lstlisting}
+ehci: high-speed device 148f:7601 ...
+mt7601u: USB device 148f:7601 ASIC=...
+firmware: mt7601u.bin loaded from /boot (... bytes)
+mt7601u: MCU firmware running
+mt7601u: permanent mac=...
+mt7601u: MAC/BBP/RF bootstrap ready
+mt7601u: RF calibration complete; bulk endpoints ready
+mt7601u: target <ssid> found ... WPA2
+mt7601u: Open-System authentication accepted
+mt7601u: 802.11 associated ...
+mt7601u: WPA2 four-way handshake complete
+mt7601u: wlan1 registered ...     # 实际接口名 wlan0
+dhcp: dev=wlan0 address=... gateway=... dns=...
+\end{lstlisting}
+
+\section{当前已知限制}\label{ux5f53ux524dux5df2ux77e5ux9650ux5236}
+
+\begin{itemize}
+\tightlist
+\item
+  只维护一个全局 \passthrough{\lstinline!mt7601u\_device!}，不支持多块
+  MT7601U。
+\item
+  EHCI 启动只在约 2
+  秒窗口内寻找设备，之后枚举线程永久睡眠；\textbf{不支持 USB 热插拔}。
+  网卡应在启动前插好。
+\item
+  根口 full/low-speed 设备交给尚未实现的 OHCI；MT7601U 必须以 high-speed
+  工作。
+\item
+  扫描只覆盖 channel 1..11，没有根据 country 自动扩大/缩小 regulatory
+  domain。
+\item
+  \passthrough{\lstinline!mt7601u\_send\_assoc()!} 当前 association
+  request 中仍有硬编码
+  \passthrough{\lstinline!TP-Link\_B114!}，虽然扫描和
+  \passthrough{\lstinline!wifi\_connect()!} 接受任意 SSID；连接其他 SSID
+  前应把 这里改成
+  \passthrough{\lstinline!dev->want\_ssid/dev->want\_ssid\_len!}。
+\item
+  TX bulk 是同步路径；高吞吐时会占用调用进程，尚无完整 TX
+  queue/backpressure。
+\item
+  驱动没有 Linux mac80211/cfg80211 的速率控制、重连、扫描 API
+  和监管框架。
+\item
+  D-cache 当前关闭，简化了 EHCI DMA 一致性；以后开启 D-cache 时必须补齐
+  DMA coherent allocation 或 cache clean/invalidate。
+\item
+  Wi-Fi 配置是明文文件，系统没有密钥环或权限隔离。
+\end{itemize}
+
+\section{故障定位}\label{ux6545ux969cux5b9aux4f4d}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+\toprule\noalign{}
+最后日志/现象 & 优先检查 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+没有 \passthrough{\lstinline!initcall: ehci-s5p!} & 实板构建是否误用了
+\passthrough{\lstinline!QEMU\_TEST=1!} \\
+\passthrough{\lstinline!no high-speed device!} &
+网卡是否开机前插入、USB-A 供电、PHY1/时钟、是否被识别为 full-speed \\
+有 VID:PID，没有 probe & ID 是否在
+\passthrough{\lstinline!mt7601u\_ids[]!}、usbcore/driver initcall
+顺序 \\
+\passthrough{\lstinline!firmware ... missing!} &
+\passthrough{\lstinline!/boot/mt7601u.bin!} 和内置
+\passthrough{\lstinline!firmware/mt7601u.bin!} \\
+\passthrough{\lstinline!MCU firmware start timeout!} & bulk-OUT、FCE
+地址/长度、固件版本、USB 错误 token \\
+\passthrough{\lstinline!calibration ... failed!} & 第二 bulk-IN MCU
+response endpoint、eFuse/RF、供电和 USB 稳定性 \\
+能扫描但认证超时 & channel、BSSID、AP 是否允许 Open-System auth、USB RX
+completion \\
+关联后 M1 timeout & AP 安全模式应为 WPA2-PSK/CCMP，检查 EAPOL RX 和
+receive filter \\
+\passthrough{\lstinline!M3 MIC verification failed!} & 密码错误、PMK/PTK
+派生或 replay/nonce \\
+\passthrough{\lstinline!wifi: associated!} 但 DHCP 失败 & 使用
+\passthrough{\lstinline!wlan0!}、ARP/DHCP response 是否进入
+\passthrough{\lstinline!net\_rx\_dev()!} \\
+一直连不上非 TP-Link\_B114 & 当前 association request 的硬编码 SSID
+限制 \\
+\end{longtable}
+}

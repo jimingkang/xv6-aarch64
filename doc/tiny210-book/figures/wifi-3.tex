@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=6mm]
+  \node[hbox] (p) {\texttt{mt7601u\_probe}};
+  \node[box,below=of p] (ver) {vendor control\\读取 ASIC/MAC version};
+  \node[box,below=of ver] (fw) {校验并下载 firmware\\ILM + DLM + IVB};
+  \node[box,below=of fw] (mcu) {等待 MCU running\\读取 256 B eFuse};
+  \node[box,below=of mcu] (init) {WLAN PLL、MAC、USB DMA\\MAC/BBP/RF 表与校准};
+  \node[hbox,below=of init] (rx) {channel 1，提交 4 个 RX buffer\\启动 delayed scan work};
+  \draw[arr] (p)--(ver); \draw[arr] (ver)--(fw); \draw[arr] (fw)--(mcu);
+  \draw[arr] (mcu)--(init); \draw[arr] (init)--(rx);
+\end{tikzpicture}
+\caption{MT7601U probe 的主要硬件初始化阶段}
+\label{fig:tiny-wifi-probe}
+\end{figure}

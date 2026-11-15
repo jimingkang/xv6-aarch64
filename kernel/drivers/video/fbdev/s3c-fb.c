@@ -36,7 +36,23 @@ static struct fb_info s3c_fb_info = { .id = "s3c-fb", .bpp = 32, .has_fbcon = 1 
 #define VIDW00ADD1B0 0x0D0
 #define VIDW00ADD2 0x100
 static uintptr regs;
+static uint32 scanout_pa;
+static uint32 scanout_bytes;
 #define REG(o) (*(volatile uint32*)(regs + (o)))
+
+static int
+s3c_fb_pan(struct fb_info *info, uint32 yoffset)
+{
+  uint32 off = yoffset * info->line_length;
+  if(off + scanout_bytes > info->size)
+    return -1;
+  REG(VIDW00ADD0B0) = scanout_pa + off;
+  REG(VIDW00ADD1B0) = scanout_pa + off + scanout_bytes;
+  REG(SHADOWCON) |= 1;     // latch at the next frame boundary
+  info->yoffset = yoffset;
+  info->screen = (uint32*)(uintptr)(scanout_pa + off);
+  return 0;
+}
 
 static void
 color_bars(uint32 *fb, const struct s3c_fb_panel *p)
@@ -100,6 +116,9 @@ s3c_fb_probe(struct device *dev)
   s3c_fb_info.xres = p->xres;
   s3c_fb_info.yres = p->yres;
   s3c_fb_info.line_length = p->xres*4;
+  scanout_pa = fbpa;
+  scanout_bytes = fbsize;
+  s3c_fb_info.pan_display = s3c_fb_pan;
   return register_framebuffer(&s3c_fb_info);
 }
 

@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{0.90\linewidth}{!}{\begin{tikzpicture}[node distance=8mm]
+  \node[hbox] (cpu) {Cortex-A8};
+  \node[box,right=of cpu] (ehci) {S5PV210 EHCI\\\texttt{0xEC200000}, IRQ 55};
+  \node[box,right=of ehci] (hub) {可选 High-Speed Hub};
+  \node[box,right=of hub] (mt) {MT7601U USB\\bulk IN/OUT + EP0};
+  \node[hbox,right=of mt] (rf) {2.4 GHz\\802.11b/g/n};
+  \node[gbox,above=5mm of ehci] (phy) {USB Host PHY1\\24 MHz reference};
+  \draw[arr] (cpu)--(ehci); \draw[arr] (phy)--(ehci); \draw[arr] (ehci)--(hub);
+  \draw[arr] (hub)--(mt); \draw[arr] (mt)--(rf);
+\end{tikzpicture}}
+\caption{Tiny210 USB-A 到 MT7601U 的硬件拓扑}
+\label{fig:tiny-wifi-hw}
+\end{figure}

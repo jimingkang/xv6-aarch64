@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{\begin{tikzpicture}[node distance=5mm]
+  \node[hbox] (host) {EHCI host/PHY 初始化};
+  \node[box,right=of host] (reset) {Port reset\\GET\_DESCRIPTOR(8)};
+  \node[box,right=of reset] (addr) {SET\_ADDRESS\\读取 device/config};
+  \node[box,right=of addr] (ep) {解析 bulk endpoint\\SET\_CONFIGURATION};
+  \node[box,right=of ep] (bus) {\texttt{usb\_device\_register()}};
+  \node[hbox,right=of bus] (probe) {VID:PID 匹配\\\texttt{mt7601u\_probe()}};
+  \draw[arr] (host)--(reset); \draw[arr] (reset)--(addr); \draw[arr] (addr)--(ep);
+  \draw[arr] (ep)--(bus); \draw[arr] (bus)--(probe);
+\end{tikzpicture}}
+\caption{EHCI 枚举 MT7601U 并交给 USB driver 的过程}
+\label{fig:tiny-wifi-enum}
+\end{figure}

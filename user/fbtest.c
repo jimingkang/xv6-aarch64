@@ -48,6 +48,20 @@ main(int argc, char *argv[])
         fail("pixel readback");
     }
 
+  if(var.yres_virtual >= var.yres * 2){
+    uint *back = fb + var.yres * stride;
+    for(uint y = 0; y < var.yres; y++)
+      for(uint x = 0; x < var.xres; x++)
+        back[y*stride+x] = ((x*255/var.xres)<<16) | (y*255/var.yres);
+    var.yoffset = var.yres;
+    if(ioctl(fd, FBIOPAN_DISPLAY, &var) < 0)
+      fail("page flip to back buffer");
+    sleep_ticks(5);
+    var.yoffset = 0;
+    if(ioctl(fd, FBIOPAN_DISPLAY, &var) < 0)
+      fail("page flip to front buffer");
+  }
+
   int pid = fork();
   if(pid < 0)
     fail("fork");

@@ -1,0 +1,19 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{\begin{tikzpicture}[node distance=6mm]
+  \node[hbox] (scan) {SCAN\\channel 1--11};
+  \node[box,right=of scan] (authp) {AUTH\_PENDING};
+  \node[box,right=of authp] (auth) {AUTH\_SENT};
+  \node[box,right=of auth] (assocp) {ASSOC\_PENDING};
+  \node[box,right=of assocp] (assoc) {ASSOC\_SENT};
+  \node[box,right=of assoc] (eapol) {ASSOCIATED\\EAPOL M1--M4};
+  \node[hbox,right=of eapol] (key) {KEYED\\注册 \texttt{wlan0}};
+  \draw[arr] (scan)--node[lab,above]{命中 SSID}(authp);
+  \draw[arr] (authp)--(auth); \draw[arr] (auth)--(assocp); \draw[arr] (assocp)--(assoc);
+  \draw[arr] (assoc)--(eapol); \draw[arr] (eapol)--(key);
+  \draw[darr,bend right=35] (auth) to node[lab,below]{timeout} (authp);
+  \draw[darr,bend right=38] (eapol) to node[lab,below]{watchdog} (assocp);
+\end{tikzpicture}}
+\caption{扫描、Open-System 认证、关联与 WPA2 状态机}
+\label{fig:tiny-wifi-state}
+\end{figure}

@@ -15,6 +15,7 @@ struct irq_chip {
 
 void set_handle_irq(void (*handle)(void), struct irq_chip *chip);
 int  request_irq(int irq, irq_handler_t handler, void *data);
+int  free_irq(int irq, void *data);
 void generic_handle_irq(int irq);
 void arch_handle_irq(void);   // called by the exception vector
 #endif

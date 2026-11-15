@@ -1,0 +1,155 @@
+% !TEX program = xelatex
+% Tiny210 / S5PV210 ARM32 专题书稿
+\documentclass[UTF8,zihao=-4,fontset=none,oneside]{ctexbook}
+
+\usepackage[a4paper,top=24mm,bottom=24mm,left=22mm,right=22mm,headheight=16pt]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs,longtable,tabularx,array}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,matrix}
+
+% 优先使用开发主机上的中文字体；在没有这些字体的 TeX Live 环境中回退 Fandol。
+\IfFontExistsTF{Songti SC}{
+  \setCJKmainfont[AutoFakeBold=2]{Songti SC}
+  \setCJKsansfont[AutoFakeBold=2]{Hiragino Sans GB}
+  \setCJKmonofont[AutoFakeBold=2]{Hiragino Sans GB}
+}{
+  \setCJKmainfont[AutoFakeBold=2]{FandolSong-Regular}
+  \setCJKsansfont[AutoFakeBold=2]{FandolHei-Regular}
+  \setCJKmonofont[AutoFakeBold=2]{FandolFang-Regular}
+}
+\IfFontExistsTF{Menlo}{\setmonofont{Menlo}}{}
+
+\definecolor{tinyblue}{RGB}{17,91,122}
+\definecolor{tinycyan}{RGB}{23,139,166}
+\definecolor{tinyred}{RGB}{155,45,55}
+\definecolor{tinygreen}{RGB}{28,113,83}
+\definecolor{codebg}{RGB}{247,249,250}
+\definecolor{codecomment}{RGB}{104,116,126}
+
+\hypersetup{
+  unicode=true,
+  colorlinks=true,
+  linkcolor=tinyblue,
+  urlcolor=tinycyan,
+  citecolor=tinyred,
+  bookmarksnumbered=true,
+  bookmarksopen=true,
+  pdftitle={从裸机到系统：Tiny210 / ARMv7-A},
+  pdfauthor={Jiming Kang}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Tiny210 / ARMv7-A}
+\fancyhead[R]{\leftmark}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setcounter{tocdepth}{2}
+\setcounter{secnumdepth}{3}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.25em}
+\setlength{\emergencystretch}{3em}
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{0pt}
+\setlength{\tabcolsep}{4pt}
+\setlist{nosep,leftmargin=2.2em}
+
+\lstdefinelanguage{armasm}{
+  sensitive=false,
+  morekeywords={mov,movw,movt,ldr,ldrb,str,strb,ldm,stm,push,pop,add,sub,
+    and,orr,bic,eor,lsl,lsr,asr,cmp,tst,b,bl,bx,blx,svc,mrc,mcr,isb,dsb,dmb,
+    cpsid,cpsie,wfi,nop},
+  morecomment=[l]{@},morecomment=[l]{//},morecomment=[s]{/*}{*/},morestring=[b]"
+}
+\lstdefinelanguage{mermaid}{
+  sensitive=true,
+  morekeywords={flowchart,graph,sequenceDiagram,stateDiagram-v2,participant,as,
+    Note,over,rect,end,subgraph,style,classDef}
+}
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{tinyred}\bfseries,
+  commentstyle=\color{codecomment},
+  stringstyle=\color{tinygreen},
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{tinyblue!35},
+  framerule=0.35pt,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  tabsize=2,
+  xleftmargin=3pt,
+  xrightmargin=3pt,
+  aboveskip=6pt,
+  belowskip=6pt
+}
+
+\tikzset{
+  box/.style={draw=tinyblue!75!black,rounded corners=2pt,fill=tinyblue!7,
+    align=center,minimum height=8mm,inner sep=4pt,font=\small},
+  hbox/.style={box,fill=tinycyan!18},
+  gbox/.style={box,draw=gray!65,fill=gray!8},
+  arr/.style={-{Stealth[length=2.2mm]},thick,draw=tinyblue!80!black},
+  darr/.style={arr,dashed},
+  lab/.style={font=\footnotesize,text=gray!70!black}
+}
+
+% Pandoc 生成章节时使用的兼容宏。
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\providecommand{\passthrough}[1]{#1}
+\providecommand{\pandocbounded}[1]{#1}
+\newcounter{none}
+
+\title{从裸机到系统\\[4pt]\Large Tiny210 / S5PV210 ARMv7-A 实现}
+\author{Jiming Kang\\\small xv6-aarch64 项目}
+\date{2026 年 11 月\\\small 版本 0.1}
+
+\begin{document}
+
+\frontmatter
+\maketitle
+
+\chapter*{关于本书}
+\addcontentsline{toc}{chapter}{关于本书}
+本书面向 FriendlyARM Tiny210 开发者，以 Samsung S5PV210、ARMv7-A 和当前
+\texttt{tiny210} 分支为唯一对象。它不把 Raspberry Pi 3 的 AArch64、GIC、DWC2
+板载拓扑或 BCM43430 路径混入正文，而是沿 Tiny210 的真实依赖链讲解：iROM/BL1、
+ARM32 异常向量和 VIC、PWM 时钟、FIMD、SDHCI、EHCI、MT7601U、VFS 与 xv6fs。
+
+正文由 \texttt{doc/readme/tiny210} 下的专题 Markdown 整理而来；代码和寄存器值
+以仓库当前实现为准。QEMU 使用的 Cubieboard 只是 ARM32 通用逻辑替身，不能代替
+Tiny210 实板验证。
+
+\tableofcontents
+
+\mainmatter
+\include{chapters/01-overview}
+\include{chapters/02-boot}
+\include{chapters/03-interrupts}
+\include{chapters/04-lcd}
+\include{chapters/05-wifi}
+\include{chapters/05a-wifi-arch-hw}
+\include{chapters/05b-usb-stack}
+\include{chapters/05c-wifi-protocol}
+\include{chapters/06-filesystem}
+\include{chapters/07-drivers}
+\include{chapters/08-bringup}
+\include{chapters/09-references}
+
+\backmatter
+\chapter*{版本说明}
+\addcontentsline{toc}{chapter}{版本说明}
+本书与 \texttt{tiny210} 分支同步。驱动行为发生变化时，应先更新对应 Markdown，
+再重新生成章节并编译本书，避免操作手册与代码分叉。
+
+\end{document}

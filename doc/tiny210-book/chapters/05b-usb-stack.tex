@@ -1,0 +1,375 @@
+\chapter{USB 主机栈：EHCI 数据传输与中断处理}\label{wa:ch-05b-usb-stack}
+\section{USB 各层架构}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,node distance=5mm]
+\node[wbox=wamber,text width=128mm] (drv) {MT7601U 驱动：mt7601u\_read32 / write32 / tx\_raw / service};
+\node[wbox=tinyblue,text width=128mm,below=of drv] (ops) {struct usb\_host\_ops：control · bulk · bulk\_rx\_arm · bulk\_rx\_complete};
+\node[wbox=tinyblue,minimum width=36mm,below=of ops,xshift=-48mm] (c) {ehci\_usb\_control\\control\_qh\\SETUP/DATA/STATUS};
+\node[wbox=tinyblue,minimum width=36mm,below=of ops] (b) {ehci\_usb\_bulk\\bulk\_qh（同步）\\wait\_qtd 1 s/3 s};
+\node[wbox=tinyblue,minimum width=36mm,below=of ops,xshift=48mm] (r) {bulk\_rx\_arm\\bulk\_rx\_complete\\EP4 预挂 4 个 qTD};
+\node[wbox=tinyblue,text width=128mm,below=of b] (qa) {qh\_append：dummy qTD 追加法（硬件始终看到一致链表）；出错时 async\_stop → qh\_flush（保留 DT）→ async\_start};
+\node[wbox=tinyblue,text width=128mm,below=of qa] (ring) {异步调度环：head\_qh → ep0 QH(地址1) → ep0 QH(地址2) → EP4 IN QH → EP8 OUT QH → … → head\_qh};
+\node[wbox=tinyred,text width=128mm,below=of ring] (hc) {EHCI 硬件：按 QH 取 qTD，DMA 读写 DDR，产生 IN/OUT/PING 事务，完成后清 Active，IOC → USBINT → IRQ 55};
+\node[wbox=tinyred,text width=128mm,below=of hc] (phy) {PHY1 → USB2514 Hub → MT7601U};
+\draw[warr] (drv) -- (ops);
+\draw[warr] (ops) -- (c); \draw[warr] (ops) -- (b); \draw[warr] (ops) -- (r);
+\draw[warr] (c) -- (qa); \draw[warr] (b) -- (qa); \draw[warr] (r) -- (qa);
+\draw[warr] (qa) -- (ring); \draw[warr] (ring) -- (hc); \draw[wdarr] (hc) -- (phy);
+\end{tikzpicture}
+\caption{USB 软件分层}
+\end{figure}
+
+\subsection{平台层：PHY 与控制器启动}\label{wa:phy}
+
+\fn{host\_phy\_init()}（参考 Linux \fn{phy-s5pv210-usb2.c}）：\fn{CLK\_GATE\_IP1}(0xE0100464) bit17 打开 USBHOST 时钟；
+\fn{USB\_PHY\_CONTROL}(0xE010E80C) bit1 解除 PHY1 隔离；PHY 寄存器块 0xEC100000 中 \fn{UPHYCLK} 选 24 MHz，
+\fn{UPHYPWR} 清 bit6/7 使 PHY1 上电，\fn{URSTCON} bit3/4 脉冲复位 PHY1 和 Host link。
+
+\fn{ehci\_start()}：
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item \fn{phy\_init()}；CAPLENGTH 得到操作寄存器基址，HCSPARAMS 得到端口数（1）。
+\item Samsung 私有寄存器 INSNREG00（burst 使能），\textbf{INSNREG01 = 0x00800080}（OUT/IN 阈值均为 512 字节）。
+\item 停止、复位控制器；建立异步环头 QH（H 位，halted overlay，指向自己）。
+\item \fn{ASYNCLIST = head\_qh}，\fn{USBINTR = USBINT|ERR}，\fn{USBCMD = RUN|ASE|ITC(1)}，\fn{CONFIGFLAG = 1}；端口上电，等 100 ms。
+\end{enumerate}
+\begin{lstlisting}[basicstyle=\ttfamily\small\color{tinygreen!70!black},backgroundcolor=\color{tinygreen!4}]
+ehci: s5p-ehci at -13e00000, enumeration deferred to ehci-enum
+ehci: 1 port(s), running, async schedule on
+\end{lstlisting}
+
+\subsection{HCD 层：QH/qTD 与 dummy 追加法}
+
+EHCI 异步调度是一个 QH（每端点一个）组成的环，每个 QH 下挂一串 qTD，每个 qTD 最多描述 5 个 4 KiB 页。
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{qh\_create(addr, ep, speed, mps, control, hub, port)}：填 epchar（地址、端点、速度、最大包长）、epcap（Hub 地址/端口），挂入环；初始挂一个不活动的 dummy qTD。
+\item \fn{qh\_append(q, first, last)}：把新传输第一个 qTD 的内容拷进当前 dummy，在尾部接新 dummy；先激活后续 qTD，最后才置第一个的 Active。无需停异步调度。
+\item \fn{wait\_qtd}：轮询最后一个 qTD 的 Active（IN 1 s，OUT 3 s，OUT 期间设备可 NAK/PING）。
+\item \fn{qh\_flush}：超时/出错时丢弃排队的 qTD，QH 重新指向 dummy，\textbf{保留 data toggle}。
+\item \fn{ehci\_usb\_bulk\_rx\_arm}：给 EP4 预挂带 IOC 的 IN qTD；\fn{ehci\_usb\_bulk\_rx\_}\allowbreak\fn{complete} 从 \fn{q->head} 取已完成的 qTD。
+\item \fn{ehci\_irq}：USBSTS 的 USBINT/ERR 置位时调弱符号 \fn{mt7601u\_rx\_irq()}。
+\end{itemize}
+
+\subsection{总线上的包与事务}
+
+USB 总线上被调度的最小单位是\textbf{事务}：主机发 Token 包声明“对哪个设备的哪个端点做什么”，接着是可选的 Data 包，
+最后由接收方回 Handshake 包。主机发起一切，设备只能应答。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+\def\pk#1#2#3#4{\node[draw,fill=#4!14,minimum height=8mm,minimum width=#2mm,anchor=west,align=center] at (#1mm,0) {#3};}
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Token};
+\pk{0}{14}{SYNC}{wgray}\pk{14}{24}{PID\\OUT/IN/SETUP/PING}{wamber}\pk{38}{26}{ADDR 7 位\\ENDP 4 位}{tinyblue}\pk{64}{12}{CRC5}{tinygreen}\pk{76}{10}{EOP}{tinyred}
+\begin{scope}[yshift=-11mm]
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Data};
+\pk{0}{14}{SYNC}{wgray}\pk{14}{24}{PID\\DATA0/DATA1}{wamber}\pk{38}{50}{负载 0--512 B（高速 bulk）}{tinyblue}\pk{88}{14}{CRC16}{tinygreen}\pk{102}{10}{EOP}{tinyred}
+\end{scope}
+\begin{scope}[yshift=-22mm]
+\node[anchor=east,font=\small\bfseries] at (-1mm,0) {Handshake};
+\pk{0}{14}{SYNC}{wgray}\pk{14}{50}{PID：ACK / NAK / NYET / STALL}{wamber}\pk{64}{10}{EOP}{tinyred}
+\end{scope}
+\end{tikzpicture}
+\caption{USB 三种包（PID 本身带反码，所以不需要另加 CRC）}
+\end{figure}
+
+\begingroup\small\begin{longtable}{p{18mm}p{22mm}p{90mm}}
+\toprule
+类别 & PID & 含义与本驱动中的位置 \\ \midrule \endhead
+Token & SETUP & 只用于 EP0，开始一次控制传输（枚举、MT7601U 寄存器读写） \\
+Token & OUT & 主机写端点：EP0 的数据/状态阶段，EP8 的固件、MCU 命令和 802.11 帧 \\
+Token & IN & 主机读端点：EP0 的数据阶段，EP4 接收帧，EP5 MCU 应答 \\
+Token & PING & 只用于高速 bulk/控制 OUT：先问端点有没有空间，再发数据。EHCI 在 qTD 的 Ping 状态位里自动处理 \\
+Data & DATA0 / DATA1 & 交替使用（data toggle），接收方据此识别重传的重复包。SETUP 恒为 DATA0 \\
+Handshake & ACK & 正确收到 \\
+Handshake & NAK & 暂时不能收/没有数据。是流控不是错误：EP4 空闲时设备对每个 IN 回 NAK，EHCI 按 QH 的 NAK reload 计数自动重试 \\
+Handshake & NYET & 高速 OUT：这个包收下了但下一个可能放不下，主机下一次先 PING \\
+Handshake & STALL & 端点出错停住，要软件 \fn{CLEAR\_FEATURE(HALT)}；qTD 上表现为 Halted \\
+\bottomrule
+\end{longtable}\endgroup
+
+四种传输类型里本驱动用了两种：\textbf{控制传输}（EP0，可靠、双向、有 SETUP 阶段）和 \textbf{bulk 传输}（EP4/5/8，可靠、无时限、只用剩余带宽）。
+中断传输只在 Hub 的状态端点上有（xv6 不轮询它，没做热插拔），等时传输没用。
+
+\subsection{EHCI 数据结构：QH 与 qTD}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,scale=0.95,transform shape]
+\node[wbox=wgray,text width=25mm] (h) at (0,0) {head\_qh\\H=1，halted\\指向自己};
+\node[wbox=tinyblue,text width=25mm] (q1) at (3.6,0) {QH 地址1 EP0\\(USB2514)};
+\node[wbox=tinyblue,text width=25mm] (q2) at (7.2,0) {QH 地址2 EP0\\(MT7601U)};
+\node[wbox=tinyblue,text width=25mm] (q3) at (10.8,0) {QH 地址2\\EP4 IN};
+\node[wbox=tinyblue,text width=25mm] (q4) at (14.4,0) {QH 地址2\\EP8 OUT / EP5 IN};
+\draw[warr] (h) -- (q1);
+\draw[warr] (q1) -- (q2); \draw[warr] (q2) -- (q3); \draw[warr] (q3) -- (q4);
+\draw[warr] (q4.north) -- ++(0,0.5) -| node[wlbl,pos=0.25]{horiz（异步环）} (h.north);
+\node[wbox=tinygreen,text width=25mm] (t1) at (10.8,-1.8) {qTD 16 KiB\\Active, IOC};
+\node[wbox=tinygreen,text width=25mm] (t2) at (10.8,-3.3) {qTD 16 KiB};
+\node[wbox=tinygreen,text width=25mm] (t3) at (10.8,-4.8) {qTD 16 KiB};
+\node[wbox=tinygreen,text width=25mm] (t4) at (10.8,-6.3) {qTD 16 KiB};
+\node[wbox=wgray,text width=25mm] (t5) at (10.8,-7.8) {dummy qTD\\不活动};
+\draw[warr] (q3) -- node[wlbl,right]{next} (t1); \draw[warr] (t1) -- (t2); \draw[warr] (t2) -- (t3); \draw[warr] (t3) -- (t4); \draw[warr] (t4) -- (t5);
+\node[wbox=tinygreen,text width=25mm] (o1) at (14.4,-1.8) {qTD OUT\\388 B（DHCP）};
+\node[wbox=wgray,text width=25mm] (o2) at (14.4,-3.3) {dummy};
+\draw[warr] (q4) -- (o1); \draw[warr] (o1) -- (o2);
+\node[wbox=tinygreen,text width=25mm] (c1) at (7.2,-1.8) {SETUP 8 B};
+\node[wbox=tinygreen,text width=25mm] (c2) at (7.2,-3.3) {DATA IN 4 B};
+\node[wbox=tinygreen,text width=25mm] (c3) at (7.2,-4.8) {STATUS OUT 0 B, IOC};
+\node[wbox=wgray,text width=25mm] (c4) at (7.2,-6.3) {dummy};
+\draw[warr] (q2) -- (c1); \draw[warr] (c1) -- (c2); \draw[warr] (c2) -- (c3); \draw[warr] (c3) -- (c4);
+\end{tikzpicture}
+\caption{异步调度环：每个端点一个 QH，传输是挂在 QH 下的 qTD 链（图中为一次寄存器读和 EP4 的 4 个接收缓冲）}
+\end{figure}
+
+\begingroup\small\begin{longtable}{p{13mm}p{27mm}p{94mm}}
+\toprule
+QH 字 & 字段 & 本驱动填的值（\fn{qh\_create}） \\ \midrule \endhead
+0 & horiz & 下一个 QH 的物理地址 | Typ=QH(bit1)。新 QH 插在 head\_qh 后面，一次对齐写完成发布 \\
+1 & epchar & [6:0] 设备地址；[11:8] 端点号；[13:12] 速度（2=高速）；[14] DTC（控制端点=1：toggle 取自 qTD）；[15] H（只有 head\_qh 置位）；[26:16] 最大包长（512 / EP0 64）；[27] 全/低速控制端点；[31:28] NAK 重载计数 8 \\
+2 & epcap & [22:16] Hub 地址、[29:23] Hub 端口（仅 split）；[31:30] Mult=1 \\
+3 & cur & 当前 qTD，HC 写 \\
+4--11 & overlay & HC 正在执行的 qTD 副本：next、alt、token、buf[0..4] \\
+12--16 & buf\_hi & 64 位扩展，HC 会回写，所以软件字段必须放在它后面 \\
+\bottomrule
+\end{longtable}\endgroup
+
+\begingroup\small\begin{longtable}{p{13mm}p{27mm}p{94mm}}
+\toprule
+token 位 & 名称 & 含义 \\ \midrule \endhead
+7 & Active & 1=交给 HC 执行；HC 完成后清零。\fn{wait\_qtd} 就是轮询这一位 \\
+6 & Halted & 出错停止（STALL、错误计数耗尽、babble），整个 QH 停住 \\
+5 & Data Buffer Error & 内存读写跟不上总线（欠载/溢出）。实板固件下载失败时就是 0xa0 = Active+这一位 \\
+4 / 3 / 2 & Babble / XactErr / Missed µframe & 设备多发、CRC/超时、split 错过微帧 \\
+0 & Ping state & 高速 OUT 处于 PING 状态 \\
+9:8 & PID & 0 OUT，1 IN，2 SETUP \\
+11:10 & CERR & 错误重试次数，填 3 \\
+15 & IOC & 完成时置 USBSTS.USBINT，产生中断 \\
+30:16 & Total Bytes & 要传的字节数；完成后剩余数，实际长度 = length − TOK\_LEFT \\
+31 & DT & data toggle \\
+\bottomrule
+\end{longtable}\endgroup
+
+每个 qTD 有 5 个页指针，覆盖最多 5 个 4 KiB 页；\fn{qtd\_fill} 按缓冲起始页内偏移算出能放下的长度（≥ 16 KiB），所以一个 16 KiB 的接收缓冲或一块 14 KiB 的固件都只要一个 qTD。
+
+\subsection{EHCI 怎样执行异步调度}
+
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item \fn{USBCMD.ASE=1} 后，HC 从 \fn{ASYNCLIST} 指向的 head\_qh 开始，沿 \fn{horiz} 一圈圈地走 QH。
+\item 对每个 QH，看 overlay 的 token：不活动就沿 \fn{next} 取下一个 qTD 装进 overlay；活动就执行一次事务（IN/OUT/SETUP，按最大包长切包）。
+\item 设备回 NAK：HC 把 NAK 计数减一，计数用完就跳到下一个 QH，下一圈再试。所以 EP4 上挂着接收缓冲但没数据时，HC 会一直对 EP4 发 IN 并收到 NAK，不占 CPU。
+\item 一个 qTD 传完（或 IN 方向收到短包，长度不足 512）：HC 把 token 写回内存，清 Active，若有 IOC 则在当前微帧结束时置 \fn{USBSTS.USBINT}。
+\item 出错且 CERR 减到 0：置 Halted 和对应错误位，置 \fn{USBSTS.ERR}，这个 QH 停在原地，直到软件修复。
+\end{enumerate}
+
+\fn{qh\_append} 用 Linux 的 dummy 法追加传输：HC 永远停在一个不活动的 dummy qTD 上；追加时把新传输第一个 qTD 的内容复制进这个 dummy，
+在尾巴上接一个新 dummy，最后才把原 dummy 的 Active 置位。HC 下一次看这个 QH 时就会接着执行，软件不需要停异步调度，
+也就不用 Interrupt-on-Async-Advance 门铃。只有出错修复时才 \fn{async\_stop()} → \fn{qh\_flush()} → \fn{async\_start()}。
+
+\subsection{控制传输：MT7601U 的寄存器读写}
+
+控制传输由 3 个 qTD 组成（\fn{control\_qh}）：SETUP（8 字节，DATA0）→ 可选的 DATA（DATA1）→ 方向相反的 0 字节 STATUS（DATA1，IOC）。
+EP0 的 QH 置了 DTC，所以 toggle 来自每个 qTD 的 DT 位。读数据先落在对齐的 \fn{ctrl\_buf} 里再拷给调用者。
+MT7601U 的寄存器全靠厂商请求访问：
+
+\begin{table}[H]\centering\small
+\begin{tabular}{p{40mm}p{18mm}p{23mm}p{23mm}p{16mm}}
+\toprule
+操作 & bmRequest\-Type & bRequest & wValue & wIndex \\ \midrule
+读 32 位寄存器（DATA IN 4 B） & 0xC0 & 7 MULTI\_READ & 0 & 地址 \\
+写 32 位寄存器（\fn{write32\_req}） & 0x40 & 2 WRITE & 值低 16 位 / 高 16 位 & 地址 / 地址+2 \\
+写 FCE 寄存器（固件 DMA） & 0x40 & 0x42 WRITE\_FCE & 值 & 地址 \\
+复位 / 启动 MCU & 0x40 & 1 DEV\_MODE & 模式 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+以 probe 第一行日志 \fn{ASIC=76010001} 为例，总线上是：
+\begin{lstlisting}
+SETUP 事务:  SETUP(addr 2, EP0) | DATA0 C0 07 00 00 00 00 04 00 | ACK
+DATA  事务:  IN(addr 2, EP0)    | DATA1 01 00 01 76             | ACK     -> 0x76010001（小端）
+STATUS事务:  OUT(addr 2, EP0)   | DATA1 （0 字节）              | ACK
+\end{lstlisting}
+BBP 和 RF 寄存器不能直接寻址：要把“寄存器号 + 值 + 写位 + 忙位/KICK”写进 \fn{BBP\_CSR\_CFG}(0x101c) 或 \fn{RF\_CSR\_CFG}(0x0500)，
+再轮询忙位清零（\fn{mt7601u\_bbp\_write}、\fn{mt7601u\_rf\_write}）。一个 RF 写要 4--6 次控制传输，RF 表 138 项就是七八百次。
+
+\subsection{Bulk OUT：一帧怎样从内存到网卡}
+
+以 DHCP DISCOVER 为例（日志 \fn{data tx type=800 len=342}）：
+
+\begin{lstlisting}
+Ethernet 帧 342 B = 14 B 以太头 + 328 B (IP+UDP+BOOTP)
+802.11 MPDU = 24 B 头 + 8 B LLC/SNAP + 328 B = 360 B            mt7601u_send_llc
+EP8 包     = TXINFO 4 + TXWI 20 + MPDU 360 (+0 填充) + 4 B 0 = 388 B   mt7601u_tx_raw
+qTD        = OUT, 388 B, IOC, CERR 3                            bulk_qh -> qh_append
+总线       = [PING -> ACK] OUT + DATAx 388 B（短包，一个事务）+ ACK
+\end{lstlisting}
+
+固件块更大：14336 字节固件 + 首尾 8 字节 = 14344 字节，一个 qTD，在总线上是 28 个 512 字节包加一个 8 字节短包，DATA0/DATA1 交替。
+网卡内部缓冲满时对 OUT 回 NAK/NYET，EHCI 自动 PING 等待；\fn{bulk\_qh} 对 OUT 最多等 3 s（IN 1 s），超时就打印 QH/qTD 现场，
+停异步调度、\fn{qh\_flush}、重启。
+
+\subsection{Bulk IN：EP4 的接收环}
+
+\begin{enumerate}[leftmargin=2em,itemsep=0pt]
+\item probe 末尾 \fn{bulk\_rx\_arm(EP4)} ×4：每次 \fn{qtd\_fill} 一个 16 KiB、IN、IOC 的 qTD，\fn{qh\_append} 到 EP4 的 QH。之后不等待。
+\item HC 反复对 EP4 发 IN；网卡没有帧时回 NAK。
+\item 网卡收到空中帧后，USB DMA 把一个或多个“DMA 长度 + RXWI + MPDU + 尾”段聚合成一次 bulk IN（\fn{USB\_DMA\_CFG} 里的聚合上限 0x80、超时 0x20），以短包结束。
+\item HC 写回 qTD token，清 Active，置 USBINT → IRQ 55（第 \ref{wa:irq} 节）。
+\item NAPI 里 \fn{ehci\_usb\_bulk\_rx\_}\allowbreak\fn{complete} 从 \fn{q->head} 摘下最老的已完成 qTD，返回实际长度和缓冲地址；
+  \fn{mt7601u\_rx\_parse} 拆帧后，同一块缓冲立刻 \fn{bulk\_rx\_arm} 重新挂到队尾。
+\end{enumerate}
+4 个缓冲轮转，HC 处理一个完成的缓冲时，后面 3 个仍在接收，EP4 不会因为 CPU 没来得及处理而停。
+
+\subsection{MCU 命令与 EP5}
+
+MCU 命令和固件一样走 EP8，靠 TXINFO 区分（\fn{mt7601u\_mcu\_command}）：
+\begin{lstlisting}
+TXINFO = bit30 命令 | (2 << 27) 端口 CPU_TX | (cmd << 20) | (seq << 16) | 载荷长度
+例：FUN_SET(Q_SELECT=1)   cmd 1，不要应答 —— 此后应答从 EP5 送出
+    CALIBRATE(id, 0)      cmd 31，seq 1..15，在 EP5 上同步 bulk IN 等 16 B 应答，
+                          核对应答的 seq（bit16-19）和事件类型（bit20-23 = 0）
+\end{lstlisting}
+
+\subsection{枚举请求序列}
+
+\begingroup\small\begin{longtable}{p{5mm}>{\raggedright\arraybackslash}p{65mm}>{\raggedright\arraybackslash}p{59mm}}
+\toprule
+\# & 请求（bmRequestType/bRequest） & 作用 \\ \midrule \endhead
+1 & 根端口复位 50 ms，看 PORTSC.PE & 高速握手成功 \\
+2 & 80/06 GET\_DESCRIPTOR(设备, 8 B) @地址 0 & 拿 bMaxPacketSize0 \\
+3 & 00/05 SET\_ADDRESS(1) & Hub 得到地址 1，之后用新 EP0 QH \\
+4 & 80/06 设备描述符 18 B，配置描述符 9 B 再全长 & VID:PID 0424:2514，类 9 \\
+5 & 00/09 SET\_CONFIGURATION & Hub 开始工作 \\
+6 & A0/06 GET\_DESCRIPTOR(Hub, 0x29) & 端口数 4、上电时间 \\
+7 & 23/03 SET\_FEATURE(PORT\_POWER) ×4 & 下行口上电 \\
+8 & A3/00 GET\_STATUS(端口) & bit0 连接；bit10 高速 \\
+9 & 23/01 CLEAR\_FEATURE\newline(C\_PORT\_CONNECTION)，\newline 23/03 SET\_FEATURE(PORT\_RESET) & 复位端口 3，轮询 bit4 复位结束、bit1 已使能 \\
+10 & 对端口 3 的设备重复 2--5，地址 2 & VID:PID 148f:7601，8 个 bulk 端点 \\
+11 & \fn{parse\_config} & 第一个 bulk IN=4，第二个=5，第一个 bulk OUT=8，记录全部 OUT \\
+12 & \fn{usb\_device\_register} → \fn{usb\_match} & 按 id\_table 绑定 mt7601u \\
+\bottomrule
+\end{longtable}\endgroup
+
+\subsection{出错处理与 data toggle}
+
+\fn{TOK\_ERRMASK}（0x7c）覆盖 Halted、Buffer、Babble、XactErr、Missed。出错或超时后：
+\fn{async\_stop()} 清 ASE 并等 ASS 归零（HC 不再访问 QH）；\fn{qh\_flush()} 把未完成的 qTD 全部丢弃、QH 重新指向 dummy；
+\fn{async\_start()} 再打开。\fn{qh\_flush} 只清 token 里的 Active/Halted/Ping，\textbf{保留 DT 位}：设备那边的 toggle 没有复位，
+主机若从 DATA0 重新开始，设备会把下一个新包当成重传的旧包，回 ACK 却丢掉——实板“握手后 EP8 永远 NAK”就是这样来的（f649f28）。
+
+\subsection{枚举与 Hub}
+
+\fn{ehci\_enum\_thread} → \fn{ehci\_start} → \fn{root\_ports()}：根端口连接 → 端口复位 → \fn{enumerate(HS, 0, 0)}：
+地址 0 读设备描述符前 8 字节 → \fn{SET\_ADDRESS} → 读设备/配置描述符 → \fn{parse\_config} 记录端点 → \fn{SET\_CONFIGURATION}。
+类 9（Hub）→ \fn{hub\_ports()}：读 Hub 描述符，各口 \fn{PORT\_POWER}，有设备则 \fn{PORT\_RESET} 并 \fn{enumerate(HS, 1, 3)}；
+非 Hub → \fn{usb\_device\_register()} → usb 总线遍历驱动 \fn{id\_table} → \fn{mt7601u\_probe()}。
+\begin{lstlisting}[basicstyle=\ttfamily\small\color{tinygreen!70!black},backgroundcolor=\color{tinygreen!4}]
+ehci: port 0: high-speed device connected
+ehci: high-speed device 424:2514 class 9 at address 1 (hub 0 port 0)
+ehci:   bulk in 0,0/0 out 0/0 intr in 1
+ehci: hub 1: 4 ports
+ehci: high-speed device 148f:7601 class 255 at address 2 (hub 1 port 3)
+ehci:   bulk in 4,5/512 out 8/512 intr in 0
+\end{lstlisting}
+
+\subsection{USB core 与设备驱动接口}
+
+\begin{lstlisting}
+struct usb_host_ops {                       /* kernel/usb.h */
+  int (*control)(struct usb_device*, uint8 type, uint8 req, uint16 value,
+                 uint16 index, void *data, uint16 len);
+  int (*bulk)(struct usb_device*, int ep, int in, void *data, int len);
+  int (*bulk_rx_arm)(struct usb_device*, int ep, void *data, int len);
+  int (*bulk_rx_complete)(struct usb_device*, int ep, void **data);
+};
+\end{lstlisting}
+MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一份驱动也能挂在 DWC2（OTG）上。
+
+\section{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}\label{wa:irq}
+
+接收是唯一由中断驱动的方向。思路和 Linux 一样：上半部（硬中断）只确认中断、登记“有活要干”，
+真正的 USB 收取、802.11 解析和协议处理放到内核线程里做，因为这些步骤要拿睡眠锁、可能等待 USB 传输。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize,node distance=3.5mm]
+\node[wbox=tinyred,text width=58mm] (a1) {EHCI：EP4 qTD 完成，IOC → USBSTS.USBINT → IRQ 55};
+\node[wbox=tinyred,text width=58mm,below=of a1] (a2) {VIC1 bit 23 有效 → CPU IRQ 异常（CPSR.I=0 时）};
+\node[wbox=tinyred,text width=58mm,below=of a2] (a3) {\fn{vectors.S: irq\_entry}\\lr−4，在 IRQ 栈上暂存 r0--r12/lr/spsr，\\切到 SVC 模式，在内核栈上建 trapframe};
+\node[wbox=tinyred,text width=58mm,below=of a3] (a4) {\fn{t113\_irq(tf)} → \fn{arch\_handle\_irq()}};
+\node[wbox=tinyred,text width=58mm,below=of a4] (a5) {\fn{vic\_handle\_irq}：读 4 个 VIC 的 IRQSTATUS，\\对每个置位 bit 调 \fn{generic\_handle\_irq(32n+b)}，\\最后写 VICADDRESS};
+\node[wbox=tinyred,text width=58mm,below=of a5] (a6) {\fn{ehci\_irq}：读 USBSTS，写 1 清除（W1C）；\\USBINT/ERR → \fn{mt7601u\_rx\_irq()}};
+\node[wbox=tinyred,text width=58mm,below=of a6] (a7) {\fn{napi\_schedule}：scheduled=1（已排队则 missed=1）\\→ \fn{queue\_work(mt7601u\_wq)} → \fn{wakeup(wq)}};
+\node[wbox=tinyred,text width=58mm,below=of a7] (a8) {回到 \fn{t113\_irq}：若需要重新调度则 \fn{yield()}；\\\fn{restore\_tf} 返回被打断的代码};
+\foreach \a/\b in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6,a6/a7,a7/a8} \draw[warr] (\a) -- (\b);
+\node[wbox=tinygreen,text width=62mm,right=14mm of a2] (b1) {kworker 线程（\fn{mt7601u\_wq}）被唤醒};
+\node[wbox=tinygreen,text width=62mm,below=of b1] (b2) {\fn{napi\_workfn}：检查 enabled/scheduled，polls++};
+\node[wbox=tinygreen,text width=62mm,below=of b2] (b3) {\fn{mt7601u\_napi\_poll(napi, budget=4)}\\循环调用 \fn{mt7601u\_service(1,0)}，直到无完成缓冲或用满预算};
+\node[wbox=tinygreen,text width=62mm,below=of b3] (b4) {\fn{service}：持 \fn{dev->lock}\\\fn{bulk\_rx\_complete(EP4)} → \fn{rx\_parse} → \fn{rx\_mgmt}/\fn{rx\_data}\\→ \fn{bulk\_rx\_arm} 重挂；释放锁};
+\node[wbox=tinygreen,text width=62mm,below=of b4] (b5) {锁外：\fn{net\_rx\_dev(\&wlan0, frame)}\\→ \fn{arp\_rx}/\fn{icmp\_rx}/\fn{dhcp\_rx}/\\\fn{udp\_rx}/\fn{tcp\_rx}\\→ 唤醒等待的系统调用（dhcp\_wait、ping、socket）};
+\node[wbox=tinygreen,text width=62mm,below=of b5] (b6) {不足预算：\fn{napi\_complete\_done}\\missed=1 则再排一次，否则 scheduled=0};
+\foreach \a/\b in {b1/b2,b2/b3,b3/b4,b4/b5,b5/b6} \draw[warr] (\a) -- (\b);
+\draw[warr,dashed,wamber] (a7.east) -- ++(5mm,0) |- node[wlbl,pos=0.25,right]{唤醒} (b1.west);
+\node[font=\small\bfseries,tinyred] at ($(a1.north)+(0,4mm)$) {上半部（中断上下文，关中断）};
+\node[font=\small\bfseries,tinygreen] at ($(b1.north)+(0,4mm)$) {下半部（内核线程，可睡眠）};
+\end{tikzpicture}
+\caption{接收中断的上半部与下半部}
+\end{figure}
+
+\subsection{上半部为什么这么短}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{ehci\_irq} 只做 W1C 清 USBSTS 和 \fn{napi\_schedule}，不碰 qTD，不调 USB 传输。EHCI 中断不是电平保持型的“设备里还有数据”信号，
+  写 1 清掉状态位后线就撤销，所以不需要像 SDIO 卡中断那样先屏蔽、读空再打开（对比 xv6-book 的 BCM43455）。
+\item 下半部要拿 \fn{dev->lock}，解析管理帧和 EAPOL 时还会发起 USB 控制/bulk 传输（\fn{rx\_mgmt} 写 BSSID 寄存器、\fn{rx\_eapol} 发 M2/M4），这些要拿睡眠锁 \fn{xfer\_lock} 并等待 HC 完成，中断上下文里做不了。
+\item 中断返回前 \fn{t113\_irq} 检查 \fn{resched\_pending()}：被唤醒的 kworker 可以马上被调度，而不是等下一个时钟节拍。
+\end{itemize}
+
+\subsection{NAPI 的三个状态位}
+
+\begingroup\small\begin{longtable}{p{22mm}p{112mm}}
+\toprule
+字段 & 作用 \\ \midrule \endhead
+\fn{scheduled} & 已经排进工作队列或正在跑。重复的中断不会重复排队 \\
+\fn{missed} & poll 正在跑时又来了中断：poll 结束时不清 scheduled，而是再排一次，防止“最后一个缓冲完成的中断”被吞掉 \\
+\fn{weight} & 每轮预算，等于接收缓冲数 4。用满预算说明可能还有数据，\fn{napi\_workfn} 直接再排队，不经过中断 \\
+\bottomrule
+\end{longtable}\endgroup
+
+工作队列本身也有防重入：work 正在跑时再 \fn{queue\_work}，只置 \fn{rerun}，跑完后再排一次，同一个 work 不会并发执行。
+
+\subsection{时钟中断：状态机和超时的动力}
+
+\begin{lstlisting}
+PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
+   |- 每 10 次：ticks++，wakeup(&ticks)        mt7601u_connect 在这里 sleep 等握手
+   |- workqueue_timer_tick()                    work_jiffies++，到期的 delayed_work 入队
+   |      `- state_work 到期 -> mt7601u_wq -> mt7601u_state_worker -> mt7601u_service(0,1)
+   `- sched_tick()                              时间片
+\end{lstlisting}
+扫描换信道（0.5 s）、认证/关联超时（1 s）、M1 看门狗（5 s）都是 delayed work。0bd029e 之前 ARM32 的时钟中断没调
+\fn{workqueue\_timer\_tick()}，\fn{state\_work} 永不到期，所以扫描一直停在信道 1，握手 30 s 超时。
+
+\subsection{发送方向：没有中断}
+
+发送在调用者自己的上下文里同步完成：\fn{dhcp}/\fn{ping} 的系统调用、或 TCP 重传 work →
+\fn{netdev\_xmit\_on} → \fn{mt7601u\_net\_xmit}（持 \fn{dev->lock}）→ \fn{mt7601u\_tx\_raw} → \fn{ehci\_usb\_bulk}（持 \fn{xfer\_lock}）
+→ \fn{wait\_qtd} 轮询 Active 位直到 HC 完成。函数返回时帧已经进了网卡。OUT 的 qTD 也带 IOC，
+它触发的 USBINT 会顺便调度一次 NAPI，NAPI 发现 EP4 没有完成的缓冲就立即结束。
+
+\subsection{上下文与锁}
+
+\begingroup\small\begin{longtable}{p{27mm}p{36mm}p{70mm}}
+\toprule
+锁 & 类型 & 保护什么 \\ \midrule \endhead
+\fn{ehci\_lock} & 自旋锁 & qTD 池分配、QH 的 qTD 队列（\fn{qh\_append}、\fn{rx\_complete} 摘头） \\
+\fn{xfer\_lock} & 睡眠锁 & 同一时刻只做一个同步控制/bulk 传输（共享 \fn{setup\_buf}/\fn{ctrl\_buf}） \\
+\fn{dev->lock} & 自旋锁 & MT7601U 连接状态、密钥、接收槽、TX 序号 \\
+\fn{napi->lock} & 自旋锁 & scheduled/missed/enabled \\
+\fn{wq->lock} & 自旋锁 & 工作队列链表 \\
+\bottomrule
+\end{longtable}\endgroup
+

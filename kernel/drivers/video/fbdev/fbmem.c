@@ -58,7 +58,7 @@ fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
     memset(&fix, 0, sizeof(fix));
     safestrcpy(fix.id, fb->id, sizeof(fix.id));
     fix.smem_start = fb->phys;
-    fix.smem_len = fb->line_length * fb->yres;
+    fix.smem_len = fb->size;
     fix.line_length = fb->line_length;
     return copyout(p->vm->pagetable, arg, (char*)&fix, sizeof(fix));
   }
@@ -66,14 +66,38 @@ fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
     struct fb_var_screeninfo var;
     memset(&var, 0, sizeof(var));
     var.xres = var.xres_virtual = fb->xres;
-    var.yres = var.yres_virtual = fb->yres;
+    var.yres = fb->yres;
+    var.yres_virtual = fb->pan_display && fb->size >= 2 * fb->line_length * fb->yres
+                     ? 2 * fb->yres : fb->yres;
+    var.yoffset = fb->yoffset;
     var.bits_per_pixel = fb->bpp;
     var.red.offset = 16;   var.red.length = 8;     // XRGB8888: 0x00RRGGBB
     var.green.offset = 8;  var.green.length = 8;
     var.blue.offset = 0;   var.blue.length = 8;
     return copyout(p->vm->pagetable, arg, (char*)&var, sizeof(var));
   }
+  if(cmd == FBIOPAN_DISPLAY){
+    struct fb_var_screeninfo var;
+    if(copyin(p->vm->pagetable, (char*)&var, arg, sizeof(var)) < 0 ||
+       fb->pan_display == 0 ||
+       (var.yoffset != 0 && var.yoffset != fb->yres))
+      return -1;
+    return fb->pan_display(fb, var.yoffset);
+  }
   return -1;   // Linux: -ENOTTY
+}
+
+int
+fb_kernel_info(struct fb_kinfo *ki)
+{
+  if(fb == 0 || ki == 0)
+    return -1;
+  ki->pixels = fb->screen;
+  ki->width = fb->xres;
+  ki->height = fb->yres;
+  ki->stride = fb->line_length / 4;
+  ki->rgb = 0;             // framebuffer pixels are XRGB8888
+  return 0;
 }
 
 static int

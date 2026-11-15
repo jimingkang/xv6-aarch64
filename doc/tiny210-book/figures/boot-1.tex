@@ -1,0 +1,21 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=7mm]
+  \node[hbox] (rom) {iROM / BL0\\读扇区 1--32};
+  \node[box,below=of rom] (bl1) {BL1 @ \texttt{0xD0020010}\\校验头、PS\_HOLD、PLL、UART};
+  \node[box,below=of bl1] (ddr) {初始化 DMC0 DDR2\\容量和读写测试};
+  \node[box,below=of ddr] (sd) {初始化启动通道的 SDHCI PIO\\读取 LBA 0};
+  \node[box,below=of sd] (mbr) {校验 MBR \texttt{0x55AA}\\选择首个 \texttt{0x0b/0x0c} 分区};
+  \node[box,below left=7mm and 10mm of mbr] (fat) {解析 FAT32 BPB、FAT、根目录\\读取 \texttt{xv6\_tiny210.img}};
+  \node[gbox,below right=7mm and 10mm of mbr] (raw) {MBR、FAT32 或文件失败\\扇区 49 救援 uImage};
+  \node[box,below=20mm of mbr] (atag) {加载到 \texttt{0x20007fc0} 并校验 uImage\\生成 ATAG：\texttt{r0=0, r1=3466, r2=0x20000100}};
+  \node[hbox,below=of atag] (kernel) {跳到 \texttt{0x20008000}\\内核 \texttt{\_entry}};
+  \draw[arr] (rom)--(bl1); \draw[arr] (bl1)--(ddr); \draw[arr] (ddr)--(sd); \draw[arr] (sd)--(mbr);
+  \draw[arr] (mbr)--(fat); \draw[arr] (mbr)--(raw);
+  \draw[arr] (fat)--(atag); \draw[arr] (raw)--(atag); \draw[arr] (atag)--(kernel);
+\end{tikzpicture}
+}
+\caption{MBR/FAT32 内核加载主路径与固定扇区救援回退}
+\label{fig:tiny-boot-chain}
+\end{figure}

@@ -33,6 +33,18 @@ request_irq(int irq, irq_handler_t handler, void *data)
   return 0;
 }
 
+int
+free_irq(int irq, void *data)
+{
+  if(irq < 0 || irq >= NR_IRQS || root_chip == 0 ||
+     irq_desc[irq].handler == 0 || irq_desc[irq].data != data)
+    return -1;
+  root_chip->mask(irq);
+  irq_desc[irq].handler = 0;
+  irq_desc[irq].data = 0;
+  return 0;
+}
+
 void
 generic_handle_irq(int irq)
 {

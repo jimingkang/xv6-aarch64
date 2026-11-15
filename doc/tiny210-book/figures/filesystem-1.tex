@@ -1,0 +1,15 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=6mm]
+  \node[hbox] (sys) {系统调用\\open/read/write/unlink};
+  \node[box,below=of sys] (name) {namei/nameiparent\\路径与目录项};
+  \node[box,below=of name] (inode) {inode cache\\ilock/readi/writei/bmap};
+  \node[box,below left=7mm and 13mm of inode] (log) {redo log\\begin\_op/log\_write/end\_op};
+  \node[box,below right=7mm and 13mm of inode] (bc) {bcache\\bread/bwrite/brelse};
+  \node[box,below=20mm of inode] (backend) {xv6fs block backend\\原始 SD / FAT32 FS.IMG / 内嵌 ramdisk};
+  \draw[arr] (sys)--(name); \draw[arr] (name)--(inode); \draw[arr] (inode)--(log);
+  \draw[arr] (inode)--(bc); \draw[arr] (log)--(bc); \draw[arr] (bc)--(backend);
+\end{tikzpicture}
+\caption{xv6fs 从 VFS/系统调用到块设备后端的 I/O 层次}
+\label{fig:tiny-fs-io}
+\end{figure}

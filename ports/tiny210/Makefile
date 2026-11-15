@@ -30,7 +30,7 @@ EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
 FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET $(if $(filter 1,$(QEMU_TEST)),,-DXV6_HAVE_VFS -DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
-CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device console tty workqueue net epoll sysnet $(if $(filter 1,$(QEMU_TEST)),,fat32 vfs ext2)
+CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe file sysfile sysproc device input console tty workqueue net epoll sysnet $(if $(filter 1,$(QEMU_TEST)),,fat32 vfs ext2)
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
@@ -39,9 +39,10 @@ DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
   tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon \
-  mmc/host/sdhci-s3c mmc/host/sdcore usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
+  mmc/host/sdhci-s3c mmc/host/sdcore input/keyboard/s5pv210-keys usb/core/usb usb/host/ehci-hcd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
 FIRMWARE = mt7601u
 endif
+DRIVERS += video/win32k
 # LCD panel (devices.c table): s70 (7", 800x480, default), h43, w50, a70.
 S5PV210_LCD ?= s70
 LCD_INDEX = $(if $(filter s70,$(S5PV210_LCD)),0,$(if $(filter h43,$(S5PV210_LCD)),1,$(if $(filter w50,$(S5PV210_LCD)),2,$(if $(filter a70,$(S5PV210_LCD)),3,$(error S5PV210_LCD must be s70, h43, w50 or a70)))))
@@ -51,7 +52,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(if $(filter 1,$(QEMU_TEST)),$(BUILD)/ramdisk.o) $(BUILD)/initcode-embed.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
-COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping tftpclient reboot
+COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest evtest wifi dhcp ping tftpclient reboot windemo
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
 IMG = $(BUILD)/xv6-tiny210
@@ -122,6 +123,8 @@ $(BUILD)/user/init.o: $(S)/init.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -c $< -o $@
 $(BUILD)/user/_%: $(BUILD)/user/%.o $(ULIB)
+	$(ARM_LD) -m armelf --gc-sections -z max-page-size=4096 -N -e main -Ttext 0 -o $@ $^
+$(BUILD)/user/_windemo: $(BUILD)/user/windemo.o $(BUILD)/user/win32.o $(ULIB)
 	$(ARM_LD) -m armelf --gc-sections -z max-page-size=4096 -N -e main -Ttext 0 -o $@ $^
 $(BUILD)/mkfs: mkfs/mkfs.c kernel/fs.h kernel/types.h kernel/param.h
 	@mkdir -p $(@D)

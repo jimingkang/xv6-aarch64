@@ -215,6 +215,12 @@ queue_delayed_work(struct workqueue *wq, struct delayed_work *dwork,
 }
 
 int
+schedule_delayed_work(struct delayed_work *dwork, uint64 delay)
+{
+  return queue_delayed_work(&system_wq, dwork, delay);
+}
+
+int
 mod_delayed_work(struct workqueue *wq, struct delayed_work *dwork,
                  uint64 delay)
 {

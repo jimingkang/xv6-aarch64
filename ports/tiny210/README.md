@@ -29,6 +29,7 @@ kernel/drivers/                      驱动都是 platform_driver，probe 时从
   irqchip/irq-vic.c                  arch_initcall    4 x PL192 VIC，IRQ 0..127
   clocksource/samsung_pwm_timer.c    subsys_initcall  PWM 定时器 4：节拍 + 计数器
   tty/serial/samsung.c               module_init      控制台 UART（启动早期即可用）
+  input/keyboard/s5pv210-keys.c      module_init      K1--K8 GPIO/EINT -> event0
   video/fbdev/s3c-fb.c + fbcon.c     module_init      FIMD + 帧缓冲文本控制台
   block/ramdisk_embed.c              内嵌根文件系统
   irqchip/irq-sun4i.c、clocksource/timer-sun4i.c、tty/serial/8250_sun4i.c   QEMU 替身用
@@ -60,8 +61,10 @@ S5PV210 iROM (BL0) ──► xv6 BL1：SD 第 1 扇区，16 KiB，16 字节头 +
                          · APLL 1000 MHz / MPLL 667 MHz，PCLK_PSYS 66.7 MHz
                          · 控制台 UART 115200 8N1，打印 BL1 进度
                          · DMC0 DDR2 初始化、容量探测与读写自检
-                         · iROM CopySDMMCtoMem：把 SD 第 49 扇区起的 xv6 uImage
-                           读到 DRAM+0x7FC0（数据正好落在 DRAM+0x8000），校验头/数据 CRC
+                         · 自带 SDHCI PIO：读 MBR，找到首个 FAT32 分区
+                         · 遍历 FAT32 根目录和 cluster chain，把 xv6_tiny210.img
+                           读到 DRAM+0x7FC0（payload 位于 DRAM+0x8000），校验 CRC
+                         · FAT32 不可用时才从第 49 扇区读取救援 uImage
                          · 在 DRAM+0x100 生成 ATAG（CORE、MEM、CMDLINE）
                    ──► xv6 _entry @ DRAM+0x8000（r0=0，r1=机器号，r2=ATAG）
 ```
@@ -94,9 +97,9 @@ make tiny210-clean
 
 | 文件 | 用途 |
 | --- | --- |
-| `tiny210-sd.img` | 整卡原始镜像：BL1@1、xv6@49，第 0 扇区（MBR）留空 |
+| `tiny210-sd.img` | 救援原始镜像：BL1@1、fallback xv6@49，第 0 扇区（MBR）留空 |
 | `tiny210-bl1.bin` | 16 KiB BL1（含 iROM 头），写到第 1 扇区 |
-| `xv6-tiny210.uImage` | xv6 内核 + 4 MiB 根文件系统，legacy uImage，写到第 49 扇区 |
+| `xv6-tiny210.uImage` | legacy uImage；复制为 FAT32 根目录的 `xv6_tiny210.img`，也可写到第 49 扇区作救援副本 |
 | `xv6-tiny210.bin` | 同一内核的裸镜像（带 zImage 头），给 U-Boot `bootz` 调试用 |
 | `bl1/bl1.elf`、`bl1/bl1.map`、`kernel.elf`、`kernel.map` | 调试用 |
 
@@ -104,6 +107,9 @@ make tiny210-clean
 否则旧的目标文件会混在一起。**不要把 `build/tiny210-qemu/` 的镜像写到卡上**。
 
 ## SD 卡布局
+
+正常启动使用 MBR 中记录的 FAT32 分区起始 LBA，因此 FAT32 不要求位于固定扇区。
+分区前的扇区 49 救援镜像仅用于 MBR、FAT32 或内核文件损坏时回退。
 
 | 扇区 | 内容 |
 | --- | --- |
@@ -145,7 +151,8 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
 sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 ```
 
-之后只改了内核时，只需重写第 49 扇区那一条。
+正常使用时，之后只改了内核只需挂载 FAT32 分区并替换
+`xv6_tiny210.img`；不必再重写第 49 扇区。需要同步救援副本时才执行第二条 `dd`。
 
 ## 上电
 
@@ -160,8 +167,11 @@ Tiny210 预期串口输出：
 ```text
 xv6 BL1 for FriendlyARM Tiny210 (Samsung S5PV210): APLL 1000 MHz, MPLL 667 MHz, PCLK_PSYS 66.7 MHz
 BL1: DMC0 DDR2 512 MiB at 0x20000000 OK
-BL1: SD channel 0, xv6 at sector 49
-BL1: "xv6 ARM32 S5PV210", 4235264 bytes, 8273 sectors
+BL1: SD channel 0
+BL1: reading MBR
+BL1: FAT32 at sector 31248, 8 sectors/cluster
+BL1: loading xv6_tiny210.img (4235328 bytes) from FAT32
+BL1: "xv6 ARM32 S5PV210", 4235264 bytes
 BL1: data CRC OK
 BL1: ATAGs at 0x20000100 (72 bytes), starting xv6 at 0x20008000
 
@@ -192,10 +202,15 @@ macOS 上推荐直接用 `screen /dev/cu.usbserial-XXXX 115200`。用 minicom �
 
 `kernel/drivers/video/fbdev/s3c-fb.c` 驱动 S5PV210 的 FIMD（面板时序和引脚设置作为 platform data 由 `mach-s5pv210/devices.c` 提供）：GPF0–GPF3 设为 LCD 功能，DISPLAY_CONTROL
 选 FIMD，Window 0 为 32 bpp（XRGB8888），帧缓冲放在 DRAM_BASE+128 MiB
-（2 MiB，在页分配器范围之外，无缓存映射）。像素时钟取自 HCLK_DSYS
+（4 MiB、两个扫描帧，在页分配器范围之外，无缓存映射）。像素时钟取自 HCLK_DSYS
 （166.75 MHz）分频。启动时先显示约一秒的彩条，然后清屏，之后内核控制台
 的全部输出（包括 shell）同时显示在屏上，8x16 字体，800x480 时为 100x30 字符。
-键盘输入仍然走串口。
+键盘输入仍然走串口；板载按键由 input 子系统发布到 `/dev/input/event0`。
+
+`/dev/fb0` 支持 Linux 风格的 `FBIOGET_FSCREENINFO`、
+`FBIOGET_VSCREENINFO`、`FBIOPAN_DISPLAY` 和 `MAP_SHARED mmap`。窗口环境由
+内核 `win32k` 合成器与用户 `win32.c` 提供；执行 `/bin/windemo` 可测试窗口
+消息、GDI 绘制，以及窗口 front/back surface 提交。
 
 面板型号在编译时选择，换型号前先 `make tiny210-clean`：
 
@@ -236,6 +251,22 @@ make -f ports/tiny210/Makefile S5PV210_LCD=a70   # 7" 800x480
 校验、fork 后子进程写入父进程能看到、munmap 后再访问会触发缺页并被终止。
 
 在板子上看效果：`fbtest 10`（画完保留 10 秒再退出，屏幕随后回到文本控制台）。
+
+## 板载按键（K1--K8）
+
+K1--K4 使用 GPH2[0:3]/EINT16--19，K5--K8 使用
+GPH3[0:3]/EINT24--27；按键低电平有效，EINT16--31 共用 VIC0 IRQ 16。
+`s5pv210-keys` 使用双边沿中断，IRQ 中屏蔽并确认触发位，随后由 workqueue 延迟
+20 ms 读取稳定电平完成软件消抖。事件通过输入核心送到 `/dev/input/event0`：
+
+```sh
+/bin/evtest
+```
+
+K1--K8 分别报告 Linux 键值 `KEY_1`--`KEY_8`；按下为 `value=1`，释放为
+`value=0`，一组变化以 `EV_SYN/SYN_REPORT` 结束。它是通用 event 接口，不会直接向
+串口 shell 注入字符。详细调用链见
+[`doc/readme/tiny210/drivers.md`](../../doc/readme/tiny210/drivers.md)。
 
 ## USB 与 MT7601U 无线网卡
 
@@ -390,7 +421,9 @@ MMU 状态，出错时直接从控制台 UART 打印原因后停住。
 | `DMC0 DLL did not lock` 或 `DDR mismatch` | DDR 参数与板上颗粒不符，把串口日志发回来 |
 | `aliases the lower half` 警告 | 颗粒行地址比配置少一位，已自动只用一半，不影响 xv6 |
 | `not booted from SD/MMC` | iROM 不是从 SD 启动的 |
-| `no uImage magic` / `bad header CRC` | 第 49 扇区没写对 |
+| `no FAT32 partition found` | MBR 签名、分区类型或 FAT32 VBR/BPB 不正确 |
+| `no xv6_tiny210.img on FAT32` | FAT32 根目录缺少内核文件；BL1 将尝试第 49 扇区救援副本 |
+| `no uImage magic` / `bad header CRC` | FAT32 内核文件损坏，且第 49 扇区救援副本也无效 |
 | `uImage load/entry address does not match this board` | 镜像不是为 Tiny210 编的（应为 0x20008000） |
 | `kernel data CRC mismatch` | SD 读取出错或镜像写入不完整 |
 | BL1 正常但 xv6 无输出 | 把完整串口日志和 `kernel.map` 一起发回来 |

@@ -1,0 +1,624 @@
+\chapter{MT7601U 与 802.11/WPA2 协议实现}\label{wa:ch-05c-wifi-protocol}
+\section{MT7601U 硬件层}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.9,transform shape]
+\node[wbox=tinyblue] (usb) at (-0.6,0) {USB 设备控制器\\EP0 / IN 4,5 / OUT 4--9};
+\node[wbox=tinyblue] (dma) at (4.0,0) {USB DMA 引擎\\DMA 头 + TXWI/RXWI};
+\node[wbox=wamber] (mcu) at (8.8,1.4) {MCU\\ILM/DLM 固件};
+\node[wbox=wamber] (mac) at (8.8,-1.4) {MAC\\WCID/密钥表\\ACK 重传, TX 状态 FIFO};
+\node[wbox=wamber] (sec) at (8.8,-3.8) {AES-CCMP 引擎};
+\node[wbox=tinygreen] (bbp) at (13.0,-1.4) {BBP 基带\\OFDM/CCK};
+\node[wbox=tinygreen] (rf) at (13.0,1.4) {RF 收发\\2.4 GHz 信道 1--11};
+\node[wbox=wgray] (ef) at (4.0,-2.6) {eFuse\\MAC 地址、校准值};
+\draw[wdarr] (usb) -- (dma);
+\draw[wdarr] (dma) -- (mcu);
+\draw[wdarr] (dma) -- (mac);
+\draw[wdarr] (mac) -- (sec);
+\draw[wdarr] (mac) -- (bbp);
+\draw[wdarr] (bbp) -- (rf);
+\draw[wdarr] (mcu) -- node[wlbl,above]{校准/命令} (rf);
+\draw[warr] (ef) -- (mac);
+\end{tikzpicture}
+\caption{MT7601U 芯片内部}
+\end{figure}
+
+\subsection{probe 时的初始化}
+
+\begingroup\small\begin{longtable}{p{4mm}p{36mm}p{54mm}p{38mm}}
+\toprule
+\# & 函数 & 做什么 & 日志 \\ \midrule \endhead
+1 & \fn{read32}\newline (ASIC\_VERSION) & EP0 厂商请求读寄存器，确认 0x7601 & \fn{ASIC=76010001} \\
+2 & \fn{validate\_firmware} & \fn{request\_firmware}：读 /boot/mt7601u.bin，检查 ILM/DLM & \fn{firmware v0.1.0 build=7640} \\
+3 & \fn{load\_firmware}\newline → \fn{dma\_fw\_range}\newline → \fn{dma\_fw\_chunk} & 每块 14 KiB：EP0 \fn{WRITE\_FCE} 写 DMA 地址/长度，EP8 送 TXINFO+数据，\fn{CPU\_DESC\_IDX}+1，轮询 \fn{COM\_REG1} bit31；ILM 后 DLM，启动 MCU & \fn{ILM firmware upload ...}，\fn{MCU firmware running} \\
+4 & \fn{read\_eeprom}\newline → \fn{efuse\_read\_block} & eFuse 读 MAC、频偏、温度补偿 & \fn{mac=90:de:80:}\newline\fn{14:95:94} \\
+5 & \fn{basic\_hw\_init} & WLAN 时钟/PLL、BBP 就绪、RF 引导 & \fn{bootstrap ready; rx-ep=4} \\
+6 & \fn{mcu\_channel\_init} & MCU 命令走 EP8、响应走 EP5 & \fn{tx-ep=8 resp-ep=5} \\
+7 & \fn{full\_hw\_init} & MAC 44 项 / BBP 59 项 / RF 138 项，\fn{calibrate} & \fn{RF calibration complete} \\
+8 & \fn{set\_channel(1)} & 从信道 1 开始扫描 & \\
+9 & \fn{bulk\_rx\_arm} ×4 & EP4 挂 4 个 16 KiB 接收缓冲 & \fn{EP4 receive uses ...} \\
+10 & \fn{queue\_delayed\_}\newline\fn{work} & 启动状态机，每 0.5 s 换信道 & \fn{initialization}\newline\fn{pending} \\
+\bottomrule
+\end{longtable}\endgroup
+
+\subsection{USB 上的帧格式}
+
+MT7601U 是 SoftMAC：802.11 帧由主机驱动组好，芯片只负责 PHY 头、调制、ACK、重传和可选的加解密。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+\def\f#1#2#3#4{\node[draw,fill=#4!12,minimum height=9mm,minimum width=#2mm,anchor=west,align=center] at (#1mm,0) {#3};}
+\node[anchor=west,font=\small\bfseries] at (0,0.9) {发送（mt7601u\_tx\_raw → EP8）};
+\f{0}{18}{DMA 头\\4B}{tinyblue}
+\f{18}{30}{TXWI 20B\\CCK1M ack wcid len}{wamber}
+\f{48}{70}{802.11 MPDU\\FC Dur A1 A2 A3 Seq | LLC/SNAP | 载荷}{tinygreen}
+\f{118}{14}{填充}{wgray}
+\f{132}{14}{0\\4B}{wgray}
+\begin{scope}[yshift=-17mm]
+\node[anchor=west,font=\small\bfseries] at (0,0.9) {接收（EP4 缓冲中的一段）};
+\f{0}{18}{DMA 长度\\4B}{tinyblue}
+\f{18}{30}{RXWI 28B\\rxinfo ctl RSSI}{wamber}
+\f{48}{70}{802.11 MPDU\\FC ... | [QoS] [填充] CCMP 头 8B | LLC | 载荷}{tinygreen}
+\f{118}{14}{填充}{wgray}
+\f{132}{14}{4B}{wgray}
+\end{scope}
+\end{tikzpicture}
+\caption{USB 帧封装}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \fn{MT\_TXD\_PKT\_INFO\_80211}：载荷是原始 802.11 帧。\fn{WIV}（Without IV）置位表示不做硬件加密。
+  管理帧和握手前 EAPOL 置 WIV；\textbf{握手后数据帧不置 WIV，wcid=1}，MAC 用 WCID 1 的 TK 做 CCMP，自动插入 CCMP 头和 MIC。
+\item 发完后 \fn{mt7601u\_tx\_stat\_drain} 读空 TX\_STAT\_FIFO。
+\item RXINFO：bit8 CRC 错、bit9 ICV 错、bit10 MIC 错、bit14 L2 填充、\textbf{bit16 DECRYPT}、bit4 单播给我、bit5 组播、bit6 广播、bit7 本 BSS。
+  实板 \fn{rxinfo=1520e2} = DECRYPT+本 BSS+广播+组播+数据；\fn{112092} = DECRYPT+本 BSS+单播给我（ARP 回复）。
+\end{itemize}
+
+\subsection{WCID 与密钥表}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+寄存器区 & 地址 & 内容（\fn{mt7601u\_install\_ccmp\_keys}） \\ \midrule
+单播密钥表 & 0x8000 + WCID×32 & WCID 1（AP）的 TK = PTK[32..47] \\
+IV/EIV 表 & 0xA000 + WCID×8 & 初始 PN，KeyID 字节 0x20（ExtIV） \\
+WCID 属性 & 0xA800 + WCID×4 & cipher=4（AES-CCMP），pairwise=1 \\
+共享（组）密钥 & 0xAC00 + idx×32 & GTK（从 M3 解出） \\
+共享密钥模式 & 0xB000 & 每个 key index 4 位，填 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{802.11 与 WPA2：网卡如何和路由器通信}
+
+\subsection{连接状态机}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,node distance=12mm and 20mm,
+  st/.style={draw=tinyblue,fill=tinyblue!8,rounded corners=6pt,minimum width=28mm,minimum height=8mm,align=center}]
+\node[st] (scan) {SCAN};
+\node[st,right=of scan] (ap) {AUTH\_PENDING};
+\node[st,right=of ap] (as) {AUTH\_SENT};
+\node[st,below=of as] (sp) {ASSOC\_PENDING};
+\node[st,left=of sp] (ss) {ASSOC\_SENT};
+\node[st,left=of ss] (asd) {ASSOCIATED};
+\node[st,below=of asd,fill=tinygreen!15,draw=tinygreen] (run) {RUNNING\\wlan0 已注册};
+\draw[warr] (scan) to[loop above] node[wlbl]{0.5 s 换信道} (scan);
+\draw[warr] (scan) -- node[wlbl,above]{SSID 匹配} (ap);
+\draw[warr] (ap) -- node[wlbl,above]{send\_auth} (as);
+\draw[warr] (as) to[bend right=30] node[wlbl,above]{1 s 超时} (ap);
+\draw[warr] (as) -- node[wlbl,right]{Auth seq2 ok} (sp);
+\draw[warr] (sp) -- node[wlbl,above]{send\_assoc} (ss);
+\draw[warr] (ss) to[bend right=30] node[wlbl,below]{超时} (sp);
+\draw[warr] (ss) -- node[wlbl,above]{Assoc resp AID} (asd);
+\draw[warr] (asd) to[loop left] node[wlbl,align=center]{M1→M2\\M3→M4} (asd);
+\draw[warr] (asd) -- node[wlbl,right]{handshake\_done} (run);
+\draw[warr,dashed] (asd.south east) to[bend right=25] node[wlbl,below]{5 s 无 M1} (sp.south west);
+\end{tikzpicture}
+\caption{mt7601u 连接状态机（\fn{mt7601u\_service}）}
+\end{figure}
+
+时间常量（jiffy=10 ms）：扫描驻留 50（0.5 s），响应超时 100（1 s），WPA 看门狗 500（5 s），认证/关联最多重试 3 次。
+状态机完全靠 delayed work 推进，所以必须有 \fn{workqueue\_timer\_tick()}。
+
+\subsection{各阶段帧}
+
+\begingroup\small\begin{longtable}{p{9mm}p{15mm}p{36mm}p{32mm}p{34mm}}
+\toprule
+阶段 & 方向 & 802.11 帧 & 驱动函数 & 关键字段 \\ \midrule \endhead
+扫描 & AP→STA & Beacon (FC 0x0080) & \fn{rx\_mgmt} & SSID、DS 参数（信道）、RSN IE \\
+认证 & STA→AP & Authentication (0x00B0) & \fn{send\_auth} & Open System, seq 1 \\
+ & AP→STA & Authentication & \fn{rx\_mgmt} & seq 2, status 0 \\
+关联 & STA→AP & Assoc Request (0x0000) & \fn{send\_assoc} & SSID、速率、RSN IE 22 字节 \\
+ & AP→STA & Assoc Response (0x0010) & \fn{rx\_mgmt} & status 0, AID 1 \\
+M1 & AP→STA & Data+LLC+EAPOL-Key (0x888e) & \fn{rx\_data}→\newline\fn{rx\_eapol} & ANonce, key-info 0x008a \\
+M2 & STA→AP & Data（未加密） & \fn{send\_m2} & SNonce、RSN IE、MIC \\
+M3 & AP→STA & Data & \fn{rx\_eapol} & MIC、Install、加密 GTK \\
+M4 & STA→AP & Data & \fn{send\_m4} & MIC \\
+数据 & 双向 & Data, Protected, CCMP & \fn{send\_llc}/\fn{rx\_data} & ToDS/FromDS、CCMP 头 \\
+\bottomrule
+\end{longtable}\endgroup
+
+\subsection{WPA2-PSK 密钥推导（wpa\_crypto.c）}
+
+\begin{lstlisting}
+PMK    = PBKDF2-HMAC-SHA1(passphrase, SSID, 4096, 32)       wpa_pbkdf2     (mt7601u_connect)
+SNonce = PRF(PMK, ANonce, counter)                           wpa_make_snonce (收到 M1)
+PTK    = PRF-512(PMK, "Pairwise key expansion",
+                 min(AA,SPA)|max(AA,SPA)|min(AN,SN)|max(AN,SN))   wpa_derive_ptk
+  PTK[0..15]  = KCK -> EAPOL MIC (HMAC-SHA1 截 16 字节)      wpa_eapol_mic
+  PTK[16..31] = KEK -> 解 M3 中的 GTK (AES Key Wrap)        wpa_aes_unwrap
+  PTK[32..47] = TK  -> 写入芯片 WCID 1 密钥表，硬件 CCMP
+GTK    = AES-Unwrap(KEK, M3 Key Data) 中 00-0f-ac type 1 的 KDE -> 共享密钥表
+\end{lstlisting}
+
+\subsection{802.11 帧头}
+
+所有 802.11 帧都以同一个 MAC 头开始（多字节字段小端，\fn{mt\_put16}/\fn{mt\_get16}）：
+
+\begin{lstlisting}
+偏移  0  Frame Control 2 B     2  Duration 2 B（硬件填）
+      4  Address 1  6 B        10 Address 2  6 B       16 Address 3  6 B
+     22  Sequence Control 2 B（高 12 位序号，低 4 位分片号）  [24  QoS Control 2 B]
+\end{lstlisting}
+
+\begingroup\small\begin{longtable}{p{20mm}p{36mm}p{77mm}}
+\toprule
+FC 位 & 含义 & 本驱动 \\ \midrule \endhead
+{[3:2]} & 类型：0 管理，1 控制，2 数据 & \fn{rx\_parse} 按此分流到 \fn{rx\_mgmt}/\fn{rx\_data} \\
+{[7:4]} & 子类型 & 管理：0 关联请求、1 关联应答、5 探测应答、8 Beacon、11 认证、10/12 解除关联/认证；数据：8 = QoS 数据 \\
+bit8 (0x0100) & ToDS & STA 发往 AP 的数据帧置位（0x0108） \\
+bit9 (0x0200) & FromDS & AP 发来的数据帧置位（日志 fc=4208） \\
+bit11 (0x0800) & Retry & 重传帧（日志 fc=4a08） \\
+bit13 (0x2000) & More Data & AP 缓存了更多帧（日志 fc=6208） \\
+bit14 (0x4000) & Protected & 帧体已加密（CCMP） \\
+\bottomrule
+\end{longtable}\endgroup
+
+三个地址的含义取决于 ToDS/FromDS：
+
+\begin{table}[H]\centering\small
+\begin{tabular}{llll}
+\toprule
+帧 & A1（接收者） & A2（发送者） & A3 \\ \midrule
+管理帧（STA↔AP） & 目的 & 源 & BSSID \\
+数据 ToDS（STA→AP） & BSSID & 本机 SA & 最终目的 DA \\
+数据 FromDS（AP→STA） & DA（本机或组播） & BSSID & 原始源 SA \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{硬件替主机做的事}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{地址过滤与自动 ACK}：找到目标 AP 后，\fn{rx\_mgmt} 把 BSSID 写进 \fn{0x1010/0x1014}（MAC BSSID）和 WCID 1 的地址表 \fn{0x1800+8}，
+  MAC 收到发给本机的单播帧会在 SIFS（10 µs）内自动回 ACK。接收过滤 \fn{0x1400 = 0x17f97} 先放得很宽，好让扫描看到所有 Beacon。
+\item \textbf{发送}：芯片加 PHY 前导、算 FCS、等 AP 的 ACK，收不到就按重传计数重发；结果进 TX 状态 FIFO，\fn{tx\_stat\_drain} 每帧后读空。
+\item \textbf{Duration/NAV}：TXWI 让硬件填 Duration 字段。
+\item \textbf{加解密}：握手完成后的数据帧由 MAC 用 WCID 表里的密钥做 CCMP（见 \ref{wa:ccmp}）。
+\end{itemize}
+
+\subsection{扫描：Beacon 解析}
+
+Beacon/探测应答的帧体是 12 字节固定字段（时间戳 8、间隔 2、能力 2），之后是一串 IE（\fn{id, len, 内容}）。\fn{rx\_mgmt} 逐个解析：
+
+\begingroup\small\begin{longtable}{p{13mm}p{27mm}p{94mm}}
+\toprule
+IE id & 名称 & 用途 \\ \midrule \endhead
+0 & SSID & 和 \fn{want\_ssid} 逐字节比较；长度 0 是隐藏网络（日志 \fn{ssid=<hidden>}） \\
+3 & DS Parameter Set & AP 实际所在信道（相邻信道也能听到 Beacon，所以以它为准） \\
+48 & RSN & 有它就是 WPA2；整段原样保存，关联请求和 M2 里要逐字节回送，防降级攻击 \\
+221 & 厂商（00:50:f2 type 1） & 老式 WPA \\
+\bottomrule
+\end{longtable}\endgroup
+
+能力字段 bit4（Privacy）置位但无 RSN/WPA IE 即 WEP。TP-Link\_B114 的 RSN IE 为 22 字节（日志 \fn{rsn=22 bytes}），典型内容：
+\begin{lstlisting}
+30 14 | 01 00 | 00 0f ac 04 | 01 00 00 0f ac 04 | 01 00 00 0f ac 02 | 0c 00
+ id 长   版本1    组密码 CCMP    1 个成对密码 CCMP     1 个 AKM：PSK      RSN 能力
+\end{lstlisting}
+
+\subsection{认证与关联：逐字节}
+
+\begin{lstlisting}
+Authentication（STA->AP，30 B）  mt7601u_send_auth
+  b0 00 | 00 00 | A1=f0:09:0d:cb:b1:14 | A2=90:de:80:14:95:94 | A3=f0:09:0d:cb:b1:14 | seq
+  00 00 (算法 Open System) | 01 00 (事务序号 1) | 00 00 (状态)
+Authentication（AP->STA）：算法 0，事务序号 2，状态 0 = 成功      rx_mgmt subtype 11
+
+Association Request（STA->AP，74 B）  mt7601u_send_assoc
+  00 00 | 地址同上 | seq
+  能力 = (AP 能力 & 0x0531) | 0x0001(ESS)  | 监听间隔 0a 00
+  00 0c "TP-Link_B114"                        SSID IE（取自 wifi_connect 的参数）
+  01 08 82 84 8b 96 0c 12 18 24               速率 IE：1/2/5.5/11 Mb/s(基本) + 6/9/12/18
+  30 14 ...                                   AP 的 RSN IE 原样（22 B）
+  24 + 2 + 2 + 14 + 10 + 22 = 74
+Association Response（AP->STA）：能力 2 B | 状态 2 B | AID 2 B（高两位恒为 1，& 0x3fff = 1）
+\end{lstlisting}
+
+\subsection{EAPOL-Key 帧结构}
+
+四次握手的报文都是数据帧，帧体是 LLC/SNAP \fn{aa aa 03 00 00 00 88 8e} 加 EAPOL。EAPOL 头 4 字节（版本、类型 3=Key、长度），
+后面是 95 字节固定部分和可变的 key data：
+
+\begin{lstlisting}
+偏移  0  描述符类型 2(RSN)   1-2 key-info          3-4 密钥长度 16
+      5  重放计数器 8 B      13  nonce 32 B
+     45  EAPOL-Key IV 16 B   61  RSC 8 B             69  保留 8 B
+     77  MIC 16 B            93  key data 长度 2 B   95  key data
+\end{lstlisting}
+
+\begingroup\small\begin{longtable}{p{16mm}p{36mm}p{81mm}}
+\toprule
+key-info 位 & 含义 & \\ \midrule \endhead
+0--2 & 描述符版本 & 2 = HMAC-SHA1 MIC + AES key wrap \\
+3 (0x0008) & Pairwise & 成对密钥 \\
+6 (0x0040) & Install & M3：装密钥 \\
+7 (0x0080) & ACK & 认证者要求应答（M1、M3） \\
+8 (0x0100) & MIC & MIC 有效（M2、M3、M4） \\
+9 (0x0200) & Secure & M3、M4 \\
+12 (0x1000) & Encrypted Key Data & M3 的 key data 用 KEK 包裹 \\
+\bottomrule
+\end{longtable}\endgroup
+
+\fn{rx\_eapol} 的识别规则：\fn{(info \& 0x0088) == 0x0088} 且 MIC 位为 0 → M1（日志 0x008a）；\fn{(info \& 0x0188) == 0x0188} → M3。
+M2 的 key-info 是 \fn{0x0108 | 版本}，M4 是 \fn{0x0308 | 版本}。重放计数器由 AP 递增：M1 为 1，M2 原样回显（日志 \fn{replay=0001}），
+M3 为 2，M4 回显 M3 的值（\fn{m3\_replay}）。每收到一个结构正确的 EAPOL-Key，5 s 看门狗就往后推。
+
+\subsection{密码学细节（\fn{wpa\_crypto.c}，全部软件实现）}
+
+\begingroup\small\begin{longtable}{p{25mm}p{108mm}}
+\toprule
+步骤 & 实现 \\ \midrule \endhead
+PMK & \fn{wpa\_pbkdf2}：PBKDF2-HMAC-SHA1(口令, SSID, 4096 轮)，输出 32 B 需要两个 20 B 块，共 8192 次 HMAC-SHA1。在 \fn{mt7601u\_connect} 里算一次，Cortex-A8 不开 D-cache 时要几秒 \\
+SNonce & \fn{wpa\_make\_snonce}：HMAC-SHA1(PMK, ANonce ‖ 计数器值 \fn{r\_cntvct\_el0()} 8 B) 取 20 B，末字节异或 0xa5 再算一次取 12 B，拼成 32 B。AP 重发同一个 ANonce 时复用旧 SNonce \\
+PTK & \fn{wpa\_derive\_ptk}：PRF-512 = 4 次 HMAC-SHA1(PMK, "Pairwise key expansion" ‖ 0 ‖ min(AA,SPA) ‖ max(AA,SPA) ‖ min(AN,SN) ‖ max(AN,SN) ‖ i)，i=0..3，拼成 64 B 取前 48 B \\
+KCK / KEK / TK & PTK[0..15] / [16..31] / [32..47] \\
+MIC & \fn{wpa\_eapol\_mic}：HMAC-SHA1(KCK, MIC 字段清零的整个 EAPOL 帧) 取前 16 B。M3 先把收到的 MIC 存起来、清零、重算、比较 \\
+GTK & \fn{wpa\_aes\_unwrap}：RFC 3394 AES Key Unwrap（KEK 做 AES-128 解密，6×n 轮，校验 A6A6A6A6A6A6A6A6），得到 RSN IE + GTK KDE \fn{dd len 00 0f ac 01 | keyid | 00 | GTK 16 B} \\
+\bottomrule
+\end{longtable}\endgroup
+
+握手里不传任何密钥：AP 用同样的公式算出同一个 PTK，M2 的 MIC 验证通过就证明双方口令一致。
+
+\subsection{CCMP：数据帧加密（硬件完成）}\label{wa:ccmp}
+
+\begin{lstlisting}
+加密后的 MPDU:  MAC 头 24 B | CCMP 头 8 B | 密文（LLC + 载荷） | MIC 8 B | FCS 4 B
+CCMP 头:       PN0 PN1 | 00 | (KeyID<<6)|0x20(ExtIV) | PN2 PN3 PN4 PN5      PN = 48 位包序号
+Nonce:         优先级 1 B | A2 6 B | PN 6 B
+AAD:           MAC 头里会变的位（Retry、PwrMgt、MoreData、序号）清零后的字段
+算法:          AES-128-CCM，CTR 模式加密 + CBC-MAC 得到 8 B MIC
+\end{lstlisting}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{发送}：\fn{send\_llc(..., encrypted=1)} 在 FC 置 Protected（0x4108），\fn{tx\_raw(..., hardware\_iv=1)} 不置 WIV、用 WCID 1。
+  MAC 从 IV 表 \fn{0xA008} 取 PN（初值 1，每帧自动加一），插入 CCMP 头，用 TK 加密并追加 MIC。
+\item \textbf{接收}：单播用 WCID 1 的 TK 解密，组播/广播按 KeyID 用共享密钥槽里的 GTK。RXWI 的 DECRYPT 位（bit16）表示已解密，
+  MIC 已去掉，但 Protected 位和 8 字节 CCMP 头还在，\fn{rx\_data} 要跳过——这就是 b2326c2 修的 DHCP 问题。
+\item \textbf{M4 的顺序}：先用明文发 M4，再装密钥。AP 收到 M4 才装自己的密钥，加了密的 M4 它解不开。
+\end{itemize}
+
+\subsection{Tiny210 上尚未实现的部分}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{deauth/disassoc}：子类型 12/10 没有处理，AP 踢掉客户端后不会自动重连（RPi3 版已处理）。
+\item \textbf{组密钥更新}：AP 定期发的 Group Key Handshake（EAPOL-Key 1/2，非 Pairwise）没有处理，GTK 过期后组播/广播会解不开。
+\item \textbf{保活与省电}：不发 null-data 保活，不做 PS-Poll。
+\item \textbf{速率}：所有发送都用 CCK 1 Mbit/s。
+\item \textbf{切信道}：找到目标后没有显式切到 DS 参数 IE 给出的信道（RPi3 版会切）；实板上能连上是因为在信道 9 驻留时找到的。
+\item \textbf{接收队列}：单槽 \fn{net\_rx}，一个 USB 聚合包里有多个数据帧时只交付第一个；RPi3 版是 8 帧环。
+\item \textbf{锁}：\fn{mt7601u\_service} 持自旋锁 \fn{dev->lock} 时会经 \fn{rx\_mgmt}/\fn{rx\_eapol} 发起 USB 传输（拿睡眠锁 \fn{xfer\_lock}），单核且无竞争时不会出事，但不规范。
+\end{itemize}
+
+\subsection{802.11 数据帧与 Ethernet 帧的转换}
+
+\begin{lstlisting}
+发送 mt7601u_send_llc:
+ Ethernet | DA | SA | type | payload |
+ 802.11   | FC=0x4108 Data,ToDS,Protected | Dur | A1=BSSID | A2=本机 | A3=DA | Seq |
+          | AA AA 03 00 00 00 | type | payload |      (CCMP 头/MIC 由硬件插入)
+接收 mt7601u_rx_data:
+ 802.11   | FC=0x4208 Data,FromDS,Protected | Dur | A1=DA | A2=BSSID | A3=SA | Seq |
+          | [QoS 2] | [L2 填充 2] | CCMP 头 8 | AA AA 03 00 00 00 | type | payload |
+ Ethernet | DA=A1 | SA=A3 | type | payload |  -> net_rx_dev(&wlan0)
+\end{lstlisting}
+\fn{type == 0x888e}（EAPOL）交给 \fn{mt7601u\_rx\_eapol}，其它在握手完成后交给协议栈。
+
+\section{网络协议层}
+
+\begingroup\small\begin{longtable}{p{13mm}p{18mm}p{50mm}p{52mm}}
+\toprule
+层 & 协议 & 实现函数（net.c） & 本链路中的作用 \\ \midrule \endhead
+L2 设备 & net\_device & \fn{register\_netdev}, \fn{netdev\_find}, \fn{netdev\_xmit\_on}, \fn{net\_rx\_dev} & wlan0 对上层就是一块以太网卡 \\
+L2 & ARP & \fn{arp\_request}, \fn{arp\_rx}, \fn{arp\_lookup} & 解析网关 192.168.0.1 的 MAC（即 AP BSSID） \\
+L3 & IPv4/路由 & \fn{net\_output\_path}, \fn{route\_lookup}, \fn{checksum} & 选接口与下一跳 \\
+L4 & UDP & \fn{net\_udp\_send}, \fn{udp\_rx} & DHCP 67/68、DNS \\
+L4 & ICMP & \fn{net\_icmp\_send}, \fn{icmp\_rx} & ping \\
+L4 & TCP & \fn{tcp\_rx}, \fn{tcp\_send\_*} & socket 程序 \\
+应用 & DHCP & \fn{net\_dhcp\_dev}, \fn{dhcp\_send}, \fn{dhcp\_rx}, \fn{dhcp\_wait} & DISCOVER → OFFER → REQUEST → ACK \\
+\bottomrule
+\end{longtable}\endgroup
+
+\fn{net\_rx\_dev} 分发：type 0x0806 → \fn{arp\_rx}；0x0800 → 校验 IP 头 → proto 1 \fn{icmp\_rx}、6 \fn{tcp\_rx}、
+17 且源 67/目的 68 → \fn{dhcp\_rx}，再交 \fn{udp\_rx}。
+
+\begin{lstlisting}
+DISCOVER 0.0.0.0:68 -> 255.255.255.255:67  dst ff:ff:ff:ff:ff:ff  (data tx type=800 len=342)
+OFFER    192.168.0.1:67 -> 广播             GTK 解密             (rxinfo=1520e2)
+REQUEST  广播，选项 50=192.168.0.219, 54=服务器
+ACK      -> 设置 ip_addr、网关、DNS，加默认路由
+ARP      who-has 192.168.0.1 (data tx type=806 len=42) -> reply 单播, PTK 解密 (rxinfo=112092)
+\end{lstlisting}
+
+\section{时序图}
+
+\subsection{枚举与固件下载}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.92,transform shape]
+\seqhead{0}{a}{ehci-enum}
+\seqhead{3}{b}{EHCI}
+\seqhead{6}{c}{USB2514}
+\seqhead{9}{d}{usb core}
+\seqhead{12}{e}{mt7601u.c}
+\seqhead{15}{f}{MT7601U}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{12.4}}
+\seqmsg{0}{3}{1.0}{ehci\_start: PHY, INSNREG01, RUN}
+\seqmsg{0}{3}{1.6}{root\_ports: PORTSC 复位}
+\seqmsg{0}{6}{2.2}{enumerate: SET\_ADDRESS 1}
+\seqmsg{0}{6}{2.8}{hub\_ports: PORT\_POWER/RESET(3)}
+\seqmsg{0}{15}{3.4}{enumerate(hub1,port3): SET\_ADDRESS 2, 描述符, SET\_CONFIG}
+\seqmsg{0}{9}{4.0}{usb\_device\_register}
+\seqmsg{9}{12}{4.6}{usb\_match → probe}
+\seqmsg{12}{15}{5.2}{EP0 read32 ASIC}
+\seqself{12}{5.3}{request\_firmware}
+\seqnote{12.2}{15.8}{5.95}{循环 ILM/DLM，每块 14 KiB}
+\seqmsg{12}{15}{7.0}{EP0 WRITE\_FCE 地址/长度}
+\seqmsg{12}{15}{7.6}{EP8 bulk OUT 固件}
+\seqret{15}{12}{8.2}{COM\_REG1 bit31 完成}
+\seqmsg{12}{15}{8.8}{启动 MCU}
+\seqmsg{12}{15}{9.4}{eFuse, MAC/BBP/RF 表, 校准}
+\seqmsg{12}{3}{10.0}{bulk\_rx\_arm(EP4) ×4}
+\seqself{12}{10.6}{queue\_delayed\_work}
+\end{tikzpicture}
+\caption{上电枚举与固件下载}
+\end{figure}
+
+\subsection{连接与 WPA2 四次握手}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.92,transform shape]
+\seqhead{0}{u}{/bin/wifi}
+\seqhead{3}{s}{connect}
+\seqhead{6}{w}{state\_work}
+\seqhead{9}{r}{RX/NAPI}
+\seqhead{12}{m}{MT7601U}
+\seqhead{15}{ap}{TP-Link}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{17.4}}
+\seqmsg{0}{3}{1.0}{wifi\_connect}
+\seqself{3}{1.4}{PBKDF2 → PMK}
+\seqmsg{3}{6}{2.2}{mod\_delayed\_work}
+\seqself{3}{2.6}{sleep(\&ticks)}
+\seqmsg{6}{12}{3.4}{set\_channel(n)}
+\seqret{15}{12}{4.0}{Beacon}
+\seqret{12}{9}{4.6}{EP4 → IRQ → NAPI}
+\seqself{9}{5.0}{rx\_mgmt: 找到 ch 9}
+\seqmsg{6}{12}{6.0}{send\_auth}
+\seqmsg{12}{15}{6.6}{Auth seq 1}
+\seqret{15}{9}{7.2}{Auth seq 2 ok}
+\seqmsg{6}{12}{7.8}{send\_assoc}
+\seqmsg{12}{15}{8.4}{Assoc Req (RSN)}
+\seqret{15}{9}{9.0}{Assoc Resp AID 1}
+\seqret{15}{9}{9.8}{EAPOL M1 (ANonce)}
+\seqself{9}{10.2}{SNonce, PTK}
+\seqmsg{9}{12}{11.0}{send\_m2}
+\seqmsg{12}{15}{11.6}{M2 (SNonce, MIC)}
+\seqret{15}{9}{12.2}{M3 (MIC, GTK)}
+\seqself{9}{12.6}{验 MIC, AES unwrap}
+\seqmsg{9}{12}{13.4}{install\_ccmp\_keys}
+\seqmsg{9}{12}{14.0}{send\_m4}
+\seqmsg{12}{15}{14.6}{M4}
+\seqself{9}{15.0}{handshake\_done, register\_netdev}
+\seqret{3}{0}{16.2}{0: wifi: associated}
+\end{tikzpicture}
+\caption{扫描、认证、关联与四次握手}
+\end{figure}
+
+\subsection{DHCP 与 ARP 数据路径}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.92,transform shape]
+\seqhead{0}{d}{/bin/dhcp}
+\seqhead{3}{n}{net.c}
+\seqhead{6}{m}{mt7601u.c}
+\seqhead{9}{e}{ehci-hcd.c}
+\seqhead{12}{h}{MT7601U}
+\seqhead{15}{ap}{AP/DHCP}
+\foreach \x in {0,3,6,9,12,15} {\seqline{\x}{12.2}}
+\seqmsg{0}{3}{1.0}{net\_dhcp → net\_dhcp\_dev}
+\seqself{3}{1.4}{dhcp\_send(DISCOVER)}
+\seqmsg{3}{6}{2.2}{netdev\_xmit\_on → net\_xmit}
+\seqself{6}{2.6}{send\_llc: Eth → 802.11}
+\seqmsg{6}{9}{3.4}{tx\_raw → bulk(EP8)}
+\seqmsg{9}{12}{4.0}{qTD DMA}
+\seqmsg{12}{15}{4.6}{CCMP 加密 Data (TK)}
+\seqret{15}{12}{5.4}{OFFER (GTK 加密)}
+\seqret{12}{9}{6.0}{解密 + RXWI → EP4}
+\seqret{9}{6}{6.6}{ehci\_irq → napi\_schedule}
+\seqself{6}{7.0}{rx\_parse → rx\_data 去 CCMP 头}
+\seqret{6}{3}{7.8}{net\_rx\_dev → dhcp\_rx}
+\seqmsg{3}{15}{8.6}{REQUEST（同发送路径）}
+\seqret{15}{3}{9.2}{ACK: 192.168.0.219}
+\seqmsg{3}{15}{10.0}{arp\_request(192.168.0.1)}
+\seqret{15}{3}{10.6}{ARP reply (PTK) → arp\_rx}
+\seqret{3}{0}{11.4}{返回 0}
+\end{tikzpicture}
+\caption{DHCP 与 ARP}
+\end{figure}
+
+\section{函数调用链与日志对照}
+
+\subsection{驱动注册与 probe}
+\begin{lstlisting}
+do_initcalls()
+ |- mt7601u_driver_init() -> usb_register_driver(&mt7601u_driver)   id_table 148f:7601...
+ `- ehci_probe("s5p-ehci") -> kthread ehci_enum_thread()
+     |- ehci_start(): host_phy_init(), INSNREG01=0x800080, RUN, ASE
+     `- root_ports()               "ehci: port 0: high-speed device connected"
+         `- enumerate(HS,0,0)      "ehci: high-speed device 424:2514 class 9 at address 1"
+             `- hub_ports()        "ehci: hub 1: 4 ports"
+                 `- enumerate(HS,1,3)
+                      "ehci: high-speed device 148f:7601 class 255 at address 2"
+                     |- parse_config()  "ehci:   bulk in 4,5/512 out 8/512 intr in 0"
+                     `- usb_device_register() -> usb_match() -> usb_probe()
+                         `- mt7601u_probe()   (见下)
+
+mt7601u_probe(udev)
+ |- mt7601u_read32() -> ops->control -> ehci_usb_control -> control_qh
+ |        "mt7601u: USB device 148f:7601 ASIC=76010001 MAC=76010500"
+ |- mt7601u_validate_firmware() -> request_firmware -> FAT32 /mt7601u.bin
+ |        "mt7601u: firmware v0.1.0 build=7640 size=45412 validated"
+ |- mt7601u_load_firmware() -> dma_fw_range() -> dma_fw_chunk()
+ |   `- ops->bulk(EP8) -> ehci_usb_bulk -> bulk_qh -> qh_append -> wait_qtd
+ |        "mt7601u: ILM firmware upload 14336/45316" ... "MCU firmware running"
+ |- mt7601u_read_eeprom() -> efuse_read_block()
+ |        "mt7601u: permanent mac=90:de:80:14:95:94"
+ |- basic_hw_init() / mcu_channel_init() / full_hw_init() -> calibrate()
+ |        "mt7601u: RF calibration complete; bulk endpoints ready"
+ |- set_channel(1), netif_napi_add(), init_delayed_work(state_work)
+ |- ehci_usb_bulk_rx_arm(EP4) x4
+ `- queue_delayed_work(state_work, 50)
+          "mt7601u: transport and MCU ready; SoftMAC initialization pending"
+\end{lstlisting}
+
+\subsection{接收路径}
+\begin{lstlisting}
+EHCI 完成 EP4 IN qTD (IOC)
+ `- IRQ 55 -> VIC -> ehci_irq()                         清 USBSTS
+     `- mt7601u_rx_irq() -> napi_schedule() -> queue_work(mt7601u_wq)
+        ... 工作队列线程 ...
+        napi_workfn() -> mt7601u_napi_poll(budget)
+         `- mt7601u_service(1, 0)
+             |- ops->bulk_rx_complete(EP4) = ehci_usb_bulk_rx_complete
+             |- mt7601u_rx_parse(buf, len)               逐段：DMA 长度 + RXWI
+             |   |- 管理帧 -> mt7601u_rx_mgmt()          Beacon / Auth / Assoc resp
+             |   `- 数据帧 -> mt7601u_rx_data(frame, len, rxinfo)
+             |        |- Protected 且 DECRYPT -> 跳过 CCMP 头 8 字节
+             |        |- type 0x888e -> mt7601u_rx_eapol()   M1 / M3
+             |        `- 其他 -> 组成 Ethernet 帧放入 dev->net_rx
+             |- ops->bulk_rx_arm(EP4, 同一缓冲)          重新挂回接收环
+             `- net_rx_dev(&wlan0) -> arp_rx / icmp_rx / dhcp_rx / udp_rx
+                    "arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14"
+\end{lstlisting}
+
+\subsection{连接：系统调用与状态机}
+\begin{lstlisting}
+init -> fork -> exec /bin/wifi (读 /etc/wifi.conf)
+ `- wifi_connect(ssid, psk)   [usys.S: r7=SYS_wifi_connect; svc 0]
+     `- sys_wifi_connect()                          "wifi: connecting to TP-Link_B114"
+         `- mt7601u_connect(ssid, psk, 30000)
+             |- wpa_pbkdf2(psk, ssid, pmk)
+             |- link_state=SCAN; mod_delayed_work()  "mt7601u: joining TP-Link_B114"
+             `- sleep(&ticks) until handshake_done
+
+arm32_timer_tick -> workqueue_timer_tick -> state_work 到期
+ `- mt7601u_state_worker() -> mt7601u_service(0, 1)
+     |- SCAN 超时  -> mt7601u_set_channel(next)
+     |- AUTH_PENDING  -> send_auth -> tx_mgmt -> tx_raw(wcid 0xff, WIV)
+     |                                   "mt7601u: authentication request sent"
+     `- ASSOC_PENDING -> send_assoc -> tx_mgmt -> tx_raw
+                                         "mt7601u: association request sent rsn=22 bytes"
+mt7601u_rx_mgmt():
+ |- Beacon SSID 匹配  "mt7601u: target TP-Link_B114 found bssid=f0:9:d:cb:b1:14 channel=9 WPA2"
+ |- Auth seq2 ok      "mt7601u: Open-System authentication accepted"
+ `- Assoc resp ok     "mt7601u: 802.11 associated aid=1; WPA2 handshake pending"
+mt7601u_rx_eapol():
+ |- M1: wpa_make_snonce, wpa_derive_ptk   "mt7601u: received WPA2 EAPOL M1 key-info=8a"
+ |   `- send_m2 -> wpa_eapol_mic -> send_llc(0x888e, enc=0) -> tx_raw(WCID 1, WIV)
+ |                                         "mt7601u: sent WPA2 EAPOL M2 replay=0001"
+ `- M3: 校验 MIC -> wpa_aes_unwrap(KEK) -> GTK
+     |- install_ccmp_keys()   TK->0x8000+32, IV->0xA000+8, attr->0xA800+4, GTK->0xAC00
+     |- send_m4 -> send_llc(enc=1)          "mt7601u: sent WPA2 EAPOL M4"
+     `- handshake_done=1                    "mt7601u: WPA2 four-way handshake complete"
+mt7601u_service -> register_netdev(&wlan0)  "mt7601u: wlan0 registered mac=90:de:80:14:95:94"
+mt7601u_connect 返回 0                      "wifi: associated"
+\end{lstlisting}
+
+\subsection{发送路径（DHCP）}
+\begin{lstlisting}
+init -> /bin/dhcp wlan0
+ `- net_dhcp("wlan0") -> sys_net_dhcp -> netdev_find -> net_dhcp_dev(dev)
+     `- dhcp_send(DISCOVER)
+         `- netdev_xmit_on(dev, frame, 342) -> ops->start_xmit = mt7601u_net_xmit()
+             `- mt7601u_send_llc(ff:ff.., 0x0800, enc=1)        FC=0x4108
+                 `- mt7601u_tx_raw(frame, n, MT_WCID_AP, hw_iv=1)  无 WIV -> 硬件 CCMP
+                     |- ops->bulk(EP8) -> ehci_usb_bulk -> bulk_qh -> qh_append -> wait_qtd(3 s)
+                     `- mt7601u_tx_stat_drain()
+                     "mt7601u: data tx type=800 len=342 dst=ff:ff:ff:ff:ff:ff -> 0"
+ OFFER (接收路径)    "mt7601u: data rx fc=4208 len=616 rxinfo=1520e2 a1=ff:ff:ff:ff:ff:ff"
+ REQUEST -> ACK      "dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1"
+ arp_request(gw)     "mt7601u: data tx type=806 len=42 dst=ff:ff:ff:ff:ff:ff -> 0"
+ arp_rx(reply)       "mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94"
+                     "arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14"
+\end{lstlisting}
+
+\subsection{完整实板日志（成功的一次）}
+\begin{lstlisting}[basicstyle=\ttfamily\small\color{tinygreen!70!black},backgroundcolor=\color{tinygreen!4}]
+mt7601u: firmware v0.1.0 build=7640 size=45412 validated
+mt7601u: ILM firmware upload 14336/45316
+mt7601u: ILM firmware upload 45316/45316
+mt7601u: MCU firmware running
+mt7601u: EEPROM ver=d fae=0 country=ff freq=96 rssi=0,0 temp=-7 lna=0
+mt7601u: permanent mac=90:de:80:14:95:94
+mt7601u: MAC/BBP/RF bootstrap ready; rx-ep=4 data, 5 MCU
+mt7601u: MCU command channel ready tx-ep=8 resp-ep=5
+mt7601u: MAC register table initialized (44 entries)
+mt7601u: BBP register table initialized (59 entries)
+mt7601u: RF register table initialized (138 entries)
+mt7601u: RF calibration complete; bulk endpoints ready
+mt7601u: transport and MCU ready; SoftMAC initialization pending
+mt7601u: joining TP-Link_B114
+mt7601u: target TP-Link_B114 found bssid=f0:9:d:cb:b1:14 channel=9 WPA2
+mt7601u: authentication request sent
+mt7601u: Open-System authentication accepted
+mt7601u: association request sent rsn=22 bytes
+mt7601u: 802.11 associated aid=1; WPA2 handshake pending
+mt7601u: received WPA2 EAPOL M1 key-info=8a
+mt7601u: sent WPA2 EAPOL M2 replay=0001
+mt7601u: sent WPA2 EAPOL M4
+mt7601u: WPA2 four-way handshake complete
+mt7601u: wlan0 registered mac=90:de:80:14:95:94
+wifi: associated
+mt7601u: data tx type=800 len=342 dst=ff:ff:ff:ff:ff:ff -> 0
+mt7601u: rx so far: usb buffers 244, frames 244 (mgmt 236 data 8), dropped 0
+mt7601u: data rx fc=4208 len=616 rxinfo=1520e2 a1=ff:ff:ff:ff:ff:ff
+dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1
+mt7601u: data tx type=806 len=42 dst=ff:ff:ff:ff:ff:ff -> 0
+arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14
+mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94
+\end{lstlisting}
+
+日志字段：\fn{key-info=8a} 即 0x008a = 版本 2 + Pairwise + ACK（M1）；\fn{fc=4208} = Data+FromDS+Protected，
+\fn{6208} 多 More Data，\fn{4a08} 多 Retry；\fn{rxinfo=1520e2} 的 bit16 DECRYPT=1；
+\fn{dropped 0} 表示没有 CRC/ICV/MIC 错误帧；\fn{-> 0} 表示 EP8 bulk OUT 整帧送达。
+
+\section{实板调试中的问题与所在层}\label{wa:bugs}
+
+\begingroup\small\begin{longtable}{p{13mm}p{36mm}p{47mm}p{38mm}}
+\toprule
+层 & 现象 & 根因 & 修复 \\ \midrule \endhead
+HCD & 固件下载 \fn{bulk ep8 out 14344 bytes failed}，qTD 0xa0 & CPU 不开 cache 占满 DDR，EHCI 默认阈值下发包欠载 & INSNREG01=0x800080 + 开 I-cache（f9bfbc6） \\
+内核定时 & 扫描停在信道 1，30 s 无握手 & ARM32 时钟中断未调 \fn{workqueue\_timer\_tick()} & 在 \fn{arm32\_timer\_tick} 中调用（0bd029e） \\
+HCD & 握手后 EP8 永远 NAK & \fn{qh\_flush} 清零 data toggle，设备把新包当重传丢弃 & 保留 \fn{TOK\_DT}（f649f28） \\
+设备驱动 & 改 EP 0x09 后首帧即 NAK & OUT\#5 在本驱动初始化方式下不可用 & 回 EP 0x08 + 读空 TX 状态 FIFO（5ac8c59） \\
+802.11 & 握手成功但 \fn{dhcp: no offer} & 硬件解密后仍保留 Protected 位和 8 字节 CCMP 头，LLC 校验失败 & DECRYPT 时跳过 8 字节（b2326c2）→ DHCP 成功 \\
+802.11 & 连其他 SSID 时关联被拒 & \fn{send\_assoc} 的 SSID IE 写死为 TP-Link\_B114 & 改用 \fn{want\_ssid}（本次修改，未上板） \\
+\bottomrule
+\end{longtable}\endgroup
+
+尚未完成：实板 ping 外网确认；去掉或开关化 \fn{data tx}、\fn{data rx}、\fn{rx so far}、\fn{rx drop} 调试打印。
+

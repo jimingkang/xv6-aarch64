@@ -1,0 +1,16 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{\begin{tikzpicture}[node distance=5mm]
+  \node[hbox] (rom) {S5PV210 iROM\\BL0};
+  \node[box,right=of rom] (bl1) {BL1 / iRAM\\时钟、UART、DDR};
+  \node[box,right=of bl1] (mbr) {LBA 0 / MBR\\定位 FAT32};
+  \node[box,right=of mbr] (img) {根目录文件\\加载 uImage};
+  \node[box,right=of img] (entry) {\texttt{\_entry}\\ARM32 环境};
+  \node[box,right=of entry] (main) {\texttt{x210\_main()}\\MMU、设备、进程};
+  \node[hbox,right=of main] (user) {\texttt{/init}\\\texttt{/bin/sh}};
+  \draw[arr] (rom)--(bl1); \draw[arr] (bl1)--(mbr); \draw[arr] (mbr)--(img); \draw[arr] (img)--(entry);
+  \draw[arr] (entry)--(main); \draw[arr] (main)--(user);
+\end{tikzpicture}}
+\caption{Tiny210 从上电到第一个用户 shell 的主路径}
+\label{fig:tiny-overview}
+\end{figure}

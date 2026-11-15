@@ -1,0 +1,14 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{0.90\linewidth}{!}{\begin{tikzpicture}[node distance=8mm]
+  \node[hbox] (cpu) {CPU / fbcon\\写 XRGB8888};
+  \node[box,right=of cpu] (ddr) {DDR framebuffer\\连续保留内存};
+  \node[box,right=of ddr] (fimd) {S5PV210 FIMD\\Window 0 DMA scanout};
+  \node[box,right=of fimd] (rgb) {GPF0--GPF3\\RGB/HSYNC/VSYNC/DE/PCLK};
+  \node[hbox,right=of rgb] (panel) {Tiny210\\RGB LCD};
+  \draw[arr] (cpu)--(ddr); \draw[arr] (ddr)--(fimd); \draw[arr] (fimd)--(rgb);
+  \draw[arr] (rgb)--(panel);
+\end{tikzpicture}}
+\caption{CPU 绘制、FIMD 扫描和 RGB 面板输出的数据通路}
+\label{fig:tiny-lcd-path}
+\end{figure}

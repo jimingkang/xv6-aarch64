@@ -1,0 +1,281 @@
+% 本章由手工维护（不由 tools/convert.sh 生成），内容与 doc/readme/tiny210/wifi-architecture.md 同步。
+% 05a/05b/05c 三章共用下面的样式；名字加 w 前缀，避免和书稿自身的 box/arr/darr/lab 冲突。
+\usetikzlibrary{backgrounds}
+\providecommand{\fn}[1]{{\ttfamily\small #1}}
+\definecolor{wamber}{RGB}{176,112,20}
+\definecolor{wgray}{RGB}{110,118,126}
+\tikzset{
+  wbox/.style={draw=#1,fill=#1!8,rounded corners=2pt,align=center,font=\small,inner sep=4pt,minimum height=8mm},
+  wbox/.default=tinyblue,
+  wlayer/.style={draw=#1,fill=#1!8,rounded corners=2pt,minimum width=140mm,minimum height=9mm,align=left,font=\small,text width=136mm},
+  warr/.style={-{Stealth[length=2.2mm]},thick,draw=wgray},
+  wdarr/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]},thick,draw=wgray},
+  wlbl/.style={font=\scriptsize,fill=white,inner sep=1pt},
+}
+\providecommand{\seqhead}[3]{\node[wbox=tinyblue,minimum width=22mm,font=\footnotesize] (#2) at (#1,0) {#3};}
+\providecommand{\seqline}[2]{\draw[dashed,wgray] (#1,-0.45) -- (#1,-#2);}
+\providecommand{\seqmsg}[4]{\draw[-{Stealth[length=2mm]},thick,tinyblue] (#1,-#3) -- node[above,font=\scriptsize,inner sep=1pt]{#4} (#2,-#3);}
+\providecommand{\seqret}[4]{\draw[-{Stealth[length=2mm]},thick,dashed,tinygreen] (#1,-#3) -- node[above,font=\scriptsize,inner sep=1pt]{#4} (#2,-#3);}
+\providecommand{\seqself}[3]{\draw[-{Stealth[length=2mm]},thick,wamber] (#1,-#2) -- ++(0.35,0) -- ++(0,-0.3) -- ++(-0.35,0);
+  \node[right,font=\scriptsize,align=left] at (#1+0.4,-#2-0.15) {#3};}
+\providecommand{\seqnote}[4]{\node[draw=wamber,fill=wamber!10,font=\scriptsize,anchor=north west,inner sep=2pt] at (#1,-#3) {#4};}
+
+\chapter{MT7601U Wi-Fi 架构总览与硬件连接}\label{wa:ch-05a-wifi-arch-hw}
+\section{概述}
+
+第~\ref{tiny210-mt7601u-usb-wi-fi-ux9a71ux52a8} 章讲了 MT7601U 驱动的使用、构建和故障定位。本章和后面两章换一个角度，把这条链路逐层拆开：结合 rpi3-lock 分支 xv6-book 的 MT7601U 章节，说明 Tiny210 上 xv6 的 USB Wi-Fi 链路：一个 MT7601U USB 网卡从插在
+SDK 底板 USB-A Host 口开始，到用 WPA2 连上 TP-Link\_B114 路由器、DHCP 拿到 IP 为止，
+每一层用的是哪个驱动、哪个函数，以及实板串口上对应打印哪一行日志。文中的日志都是
+2026-11-14 在实板上抓到的真实输出。三章内容和
+\fn{doc/readme/tiny210/wifi-architecture.md} 同步。
+
+和 Linux 一样，整个链路按“谁只关心哪一层”切开：用户态只看到“连接 / DHCP / ping”；
+\fn{net.c} 只看到一个能收发 Ethernet 帧的 \fn{wlan0}；\fn{mt7601u.c} 把 Ethernet 帧
+翻译成 802.11 帧并管理连接状态；\fn{ehci-hcd.c} 只负责把字节按 USB 协议搬到设备的某个端点。
+
+\section{与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}\label{wa:rpi}
+
+rpi3-lock 分支的 xv6-book 第 7 章“USB 无线网卡：MT7601U”记录了同一颗网卡在树莓派 3B 上的驱动。
+Tiny210 的 \fn{mt7601u.c} 就是从那份驱动移植过来的：802.11 状态机、WPA2 密码学和 TXWI/RXWI 格式完全相同，
+不同的是下面的 USB 主机控制器、Hub、中断控制器和几处后来才修好的细节。
+
+\begingroup\small\begin{longtable}{p{23mm}p{54mm}p{56mm}}
+\toprule
+项目 & RPi3（xv6-book） & Tiny210（本文） \\ \midrule \endhead
+CPU / 架构 & BCM2837，Cortex-A53，AArch64 & S5PV210，Cortex-A8，ARMv7-A（ARM32） \\
+USB 主机控制器 & Synopsys DWC2（OTG 控制器做主机），按“主机通道”（channel）调度 & 标准 EHCI（USB-A Host 口），按 QH/qTD 链表调度 \\
+端点到硬件的映射 & 端点固定绑定主机通道：ch0 控制，ch3 同步 bulk IN，ch4 异步 bulk IN（EP4×4 + EP5×1），ch5 bulk OUT & 每个端点一个 QH，挂在同一个异步环上；EP4 QH 下排 4 个 qTD \\
+板上 Hub & SMSC LAN9514（带以太网），网卡在端口 4，地址 3 & SMSC USB2514（纯 Hub），网卡在端口 3，地址 2 \\
+DMA 地址 & 总线地址要加 0xC0000000 别名 & 物理地址 = 虚拟地址，D-cache 关闭，不需要 cache 维护 \\
+中断控制器 & BCM2836 本地中断 + BCM2835 ARMCTRL & 4 个 PL192 VIC，EHCI 是 IRQ 55（VIC1 bit 23） \\
+probe 时机 & \fn{main()} 里同步执行，中断未开，等 EP5 应答时要同步读空 EP4 & 在 \fn{ehci-enum} 内核线程里执行，中断已开 \\
+换信道 & MCU 命令 \fn{RANDOM\_WRITE}（12 号）写 RF R17--R20 & 主机直接写 \fn{RF\_CSR\_CFG}（0x0500）间接端口 \\
+校准 & R、TXDCOC、BW×2、LOFT、TXIQ、RXIQ、DPD 共 8 条 + RXDC & R、TXDCOC、LOFT、TXIQ、RXIQ、DPD 共 6 条 \\
+接收队列 & 8 帧环形队列，锁外交付 & 单槽 \fn{net\_rx}，一个聚合包里多帧时只交付第一帧（待改进） \\
+deauth 处理 & 收到解除认证/关联后自动重连 & 尚未处理 \\
+网卡名 & \fn{wlan1}（\fn{wlan0} 是板载 BCM43455） & \fn{wlan0}（唯一的无线网卡） \\
+SSID/口令 & 早期写死在驱动里 & 来自 \fn{/etc/wifi.conf} → \fn{wifi\_connect()}；关联请求里残留的写死 SSID 已在本次修正 \\
+\bottomrule
+\end{longtable}\endgroup
+
+两个版本最终的结果一样：DHCP 拿到 192.168.0.219、网关 192.168.0.1，ARP 解析出网关。
+
+\section{总体分层}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.6mm]
+\node[wlayer=wgray] (u) {\textbf{用户程序}\quad \fn{init}（读 /etc/wifi.conf）→ \fn{/bin/wifi}、\fn{/bin/dhcp wlan0}、\fn{/bin/ping}};
+\node[wlayer=wgray,below=of u] (s) {\textbf{系统调用}\quad \fn{usys.S}（r7=号, svc 0）→ \fn{sysnet.c}: \fn{sys\_wifi\_connect}、\fn{sys\_net\_dhcp}};
+\node[wlayer=tinygreen,below=of s] (n) {\textbf{网络协议栈 L3/L4}\quad \fn{net.c}: ARP · IPv4 · 路由 · UDP · ICMP · TCP · DHCP 客户端};
+\node[wlayer=tinygreen,below=of n] (d) {\textbf{网络设备层}\quad \fn{struct net\_device} “wlan0”，\fn{netdev\_xmit\_on} / \fn{net\_rx\_dev}，NAPI，workqueue};
+\node[wlayer=wamber,below=of d] (m) {\textbf{802.11 SoftMAC L2}\quad \fn{mt7601u.c}: 扫描 · 认证 · 关联 · WPA2 四次握手 · 802.11⇄Ethernet；\fn{wpa\_crypto.c}};
+\node[wlayer=wamber,below=of m] (ud) {\textbf{USB 设备驱动}\quad \fn{mt7601u\_driver}: id\_table 148f:7601，probe，固件下载，eFuse，MAC/BBP/RF 初始化};
+\node[wlayer=tinyblue,below=of ud] (c) {\textbf{USB core}\quad \fn{usb/core/usb.c}: usb\_bus，\fn{usb\_match}，\fn{usb\_device\_register}，\fn{struct usb\_host\_ops}};
+\node[wlayer=tinyblue,below=of c] (h) {\textbf{主机控制器 HCD}\quad \fn{usb/host/ehci-hcd.c}: 异步调度 QH/qTD，dummy 追加，Hub，split，IRQ};
+\node[wlayer=tinyred,below=of h] (p) {\textbf{平台/板级}\quad \fn{mach-s5pv210/devices.c}: s5p-ehci MEM 0xEC200000，IRQ 55，\fn{host\_phy\_init}};
+\node[wlayer=tinyred,below=of p] (hw) {\textbf{硬件}\quad USB PHY1 → USB2514 Hub → MT7601U（MCU+MAC+BBP+RF）→ 2.4 GHz → 路由器};
+\end{tikzpicture}
+\caption{Wi-Fi 链路分层}
+\end{figure}
+
+\begingroup\small\begin{longtable}{p{20mm}p{50mm}p{86mm}}
+\toprule
+层 & 实现 & 与下一层的接口 \\ \midrule \endhead
+用户程序 & \fn{user/wifi.c}, \fn{dhcp.c}, \fn{ping.c} & 系统调用 \fn{wifi\_connect}、\fn{net\_dhcp}、\fn{icmp\_send} \\
+系统调用 & \fn{kernel/sysnet.c} & \fn{mt7601u\_connect()}、\fn{net\_dhcp\_dev()} \\
+协议栈 & \fn{kernel/net.c} & \fn{netdev\_xmit\_on()} / \fn{net\_rx\_dev()} \\
+网络设备 & \fn{register\_netdev}、NAPI、\fn{workqueue.c} & \fn{net\_device\_ops.start\_xmit} \\
+SoftMAC & \fn{mt7601u.c} + \fn{wpa\_crypto.c} & 厂商 USB 寄存器请求 + bulk 帧（TXWI/RXWI） \\
+USB 设备驱动 & \fn{mt7601u.c} 的 \fn{usb\_driver} & \fn{usb\_host\_ops}: control / bulk / bulk\_rx\_arm / bulk\_rx\_complete \\
+USB core & \fn{usb/core/usb.c} & \fn{usb\_device\_register()} \\
+HCD & \fn{usb/host/ehci-hcd.c} & 寄存器 + DMA 描述符 \\
+平台 & \fn{mach-s5pv210/devices.c} & platform device 资源 \\
+\bottomrule
+\end{longtable}\endgroup
+
+\section{硬件连接}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.84,transform shape]
+\node[wbox=tinyblue,minimum width=24mm] (cpu) at (0,0) {Cortex-A8\\1 GHz};
+\node[wbox=tinyblue,minimum width=24mm] (ddr) at (0,-2.6) {DDR2 512 MiB\\0x20000000};
+\node[wbox=tinyblue,minimum width=26mm] (ehci) at (4.0,0) {EHCI\\0xEC200000};
+\node[wbox=tinyblue,minimum width=24mm] (vic) at (4.0,2.0) {VIC};
+\node[wbox=tinyblue,minimum width=26mm] (phy) at (4.0,-2.6) {USB PHY1 (Host)\\0xEC100000};
+\begin{scope}[on background layer]
+\node[draw=tinyblue,dashed,rounded corners,fit=(cpu)(ddr)(ehci)(vic)(phy),inner sep=4mm,
+  label={[tinyblue]above left:S5PV210 核心板}] {};
+\end{scope}
+\draw[wdarr] (cpu) -- node[wlbl,above]{AHB} (ehci);
+\draw[wdarr] (ehci.south west) -- node[wlbl,sloped,below,fill=none]{DMA} (ddr.north east);
+\draw[warr] (ehci) -- node[wlbl,right]{IRQ 55} (vic);
+\draw[warr] (vic) -| (cpu);
+\draw[warr] (ehci) -- (phy);
+\node[wbox=tinygreen,minimum width=26mm] (hub) at (9.2,-2.6) {SMSC USB2514\\4 口 HS Hub\\424:2514};
+\node[wbox=tinygreen,minimum width=24mm] (usba) at (9.2,0) {USB-A 口\\(Hub 端口 3)};
+\begin{scope}[on background layer]
+\node[draw=tinygreen,dashed,rounded corners,fit=(hub)(usba),inner sep=3mm,
+  label={[tinygreen]above:SDK 底板}] {};
+\end{scope}
+\draw[wdarr] (phy) -- node[wlbl,below,fill=none,align=center,yshift=-1mm]{USB 2.0 HS\\480 Mb/s} (hub);
+\draw[wdarr] (hub) -- (usba);
+\node[wbox=wamber,minimum width=28mm] (mt) at (13.4,0) {MT7601U\\148f:7601\\MCU+MAC+BBP+RF};
+\draw[wdarr] (usba) -- (mt);
+\node[wbox=tinyred,minimum width=28mm] (ap) at (13.4,-3.2) {TP-Link\_B114\\f0:09:0d:cb:b1:14\\信道 9, WPA2-CCMP\\网关 192.168.0.1};
+\draw[wdarr,dashed,tinyred] (mt) -- node[wlbl,right,fill=none,align=left]{802.11n\\2.4 GHz} (ap);
+\end{tikzpicture}
+\caption{硬件连接}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em]
+\item 只走 EHCI（USB-A Host 口），不走 OTG 口。OTG 是 DWC2 控制器（0xEC000000，IRQ 56），
+  代码保留但默认不编（\fn{S5PV210\_USB\_OTG=1} 才启用）。
+\item SoC Host 只有 1 个根端口，SDK 底板上的 USB2514 Hub 扩出 4 口，网卡在 Hub 端口 3。
+  Hub 和网卡都是高速设备，不需要 split transaction。
+\item EHCI 是总线主设备，自己从 DDR 读 QH/qTD 描述符和数据。xv6 在 Tiny210 上关闭 D-cache，
+  不需要 cache 维护，但 CPU 访存慢、会和 EHCI 抢 DDR 带宽（见第 \ref{wa:bugs} 节）。
+\end{itemize}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+端点 & 方向 & 用途（本驱动） \\ \midrule
+EP0 & control & 厂商请求：读写 32 位寄存器、eFuse、FCE 固件 DMA 控制 \\
+0x84 (IN\#0) & bulk IN & 接收数据：RXWI + 802.11 帧（4 个 16 KiB 缓冲循环） \\
+0x85 (IN\#1) & bulk IN & MCU 命令响应 \\
+0x08 (OUT\#0) & bulk OUT & 固件下载、MCU 命令，以及本驱动所有 802.11 发送帧 \\
+0x04--0x07, 0x09 & bulk OUT & Linux 的 AC/管理队列；Tiny210 上 0x09 一开始就 NAK，不用 \\
+\bottomrule
+\end{tabular}
+\caption{MT7601U USB 端点（日志 \fn{bulk in 4,5/512 out 8/512}）}
+\end{table}
+
+\subsection{SoC 内部：USB Host 子系统}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small,scale=0.75,transform shape]
+\node[wbox=tinyblue] (cpu) at (0,0.7) {Cortex-A8\\I-cache 开 / D-cache 关};
+\node[wbox=tinyblue] (dmc) at (0,-3.0) {DMC0\\DDR2 0x20000000};
+\node[draw=wgray,fill=wgray!10,minimum width=8mm,minimum height=70mm,align=center] (bus) at (2.9,-1.1) {A\\X\\I\\/\\A\\H\\B};
+\node[wbox=tinyblue] (ehci) at (6.8,1.6) {EHCI 0xEC200000\\INSNREG cap+0x90/0x94};
+\node[wbox=wgray] (ohci) at (6.8,-0.2) {OHCI 0xEC300000\\全/低速，未用};
+\node[wbox=tinyblue] (vic) at (6.8,-2.0) {VIC1 0xF2100000\\IRQ 55 = VIC1 bit 23};
+\node[wbox=wamber] (clk) at (6.8,-4.0) {CMU：CLK\_GATE\_IP1\\0xE0100464 bit17\\USBHOST 时钟};
+\node[wbox=tinyred] (phy) at (13.4,0.7) {USB PHY 控制器\\0xEC100000\\UPHYPWR/UPHYCLK/URSTCON};
+\node[wbox=wamber] (pmu) at (13.4,-1.9) {PMU：USB\_PHY\_CONTROL\\0xE010E80C bit1\\PHY1 去隔离};
+\node[wbox=tinyred] (port) at (17.9,0.7) {PHY1\\D+/D-};
+\draw[wdarr] (cpu.east) -- (cpu.east -| bus.west);
+\draw[wdarr] (dmc.east) -- (dmc.east -| bus.west);
+\draw[wdarr] (bus.east |- ehci.west) -- node[wlbl,above]{寄存器/DMA} (ehci.west);
+\draw[wdarr] (bus.east |- ohci.west) -- (ohci.west);
+\draw[warr] (vic.west) -- (bus.east |- vic.west);
+\draw[warr] (ehci.east) -- (phy.north west);
+\draw[warr] (ohci.east) -- (phy.south west);
+\draw[warr] ([yshift=-1mm]ehci.south east) -- ++(0.3,0) |- node[wlbl,pos=0.3,right]{IRQ 55} (vic.east);
+\draw[warr] (pmu.north) -- (phy.south);
+\draw[wdarr] (phy) -- (port);
+\end{tikzpicture}
+\caption{S5PV210 内 USB Host 相关模块}
+\end{figure}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item EHCI 和 OHCI 共用 PHY1。高速设备由 EHCI 接管；全速/低速设备在根端口上要交给 OHCI（\fn{PORT\_OWNER}），
+  xv6 没写 OHCI 驱动，\fn{root\_ports()} 遇到时只打印“left to OHCI”。挂在高速 Hub 后面的全/低速设备则由 EHCI 用 split 事务访问。
+\item 时钟、隔离、上电、复位四个开关分别在 CMU、PMU 和 USB PHY 控制器里，都由 \fn{host\_phy\_init()} 打开（见 \ref{wa:phy}）。
+\item EHCI 是 AHB 主设备，自己读写 DDR 里的 QH/qTD 和数据缓冲；CPU 不开 D-cache，所以 EHCI 看到的内存就是 CPU 写的内存，
+  不需要 clean/invalidate。代价是 CPU 访存很慢，和 EHCI 抢 DDR 带宽（第 \ref{wa:bugs} 节的欠载问题）。
+\end{itemize}
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+资源 & 值 & 在哪里用 \\ \midrule
+EHCI 寄存器 & 0xEC200000（1 MiB 段映射） & \fn{devices.c} 资源 0，\fn{ehci\_probe} \\
+EHCI 中断 & IRQ 55（VIC1 bit 23） & \fn{request\_irq(55, ehci\_irq)} \\
+USB PHY 控制器 & 0xEC100000 & \fn{host\_phy\_init} \\
+CLK\_GATE\_IP1 & 0xE0100464 bit17（USBHOST） & \fn{host\_phy\_init} \\
+USB\_PHY\_CONTROL & 0xE010E80C bit1（PHY1 去隔离） & \fn{host\_phy\_init} \\
+PHY 参考时钟 & 24 MHz（UPHYCLK = 3） & \fn{host\_phy\_init} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{板上：USB2514 Hub 与 USB-A 口}
+
+Tiny210 SDK 底板把 SoC 唯一的 Host 口接到一颗 SMSC USB2514（VID:PID 0424:2514，4 口高速 Hub），
+Hub 的 4 个下行口引到底板的 USB-A 插座，网卡插在下行口 3。Hub 自己是一个 USB 设备（类 9），
+所以枚举是两级的：先给 Hub 分配地址 1，再通过 Hub 的类请求逐口上电、复位，给网卡分配地址 2。
+VBUS 5 V 由底板电源经 Hub 的端口电源开关供给，xv6 不需要控制 GPIO（\fn{SET\_FEATURE(PORT\_POWER)} 由 Hub 执行）。
+
+Hub 和网卡都是高速设备，所以主机到网卡的包在 Hub 里只是转发（repeater），不经过事务转换器（TT），
+QH 的 \fn{epcap} 里不填 Hub 地址/端口。只有全/低速设备插在 Hub 后面时，\fn{qh\_create} 才填 split 目标。
+
+\subsection{电气与链路层：480 Mbit/s 上传的是什么}
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+\item \textbf{信号}：D+/D- 差分，高速模式 400 mV 摆幅、45 Ω 端接；比特用 NRZI 编码（0 = 翻转，1 = 不变），连续 6 个 1 后插一个 0（bit stuffing）。
+\item \textbf{包}：每个包以 32 位 SYNC 开头，8 位 PID（4 位 + 反码），然后是地址/数据和 CRC，最后 EOP。
+\item \textbf{速度协商（chirp）}：端口复位期间设备发 Chirp K，Hub/主机回 KJKJKJ，双方切到高速。
+  \fn{root\_ports()} 复位 50 ms 后看 \fn{PORTSC.PE}：EHCI 只有在高速握手成功时才置“端口使能”，所以 PE=1 就意味着高速设备；
+  Hub 后面的设备由端口状态 bit10（高速）/bit9（低速）区分，\fn{hub\_ports()} 读的就是这两位。
+\item \textbf{时间片}：高速以 125 µs 的微帧（microframe）为单位，每微帧开头主机发 SOF；一个微帧里最多可以跑 13 个 512 字节的 bulk 包。
+\end{itemize}
+
+\subsection{空口：网卡到路由器}
+
+MT7601U 是 1T1R 的 2.4 GHz 802.11b/g/n 芯片。TP-Link\_B114 在信道 9（中心频率 2452 MHz，20 MHz 带宽）。
+本驱动发出的所有帧都用 CCK 1 Mbit/s（TXWI \fn{rate\_ctl = 0}），这是最稳、但最慢的速率；接收方向芯片按 AP 实际使用的速率解调。
+ACK、重传、FCS（帧尾 4 字节 CRC-32）都由芯片硬件完成，主机看不到。
+
+\section{软件架构}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small]
+\node[wbox=wgray] (wifi) at (-3,0) {/bin/wifi};
+\node[wbox=wgray] (dhcp) at (0,0) {/bin/dhcp};
+\node[wbox=wgray] (ping) at (3,0) {/bin/ping};
+\node[wbox=wgray] (sys) at (0,-1.6) {sysnet.c\\sys\_wifi\_connect / sys\_net\_dhcp};
+\node[wbox=tinygreen] (net) at (0,-3.2) {net.c 协议栈\\ARP IPv4 UDP ICMP TCP DHCP};
+\node[wbox=tinygreen] (nd) at (0,-4.8) {net\_device wlan0\\NAPI + mt7601u\_wq};
+\node[wbox=wamber] (mt) at (0,-6.6) {mt7601u.c\\SoftMAC 状态机 / TX / RX};
+\node[wbox=wamber] (wpa) at (5.8,-6.3) {wpa\_crypto.c\\PBKDF2 PTK MIC AES-unwrap};
+\node[wbox=wamber] (fw) at (5.8,-7.8) {firmware.c\\request\_firmware};
+\node[wbox=tinyblue] (core) at (0,-8.4) {usb/core/usb.c\\usb\_bus 匹配};
+\node[wbox=tinyblue] (ehci) at (0,-10.2) {usb/host/ehci-hcd.c\\QH/qTD, Hub, IRQ};
+\node[wbox=tinyred] (plat) at (0,-12.0) {mach-s5pv210/devices.c\\s5p-ehci, host\_phy\_init};
+\node[wbox=tinyred] (time) at (5.8,-4.8) {arch/arm/time.c\\workqueue\_timer\_tick};
+\draw[warr] (wifi) |- (sys.west);
+\draw[warr] (dhcp) -- (sys);
+\draw[warr] (ping) |- (net.east);
+\draw[warr] (sys) -- (net);
+\draw[warr] (sys.west) ++(0,-0.2) -| (-4.6,-6.6) node[wlbl,pos=0.75,left]{mt7601u\_connect} -- (mt.west);
+\draw[wdarr] (net) -- (nd);
+\draw[wdarr] (nd) -- node[wlbl,right]{start\_xmit / net\_rx\_dev} (mt);
+\draw[warr] (mt.east) ++(0,0.25) -- (wpa.west);
+\draw[warr] (mt.east) ++(0,-0.25) -- (fw.west);
+\draw[warr] (time) -- node[wlbl,above]{delayed work} (nd);
+\draw[warr] (core) -- node[wlbl,right]{probe} (mt);
+\draw[warr] (ehci) -- node[wlbl,right]{usb\_device\_register} (core);
+\draw[warr] (mt.south west) to[bend right=50] node[wlbl,left]{udev->ops} (ehci.north west);
+\draw[warr] (plat) -- (ehci);
+\end{tikzpicture}
+\caption{软件架构与源文件}
+\end{figure}
+
+\subsection{执行上下文}
+
+\begingroup\small\begin{longtable}{p{32mm}p{103mm}}
+\toprule
+上下文 & 做什么 \\ \midrule
+\fn{ehci-enum} 内核线程 & 启动 EHCI、上电端口、枚举 Hub 与网卡；在此线程中调用 \fn{mt7601u\_probe}（固件下载、射频初始化）。要等几百毫秒的复位/上电，所以不放在 initcall 里 \\
+EHCI 中断（IRQ 55） & \fn{ehci\_irq} 清 USBSTS，调用 \fn{mt7601u\_rx\_irq()} → \fn{napi\_schedule()}，只做排队 \\
+\fn{mt7601u\_wq} 线程 & NAPI：\fn{mt7601u\_napi\_poll} → \fn{mt7601u\_service(1,0)} 处理接收；\fn{state\_work}：\fn{mt7601u\_state\_worker} → \fn{mt7601u\_service(0,1)} 推进扫描/认证/关联/超时 \\
+时钟中断 100 Hz & \fn{arm32\_timer\_tick} → \fn{workqueue\_timer\_tick()}：到期 delayed work 入队 \\
+用户进程 & \fn{mt7601u\_connect} 设置目标后 \fn{sleep(\&ticks)} 等 \fn{handshake\_done}；dhcp/ping 在系统调用里发帧、等回包 \\
+\bottomrule
+\end{longtable}\endgroup
+
