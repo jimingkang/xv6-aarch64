@@ -243,6 +243,7 @@ struct mt7601u_device {
   uint32 scan_seen;
   uint32 scan_rounds;      // full 1..11 sweeps, for the join-timeout report
   uint8 scan_channel;
+  uint8 target_channel;    // from the AP's DS Parameter Set IE
   int target_found;
   char want_ssid[33];       // set by mt7601u_connect(); empty: scan only
   int want_ssid_len;
@@ -1342,6 +1343,7 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
       uint32 bssid1 = (uint32)ap->bssid[4] |
         ((uint32)ap->bssid[5] << 8);
       dev->target_found = 1;
+      dev->target_channel = ap->channel;
       memmove(dev->target_bssid, ap->bssid, 6);
       dev->target_capability = ap->capability;
       dev->target_rsn_ie_len = ap->rsn_ie_len;
@@ -1362,10 +1364,10 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
                          bssid1) < 0 ||
          mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, 0) < 0)
         printf("mt7601u: warning: cannot program target BSSID\n");
-      printf("mt7601u: target %s found bssid=%x:%x:%x:%x:%x:%x channel=%d %s\n",
+      printf("mt7601u: target %s found bssid=%x:%x:%x:%x:%x:%x channel=%d %s (radio on %d)\n",
              dev->want_ssid, ap->bssid[0], ap->bssid[1], ap->bssid[2], ap->bssid[3],
              ap->bssid[4], ap->bssid[5], ap->channel,
-             security_name[ap->security]);
+             security_name[ap->security], dev->scan_channel);
     }
   }
 }
@@ -1528,7 +1530,21 @@ mt7601u_service(int service_rx, int service_state)
     }
   }
 
-  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
+  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING &&
+     dev->target_channel >= 1 && dev->target_channel <= 14 &&
+     dev->scan_channel != dev->target_channel){
+    // A beacon from a neighbouring channel can be heard while the radio is
+    // tuned 1-2 channels away (from the rpi3-BCM43430 driver). Associating
+    // there "works" but the link is weak: few frames, DHCP offers lost.
+    // Tune to the AP's own channel first, then authenticate.
+    printf("mt7601u: tuning to AP channel %d (radio on %d)\n",
+           dev->target_channel, dev->scan_channel);
+    if(mt7601u_set_channel(dev, dev->target_channel) < 0){
+      printf("mt7601u: channel switch to %d failed\n", dev->target_channel);
+      dev->target_channel = 0;      // authenticate where we are
+    }
+    dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
+  } else if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
     if(dev->link_retries >= 3){
       printf("mt7601u: authentication timeout\n");
       dev->link_state = MT_LINK_SCAN;
