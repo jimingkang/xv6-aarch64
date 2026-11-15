@@ -948,10 +948,18 @@ setup_raw_root(uint32 start, uint32 sectors)
 {
   // xv6 block 1 is the superblock.  With 1024-byte blocks it starts two
   // 512-byte sectors after the beginning of the partition.
-  if(start == 0 || sectors < FSSIZE * (BSIZE / SECTOR_SIZE) ||
-     sdsector(start + BSIZE / SECTOR_SIZE, scratch, 0) < 0 ||
-     le32(scratch) != FSMAGIC || le32(scratch + 4) != FSSIZE)
+  if(start == 0 || sectors < FSSIZE * (BSIZE / SECTOR_SIZE))
     return -1;
+  if(sdsector(start + BSIZE / SECTOR_SIZE, scratch, 0) < 0){
+    printf("xv6fs: lba %d: cannot read the superblock\n", start);
+    return -1;
+  }
+  if(le32(scratch) != FSMAGIC || le32(scratch + 4) != FSSIZE){
+    // Say why a candidate partition is not used as the root.
+    printf("xv6fs: lba %d: no xv6 file system (magic %x size %d, want %x %d)\n",
+           start, le32(scratch), le32(scratch + 4), FSMAGIC, FSSIZE);
+    return -1;
+  }
   diskmap.raw_root = 1;
   diskmap.root_lba = start;
   diskmap.root_sectors = sectors;
