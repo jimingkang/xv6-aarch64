@@ -10,8 +10,11 @@
 // server may be given as a.b.c.d:port (in /etc/tftp.conf or on the command line).
 static uint16 tftp_port = TFTP_PORT;
 #define LOCAL_PORT 49152
-#define TFTP_BLOCK_SIZE 512
-#define TFTP_PACKET_SIZE (TFTP_BLOCK_SIZE + 4)
+#define TFTP_BLOCK_SIZE 512          // RFC 1350 default
+#define TFTP_BIG_BLOCK 1468           // asked for with the RFC 2348 blksize option:
+                                      // fits one Ethernet/Wi-Fi frame (UDP 1472)
+#define TFTP_PACKET_SIZE (TFTP_BIG_BLOCK + 4)
+#define TFTP_WRITE_CHUNK (32 * 1024)  // collect data, write the SD card in big pieces
 #define TFTP_RETRIES 5
 #define TFTP_TIMEOUT_TICKS 10
 #define TFTP_PROGRESS_BYTES (16 * 1024)
@@ -29,7 +32,40 @@ static uint16 tftp_port = TFTP_PORT;
 static char tftp_final_path[TFTP_PATH_SIZE];
 static uchar tftp_rrq[256];
 static uchar tftp_packet[TFTP_PACKET_SIZE];
-static char tftp_copybuf[4096];
+static char tftp_wbuf[TFTP_WRITE_CHUNK];
+static int tftp_wlen;
+static int tftp_block = TFTP_BLOCK_SIZE;    // negotiated block size
+
+// Writing every 512-byte block straight to the FAT32 file costs a
+// synchronous SD write (and FAT bookkeeping) per block; batch them.
+static int
+buffered_write(int fd, const uchar *data, int len)
+{
+  while(len > 0){
+    int n = TFTP_WRITE_CHUNK - tftp_wlen;
+    if(n > len)
+      n = len;
+    memmove(tftp_wbuf + tftp_wlen, data, n);
+    tftp_wlen += n;
+    data += n;
+    len -= n;
+    if(tftp_wlen == TFTP_WRITE_CHUNK){
+      if(write(fd, tftp_wbuf, tftp_wlen) != tftp_wlen)
+        return -1;
+      tftp_wlen = 0;
+    }
+  }
+  return 0;
+}
+
+static int
+flush_writes(int fd)
+{
+  int n = tftp_wlen;
+  tftp_wlen = 0;
+  return n == 0 || write(fd, tftp_wbuf, n) == n ? 0 : -1;
+}
+static char tftp_copybuf[TFTP_WRITE_CHUNK];
 static char tftp_conf[128];
 
 static int
@@ -124,17 +160,21 @@ wait_packet(uint32 server, uint16 *server_port, int port,
 static int
 make_rrq(uchar *packet, int capacity, const char *filename)
 {
-  const char mode[] = "octet";
+  // "octet" mode plus the RFC 2348 blksize option; a server without option
+  // support ignores it and answers with 512-byte DATA directly.
+  const char mode[] = "octet", opt[] = "blksize", val[] = "1468";
   int name_len = strlen(filename);
-  int mode_len = sizeof(mode);
-  int length = 2 + name_len + 1 + mode_len;
+  int length = 2 + name_len + 1 + sizeof(mode) + sizeof(opt) + sizeof(val);
   if(name_len == 0 || length > capacity)
     return -1;
   put16(packet, 1);
-  memmove(packet + 2, filename, name_len);
-  packet[2 + name_len] = 0;
-  memmove(packet + 3 + name_len, mode, mode_len);
-  return length;
+  int n = 2;
+  memmove(packet + n, filename, name_len); n += name_len;
+  packet[n++] = 0;
+  memmove(packet + n, mode, sizeof(mode)); n += sizeof(mode);
+  memmove(packet + n, opt, sizeof(opt)); n += sizeof(opt);
+  memmove(packet + n, val, sizeof(val)); n += sizeof(val);
+  return n;
 }
 
 static int
@@ -223,16 +263,34 @@ download(uint32 server, const char *remote_name)
       printf("tftpclient: server error %d: %s\n", code, message);
       goto failed;
     }
-    if(opcode != 3 || packet_len < 4 ||
-       packet_len > TFTP_PACKET_SIZE){
+    if(opcode == 6 && expected_block == 1 && last_ack == 0){
+      // OACK: the server accepted options; read blksize and ACK block 0.
+      for(int i = 2; i < packet_len; ){
+        char *key = (char*)packet + i;
+        int kl = strlen(key);
+        char *value = key + kl + 1;
+        if(i + kl + 1 >= packet_len)
+          break;
+        if(strcmp(key, "blksize") == 0){
+          int b = atoi(value);
+          if(b >= 8 && b <= TFTP_BIG_BLOCK)
+            tftp_block = b;
+        }
+        i += kl + 1 + strlen(value) + 1;
+      }
+      printf("tftpclient: server accepted block size %d\n", tftp_block);
+      if(send_ack(server, server_port, 0) < 0)
+        goto failed;
+    } else if(opcode != 3 || packet_len < 4 ||
+       packet_len > tftp_block + 4){
       printf("tftpclient: unexpected opcode or packet size\n");
       goto failed;
-    }
+    } else {
 
     uint16 block = get16(packet + 2);
     if(block == expected_block){
       int data_len = packet_len - 4;
-      if(data_len > 0 && write(fd, packet + 4, data_len) != data_len){
+      if(data_len > 0 && buffered_write(fd, packet + 4, data_len) < 0){
         printf("tftpclient: failed writing downloaded data\n");
         goto failed;
       }
@@ -248,11 +306,12 @@ download(uint32 server, const char *remote_name)
       last_ack = block;
       expected_block++;
       retries = 0;
-      if(data_len < TFTP_BLOCK_SIZE)
+      if(data_len < tftp_block)
         break;
     } else if(block == last_ack){
       if(send_ack(server, server_port, last_ack) < 0)
         goto failed;
+    }
     }
 
     for(;;){
@@ -275,6 +334,10 @@ download(uint32 server, const char *remote_name)
     }
   }
 
+  if(flush_writes(fd) < 0){
+    printf("tftpclient: failed writing downloaded data\n");
+    goto failed;
+  }
   if(close(fd) < 0){
     printf("tftpclient: close failed\n");
     udp_unbind(LOCAL_PORT);
