@@ -372,6 +372,7 @@ install(const char *remote_name, int total)
   int in, out, n, copied = 0;
   memmove(target, "/boot/", sizeof("/boot/"));
   memmove(target + sizeof("/boot/") - 1, remote_name, strlen(remote_name) + 1);
+  printf("tftpclient: installing %s (replacing the old file can take a while)\n", target);
   in = open(TFTP_TEMP, O_RDONLY);
   if(in < 0){
     printf("tftpclient: cannot reopen %s\n", TFTP_TEMP);

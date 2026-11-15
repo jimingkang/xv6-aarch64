@@ -11,6 +11,7 @@
 #include "param.h"
 #include "spinlock.h"
 #include "sleeplock.h"
+#include "proc.h"
 #include "fs.h"
 #include "buf.h"
 #include "fat32.h"
@@ -62,7 +63,14 @@ void ramdisk_embed_rw(struct buf *b, int write);
 #else
 #define FAT32_NO_ROOT(msg) panic(msg)
 #endif
-static struct spinlock fat32_lock;
+// A sleep lock, not a spinlock: one operation can run hundreds of SD
+// transfers (truncating a 4 MB file frees ~1000 clusters, each a FAT
+// read/modify/write), and a spinlock kept interrupts off for all of it --
+// no timer, console or Wi-Fi for many seconds. Boot-time calls (no process
+// yet, single-threaded) skip the lock.
+static struct sleeplock fat32_lock;
+static void fat_lock(void) { if(myproc()) acquiresleep(&fat32_lock); }
+static void fat_unlock(void) { if(myproc()) releasesleep(&fat32_lock); }
 
 static uint16 le16(const uchar *p);
 static uint32 le32(const uchar *p);
@@ -559,9 +567,9 @@ fat32readdirroot_locked(int index, struct fat32_dirent *de)
 int
 fat32readdirroot(int index, struct fat32_dirent *de)
 {
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat32readdirroot_locked(index, de);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
@@ -585,9 +593,9 @@ fat32statpath_locked(char *path, struct fat32_dirent *de)
 int
 fat32statpath(char *path, struct fat32_dirent *de)
 {
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat32statpath_locked(path, de);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
@@ -956,7 +964,7 @@ fat32openroot(char *name11, struct fat32_file *file)
   int result;
   if(!diskmap.fat || name11 == 0 || file == 0 || strlen(name11) != 11)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   if(sdsector(diskmap.partition_lba, scratch, 0) < 0)
     goto bad;
   uint32 root = le32(scratch + 44);
@@ -965,10 +973,10 @@ fat32openroot(char *name11, struct fat32_file *file)
     file->last_cluster = 0;
     file->last_cluster_index = 0;
   }
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 bad:
-  release(&fat32_lock);
+  fat_unlock();
   return -1;
 }
 
@@ -1027,9 +1035,9 @@ fat32openwrite(char *path, struct fat32_file *file)
   struct fat_dir_slot slot;
   if(!diskmap.fat || path == 0 || file == 0)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat_load_write_state(path, file, &slot);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
@@ -1039,9 +1047,9 @@ fat32openpath(char *path, struct fat32_file *file)
   struct fat_dir_slot slot;
   if(!diskmap.fat || path == 0 || file == 0)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat_load_write_state(path, file, &slot);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
@@ -1055,7 +1063,7 @@ fat32createfile(char *path)
   int length, lfn_count, slot_count, exists;
   if(!diskmap.fat || fat_path_name(path, name, &length) < 0)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   exists = fat_find_path(path, &match);
   if(exists != 0)
     goto bad;
@@ -1096,10 +1104,10 @@ fat32createfile(char *path)
   memset(entry, 0, sizeof(entry));
   if(fat_write_slot(&slots[lfn_count + 1], entry) < 0)
     goto bad;
-  release(&fat32_lock);
+  fat_unlock();
   return 0;
 bad:
-  release(&fat32_lock);
+  fat_unlock();
   return -1;
 }
 
@@ -1111,7 +1119,7 @@ fat32truncatefile(char *path, struct fat32_file *file)
   uint32 old_cluster;
   if(!diskmap.fat || path == 0 || file == 0)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   if(fat_find_path(path, &match) != 1 ||
      (match.short_slot.entry[11] & 0x10))
     goto bad;
@@ -1124,10 +1132,10 @@ fat32truncatefile(char *path, struct fat32_file *file)
   memset(file, 0, sizeof(*file));
   if(old_cluster && fat_free_chain(old_cluster) < 0)
     goto bad;
-  release(&fat32_lock);
+  fat_unlock();
   return 0;
 bad:
-  release(&fat32_lock);
+  fat_unlock();
   return -1;
 }
 
@@ -1146,7 +1154,7 @@ fat32writefile(char *path, struct fat32_file *file, uint32 offset,
     return -1;
   if(n == 0)
     return 0;
-  acquire(&fat32_lock);
+  fat_lock();
   if(offset != file->size ||
      fat_find_path(path, &match) != 1 ||
      (match.short_slot.entry[11] & 0x10) ||
@@ -1218,7 +1226,7 @@ write_done:
       error = 1;
   }
 out:
-  release(&fat32_lock);
+  fat_unlock();
   return done > 0 ? done : (error ? -1 : 0);
 }
 
@@ -1234,7 +1242,7 @@ fat32renamefile(char *oldpath, char *newpath)
      path_to_name11(newpath, newname) < 0 ||
      memcmp(oldname, newname, sizeof(oldname)) == 0)
     return -1;
-  acquire(&fat32_lock);
+  fat_lock();
   if(fat_find_root(oldname, &source, 0, 0) != 1 ||
      (source.entry[11] & 0x10))
     goto bad;
@@ -1269,10 +1277,10 @@ fat32renamefile(char *oldpath, char *newpath)
        fat_free_chain(old_cluster) < 0)
       goto bad;
   }
-  release(&fat32_lock);
+  fat_unlock();
   return 0;
 bad:
-  release(&fat32_lock);
+  fat_unlock();
   return -1;
 }
 
@@ -1321,9 +1329,9 @@ fat32pread_locked(struct fat32_file *file, uint32 offset, void *dst, int n)
 int
 fat32pread(struct fat32_file *file, uint32 offset, void *dst, int n)
 {
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat32pread_locked(file, offset, dst, n);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
@@ -1383,16 +1391,16 @@ fat32readnext_locked(struct fat32_reader *reader, void *dst, int n)
 int
 fat32readnext(struct fat32_reader *reader, void *dst, int n)
 {
-  acquire(&fat32_lock);
+  fat_lock();
   int result = fat32readnext_locked(reader, dst, n);
-  release(&fat32_lock);
+  fat_unlock();
   return result;
 }
 
 void
 fat32init(void)
 {
-  initlock(&fat32_lock, "fat32");
+  initsleeplock(&fat32_lock, "fat32");
   if(sdsector(0, scratch, 0) < 0)
     FAT32_NO_ROOT("fat32: cannot read SD sector 0");
 
@@ -1516,11 +1524,11 @@ fat32rw(struct buf *b, int write)
     panic("fat32rw: blockno too big");
 
   uint32 first = b->blockno * (BSIZE / SECTOR_SIZE);
-  acquire(&fat32_lock);
+  fat_lock();
   for(int i = 0; i < BSIZE / SECTOR_SIZE; i++){
     uint32 lba = file_sector_lba(first + i);
     if(sdsector(lba, b->data + i * SECTOR_SIZE, write) < 0)
       panic(write ? "fat32: write FS.IMG" : "fat32: read FS.IMG");
   }
-  release(&fat32_lock);
+  fat_unlock();
 }
