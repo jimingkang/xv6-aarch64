@@ -11,6 +11,7 @@
    TINY210_QEMU builds the same kernel for QEMU's Cortex-A8 "cubieboard"
    (Allwinner A10 peripherals, sun4i drivers), the only Cortex-A8 machine
    QEMU has. */
+#include "kernel/reboot.h"
 #include "kernel/types.h"
 #include "kernel/param.h"
 #include "kernel/memlayout.h"
@@ -166,19 +167,31 @@ void t113_fault(uint kind,uint lr,uint psr) {
 }
 void send_resched_ipi(int cpu) { (void)cpu; }
 
-/* reboot(): S5PV210 software reset (SWRESET, 0xE0102000, in the mapped
-   clock-controller section): the whole chip resets and the iROM boots BL1
-   from the SD card again. FAT32 and xv6fs writes are synchronous (sdsector,
-   log commit), so nothing is left in a write-back cache. */
+/* int reboot(int cmd), as on rpi3-lock (kernel/core/reboot.c):
+     REBOOT_CMD_RESTART  S5PV210 software reset (SWRESET 0xE0102000, in the
+                         mapped clock-controller section): the iROM boots BL1
+                         and the kernel from the SD card again
+     REBOOT_CMD_HALT     power off: drop PS_HOLD (PS_HOLD_CONTROL 0xE010E81C
+                         bit 8), which BL1 latched high; boards whose power
+                         stays on just stop here
+   FAT32 and xv6fs writes are synchronous (sdsector, log commit), so nothing
+   is left in a write-back cache. */
 uint64 sys_reboot(void) {
+  int cmd;
+  argint(0,&cmd);
+  if(cmd!=REBOOT_CMD_RESTART && cmd!=REBOOT_CMD_HALT) return -1;
 #ifdef TINY210_QEMU
   printf("reboot: not supported on the QEMU stand-in\n");
   return -1;
 #else
-  printf("reboot: software reset\n");
+  printf("\nreboot: %s (pid %d)\n",
+         cmd==REBOOT_CMD_HALT ? "system halted" : "restarting system", myproc()->pid);
   for(volatile uint i=0;i<2000000;i++) ;        /* let the UART drain */
   intr_off();
-  *(volatile uint32*)0xE0102000U = 1;
-  for(;;) ;
+  if(cmd==REBOOT_CMD_HALT)
+    *(volatile uint32*)0xE010E81CU &= ~(1U<<8);
+  else
+    *(volatile uint32*)0xE0102000U = 1;
+  for(;;) asm volatile("wfi");
 #endif
 }

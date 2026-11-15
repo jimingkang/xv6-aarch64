@@ -91,7 +91,7 @@ long lseek(int, long, int);
 void *mmap(void *addr, uint len, int prot, int flags, int fd, uint offset);
 int munmap(void *addr, uint len);
 int ioctl(int fd, unsigned long cmd, void *arg);
-int reboot(void);
+int reboot(int cmd);
 
 // ulib.c
 int stat(const char*, struct stat*);

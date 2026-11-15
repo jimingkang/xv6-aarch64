@@ -308,9 +308,9 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需
 
 以后只改内核时，只需替换 FAT32 分区里的 xv6_tiny210.img。
 
-## 不拔卡更新内核（tftp + reboot）
+## 不拔卡更新内核（tftpclient + reboot）
 
-板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核：
+板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核。`tftpclient` 和 `reboot` 都取自 rpi3-lock 分支：
 
 ```sh
 make tiny210-tftp          # 先构建，再在 UDP 6969 上提供 build/tiny210（不需要 sudo）
@@ -319,15 +319,15 @@ make tiny210-tftp          # 先构建，再在 UDP 6969 上提供 build/tiny210
 板子上：
 
 ```
-$ tftp                     # 默认：从 /etc/tftp.conf 里的服务器下载 xv6_tiny210.img
-$ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD 卡启动
+$ tftpclient               # 默认：从 /etc/tftp.conf 里的服务器下载 xv6_tiny210.img
+$ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD 卡启动；reboot -h 关机（拉低 PS_HOLD）
 ```
 
 - `/etc/tftp.conf`（`server=IP:6969`）由 `make tiny210` 用本机 en0–en3 的地址生成，
-  也可以用 `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftp [IP[:端口] [文件名]]`。
+  也可以用 `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftpclient [IP[:端口] [文件名]]`。
 - 文件先下载到 `/boot/TFTP.TMP`，完整收到后才复制成 `/boot/<文件名>`。传输中断时，
   旧内核不会被破坏。
-- 不能用 tftp 更新 `FS.IMG`，因为它是正在挂载的根文件系统。`tftp`、`reboot` 这两个
+- 不能用 tftpclient 更新 `FS.IMG`，因为它是正在挂载的根文件系统。`tftpclient`、`reboot` 这两个
   命令本身也在 FS.IMG 里，所以第一次要插卡执行一次 `make tiny210 BOOTFS_FSIMG=1`。
 - `tiny210-sd.img` 是整张卡的原始镜像，其中 BL1 在扇区 1。它不经过 FAT32，所以放进
   /boot 不起作用。只有 BL1 变了，才需要插卡用 `dd` 写入。

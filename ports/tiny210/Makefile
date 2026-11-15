@@ -51,7 +51,7 @@ OBJS = $(addprefix $(BUILD)/kernel/,$(addsuffix .o,$(CORE))) \
   $(addprefix $(BUILD)/drivers/,$(addsuffix .o,$(DRIVERS))) \
   $(BUILD)/port/printf.o $(BUILD)/ramdisk.o $(BUILD)/initcode-embed.o \
   $(addprefix $(BUILD)/firmware/,$(addsuffix .o,$(FIRMWARE)))
-COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping tftp reboot
+COMMANDS = armcheck sh echo cat ls mkdir rm wc grep kill ln stressfs forktest fbtest wifi dhcp ping tftpclient reboot
 UPROGS = $(BUILD)/user/_init $(addprefix $(BUILD)/user/_,$(COMMANDS))
 ULIB = $(BUILD)/user/ulib.o $(BUILD)/user/printf.o $(BUILD)/user/umalloc.o $(BUILD)/shared/usys.o $(BUILD)/user-runtime.o $(BUILD)/shared/div.o
 IMG = $(BUILD)/xv6-tiny210
@@ -121,7 +121,7 @@ $(BUILD)/mkfs: mkfs/mkfs.c kernel/fs.h kernel/types.h kernel/param.h
 # "ssid=NAME" and "psk=PASSPHRASE" lines becomes /etc/wifi.conf, and init
 # then joins that network and runs DHCP on wlan0 at boot.
 WIFI_CONF ?= ports/tiny210/wifi.conf
-# /etc/tftp.conf tells the board's tftp where `make tftp` serves build/tiny210:
+# /etc/tftp.conf tells the board's tftpclient where `make tftp` serves build/tiny210:
 # this Mac's Wi-Fi/Ethernet address (override with TFTP_SERVER=a.b.c.d).
 TFTP_PORT ?= 6969
 TFTP_SERVER ?= $(shell for i in en0 en1 en2 en3; do ipconfig getifaddr $$i 2>/dev/null && break; done)
@@ -132,7 +132,7 @@ $(BUILD)/etc/tftp.conf: FORCE
 	@printf 'server=%s:%s\n' '$(TFTP_SERVER)' '$(TFTP_PORT)' > $@.new
 	@cmp -s $@.new $@ && rm -f $@.new || mv $@.new $@
 FORCE:
-# Serve build/tiny210 over TFTP (unprivileged port) for `tftp` on the board.
+# Serve build/tiny210 over TFTP (unprivileged port) for `tftpclient` on the board.
 tftp: all
 	python3 ports/tiny210/tftpserve.py $(BUILD) $(TFTP_PORT)
 $(BUILD)/fs.img: $(BUILD)/mkfs $(UPROGS) $(ETC_FILES)
