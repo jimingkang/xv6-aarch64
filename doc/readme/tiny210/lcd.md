@@ -158,6 +158,14 @@ flowchart LR
 /bin/windemo
 ```
 
+`windemo` 不是单个测试矩形，而是同时创建桌面、任务栏、文件资源管理器、系统信息
+和终端五个窗口。资源管理器通过普通 `open/read/stat` 读取当前根文件系统；终端通过
+`pty_open()` 创建主从 PTY，子进程把标准输入输出连接到 PTY slave 后执行
+`/bin/sh`，用户线程阻塞读取 PTY master，并用 `InvalidateRect` 把输出交回窗口消息
+循环。启动终端后会先执行一次 `pwd` 和 `ls /`，用于确认窗口、PTY、线程和 VFS
+四条路径能一起工作。窗口标题栏、激活颜色和任务栏由用户态 `win32.c/windemo`
+绘制，内核仍只负责 surface、Z 顺序、消息和最终合成。
+
 ## 8. 当前限制与改进方向
 
 当前实现：
@@ -173,7 +181,8 @@ flowchart LR
 
 1. 增加 FIMD VSYNC IRQ，在垂直消隐期完成 page flip，消除 tearing。
 2. 给 input core 增加 `EV_REL/EV_ABS`，接入 USB mouse 或触摸屏光标。
-3. 把完整控件、terminal/camview 应用逐步移到 Tiny210 用户态库。
+3. 在现有 PTY terminal 基础上增加光标、选择、滚动条和更多通用控件，再移植
+   camview 等应用。
 
 ## 9. 故障定位
 
@@ -185,4 +194,22 @@ flowchart LR
 | 彩条正确，文字不出现 | `fbcon_register()` 是否执行、串口输出是否经过 `uartputc_sync()` |
 | 花屏或越界 | 分辨率×4、ADD0/ADD1、PAGEWIDTH、framebuffer 保留大小 |
 | QEMU 没有 LCD 日志 | `tiny210-qemu` 使用替代硬件模型，不编译 `s3c-fb.c`，这是预期行为 |
+
+### 字迹模糊与单像素测试
+
+Tiny210 的 GPF0--GPF3 在切换到 FIMD 功能后仍必须关闭内部上下拉。驱动按 Linux
+`s5pv210_fb_gpio_setup_24bpp()` 的顺序配置 pinmux、PUD=none 和 4x drive；未关闭
+复位下拉时，并行 RGB 和 VCLK 的边沿可能变慢，在文字竖边表现为横向重影。
+
+控制台默认启用受限加粗，但不改变 8x16 字符格和 100x30 容量。诊断时运行：
+
+```sh
+/bin/fbtest sharp 30
+```
+
+四段图案分别是单像素竖线、横线、棋盘格和窄 RGB 条。图案清晰而文字不清晰，
+说明应调整字体；图案本身出现彩边或相邻像素粘连，则应检查 VCLK 采样边沿、排线
+和面板选择。可用 `make -f ports/tiny210/Makefile FBCON_BOLD=0` 关闭加粗作 A/B 对比。
+默认使用 BSP 的反相 VCLK；若单像素竖线仍有固定方向的重影，可再用
+`LCD_VCLK_INVERT=0` 编译作一次采样边沿 A/B 测试，不能仅凭普通照片判断极性。
 

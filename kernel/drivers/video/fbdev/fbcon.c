@@ -11,6 +11,24 @@ static uint32 xres, yres, cols, rows, cx, cy;
 static int paused;
 static const uint32 fg = 0x00e0e0e0, bg = 0x00102040;
 
+#ifndef FBCON_FONT_BOLD
+#define FBCON_FONT_BOLD 1
+#endif
+
+/* The original 8x16 bitmap contains many one-pixel stems.  On the 7-inch
+ * RGB panel they are hard to read even when the bus timing is correct.
+ * Widen them by one pixel, but do not add pixels in the two edge columns:
+ * adjacent character cells therefore never join together. */
+static uchar
+font_row(const uchar *g, int y)
+{
+  uchar bits = g ? g[y] : 0;
+#if FBCON_FONT_BOLD
+  bits |= (bits >> 1) & 0x7e;
+#endif
+  return bits;
+}
+
 static void
 fill(uint32 x, uint32 y, uint32 w, uint32 h, uint32 c)
 {
@@ -26,7 +44,7 @@ glyph(uint32 col, uint32 row, int ch)
   uint32 *p = fb + (row*FONT_H)*xres + col*FONT_W;
   const uchar *g = (ch >= FONT_FIRST && ch <= FONT_LAST) ? font8x16[ch-FONT_FIRST] : 0;
   for(int y = 0; y < FONT_H; y++, p += xres){
-    uchar bits = g ? g[y] : 0;
+    uchar bits = font_row(g, y);
     for(int x = 0; x < FONT_W; x++) p[x] = (bits & (0x80>>x)) ? fg : bg;
   }
 }
@@ -37,7 +55,8 @@ fbcon_register(uint32 *buf, uint32 w, uint32 h)
   fb = buf; xres = w; yres = h;
   cols = w/FONT_W; rows = h/FONT_H; cx = cy = 0;
   fill(0, 0, w, h, bg);
-  printf("fbcon: %dx%d text console\n", cols, rows);
+  printf("fbcon: %dx%d text console, 8x16 font%s\n", cols, rows,
+         FBCON_FONT_BOLD ? " bold" : "");
 }
 
 void

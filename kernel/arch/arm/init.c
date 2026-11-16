@@ -9,7 +9,12 @@ int main(void) {
   mknod("/dev/ttyS0",3,0);
   mknod("/dev/fb0",5,0);    /* FB: present when a framebuffer driver registered */
   mkdir("/dev/input");
+  /* eventN = Nth registered input device: K1-K8 buttons first, then USB
+     keyboards.  mknod fails harmlessly when the node already exists. */
   mknod("/dev/input/event0",INPUT_MAJOR,0);
+  mknod("/dev/input/event1",INPUT_MAJOR,1);
+  mknod("/dev/input/event2",INPUT_MAJOR,2);
+  mknod("/dev/input/event3",INPUT_MAJOR,3);
   /* The SD card's FAT32 boot partition at /boot (kernels with the VFS). */
   mkdir("/boot");
   if(mount("sd0p1","/boot","fat32",0)==0)

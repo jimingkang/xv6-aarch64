@@ -37,8 +37,8 @@ UPROGS
 make -f ports/tiny210/Makefile TINY210_FSBLOCKS=8192
 ```
 
-增大文件系统也会直接增大内核/uImage 和 BL1 从 SD 读取的扇区数，必须确保镜像仍
-位于预留原始区内。
+增大文件系统会增大 `fs.img`，必须确保 FAT32 分区或第 2 个原始分区有足够空间。
+实板 BL1 只从第 49 扇区读取 uImage，不读取 `fs.img`，其大小不受影响。
 
 ## 3. 磁盘格式
 

@@ -1154,7 +1154,56 @@ mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94
 
 ---
 
-## 12. 实板调试中踩过的坑（和架构的对应）
+## 12. 分层 Trace、函数链和日志前缀
+
+USB core、EHCI HCD 和 MT7601U 驱动的诊断输出由五个编译开关控制。总开关
+`USB_WIFI_TRACE` 可一次为五项设置相同等级：
+
+```sh
+# 打开五层常规跟踪
+make tiny210 USB_WIFI_TRACE=1
+
+# 加上逐寄存器和逐 802.11 帧日志
+make tiny210 USB_WIFI_TRACE=2
+
+# 打开全部但屏蔽最密集的 QH/qTD 传输日志
+make tiny210 USB_WIFI_TRACE=1 USB_XFER_TRACE=0
+```
+
+| 开关 | 前缀 | 与本章调用链的对应位置 |
+|---|---|---|
+| `USB_CORE_TRACE` | `usb-core:` | 11.1 的 `usb_device_register`、`usb_driver_register`、match/probe/remove |
+| `USB_ENUM_TRACE` | `usb-enum:` | 10.1/11.1 的根口、Hub、descriptor、SET_ADDRESS、SET_CONFIGURATION |
+| `USB_XFER_TRACE` | `usb-xfer:` | 5.2--5.5 的 QH/qTD、control/bulk、EP4 RX ring 和 EHCI IRQ |
+| `MT7601U_CONFIG_TRACE=1` | `wifi-config:` | 7.2 的 firmware/eFuse/MAC/BBP/RF/calibration 和 8.1 的状态机 |
+| `MT7601U_CONFIG_TRACE=2` | `wifi-reg:` | 在配置跟踪上增加每次 MT7601U 寄存器访问 |
+| `MT7601U_DATA_TRACE=1` | `wifi-data:` | 11.2/11.4 的 NAPI、Ethernet、EP4 RX 与 EP8 TX |
+| `MT7601U_DATA_TRACE=2` | `wifi-frame:` | 在数据跟踪上增加每个 802.11 帧的摘要 |
+
+一次完整接收可以按前缀对齐为：
+
+```text
+USBSTS.USBINT -> ehci_irq
+  -> usb-xfer: qTD 完成、EP4 缓冲出队/重新挂入
+  -> mt7601u_rx_irq -> napi_schedule -> mt7601u_napi_poll
+  -> wifi-data: RX 缓冲、Ethernet 上交和统计
+  -> wifi-frame: RXWI/802.11 frame 摘要（仅 DATA_TRACE >= 2）
+```
+
+配置写寄存器则是：
+
+```text
+usb-core: match 148f:7601 -> mt7601u_probe
+  -> wifi-config: 固件 -> eFuse -> MAC -> BBP -> RF -> calibration
+  -> wifi-reg: vendor control request 的寄存器和值（仅 CONFIG_TRACE >= 2）
+  -> usb-xfer: 对应 EP0 control 或 EP8/EP5 bulk 的 qTD 生命周期
+```
+
+诊断级别不会屏蔽错误、超时和最终初始化结果。Makefile 用
+`build/tiny210/.usb-wifi-trace` 记录本次取值，开关变化会自动重编译三个受影响的
+源文件，不需要 `make clean`。
+
+## 13. 实板调试中踩过的坑（和架构的对应）
 
 详见 `bringup-notes.md`，这里只按层列出：
 
@@ -1167,4 +1216,334 @@ mt7601u: data rx fc=4a08 len=68 rxinfo=112092 a1=90:de:80:14:95:94
 | 802.11 | 连其他 SSID 时关联被拒 | `send_assoc` 的 SSID IE 写死为 TP-Link_B114 | 改用 `want_ssid`（本版修改，未上板） |
 | 802.11 | 握手成功但 `dhcp: no offer` | 硬件解密后的帧仍保留 Protected 位和 8 字节 CCMP 头，LLC/SNAP 校验失败，所有数据帧被丢 | `rx_data` 在 DECRYPT 时跳过 8 字节（b2326c2）→ DHCP 成功 |
 
-还没做：ping 外网的实板确认；去掉/开关化 `data tx`、`data rx`、`rx so far`、`rx drop` 这些调试打印。
+还没做：ping 外网的实板确认。`data tx`、`data rx`、`rx so far`、`rx drop`
+等详细输出现已归入 `MT7601U_DATA_TRACE`，默认构建不输出。
+
+## 14. 2026-11-16 排查：Tiny210 关联失败（auth 卡死 → ACK 丢失）
+
+这一节记录一次完整的实板排查：从 `wifi: association failed` 开始，逐步定位到
+802.11 ACK 双向丢失。所有结论都对应到具体日志行。
+
+### 14.1 参与的进程、中断上下文与锁
+
+![进程/锁通信图](images/mt7601u-processes-locks-comm.svg)
+
+图下半部分逐条列出 0–8 号消息的方向、调用链、锁和成功运行的日志，文字版见 14.6。
+
+真正参与的只有 **2 个进程 + 1 个中断上下文**：
+
+| 执行体 | 做什么 |
+|---|---|
+| 用户进程 `wifi`（`sys_wifi_connect` → `mt7601u_connect`） | 写目标 SSID/PMK，`mod_delayed_work` 唤醒状态机，然后每 tick `sleep(&ticks)` 轮询 `handshake_done`，30 s 超时 |
+| `mt7601u_wq` 工作线程（pid 4） | work A：`state_worker`（扫描、set_channel、auth/assoc/WPA2 发送与重试）；work B：NAPI poll（取 EP4 完成、`rx_parse`、重挂缓冲）。**A、B 在同一线程串行** |
+| EHCI 中断（IRQ 55，不是进程） | `ehci_irq` → `mt7601u_rx_irq` → `napi_schedule` → `queue_work(B)` |
+| `ehci-enum` kthread | 只在 probe 阶段工作（固件、eFuse、寄存器表、EP4 环），结束时置 `ready=1` |
+
+这条路径上的锁（7 把；`enum_lock` 只在枚举时用）：
+
+| 锁 | 类型 | 用途 / 问题 |
+|---|---|---|
+| `dev->lock` "mt7601u" | 自旋锁 | 驱动状态。**`mt7601u_service` 持有它去做 USB 传输，期间关中断，EP8 卡住时最长 3 s** |
+| `xfer_lock` "ehci-xfer" | 睡眠锁 | 一次一个同步传输。**在持有 `dev->lock` 时获取，一旦竞争就 sleep → "sched locks" panic（潜在）** |
+| `ehci_lock` "ehci" | 自旋锁 | qTD 池与队列 |
+| `napi->lock` "napi" | 自旋锁 | scheduled/missed 标志，中断里也会取 |
+| `wq->lock` "mt7601u_wq" | 自旋锁 | 工作队列 |
+| `delayed_lock` "delayed work" | 自旋锁 | 定时工作 |
+| `tickslock` | 自旋锁 | connect 每 tick 睡眠 |
+
+### 14.2 第一阶段：auth 帧卡在 EP8 OUT
+
+![auth 卡在 EP8 的时序图](images/mt7601u-tx-stall-seq.svg)
+
+现象：`bulk ep8 out 60 bytes failed token=-1`，qTD 一直 Active，主机收到
+PING/NAK 3 s 后超时，`authentication timeout`。与 `MT7601U_WCID_CLEAR=0`
+（跳过 3977211 引入的 WCID/key 表清零）后，同样的 EP8/MGMT 路径连续两次上板都正常发完。
+
+### 14.3 第二阶段：固定 ch9 后 auth 成功、关联无效
+
+![固定 ch9 的关联时序图](images/mt7601u-ch9-assoc-seq.svg)
+
+关键日志：
+
+```
+wifi-data: rx-mgmt subtype=11 retry=1 seq=95  from=cb:b1:14 len=30 body=0 2 0
+mt7601u: Open-System authentication accepted
+mt7601u: association request sent rsn=22 bytes
+wifi-data: rx-mgmt subtype=11 retry=1 seq=103 ...           <- auth 响应仍在重发
+wifi-data: rx-mgmt subtype=1  retry=1 seq=104 ... body=1c11 0 c00a
+mt7601u: 802.11 associated aid=10; WPA2 handshake pending
+wifi-data: rx-mgmt subtype=1  retry=0 seq=2 ...             <- assoc 响应来了 10 多个，序号各不相同
+...
+mt7601u: WPA2 M1 timeout; reassociating
+```
+
+解读：AP 的 auth/assoc 响应全部带 retry=1 反复重发 → AP 收不到我们的 ACK；我们只发了
+1 个 assoc 请求，却收到十几个序号不同的 assoc 响应 → 我们的 MAC 也收不到 AP 的 ACK，按
+`TX_RTY_CFG`(0x134c) 自动重发了 assoc 请求。AP 只有在 assoc 响应被 ACK 后才发 EAPOL M1，
+所以 M1 永远不来。
+
+### 14.4 全部问题与处理
+
+| # | 现象 | 根因 | 处理 | 状态 |
+|---|---|---|---|---|
+| 1 | 开机立即 `wifi: association failed` | init 第一次调用时 USB 还没枚举，驱动未注册 | init 自动重试 10 次 | 正常行为 |
+| 2 | connect 的 30 s 耗在 probe 上 | probe 一开始就置 `used`，connect 立刻计时 | 新增 `ready`，probe 结束才置 1；connect 先等 ready（≤60 s） | ✅ 已修，已上板验证 |
+| 3 | `EHCI IRQ -> napi_schedule` 刷屏 | 每个中断打印一行 | 只打前 4 次，之后每 256 次一行 | ✅ 已修 |
+| 4 | `USB_WIFI_TRACE=1` 没打印全部 | level 1 只开 data/config；wifi-reg/wifi-frame 要 level 2 | 说明开关含义；`.usb-wifi-trace` 自动重编译 | 非 bug |
+| 5 | auth 卡在 EP8 OUT（PING/NAK 3 s） | 与 3977211 的 WCID/key 表清零相关 | `MT7601U_WCID_CLEAR=0` 绕过；新增 `MT7601U_TX_EDCA_EP4` 试验开关（不需要） | ⚠️ 绕过，默认值待定 |
+| 6 | 跳过清零时仍打印 "WCID/key tables cleared" | printf 在 `#if` 外 | 打印随开关变化 | ✅ 已修 |
+| 7 | 扫描找不到 TP-Link_B114 | 每信道 500 ms + RX 严重丢帧（AP 实际在 ch9） | 新增 `MT7601U_SCAN_CHAN=9` 固定信道，且同信道不再重复调谐 | 🔧 诊断手段 |
+| 8 | 怀疑 TX 状态 FIFO 积满停发 | — | 超时时读 FIFO：一条状态都没有 | ❌ 已排除 |
+| 9 | 关联后 `WPA2 M1 timeout`（见 14.5） | 802.11 ACK 双向丢失：`MAC_ADDR_DW1` 的 UNICAST_TO_ME 掩码为 0，芯片不把帧当作发给自己，不自动回 ACK（曾怀疑频偏/供电，`rx-phy` 已排除频偏） | `MAC_ADDR_DW1` 补 UNICAST_TO_ME 掩码 0xff<<16（Linux `mt7601u_set_macaddr`）；另加 `rx-mgmt`、`rx-phy` 诊断 | ✅ 已修，06:23 构建上板拿到 DHCP |
+| 10 | `rx-drop icv=1 fc=4208` | 其他终端的加密广播数据，无密钥 | 忽略 | 正常 |
+| 11 | 锁 | `dev->lock` 跨 USB 传输持有（关中断）；自旋锁内取睡眠锁 | 计划把 USB I/O 移出自旋锁或改为睡眠锁 | ⏳ 未改 |
+
+复现命令：
+
+```
+make tiny210-sdimg USB_WIFI_TRACE=1 USB_XFER_TRACE=0 \
+     MT7601U_TX_EDCA_EP4=0 MT7601U_WCID_CLEAR=0 MT7601U_SCAN_CHAN=9
+```
+
+### 14.5 结果：UNICAST_TO_ME 掩码修复 ACK（06:23 构建）
+
+`MAC_ADDR_DW1` 原来只写 MAC 的最后两字节，bits 23:16（UNICAST_TO_ME 掩码）为 0；
+改为与 Linux 相同的 0xff 后（日志 `MAC=ff9495:1480de90`），同样的固定 ch9 运行：
+
+```
+mt7601u: 802.11 associated aid=10; WPA2 handshake pending   <- assoc 响应只重发 1 次
+mt7601u: received WPA2 EAPOL M1 key-info=8a
+mt7601u: sent WPA2 EAPOL M2 replay=0001
+mt7601u: keys installed: PTK wcid=1 attr=9, GTK idx=1 skey-mode=40
+mt7601u: WPA2 four-way handshake complete
+wifi: associated
+dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1
+arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14
+```
+
+- `rx-phy` 显示 `freq_off=15` 稳定、SNR 55–76，频偏校准不是问题。
+- 逐帧 RX 日志（`rx-completion`、`rx-aggregate`、`NAPI poll`）降到 level 2：level 1 下 115200 波特率串口本身让 EP4 环一直满（`done=4 completed=0`）。
+- 遗留：M4 发了 3 次（AP 重发 M3），DHCP 首次重试时收到 `deauth reason=6`，驱动自动重连后成功。
+- 待确认：默认参数（`WCID_CLEAR=1`、自动扫描）下是否同样能连上。
+
+### 14.6 成功连接的完整通信过程（对应通信图 0–8）
+
+下面每一步对应 14.1 通信图里的编号，日志全部取自 2026-11-16 06:23 构建（固定 ch9、
+`WCID_CLEAR=0`、UNICAST_TO_ME 已修）的成功运行。
+
+```
+ehci-enum(probe) ─0─▶ IRQ 可用
+wifi(connect) ─1─▶ work A ─2─▶ EHCI ─EP8─▶ 芯片 ─6─▶ AP
+AP ─7─▶ 芯片 ─EP4─▶ EHCI ─3─▶ IRQ ─4─▶ work B ─5─▶ rx_parse/rx_mgmt/rx_data
+work A/B ─8─▶ wifi(connect 返回 0) → DHCP → ARP
+```
+
+#### 0. probe 完成，IRQ 交给 NAPI
+
+- **方向**：ehci-enum kthread → mt7601u 驱动 → EHCI IRQ
+- **锁**：enum_lock · dev->lock · xfer_lock
+- **过程**：ehci_enum_thread → usb-core match → mt7601u_probe：下载固件(EP8)、eFuse/MAC/BBP/RF 表(EP0)、挂 4 个 EP4 接收缓冲；最后 __sync_synchronize(); ready=1。此后 EHCI 的 USBINT 才转给 napi_schedule。
+
+```
+wifi-config: basic init end USB_DMA_CFG=e08020 MAC=ff9495:1480de90   <- UNICAST_TO_ME=0xff
+mt7601u: EP4 receive uses USB host IRQ with 4 buffers
+mt7601u: transport and MCU ready; SoftMAC initialization pending
+usb-core: probe end driver=mt7601u device=148f:7601 result=0
+wifi-data: EHCI IRQ -> napi_schedule (#1)
+```
+
+#### 1. connect 设置目标、唤醒状态机
+
+- **方向**：用户进程 wifi → mt7601u_wq（work A）
+- **锁**：dev->lock · wq->lock · delayed_lock · tickslock
+- **过程**：/bin/wifi → sys_wifi_connect → mt7601u_connect：等 ready → PBKDF2 算 PMK → 持 dev->lock 写 want_ssid/pmk、link_state=SCAN → mod_delayed_work(state_work) → 每 tick sleep(&ticks) 轮询 handshake_done（30 s）。
+
+```
+wifi: connecting to TP-Link_B114
+mt7601u: joining TP-Link_B114
+```
+
+#### 2. work A 发起 USB 传输（调谐 + 发管理帧）
+
+- **方向**：mt7601u_wq work A → EHCI 主控（EP0 / EP8 OUT）
+- **锁**：dev->lock（关中断）· xfer_lock（睡眠锁）· ehci_lock
+- **过程**：state_worker → mt7601u_service(0,1)：set_channel 用 EP0 写 RF bank0 R17–20、BBP62–64、VCO 校准；send_auth/assoc → tx_raw：TXINFO(QSEL=MGMT)+TXWI(20 B)+802.11 帧 → ehci_usb_bulk(EP8) → wait_qtd 直到 qTD 完成。
+
+```
+wifi-config: set-channel begin old=1 new=9 gain=55
+wifi-config: set-channel end channel=9
+mt7601u: target TP-Link_B114 found bssid=f0:9:d:cb:b1:14 channel=9 WPA2 (radio on 9)
+mt7601u: WLAN TX path EP8 qsel=MGMT
+wifi-data: tx-complete EP8 usb-bytes=60 mpdu=30
+mt7601u: authentication request sent
+```
+
+#### 3. EP4 收到帧，主控产生 USBINT
+
+- **方向**：EHCI 主控 → 中断上下文（IRQ 55）
+- **锁**：—（硬件）
+- **过程**：芯片把收到的 802.11 帧（RXINFO+RXWI+帧）经 EP4 IN 送进已挂好的 16 KB 缓冲，qTD 完成 → USBSTS.USBINT → VIC → ehci_irq。日志按前 4 次、之后每 256 次打印一次。
+
+```
+wifi-data: EHCI IRQ -> napi_schedule (#2)
+wifi-data: EHCI IRQ -> napi_schedule (#256)
+wifi-data: EHCI IRQ -> napi_schedule (#512)
+```
+
+#### 4. 中断里只调度 NAPI
+
+- **方向**：中断上下文 → mt7601u_wq（work B）
+- **锁**：napi->lock · wq->lock
+- **过程**：ehci_irq → mt7601u_rx_irq（used && ready）→ napi_schedule：置 scheduled（已在跑则置 missed）→ queue_work(napi->work)。中断里不做任何 USB 传输。
+
+```
+（每次中断一次；与第 3 步共用同一行日志）
+```
+
+#### 5. work B 取帧、解析、重挂缓冲
+
+- **方向**：EHCI 主控 → mt7601u_wq work B
+- **锁**：dev->lock · ehci_lock
+- **过程**：napi_workfn → poll → mt7601u_service(1,0) → bulk_rx_complete(EP4) → rx_parse（按 dma_len 拆聚合）→ rx_mgmt（beacon/auth/assoc/deauth）或 rx_data（EAPOL、IP）→ bulk_rx_arm 重挂。budget=4，满 4 个则再调度。
+
+```
+wifi-data: rx-frame #20 fc=80 from=cb:b1:14 seq=1635 len=383      <- beacon，seq 递增=真实流量
+mt7601u: AP ssid=TP-Link_B114 bssid=f0:9:d:cb:b1:14 channel=9 WPA2
+wifi-data: rx-phy from-ap subtype=8 snr=62 gain=d2 lna=3 vga=18 freq_off=15 rate=0
+wifi-data: rx-decapsulate ethertype=806 ethernet-bytes=42 to-me=1
+wifi-data: deliver ethernet bytes=42 -> net_rx_dev(wlan0)
+```
+
+#### 6. 板子 → AP（空口发送）
+
+- **方向**：MT7601U 芯片 → AP TP-Link_B114
+- **锁**：—（芯片 MAC，硬件重试 TX_RTY_CFG）
+- **过程**：EP8 收到的帧进入 MAC 管理队列，1 Mbit/s CCK 发出，等待 AP 的 ACK；收不到会自动重发。依次：auth(seq=1)、assoc(SSID+8 速率+RSN 22 B)、EAPOL M2/M4（work A/B），连上后 DHCP/ARP 走 mt7601u_net_xmit。
+
+```
+mt7601u: authentication request sent
+wifi-data: tx-complete EP8 usb-bytes=104 mpdu=74
+mt7601u: association request sent rsn=22 bytes
+wifi-data: tx-complete EP8 usb-bytes=184 mpdu=153
+mt7601u: sent WPA2 EAPOL M2 replay=0001
+mt7601u: sent WPA2 EAPOL M4
+wifi-data: net-xmit ethertype=800 len=342 dst=ff:ff:ff:ff:ff:ff result=0   <- DHCP discover
+```
+
+#### 7. AP → 板子（响应、握手、数据）
+
+- **方向**：AP TP-Link_B114 → MT7601U 芯片（再经第 3–5 步上交）
+- **锁**：—（芯片对发给自己的帧自动回 ACK）
+- **过程**：AP 的 auth/assoc 响应、EAPOL M1/M3、DHCP、ARP 都要被我们 ACK。UNICAST_TO_ME 掩码修好后，assoc 响应只重发 1 次，M1 随即到来；PTK/GTK 写入 WCID 1 / 共享密钥表，之后数据帧由硬件解密。
+
+```
+wifi-data: rx-mgmt subtype=11 retry=1 seq=8 from=cb:b1:14 len=30 body=0 2 0
+mt7601u: Open-System authentication accepted
+wifi-data: rx-mgmt subtype=1 retry=1 seq=9 from=cb:b1:14 len=107 body=1c11 0 c00a
+mt7601u: 802.11 associated aid=10; WPA2 handshake pending
+mt7601u: received WPA2 EAPOL M1 key-info=8a
+mt7601u: keys installed: PTK wcid=1 attr=9, GTK idx=1 skey-mode=40
+dhcp: dev=wlan0 address=192.168.0.219 gateway=192.168.0.1 dns=192.168.0.1
+arp: dev=wlan0 gateway 192.168.0.1 is f0:9:d:cb:b1:14
+```
+
+#### 8. 握手完成，connect 返回
+
+- **方向**：mt7601u_wq → 用户进程 wifi
+- **锁**：dev->lock · tickslock
+- **过程**：M4 发出后 handshake_done=1、注册 wlan0；connect 的轮询循环看到 handshake_done 返回 0，/bin/wifi 打印 associated，init 接着跑 DHCP。之后 AP 发 deauth reason=6，驱动自动重连并再次完成握手。
+
+```
+mt7601u: WPA2 four-way handshake complete
+mt7601u: wlan0 registered mac=90:de:80:14:95:94
+wifi: associated
+mt7601u: deauthentication from AP reason=6 (link_state=5 handshake=1)
+mt7601u: reconnecting
+```
+
+#### 小结
+
+| 阶段 | 帧（方向） | 发送路径 | 接收路径 | 关键日志 |
+|---|---|---|---|---|
+| 扫描 | beacon（AP→板） | — | 3→4→5 | `rx-frame … from=cb:b1:14`、`AP ssid=TP-Link_B114` |
+| 认证 | auth 请求 / 响应 | 2→6 | 7→3→4→5 | `authentication request sent`、`Open-System authentication accepted` |
+| 关联 | assoc 请求 / 响应 | 2→6 | 7→3→4→5 | `association request sent rsn=22 bytes`、`associated aid=10` |
+| WPA2 | M1/M3（AP→板）、M2/M4（板→AP） | 5 中直接调用 tx_raw → 6 | 7→3→4→5 | `received … M1`、`sent … M2`、`keys installed`、`sent … M4` |
+| 完成 | — | — | — | `four-way handshake complete`、`wifi: associated`（8） |
+| DHCP/ARP | IP/ARP 数据帧 | net_xmit → EP8 → 6 | 7→3→4→5→net_rx_dev | `dhcp: … address=192.168.0.219`、`arp: … gateway … is f0:9:d:cb:b1:14` |
+
+每一个从 AP 来的单播帧（auth/assoc 响应、M1/M3、DHCP、ARP）都需要芯片在 SIFS 内自动回 ACK，
+这一步依赖 `MAC_ADDR_DW1` 的 UNICAST_TO_ME 掩码；掩码为 0 时第 7 步的帧虽能收到，
+AP 却收不到 ACK，会不停重发并且不发 M1（见 14.3、14.5）。
+
+### 14.7 每一步的函数、USB 传输方式与数据格式
+
+与通信图卡片中的“函数 / USB 传输 / 数据格式”三行一致，均按源码（`mt7601u.c`、`ehci-hcd.c`）核对。
+
+**0. probe 完成，IRQ 交给 NAPI**
+
+- 函数：ehci_enum_thread → enumerate → usb-core match → mt7601u_probe → mt7601u_load_firmware/mt7601u_dma_fw_chunk → mt7601u_read_eeprom/mt7601u_efuse_read_block → mt7601u_basic_hw_init → mt7601u_mcu_command → mt7601u_full_hw_init(mt7601u_bbp_write / mt7601u_rf_write) → mt7601u_set_channel → bulk_rx_arm×4
+- USB 传输：EP0 控制（ehci_usb_control → control_qh：Setup+Data+Status 三个 qTD，wait_qtd 同步）；EP8 bulk OUT 固件/MCU 命令（ehci_usb_bulk → bulk_qh，同步）；EP5 bulk IN MCU 应答（同步）；EP4 bulk IN ×4 异步预挂（ehci_usb_bulk_rx_arm，qTD 带 IOC）
+- 数据格式：读 32 位 Setup C0 07 0000 reg 0004 → 4 B 小端；写 32 位 40 02 lo reg / 40 02 hi reg+2（无数据阶段）；BBP_CSR = val|reg<<8|WRITE|BUSY；RF_CSR = val|reg<<8|bank<<14|WRITE|KICK；固件：FCE(0x42) 写 DMA_ADDR/DMA_LEN，再 EP8 [TXINFO (2<<27)|len][块][4B 0]；MCU：[TXINFO 1<<30|2<<27|cmd<<20|seq<<16|len][payload][4B 0]，EP5 回 16 B（如 4a010008）
+
+**1. connect 设置目标、唤醒状态机**
+
+- 函数：/bin/wifi → sys_wifi_connect → mt7601u_connect → wpa_pbkdf2 → mod_delayed_work(state_work) → 循环 sleep(&ticks)
+- USB 传输：无
+- 数据格式：内存：want_ssid、pmk[32]、link_state=SCAN
+
+**2. work A 发起 USB 传输**
+
+- 函数：mt7601u_state_worker → mt7601u_service(0,1) → mt7601u_set_channel ｜ mt7601u_send_auth/send_assoc → mt7601u_build_mgmt_header → mt7601u_tx_mgmt → mt7601u_tx_raw → ehci_usb_bulk(EP8)
+- USB 传输：调谐：EP0 控制（RF bank0 R17–20、BBP62–64、VCO R4/R5）；发帧：EP8 bulk OUT 同步，高速 OUT 由主控 PING/NAK 流控，3 s 超时
+- 数据格式：[TXINFO 4B][TXWI 20B][802.11 MPDU][补齐 4B][4B 0]（位域见图末）；TXWI rate_ctl=0（CCK 1M）ack_ctl=1 wcid=0xff len_ctl=MPDU 长；auth MPDU 30 B → USB 60 B，assoc 74 B → 104 B
+
+**3. EP4 完成，主控产生 USBINT**
+
+- 函数：主控硬件完成 qTD → USBSTS.USBINT → VIC → ehci_irq
+- USB 传输：EP4 bulk IN：主控异步调度自动轮询设备，CPU 不参与
+- 数据格式：USBSTS 写 1 清零（W1C）；EP4 数据落在预挂的 16 KB 缓冲（格式见第 5 步）
+
+**4. 中断里只调度 NAPI**
+
+- 函数：ehci_irq → mt7601u_rx_irq（used && ready）→ napi_schedule → queue_work(napi->work)
+- USB 传输：无
+- 数据格式：只改 napi->scheduled / missed 标志
+
+**5. work B 取帧、解析、重挂缓冲**
+
+- 函数：napi_workfn → mt7601u_napi_poll → mt7601u_service(1,0) → ehci_usb_bulk_rx_complete → mt7601u_rx_parse → mt7601u_rx_mgmt ｜ mt7601u_rx_data → mt7601u_rx_eapol / net_rx_dev → ehci_usb_bulk_rx_arm
+- USB 传输：从 QH 摘下已完成 qTD（TOK_ACTIVE=0），同一块 16 KB 缓冲再挂回
+- 数据格式：一个 USB 缓冲可聚合多帧，每段 [DMA 头 4B dma_len][RXWI 28B][MPDU][补齐][4B 尾]，段长 = dma_len+8；RXINFO bit8 CRC、9 ICV、10 MIC、14 L2PAD、16 DECRYPT；RXWI 字节 16 SNR、18 增益、19 freq_off
+
+**6. 板子 → AP（空口发送）**
+
+- 函数：管理帧同第 2 步；EAPOL：mt7601u_rx_eapol → mt7601u_send_m2/send_m4 → mt7601u_send_llc → mt7601u_tx_raw；数据：mt7601u_net_xmit → mt7601u_send_llc → mt7601u_tx_raw
+- USB 传输：EP8 bulk OUT 同步；芯片 MAC 以 CCK 1 Mbit/s 发上空口，无 ACK 按 TX_RTY_CFG 重发
+- 数据格式：auth fc=00b0 体 0 1 0；assoc fc=0000 体 能力+listen 10+SSID IE+8 速率+RSN IE 22B；EAPOL fc=0108（Data+ToDS）+ LLC aa aa 03 00 00 00 88 8e + EAPOL-Key（M2 153 B，WIV=1 不加密）；DHCP/ARP fc=4108（+Protected，WCID 1 的 PTK 硬件 CCMP），LLC 0800/0806
+
+**7. AP → 板子（响应、握手、数据）**
+
+- 函数：芯片自动回 ACK → 第 3→4→5 步 → mt7601u_rx_mgmt（auth/assoc 响应）｜ mt7601u_rx_data → mt7601u_rx_eapol（M1/M3 → mt7601u_install_ccmp_keys：WCID 1 PTK + GTK）｜ net_rx_dev（DHCP/ARP）
+- USB 传输：EP4 bulk IN（异步）
+- 数据格式：auth 响应 fc=00b0 体 0 2 0；assoc 响应 fc=0010 体 1c11 0 c00a（能力、状态 0、AID=10|0xc000）；数据 fc=4208（Data+FromDS+Protected），RXINFO DECRYPT=1，跳过 8 B CCMP 头再解 LLC
+
+**8. 握手完成，connect 返回**
+
+- 函数：mt7601u_send_m4 → handshake_done=1 → 注册 wlan0；mt7601u_connect 循环看到 handshake_done → return 0 → sys_wifi_connect → /bin/wifi 打印 associated
+- USB 传输：无
+- 数据格式：共享变量 dev->handshake_done
+
+描述符位域：
+
+```
+TXINFO (EP8 每包前 4 B)
+  31   30   29..27        26..25      24   23..20    19      18..16    15..0
+  -    CMD  d_port         QSEL        WIV  cmd(MCU)  802.11  seq(MCU)  长度(TXWI+MPDU 补齐到 4)
+            WLAN=0,CPU=2   MGMT=0,EDCA=2
+
+EP8 OUT 一包: [TXINFO 4][TXWI 20: flags2 rate_ctl2 ack1 wcid1 len_ctl2 iv4 eiv4 aid/stream/ctl4][MPDU][补齐][0 x4]
+EP4 IN 一段: [DMA 头 4: dma_len][RXWI 28: RXINFO4 ctl4(MPDU 长 b16-27) ... SNR@16 gain@18 freq_off@19][MPDU][补齐][尾 4]
+RXINFO: bit8 CRC  bit9 ICV  bit10 MIC  bit14 L2PAD  bit16 DECRYPT
+EP0 Setup: [bmRequestType C0读/40写][bRequest 7读/2写/0x42 FCE][wValue 写值 16 位][wIndex 寄存器][wLength 4/0]
+```

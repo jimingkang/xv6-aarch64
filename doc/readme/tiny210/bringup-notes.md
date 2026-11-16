@@ -1,8 +1,9 @@
 # Tiny210 上板调试记录：BL1、SD、USB 与串口
 
 本文记录在 FriendlyARM Tiny210（S5PV210）实板上调通 BL1 → xv6 启动链、
-SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一条都对应
-一次实际的串口现象，便于以后遇到同类问题时对照。
+SD 卡文件系统、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一条都对应
+一次实际的串口现象，便于以后遇到同类问题时对照。第 5、6 节记录的 BL1
+自带 SDHCI/FAT32 路径后来已删除：现在 BL1 只从固定第 49 扇区读原始 uImage。
 
 相关代码：`kernel/arch/arm/mach-s5pv210/bl1/`（BL1）、
 `kernel/drivers/mmc/host/`（SD）、`kernel/drivers/usb/host/ehci-hcd.c`、
@@ -14,8 +15,8 @@ SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一�
 上电 → iROM（BL0，片内 ROM 0xD0000000）
      → 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字节头
      → 跳到 0xD0020010：BL1（在 iRAM 中运行）
-         时钟 / UART / DDR 初始化 → 读 MBR → FAT32 → xv6_tiny210.img
-         → 读到 DDR 0x20007FC0（uImage 数据正好落在 0x20008000）
+         时钟 / UART / DDR 初始化 → iROM CopySDMMCtoMem 读第 49 扇区 uImage
+         → 读到 DDR 0x20007FC0（uImage 数据正好落在 0x20008000），校验 CRC
      → 跳到 0x20008000：xv6 内核（在 DDR 中运行）
          SDHCI → fat32init（FS.IMG 作根文件系统）→ init 挂载 /boot
 ```
@@ -33,8 +34,8 @@ SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一�
   | 栈 | 0xD0036000 向下 |
   | iROM 自用数据 | 0xD0037xxx（启动通道变量 0xD0037488、拷贝函数指针 0xD0037F98） |
 
-- DDR 初始化好以后，大块数据都放在 DDR：内核 0x20007FC0、扇区缓冲
-  0x21000000、ATAG 0x20000100。
+- DDR 初始化好以后，大块数据都放在 DDR：内核 0x20007FC0、
+  ATAG 0x20000100。
 
 ## 2. 串口：板子正常，终端显示乱码
 
@@ -106,6 +107,10 @@ Tiny210 实测 `hccparams a010`，不支持 64 位，但布局已按规范留出
 - 自己的初始化失败时，退回 iROM 函数（最后一个参数 `init=1` 让它重新
   初始化卡），读第 49 扇区的后备内核。
 
+**现状**：BL1 已不再解析 MBR/FAT32，这段自有 SDHCI 代码从 BL1 中删除；
+启动只读取第 49 扇区，从不访问第 0 扇区。`sdcore.c` 仍由内核的
+`sdhci-s3c.c` 使用。
+
 ## 6. 初始化“无声失败”：R1b 的 busy 结束判断
 
 **现象**：`own SD init failed`，但没有任何具体原因。
@@ -117,6 +122,8 @@ R1b 响应，原来只等 Transfer Complete 中断，这个控制器在没有数
 **解决**（0cec709）：每一步都打日志；R1b 的 busy 期以 Transfer Complete
 **或** PRNSTS bit20（DAT0 电平）变高为结束。之后初始化成功：
 `SD 2.0 card, ocr 0xc0ff8000`、`SDHC/SDXC card, 4-bit 24 MHz, rca 0x21e1`。
+这段是当时 BL1 自有 SDHCI 路径的记录；该路径现已删除，内核侧的 SD 初始化
+仍使用同样的结束条件。
 
 ## 7. 没有异常向量表时，出错只会“卡死”
 
@@ -168,7 +175,8 @@ BL1: CPU exception: data abort lr=0xd00217fc dfar=0x210001c6 dfsr=0x00000001
 它合并成了一条非对齐的 `ldr`；而 iROM 留下的 SCTLR.A=1（开着对齐检查）。
 
 **解决**（6653ddc）：BL1 用 `-mno-unaligned-access` 编译，并在启动时清
-SCTLR.A。内核的 `entry.S` 本来就清了 A 位。
+SCTLR.A。内核的 `entry.S` 本来就清了 A 位。触发问题的 MBR 解析路径已随
+BL1 的 FAT32 支持一起删除，但编译选项和 SCTLR.A 处理仍然保留。
 
 ## 10. SD 卡布局与文件
 
@@ -176,18 +184,21 @@ SCTLR.A。内核的 `entry.S` 本来就清了 A 位。
 | --- | --- |
 | 第 0 扇区 | MBR（不动） |
 | 第 1–32 扇区 | BL1（16 KiB） |
-| 第 49 扇区起 | 后备内核（原始 uImage，约 8.6k 扇区） |
+| 第 49 扇区起 | 启动内核（原始 uImage，`make` 会打印实际扇区数） |
 | 第 31248 扇区起 | FAT32（`/Volumes/bootfs`） |
-| FAT32 根目录 | `xv6_tiny210.img`（内核）、`FS.IMG`（根文件系统，可写）、`mt7601u.bin` |
+| FAT32 根目录 | `FS.IMG`（根文件系统，可写）、`mt7601u.bin`；BL1 不读取 |
 
-- `xv6_tiny210.img` 是 VFAT 长文件名，BL1 不区分大小写匹配。
-- 内核镜像里还内嵌了一份 4 MiB 的 fs.img 作为后备根文件系统，
-  卡上没有 `FS.IMG` 时使用（只在内存中，修改不保存）。
-- `make tiny210` 会把内核和固件拷到 `/Volumes/bootfs`；`FS.IMG` 只在卡上
-  没有时才写（`BOOTFS_FSIMG=1` 强制覆盖）。BL1 变化时需要手动：
+- BL1 只读第 49 扇区，不解析 MBR，也不读取 FAT32；FAT32 根目录里的
+  `xv6_tiny210.img` 只是 `tftpclient` 下载的副本，不参与启动。
+- 实板构建不内嵌 fs.img，根文件系统来自卡上的 `FS.IMG` 或第 2 个原始分区。
+- `make tiny210` 会把固件和 `FS.IMG` 拷到 `/Volumes/bootfs`；`FS.IMG` 只在卡上
+  没有时才写（`BOOTFS_FSIMG=1` 强制覆盖）。BL1 或内核变化时用
+  `make tiny210-sdimg` 把整卡镜像写到卡（BL1@1、uImage@49，MBR 不动，读回
+  校验后推出）；手工等价命令：
 
 ```sh
-sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
+sudo dd if=build/tiny210/tiny210-bl1.bin    of=/dev/rdisk4 bs=512 seek=1
+sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 ```
 
 ## 11. 固件与文件的加载时机
@@ -271,9 +282,9 @@ PING 一直回 NAK，即设备侧发送缓冲没有腾出来。
 2. 早期代码一定要有异常向量和逐步日志，否则所有问题看起来都是“卡死”。
 3. 位置相关的代码（BL1）要在链接脚本里断言入口地址。
 4. iROM / Boot ROM 提供的函数只在它们被验证过的用法下可靠（这里：读
-   第 49 扇区到 DDR），超出这个范围就自己实现。
+   第 49 扇区到 DDR）；BL1 现在就只保留这一种用法。
 5. iROM 留下的 CPU 状态（SCTLR.A、V 位、cache）要显式设成自己需要的值。
-6. 主机测试只能验证逻辑（FAT32 解析、CRC、ATAG），验证不了内存类型、
+6. 主机测试只能验证逻辑（CRC、uImage 头、ATAG），验证不了内存类型、
    对齐、时序这些硬件相关的问题。
 7. 从另一个平台移植代码时，要核对它依赖的“周期性调用”（定时器节拍里的
    `workqueue_timer_tick()` 这类）是否都接上了，缺了往往不会崩溃，只会

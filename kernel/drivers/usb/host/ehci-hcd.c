@@ -1,8 +1,11 @@
 // EHCI host controller driver (USB 2.0 high speed), for the S5PV210 USB
 // host port (Tiny210 SDK USB-A sockets, 0xEC200000, IRQ 55).
 //
-// Everything runs on the asynchronous schedule: a ring of queue heads (QH),
-// one per endpoint in use, started from a dummy head QH. Transfers are
+// Control and bulk endpoints run on the asynchronous schedule: a ring of
+// queue heads (QH), one per endpoint in use, started from a dummy head QH.
+// Interrupt-IN endpoints (HID keyboards) sit on the periodic schedule: every
+// frame-list entry points to one anchor QH, and each interrupt QH is linked
+// after it, so it is polled once per millisecond. Transfers are
 // chains of qTDs appended to an endpoint's QH with Linux's dummy-qTD
 // method, so the bulk-in QH can keep several receive buffers queued while
 // control and bulk-out transfers proceed on their own QHs.
@@ -11,6 +14,8 @@
 //   bulk()               synchronous bulk IN/OUT
 //   bulk_rx_arm()        queue one receive buffer on a bulk-in QH
 //   bulk_rx_complete()   reap the oldest finished receive buffer (-2: none)
+//   submit_urb()         queue one interrupt-IN URB; the IRQ gives it back
+//   kill_urb()           take a queued interrupt URB back without completion
 //
 // Completion interrupts (IOC) wake waiters and tell mt7601u that receive
 // buffers finished. Devices behind a high-speed hub are enumerated too;
@@ -32,6 +37,23 @@
 #include "kernel/arch/arm/irq.h"
 #include "ehci.h"
 
+#ifndef USB_ENUM_TRACE
+#define USB_ENUM_TRACE 0
+#endif
+#ifndef USB_XFER_TRACE
+#define USB_XFER_TRACE 0
+#endif
+#if USB_ENUM_TRACE
+#define EHCI_ENUM_LOG(...) printf("usb-enum: " __VA_ARGS__)
+#else
+#define EHCI_ENUM_LOG(...) do { } while(0)
+#endif
+#if USB_XFER_TRACE
+#define EHCI_XFER_LOG(...) printf("usb-xfer: " __VA_ARGS__)
+#else
+#define EHCI_XFER_LOG(...) do { } while(0)
+#endif
+
 // Capability and operational registers (EHCI 1.0, sections 2.2 and 2.3).
 #define CAPLENGTH   0x00
 #define HCSPARAMS   0x04
@@ -41,19 +63,23 @@
 #define USBCMD      0x00
 #define USBSTS      0x04
 #define USBINTR     0x08
+#define FRINDEX     0x0c
 #define CTRLDSSEG   0x10
+#define PERIODICLIST 0x14
 #define ASYNCLIST   0x18
 #define CONFIGFLAG  0x40
 #define PORTSC(n)   (0x44 + 4*(n))
 
 #define CMD_RUN     (1U << 0)
 #define CMD_RESET   (1U << 1)
+#define CMD_PSE     (1U << 4)
 #define CMD_ASE     (1U << 5)
 #define CMD_ITC(n)  ((uint32)(n) << 16)
 #define STS_USBINT  (1U << 0)
 #define STS_ERR     (1U << 1)
 #define STS_PCD     (1U << 2)
 #define STS_HALTED  (1U << 12)
+#define STS_PSS     (1U << 14)
 #define STS_ASS     (1U << 15)
 #define PORT_CCS    (1U << 0)
 #define PORT_CSC    (1U << 1)
@@ -108,7 +134,7 @@ struct qh {
   int in_ring;
 } __attribute__((aligned(32)));
 
-#define NQH  16
+#define NQH  32
 #define NQTD 96
 static struct qh qhs[NQH];
 static struct qtd qtds[NQTD];
@@ -120,6 +146,10 @@ static struct sleeplock xfer_lock;     // one synchronous transfer at a time
 static struct ehci_platdata *pdata;
 static int nports;
 static struct qh *head_qh;
+// Periodic schedule: 1024 one-millisecond frames, all pointing to anchor_qh.
+// The anchor's S-mask is zero, so the HC only follows its horizontal link.
+static uint32 frame_list[1024] __attribute__((aligned(4096)));
+static struct qh *anchor_qh;
 
 static inline uint32 rd(uint32 off) { return *(volatile uint32*)(op + off); }
 static inline void wr(uint32 off, uint32 v) { *(volatile uint32*)(op + off) = v; }
@@ -211,6 +241,43 @@ qh_create(int addr, int ep, int speed, int mps, int control, int hub, int port)
   head_qh->horiz = phys(q) | LINK_QH;
   dsb();
   q->in_ring = 1;
+  EHCI_XFER_LOG("qh-create qh=%x addr=%d ep=%d speed=%d mps=%d control=%d tt=%d/%d\n",
+                phys(q), addr, ep, speed, mps, control, hub, port);
+  return q;
+}
+
+// An interrupt-IN QH on the periodic schedule, polled every frame. The HC
+// keeps the data toggle in the QH overlay (DTC = 0), NAK reload must be 0
+// for periodic QHs. A full/low-speed endpoint behind a high-speed hub uses
+// split transactions: start-split in micro-frame 0, complete-splits in
+// micro-frames 2, 3 and 4 (EHCI 4.12.3), the usual Linux/U-Boot masks.
+static struct qh *
+qh_create_intr(int addr, int ep, int speed, int mps, int hub, int port)
+{
+  if(nqh_used >= NQH || anchor_qh == 0)
+    return 0;
+  struct qh *q = &qhs[nqh_used++];
+  memset(q, 0, sizeof(*q));
+  q->dummy = qtd_alloc();
+  if(q->dummy == 0)
+    return 0;
+  q->epchar = (uint32)addr | ((uint32)ep << 8) | ((uint32)speed << 12) |
+              ((uint32)mps << 16);
+  q->epcap = (1U << 30) | 0x01U;                        // Mult 1, S-mask uframe 0
+  if(speed != SPEED_HIGH)
+    q->epcap |= (0x1cU << 8) | ((uint32)hub << 16) | ((uint32)port << 23);
+  q->cur = 0;
+  q->next = phys(q->dummy);
+  q->alt = LINK_T;
+  q->token = 0;
+  q->head = 0;
+  q->horiz = anchor_qh->horiz;
+  dsb();
+  anchor_qh->horiz = phys(q) | LINK_QH;
+  dsb();
+  q->in_ring = 1;
+  EHCI_XFER_LOG("qh-intr qh=%x addr=%d ep=%d speed=%d mps=%d tt=%d/%d\n",
+                phys(q), addr, ep, speed, mps, hub, port);
   return q;
 }
 
@@ -273,6 +340,22 @@ async_start(void)
     udelay(10);
 }
 
+// The same for the periodic schedule (interrupt QHs).
+static void
+periodic_stop(void)
+{
+  wr(USBCMD, rd(USBCMD) & ~CMD_PSE);
+  for(int i = 0; i < 2000 && (rd(USBSTS) & STS_PSS); i++)
+    udelay(10);
+}
+static void
+periodic_start(void)
+{
+  wr(USBCMD, rd(USBCMD) | CMD_PSE);
+  for(int i = 0; i < 2000 && !(rd(USBSTS) & STS_PSS); i++)
+    udelay(10);
+}
+
 // Drop queued qTDs from a QH (from `from` to the dummy) and park it on the
 // dummy again. Async schedule must be stopped.
 static void
@@ -316,6 +399,7 @@ struct ehci_dev {          // host_private of a usb_device
   int speed, hub, port;
   struct qh *ep0;
   struct qh *ep[2][16];    // [in][ep]
+  struct qh *intr[16];     // interrupt-IN QHs on the periodic schedule
 };
 #define NDEV_MAX 8
 static struct ehci_dev edevs[NDEV_MAX];
@@ -402,9 +486,13 @@ ehci_usb_control(struct usb_device *udev, uint8 type, uint8 request,
   struct ehci_dev *e = udev->host_private;
   if(e == 0 || e->ep0 == 0)
     return -1;
+  EHCI_XFER_LOG("control begin addr=%d type=%x req=%x value=%x index=%x len=%d\n",
+                udev->address, type, request, value, index, length);
   acquiresleep(&xfer_lock);
   int r = control_qh(e->ep0, type, request, value, index, data, length);
   releasesleep(&xfer_lock);
+  EHCI_XFER_LOG("control end addr=%d req=%x result=%d\n",
+                udev->address, request, r);
   return r;
 }
 
@@ -465,9 +553,13 @@ ehci_usb_bulk(struct usb_device *udev, int endpoint, int in, void *data, int len
   struct qh *q = ep_qh(udev, endpoint, in);
   if(q == 0 || length < 0)
     return -1;
+  EHCI_XFER_LOG("bulk begin addr=%d ep=%d dir=%s len=%d\n",
+                udev->address, endpoint, in ? "IN" : "OUT", length);
   acquiresleep(&xfer_lock);
   int r = bulk_qh(q, endpoint, in, data, length);
   releasesleep(&xfer_lock);
+  EHCI_XFER_LOG("bulk end addr=%d ep=%d dir=%s result=%d\n",
+                udev->address, endpoint, in ? "IN" : "OUT", r);
   return r;
 }
 
@@ -481,7 +573,10 @@ ehci_usb_bulk_rx_arm(struct usb_device *udev, int endpoint, void *data, int leng
   if(t == 0)
     return -1;
   qtd_fill(t, data, length, TOK_PID_IN | TOK_IOC);
-  return qh_append(q, t, t) ? 0 : -1;
+  int r = qh_append(q, t, t) ? 0 : -1;
+  EHCI_XFER_LOG("rx-arm addr=%d ep=%d buf=%x len=%d result=%d\n",
+                udev->address, endpoint, phys(data), length, r);
+  return r;
 }
 
 static int
@@ -504,6 +599,8 @@ ehci_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
   if(data)
     *data = t->data;
   int r = (tok & TOK_ERRMASK) ? -1 : t->length - (int)TOK_LEFT(tok);
+  EHCI_XFER_LOG("rx-complete addr=%d ep=%d buf=%x token=%x result=%d\n",
+                udev->address, endpoint, t->data ? phys(t->data) : 0, tok, r);
   qtd_free(t);
   if(tok & TOK_HALTED){
     // A halted QH stops the whole queue. Flush it, then queue the other
@@ -530,11 +627,163 @@ ehci_usb_bulk_rx_complete(struct usb_device *udev, int endpoint, void **data)
   return r;
 }
 
+// ---- interrupt-IN URBs ----------------------------------------------------
+//
+// One queued qTD per URB. The completion interrupt (IOC) or an error makes
+// ehci_irq() reap it and give the URB back to its class driver, which
+// usually resubmits it. A halted QH (STALL, three transaction errors) is
+// repaired on the next submit, in process context.
+
+#define NINTR 4
+static struct {
+  struct urb *urb;
+  struct qh *qh;
+  struct qtd *qtd;         // 0 while ehci_submit_urb() is still queuing it
+} intrs[NINTR];
+
+static void
+ehci_intr_reap(void)
+{
+  for(;;){
+    struct urb *urb = 0;
+    struct qtd *d = 0;
+    uint32 tok = 0;
+    acquire(&ehci_lock);
+    for(int i = 0; i < NINTR; i++){
+      if(intrs[i].urb == 0 || intrs[i].qtd == 0 ||
+         (intrs[i].qtd->token & TOK_ACTIVE))
+        continue;
+      urb = intrs[i].urb;
+      d = intrs[i].qtd;
+      tok = d->token;
+      intrs[i].qh->head = 0;
+      intrs[i].urb = 0;
+      intrs[i].qh = 0;
+      intrs[i].qtd = 0;
+      break;
+    }
+    release(&ehci_lock);
+    if(urb == 0)
+      return;
+    int len = d->length - (int)TOK_LEFT(tok);
+    qtd_free(d);
+    EHCI_XFER_LOG("intr-complete addr=%d ep=%d token=%x len=%d\n",
+                  urb->dev->address, urb->endpoint, tok, len);
+    usb_hcd_giveback_urb(urb, (tok & TOK_ERRMASK) ? -1 : 0,
+                         (tok & TOK_ERRMASK) ? 0 : len);
+  }
+}
+
+static int
+ehci_submit_urb(struct urb *urb)
+{
+  struct usb_device *udev = urb->dev;
+  struct ehci_dev *e = udev ? udev->host_private : 0;
+  int ep = urb->endpoint, slot = -1;
+
+  if(e == 0 || !urb->direction_in || ep <= 0 || ep > 15 ||
+     urb->transfer_buffer_length > 0x1000)
+    return -1;
+  if(e->intr[ep] == 0){
+    int mps = udev->interrupt_in_max_packet;
+    if(mps == 0)
+      mps = 8;
+    e->intr[ep] = qh_create_intr(udev->address, ep, e->speed, mps,
+                                 e->hub, e->port);
+    if(e->intr[ep] == 0)
+      return -1;
+  }
+  struct qh *q = e->intr[ep];
+  if(q->token & TOK_HALTED){
+    // Re-park the halted overlay on the dummy; the toggle is kept.
+    periodic_stop();
+    qh_flush(q, q->dummy);
+    periodic_start();
+  }
+  struct qtd *t = qtd_alloc();
+  if(t == 0)
+    return -1;
+  qtd_fill(t, urb->transfer_buffer, urb->transfer_buffer_length,
+           TOK_PID_IN | TOK_IOC);
+  acquire(&ehci_lock);
+  for(int i = 0; i < NINTR; i++){
+    if(intrs[i].urb == urb){           // already queued
+      slot = -1;
+      break;
+    }
+    if(intrs[i].urb == 0 && slot < 0)
+      slot = i;
+  }
+  if(slot >= 0){
+    intrs[slot].urb = urb;
+    intrs[slot].qh = q;
+    intrs[slot].qtd = 0;
+  }
+  release(&ehci_lock);
+  if(slot < 0){
+    qtd_free(t);
+    return -1;
+  }
+  struct qtd *d = qh_append(q, t, t);
+  if(d == 0){
+    acquire(&ehci_lock);
+    intrs[slot].urb = 0;
+    intrs[slot].qh = 0;
+    release(&ehci_lock);
+    qtd_free(t);
+    return -1;
+  }
+  int killed = 0;
+  acquire(&ehci_lock);
+  if(intrs[slot].urb == urb)
+    intrs[slot].qtd = d;
+  else
+    killed = 1;                        // ehci_kill_urb() ran meanwhile
+  release(&ehci_lock);
+  if(killed){
+    periodic_stop();
+    qh_flush(q, d);
+    periodic_start();
+    return 0;
+  }
+  EHCI_XFER_LOG("intr-submit addr=%d ep=%d len=%d\n", udev->address, ep,
+                urb->transfer_buffer_length);
+  // It may have completed before it was published to the IRQ handler.
+  ehci_intr_reap();
+  return 0;
+}
+
+static void
+ehci_kill_urb(struct urb *urb)
+{
+  struct qh *q = 0;
+  struct qtd *d = 0;
+
+  acquire(&ehci_lock);
+  for(int i = 0; i < NINTR; i++)
+    if(intrs[i].urb == urb){
+      q = intrs[i].qh;
+      d = intrs[i].qtd;
+      intrs[i].urb = 0;
+      intrs[i].qh = 0;
+      intrs[i].qtd = 0;
+      break;
+    }
+  release(&ehci_lock);
+  if(q == 0 || d == 0)
+    return;
+  periodic_stop();
+  qh_flush(q, d);
+  periodic_start();
+}
+
 static const struct usb_host_ops ehci_usb_ops = {
   .control = ehci_usb_control,
   .bulk = ehci_usb_bulk,
   .bulk_rx_arm = ehci_usb_bulk_rx_arm,
   .bulk_rx_complete = ehci_usb_bulk_rx_complete,
+  .submit_urb = ehci_submit_urb,
+  .kill_urb = ehci_kill_urb,
 };
 
 // ---- interrupt -----------------------------------------------------------
@@ -547,7 +796,10 @@ ehci_irq(int irq, void *arg)
   uint32 st = rd(USBSTS) & 0x3f;
   if(st == 0)
     return;
+  EHCI_XFER_LOG("irq=%d status=%x usbcmd=%x\n", irq, st, rd(USBCMD));
   wr(USBSTS, st);                 // W1C
+  if(st & (STS_USBINT | STS_ERR))
+    ehci_intr_reap();             // HID interrupt-IN reports
   if(st & (STS_USBINT | STS_ERR))
     if(mt7601u_rx_irq)
       mt7601u_rx_irq();           // a receive buffer may have completed
@@ -574,6 +826,7 @@ ehci_irq(int irq, void *arg)
 static struct usb_device udevs[NDEV_MAX];
 static int next_address = 1;
 static uint8 desc[512] __attribute__((aligned(4)));
+static const char *speed_name[] = {"full", "low", "high"};
 
 static void enumerate(int speed, int hub, int port, int depth);
 
@@ -589,8 +842,13 @@ parse_config(struct usb_device *u, uint8 *c, int total)
       first_if = 0;
       u->interface_number = d[2];
       if(u->class == 0){ u->class = d[5]; u->subclass = d[6]; u->protocol = d[7]; }
+      EHCI_ENUM_LOG("interface=%d class=%d/%d/%d endpoints=%d\n",
+                    d[2], d[5], d[6], d[7], d[4]);
     } else if(d[1] == USB_DT_ENDPOINT){
       int addr = d[2], attr = d[3] & 3, mps = (d[4] | d[5] << 8) & 0x7ff;
+      EHCI_ENUM_LOG("endpoint addr=%x ep=%d dir=%s type=%d mps=%d interval=%d\n",
+                    addr, addr & 0xf, (addr & 0x80) ? "IN" : "OUT",
+                    attr, mps, d[6]);
       if(attr == 2 && (addr & 0x80)){
         if(u->bulk_in_ep == 0){ u->bulk_in_ep = addr & 0xf; u->bulk_in_max_packet = mps; }
         else if(u->bulk_in_ep2 == 0) u->bulk_in_ep2 = addr & 0xf;
@@ -609,6 +867,7 @@ parse_config(struct usb_device *u, uint8 *c, int total)
 static void
 hub_ports(struct usb_device *h, int depth)
 {
+  EHCI_ENUM_LOG("hub-scan begin addr=%d depth=%d\n", h->address, depth);
   int n = ehci_usb_control(h, 0xa0, REQ_GET_DESCRIPTOR, USB_DT_HUB << 8, 0, desc, 9);
   if(n < 3){
     printf("ehci: hub %d: no hub descriptor\n", h->address);
@@ -621,7 +880,12 @@ hub_ports(struct usb_device *h, int depth)
   mdelay(pwr_ms > 100 ? pwr_ms : 100);
   for(int p = 1; p <= ports; p++){
     uint8 *s = desc;
-    if(ehci_usb_control(h, 0xa3, REQ_GET_STATUS, 0, p, s, 4) < 4 || !(s[0] & 1))
+    int status_n = ehci_usb_control(h, 0xa3, REQ_GET_STATUS, 0, p, s, 4);
+    EHCI_ENUM_LOG("hub=%d port=%d status=%x result=%d\n",
+                  h->address, p,
+                  status_n == 4 ? (uint16)(s[0] | s[1] << 8) : 0,
+                  status_n);
+    if(status_n < 4 || !(s[0] & 1))
       continue;
     ehci_usb_control(h, 0x23, REQ_CLEAR_FEATURE, HUB_C_PORT_CONNECTION, p, 0, 0);
     ehci_usb_control(h, 0x23, REQ_SET_FEATURE, HUB_PORT_RESET, p, 0, 0);
@@ -645,17 +909,20 @@ hub_ports(struct usb_device *h, int depth)
     // split transactions go to the nearest high-speed hub
     int tt_hub = he->speed == SPEED_HIGH ? h->address : he->hub;
     int tt_port = he->speed == SPEED_HIGH ? p : he->port;
+    EHCI_ENUM_LOG("hub=%d port=%d reset-ok status=%x speed=%s tt=%d/%d\n",
+                  h->address, p, w, speed_name[speed], tt_hub, tt_port);
     enumerate(speed, tt_hub, tt_port, depth + 1);
   }
+  EHCI_ENUM_LOG("hub-scan end addr=%d depth=%d\n", h->address, depth);
 }
-
-static const char *speed_name[] = {"full", "low", "high"};
 
 static void
 enumerate(int speed, int hub, int port, int depth)
 {
   if(nedev >= NDEV_MAX || depth > 4)
     return;
+  EHCI_ENUM_LOG("enumerate begin addr=0 speed=%s parent-hub=%d port=%d depth=%d\n",
+                speed_name[speed], hub, port, depth);
   struct ehci_dev *e = &edevs[nedev];
   struct usb_device *u = &udevs[nedev];
   memset(e, 0, sizeof(*e));
@@ -673,6 +940,8 @@ enumerate(int speed, int hub, int port, int depth)
   }
   int mps0 = desc[7] ? desc[7] : 64;
   int addr = next_address++;
+  EHCI_ENUM_LOG("device descriptor[0:8] mps0=%d; assigning address=%d\n",
+                mps0, addr);
   if(ehci_usb_control(u, 0x00, REQ_SET_ADDRESS, addr, 0, 0, 0) < 0)
     return;
   mdelay(10);
@@ -686,9 +955,13 @@ enumerate(int speed, int hub, int port, int depth)
   u->vendor = desc[8] | desc[9] << 8;
   u->product = desc[10] | desc[11] << 8;
   u->class = desc[4]; u->subclass = desc[5]; u->protocol = desc[6];
+  EHCI_ENUM_LOG("device addr=%d vid:pid=%x:%x device-class=%d/%d/%d\n",
+                addr, u->vendor, u->product, u->class, u->subclass,
+                u->protocol);
   if(ehci_usb_control(u, 0x80, REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, desc, 9) < 9)
     return;
   int total = desc[2] | desc[3] << 8, cfg = desc[5];
+  EHCI_ENUM_LOG("configuration addr=%d value=%d total=%d\n", addr, cfg, total);
   if(total > (int)sizeof(desc)) total = sizeof(desc);
   if(ehci_usb_control(u, 0x80, REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, desc, total) < total)
     return;
@@ -702,10 +975,13 @@ enumerate(int speed, int hub, int port, int depth)
          u->bulk_in_ep2, u->bulk_in_max_packet, u->bulk_out_ep, u->bulk_out_max_packet,
          u->n_bulk_out, u->interrupt_in_ep);
   if(u->class == 9){
+    EHCI_ENUM_LOG("device addr=%d is hub; recurse\n", addr);
     hub_ports(u, depth);
     return;
   }
   u->dev.name = "usb-device";
+  EHCI_ENUM_LOG("register non-hub addr=%d vid:pid=%x:%x on usb bus\n",
+                addr, u->vendor, u->product);
   if(usb_device_register(u) < 0)
     printf("ehci: cannot register %x:%x\n", u->vendor, u->product);
 }
@@ -716,6 +992,8 @@ root_ports(void)
   int found = 0;
   for(int p = 0; p < nports; p++){
     uint32 s = rd(PORTSC(p));
+    EHCI_ENUM_LOG("root-port=%d PORTSC=%x connected=%d enabled=%d line=%d\n",
+                  p, s, !!(s & PORT_CCS), !!(s & PORT_PE), PORT_LS(s));
     if(!(s & PORT_CCS))
       continue;
     if(PORT_LS(s) == 1){          // K state: low speed, companion's job
@@ -745,11 +1023,15 @@ root_ports(void)
 static int
 ehci_start(void)
 {
+  EHCI_ENUM_LOG("controller start cap=%x\n", (uint)cap);
   if(pdata && pdata->phy_init)
     pdata->phy_init();
   op = cap + (*(volatile uint8*)(cap + CAPLENGTH));
   uint32 hcs = *(volatile uint32*)(cap + HCSPARAMS);
   nports = hcs & 0xf;
+  EHCI_ENUM_LOG("caplength=%d op=%x hcsparams=%x hccparams=%x ports=%d\n",
+                *(volatile uint8*)(cap + CAPLENGTH), (uint)op, hcs,
+                *(volatile uint32*)(cap + HCCPARAMS), nports);
   *(volatile uint32*)(cap + INSNREG00) = (1U << 25) | (1U << 24) | (1U << 23) | (1U << 22);
   // Start an OUT packet only once the whole 512-byte packet is in the HC's
   // buffer (and drain IN in 512-byte units): with the default threshold the
@@ -777,18 +1059,33 @@ ehci_start(void)
   head_qh->epcap = 1U << 30;
   head_qh->next = head_qh->alt = LINK_T;
   head_qh->token = TOK_HALTED;
+  // Periodic schedule anchor: never executed (S-mask 0), end of every frame.
+  anchor_qh = &qhs[nqh_used++];
+  memset(anchor_qh, 0, sizeof(*anchor_qh));
+  anchor_qh->horiz = LINK_T;
+  anchor_qh->next = anchor_qh->alt = LINK_T;
+  anchor_qh->token = TOK_HALTED;
+  for(int i = 0; i < 1024; i++)
+    frame_list[i] = phys(anchor_qh) | LINK_QH;
+  dsb();
   wr(CTRLDSSEG, 0);
+  wr(PERIODICLIST, phys(frame_list));
   wr(ASYNCLIST, phys(head_qh));
   wr(USBINTR, STS_USBINT | STS_ERR);
-  wr(USBCMD, CMD_ITC(1) | CMD_ASE | CMD_RUN);
+  // Frame list size field 0: 1024 entries.
+  wr(USBCMD, CMD_ITC(1) | CMD_PSE | CMD_ASE | CMD_RUN);
   wr(CONFIGFLAG, 1);                      // route the ports to EHCI
+  EHCI_ENUM_LOG("async-head=%x USBINTR=%x USBCMD=%x CONFIGFLAG=%x\n",
+                phys(head_qh), rd(USBINTR), rd(USBCMD), rd(CONFIGFLAG));
   mdelay(5);
   for(int p = 0; p < nports; p++)
     if(hcs & (1U << 4))                   // PPC: per-port power control
       wr(PORTSC(p), (rd(PORTSC(p)) & ~PORT_W1C) | PORT_POWER);
   mdelay(100);                            // power good + device attach
-  printf("ehci: %d port(s), hccparams %x, running, async schedule %s\n", nports,
-         *(volatile uint32*)(cap + HCCPARAMS), (rd(USBSTS) & STS_ASS) ? "on" : "off");
+  printf("ehci: %d port(s), hccparams %x, running, async schedule %s, periodic %s\n",
+         nports, *(volatile uint32*)(cap + HCCPARAMS),
+         (rd(USBSTS) & STS_ASS) ? "on" : "off",
+         (rd(USBSTS) & STS_PSS) ? "on" : "off");
   return 0;
 }
 
@@ -799,6 +1096,7 @@ static void
 ehci_enum_thread(void *arg)
 {
   (void)arg;
+  EHCI_ENUM_LOG("ehci-enum kthread entered\n");
   if(ehci_start() == 0){
     int n = 0;
     for(int tries = 0; tries < 20 && n == 0; tries++){   // a device may attach late
@@ -818,6 +1116,8 @@ ehci_probe(struct device *dev)
 {
   cap = (uintptr)dev->resource[0].start;
   pdata = dev->driver_data;
+  EHCI_ENUM_LOG("platform probe mmio=%x irq=%d\n", (uint)cap,
+                (int)dev->resource[1].start);
   initlock(&ehci_lock, "ehci");
   initsleeplock(&xfer_lock, "ehci-xfer");
   initlock(&enum_lock, "ehci-enum");

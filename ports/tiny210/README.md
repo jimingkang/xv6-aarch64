@@ -61,10 +61,9 @@ S5PV210 iROM (BL0) ──► xv6 BL1：SD 第 1 扇区，16 KiB，16 字节头 +
                          · APLL 1000 MHz / MPLL 667 MHz，PCLK_PSYS 66.7 MHz
                          · 控制台 UART 115200 8N1，打印 BL1 进度
                          · DMC0 DDR2 初始化、容量探测与读写自检
-                         · 自带 SDHCI PIO：读 MBR，找到首个 FAT32 分区
-                         · 遍历 FAT32 根目录和 cluster chain，把 xv6_tiny210.img
-                           读到 DRAM+0x7FC0（payload 位于 DRAM+0x8000），校验 CRC
-                         · FAT32 不可用时才从第 49 扇区读取救援 uImage
+                         · 用 iROM CopySDMMCtoMem 从固定第 49 扇区读取 uImage
+                           到 DRAM+0x7FC0（payload 位于 DRAM+0x8000）
+                         · 校验 uImage 头、load/entry 和数据 CRC
                          · 在 DRAM+0x100 生成 ATAG（CORE、MEM、CMDLINE）
                    ──► xv6 _entry @ DRAM+0x8000（r0=0，r1=机器号，r2=ATAG）
 ```
@@ -87,7 +86,8 @@ BL1 交接给内核的方式与 U-Boot `bootm` 完全一样（ARM Linux 启动�
 ## 构建
 
 ```sh
-make tiny210           # build/tiny210/，并把内核/固件拷到 /Volumes/bootfs
+make tiny210           # build/tiny210/；固件/FS.IMG 拷到 /Volumes/bootfs，用户程序和内核放 TFTP 目录
+make tiny210-sdimg     # 生成整卡镜像，并把它写到已挂载的 SD 卡（BL1@1、uImage@49）
 make tiny210-check     # 自检 + BL1 主机测试 + QEMU cubieboard 测试
 make tiny210-qemu      # QEMU 交互运行内核
 make tiny210-clean
@@ -97,9 +97,10 @@ make tiny210-clean
 
 | 文件 | 用途 |
 | --- | --- |
-| `tiny210-sd.img` | 救援原始镜像：BL1@1、fallback xv6@49，第 0 扇区（MBR）留空 |
+| `tiny210-sd.img` | 可启动原始镜像：BL1@1、xv6 uImage@49，第 0 扇区（MBR）留空 |
 | `tiny210-bl1.bin` | 16 KiB BL1（含 iROM 头），写到第 1 扇区 |
-| `xv6-tiny210.uImage` | legacy uImage；复制为 FAT32 根目录的 `xv6_tiny210.img`，也可写到第 49 扇区作救援副本 |
+| `xv6-tiny210.uImage` | legacy uImage；写到第 49 扇区，是 BL1 唯一的启动内核来源，也可给 U-Boot `bootm` |
+| `xv6_tiny210.img` | 同一 uImage 的拷贝，仅供 `tftpclient` 下载到 FAT32 的 `/boot`；BL1 不读取 |
 | `xv6-tiny210.bin` | 同一内核的裸镜像（带 zImage 头），给 U-Boot `bootz` 调试用 |
 | `bl1/bl1.elf`、`bl1/bl1.map`、`kernel.elf`、`kernel.map` | 调试用 |
 
@@ -108,38 +109,45 @@ make tiny210-clean
 
 ## SD 卡布局
 
-正常启动使用 MBR 中记录的 FAT32 分区起始 LBA，因此 FAT32 不要求位于固定扇区。
-分区前的扇区 49 救援镜像仅用于 MBR、FAT32 或内核文件损坏时回退。
+正常启动只使用固定扇区：BL1 不解析 MBR，也不读取 FAT32。第 49 扇区起的
+uImage 就是启动内核，不是救援副本。FAT32 分区只在内核启动后用于根文件系统
+（`FS.IMG`）、`/boot` 和固件文件。
 
 | 扇区 | 内容 |
 | --- | --- |
 | 0 | MBR（不动） |
 | 1–32 | BL1（16 KiB） |
 | 33–48 | 空 |
-| 49–约 8322 | xv6 uImage（约 4.1 MiB，`make` 时会打印实际扇区数） |
+| 49–约 469 | xv6 uImage（约 210 KiB，`make` 时会打印实际扇区数） |
+| MBR 指定的 FAT32 分区 | `FS.IMG`、`mt7601u.bin` 等内核侧文件；BL1 不读取 |
 
-整个布局在第 8400 扇区以内，第一个分区只要从它之后开始就不受影响。
+只要第一个分区从 uImage 结束扇区之后开始，分区表就不受影响；当前卡从
+31248 扇区开始，余量很大。
 
 ## 写卡（macOS）
 
+卡插好、FAT32 分区已挂载（默认 `/Volumes/bootfs`）后：
+
+```sh
+make tiny210-sdimg
+```
+
+这个目标先编译 `build/tiny210/tiny210-sd.img`，再找到 `TINY210_BOOTFS`
+所在的整盘、卸载它，把镜像从第 1 扇区写到卡上（`skip=1 seek=1`，第 0
+扇区的 MBR 保持不动），读回第 1 和第 49 扇区校验，最后推出卡。写盘用
+sudo，会提示输入密码。卡没挂载时只生成镜像并打印手动命令；`SD_WRITE=0`
+只构建、不写卡；`BOOTFS_EJECT=0` 写完后不推出。
+
 以 `/dev/disk4` 为例，第一个分区从 31248 扇区开始，前面约 15 MiB 是空闲的
-原始区，xv6 只占用前约 4.3 MiB，四个分区都不会被改动。
+原始区，xv6 只占用扇区 1–469，四个分区都不会被改动。
 **先用 `diskutil list` 确认 disk4 确实是这张 SD 卡**，写错盘会毁数据。
 原始区里原有的 BL1/U-Boot（例如 FriendlyARM superboot）会被覆盖。
 
-```sh
-make tiny210
-```
+手工等价命令：
 
 ```sh
 diskutil unmountDisk /dev/disk4
-```
-
-```sh
 sudo dd if=build/tiny210/tiny210-sd.img of=/dev/rdisk4 bs=512 skip=1 seek=1
-```
-
-```sh
 sync
 diskutil eject /dev/disk4
 ```
@@ -151,8 +159,9 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
 sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 ```
 
-正常使用时，之后只改了内核只需挂载 FAT32 分区并替换
-`xv6_tiny210.img`；不必再重写第 49 扇区。需要同步救援副本时才执行第二条 `dd`。
+之后只改内核时，重新执行 `make tiny210-sdimg`（或第二条 `dd`，只写第 49
+扇区）。FAT32 分区里的
+`xv6_tiny210.img` 不参与启动；该分区只保存根文件系统 `FS.IMG`、固件和 `/boot`。
 
 ## 上电
 
@@ -167,11 +176,8 @@ Tiny210 预期串口输出：
 ```text
 xv6 BL1 for FriendlyARM Tiny210 (Samsung S5PV210): APLL 1000 MHz, MPLL 667 MHz, PCLK_PSYS 66.7 MHz
 BL1: DMC0 DDR2 512 MiB at 0x20000000 OK
-BL1: SD channel 0
-BL1: reading MBR
-BL1: FAT32 at sector 31248, 8 sectors/cluster
-BL1: loading xv6_tiny210.img (4235328 bytes) from FAT32
-BL1: "xv6 ARM32 S5PV210", 4235264 bytes
+BL1: SD channel 0, uImage at sector 49
+BL1: "xv6 ARM32 S5PV210", 214624 bytes
 BL1: data CRC OK
 BL1: ATAGs at 0x20000100 (72 bytes), starting xv6 at 0x20008000
 
@@ -207,10 +213,19 @@ macOS 上推荐直接用 `screen /dev/cu.usbserial-XXXX 115200`。用 minicom �
 的全部输出（包括 shell）同时显示在屏上，8x16 字体，800x480 时为 100x30 字符。
 键盘输入仍然走串口；板载按键由 input 子系统发布到 `/dev/input/event0`。
 
+LCD 引脚初始化同时关闭 GPF0--GPF3 的内部上下拉，并使用 BSP 相同的 4x
+驱动强度；否则复位后残留的下拉会拖慢并行 RGB/VCLK 边沿。控制台默认对 8x16
+字体做单像素受限加粗，仍保持 100x30 字符；可用 `FBCON_BOLD=0` 编译对比原字体。
+运行 `/bin/fbtest sharp 30` 会依次显示单像素竖线、横线、棋盘格和窄 RGB 条：
+若这些图案也有彩色重影，应继续检查排线、面板型号和 VCLK 极性，而不是继续改字体。
+默认极性来自 FriendlyARM BSP；只有测试图仍有横向重影时，才用
+`LCD_VCLK_INVERT=0` 编译一次作对照。
+
 `/dev/fb0` 支持 Linux 风格的 `FBIOGET_FSCREENINFO`、
 `FBIOGET_VSCREENINFO`、`FBIOPAN_DISPLAY` 和 `MAP_SHARED mmap`。窗口环境由
-内核 `win32k` 合成器与用户 `win32.c` 提供；执行 `/bin/windemo` 可测试窗口
-消息、GDI 绘制，以及窗口 front/back surface 提交。
+内核 `win32k` 合成器与用户 `win32.c` 提供；执行 `/bin/windemo` 会显示 Windows
+风格桌面、任务栏、根目录资源管理器、系统信息和 PTY shell 终端，可一起测试窗口
+消息、GDI 绘制、窗口 front/back surface、VFS 目录读取以及 PTY/线程路径。
 
 面板型号在编译时选择，换型号前先 `make tiny210-clean`：
 
@@ -305,14 +320,15 @@ mt7601u: transport and MCU ready; ...
 
 （若底板 USB-A 口经过 hub，会先出现 `ehci: hub 1: N ports`。）
 
-## 从 SD 卡 FAT32 分区引导（xv6_tiny210.img、FS.IMG、/boot）
+## 从 SD 卡原始扇区引导（uImage、FS.IMG、/boot）
 
-启动链（找不到文件时自动退回旧方式）：
+启动链：
 
 ```
-iROM → BL1（第 1 扇区）→ MBR → 第一个 FAT32 分区（类型 0x0b/0x0c）
-     → 根目录 xv6_tiny210.img（内核 uImage，长文件名，大小写不敏感）读到 DRAM+0x7FC0，校验 CRC，跳转
-       （没有该文件：读第 49 扇区的原始镜像）
+iROM → BL1（第 1 扇区）
+     → iROM CopySDMMCtoMem 读第 49 扇区 uImage 到 DRAM+0x7FC0，
+       校验 header/load/entry/data CRC，跳到 DRAM+0x8000
+       （BL1 不解析 MBR，也不读取 FAT32）
 内核 → SDHCI（iROM 启动所用的 HSMMC 通道）→ fat32init：
        FAT32 根目录 FS.IMG 作为 xv6fs 根文件系统（可写，重启后保留）
        （没有 FS.IMG：使用内核内置的 RAM 盘）
@@ -320,24 +336,22 @@ init → FAT32 分区挂到 /boot（ls /boot 可列出）
 mt7601u → request_firmware("mt7601u.bin")：先读 FAT32 根目录，再用内置副本
 ```
 
-- BL1 的 FAT32 读取在 `bl1/bl1fat.c`（只读根目录、支持 VFAT 长文件名和 8.3 名、512 字节扇区），
-  主机测试：`make -f ports/tiny210/Makefile fattest CARD=raw.img`。
+- BL1 只调用 iROM 的 `CopySDMMCtoMem`，本身没有 FAT32 读取器，也没有自己的 SDHCI 代码。
 - SD 驱动 `kernel/drivers/mmc/host/sdhci-s3c.c`：PIO、轮询、4 位、24 MHz，
   SCLK_MMC 取 24 MHz 晶振；通道号由 iROM 变量 0xD0037488 得出。
-- FAT32/FS.IMG/raw 分区逻辑沿用 `kernel/fat32.c`，挂载用 `kernel/vfs.c`。
+- 根文件系统的 FAT32/raw 分区探测完全在内核里：`kernel/fat32.c` + `kernel/vfs.c`，
+  仍按“原始 xv6 分区 → FAT32 `FS.IMG` → 内嵌 RAM 盘”的顺序选择。
 
-在 Mac 上准备卡（FAT32 分区挂在 `/Volumes/卷名`）：
+在 Mac 上准备卡（FAT32 分区挂在 `/Volumes/bootfs`）：
 
 ```sh
-make tiny210
-cp build/tiny210/xv6_tiny210.img /Volumes/卷名/xv6_tiny210.img
-cp build/tiny210/fs.img          /Volumes/卷名/FS.IMG
-cp firmware/mt7601u.bin       /Volumes/卷名/mt7601u.bin
-diskutil unmountDisk /dev/diskN
-sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需在 BL1 变化时
+make tiny210          # 编译内核、拷 mt7601u.bin 和 FS.IMG 到 FAT32
+make tiny210-sdimg    # 把 BL1 和 uImage 写到第 1、49 扇区
 ```
 
-以后只改内核时，只需替换 FAT32 分区里的 xv6_tiny210.img。
+卷名不同时加 `TINY210_BOOTFS=/Volumes/卷名`；要覆盖卡上已有的 `FS.IMG`
+加 `BOOTFS_FSIMG=1`。以后只改内核时重新执行 `make tiny210-sdimg`（写第
+49 扇区）；FAT32 里的文件不参与启动，只在内核启动后使用。
 
 ## 根文件系统放在 SD 卡第 2 分区
 
@@ -354,12 +368,15 @@ sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdiskN bs=512 seek=1   # 只需
 卡上还没有第 2 分区时，在 FAT32 分区后面建一个至少 4 MiB 的 Linux 分区即可
 （macOS：`diskutil addPartition diskNs1 %Linux% %noformat% 64M`，或用 `fdisk -e`）。
 
-## 不拔卡更新内核（tftpclient + reboot）
+## 不拔卡更新用户程序（tftpclient + reboot）
 
-板子连上 Wi-Fi 以后，可以从 Mac 直接下载新内核。`tftpclient` 和 `reboot` 都取自 rpi3-lock 分支。
+板子连上 Wi-Fi 以后，可以从 Mac 下载用户程序到运行中的文件系统。内核本身
+不能这样更新：BL1 只从第 49 扇区启动，而 `tftpclient` 写入的是 FAT32 的
+`/boot`。换内核仍需插卡重写第 49 扇区。`tftpclient` 和 `reboot` 都取自
+rpi3-lock 分支。
 
-`make tiny210` 会把 `xv6_tiny210.img` 拷到 macOS 自带 TFTP 服务的目录 `/private/tftpboot`
-（UDP 69 端口）。这个目录属于 root，第一次需要执行一次：
+`make tiny210` 会把用户程序和 `xv6_tiny210.img` 拷到 macOS 自带 TFTP 服务的
+目录 `/private/tftpboot`（UDP 69 端口）。这个目录属于 root，第一次需要执行一次：
 
 ```sh
 sudo chown $(id -un) /private/tftpboot
@@ -369,23 +386,25 @@ sudo launchctl load -F /System/Library/LaunchDaemons/tftp.plist   # tftpd 没开
 板子上：
 
 ```
-$ tftpclient               # 默认：从 /etc/tftp.conf 里的服务器下载 xv6_tiny210.img
+$ tftpclient windemo /bin  # 默认服务器：从 /etc/tftp.conf 读取
+$ tftpclient               # 下载 xv6_tiny210.img 到 /boot；BL1 不用它启动
 $ reboot                   # S5PV210 软件复位（SWRESET），重新从 SD 卡启动；reboot -h 关机（拉低 PS_HOLD）
 ```
 
 - `/etc/tftp.conf`（`server=IP`）由 `make tiny210` 用本机 en0–en3 的地址生成，也可以用
   `TFTP_SERVER=a.b.c.d` 指定。命令行写法：`tftpclient [IP[:端口] [文件名]]`。
 - 文件先下载到 `/boot/TFTP.TMP`，完整收到后才复制成 `/boot/<文件名>`。传输中断时，
-  旧内核不会被破坏。
+  旧文件不会被破坏。
 - 更新单个程序：`tftpclient windemo /bin`。`make tiny210` 会把所有用户程序拷到
   `/private/tftpboot/tiny210/`（去掉 `_` 前缀），tftpclient 取 `tiny210/windemo`，
   先存成 `/bin/.tftp.tmp`，收完整再替换 `/bin/windemo`。目录可以是根文件系统里的任意目录。
-- 内核不再内嵌 fs.img，只有约 200 KB，根文件系统只能来自 SD 卡上的 `FS.IMG`。卡上没有
+- 下载的 `xv6_tiny210.img` 只是 FAT32 `/boot` 里的一个文件；它不会成为下一次启动的内核。
+- 内核不再内嵌 fs.img，根文件系统只能来自 SD 卡上的 `FS.IMG`。卡上没有
   FS.IMG 时，内核会打印提示后 panic。QEMU 替身没有 SD 卡，所以那一版仍然内嵌。
 - 不能用 tftpclient 更新 `FS.IMG`，因为它是正在挂载的根文件系统。`tftpclient`、`reboot` 这两个
   命令本身也在 FS.IMG 里，所以第一次要插卡执行一次 `make tiny210 BOOTFS_FSIMG=1`。
-- `tiny210-sd.img` 是整张卡的原始镜像，其中 BL1 在扇区 1。它不经过 FAT32，所以放进
-  /boot 不起作用。只有 BL1 变了，才需要插卡用 `dd` 写入。
+- `tiny210-sd.img` 是整张卡的原始镜像：BL1 在扇区 1、uImage 在扇区 49。它经过的是
+  原始扇区，放进 /boot 不起作用；换了 BL1 或内核都要插卡用 `dd` 写入。
 
 ## BL1 格式
 
@@ -400,7 +419,7 @@ S5PV210 iROM 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字�
 | 0xC | 保留 0 |
 
 `mktiny210.py check-bl1` 也接受九鼎 BSP `mkx210` 的格式（大小字段为 `"S5PC"`）。
-芯片没有烧写安全启动熔丝，iROM 只校验和、不验签。BL1 代码约 3.7 KiB，
+芯片没有烧写安全启动熔丝，iROM 只校验和、不验签。BL1 代码约 6 KiB，
 链接脚本保证它不超过 16 KiB−16 字节。
 
 BL1 调用的 iROM 服务：
@@ -408,7 +427,8 @@ BL1 调用的 iROM 服务：
 - `0xD0037488`：iROM 启动所用的 SD 控制器基址（0xEB000000 = 通道 0，
   0xEB200000 = 通道 2）；
 - `0xD0037F98`：`CopySDMMCtoMem(ch, start_block, u16 count, dst, init)`
-  的函数指针，`init=0` 沿用 iROM 已初始化好的卡。
+  的函数指针，`init=0` 沿用 iROM 已初始化好的卡。BL1 用它把第 49 扇区起的
+  uImage 读到 DRAM+0x7FC0，不包含任何 FAT32 或 SDHCI 代码。
 
 ## 内核侧
 
@@ -439,11 +459,11 @@ MMU 状态，出错时直接从控制台 UART 打印原因后停住。
 | `DMC0 DLL did not lock` 或 `DDR mismatch` | DDR 参数与板上颗粒不符，把串口日志发回来 |
 | `aliases the lower half` 警告 | 颗粒行地址比配置少一位，已自动只用一半，不影响 xv6 |
 | `not booted from SD/MMC` | iROM 不是从 SD 启动的 |
-| `no FAT32 partition found` | MBR 签名、分区类型或 FAT32 VBR/BPB 不正确 |
-| `no xv6_tiny210.img on FAT32` | FAT32 根目录缺少内核文件；BL1 将尝试第 49 扇区救援副本 |
-| `no uImage magic` / `bad header CRC` | FAT32 内核文件损坏，且第 49 扇区救援副本也无效 |
+| `SD read of the uImage header failed` | 第 49 扇区没有 uImage，或扇区写入失败 |
+| `no uImage magic` / `bad header CRC` | 第 49 扇区的 uImage 损坏或不完整，重新生成并写入 |
 | `uImage load/entry address does not match this board` | 镜像不是为 Tiny210 编的（应为 0x20008000） |
 | `kernel data CRC mismatch` | SD 读取出错或镜像写入不完整 |
+| 内核报 FAT32/FS.IMG 或 raw 分区错误 | 根文件系统探测在内核侧，与 BL1 无关；检查 FAT32 分区、`FS.IMG`、第 2 分区 |
 | BL1 正常但 xv6 无输出 | 把完整串口日志和 `kernel.map` 一起发回来 |
 | 出现 `$` 但键盘无响应 | 检查 `timer:` 一行的频率和 VIC0 第 25 位 |
 

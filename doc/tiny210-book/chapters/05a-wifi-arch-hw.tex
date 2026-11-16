@@ -20,10 +20,10 @@
   \node[right,font=\scriptsize,align=left] at (#1+0.4,-#2-0.15) {#3};}
 \providecommand{\seqnote}[4]{\node[draw=wamber,fill=wamber!10,font=\scriptsize,anchor=north west,inner sep=2pt] at (#1,-#3) {#4};}
 
-\chapter{MT7601U Wi-Fi 架构总览与硬件连接}\label{wa:ch-05a-wifi-arch-hw}
-\section{概述}
+\section{MT7601U Wi-Fi 架构总览与硬件连接}\label{wa:ch-05a-wifi-arch-hw}
+\subsection{概述}
 
-第~\ref{tiny210-mt7601u-usb-wi-fi-ux9a71ux52a8} 章讲了 MT7601U 驱动的使用、构建和故障定位。本章和后面两章换一个角度，把这条链路逐层拆开：结合 rpi3-lock 分支 xv6-book 的 MT7601U 章节，说明 Tiny210 上 xv6 的 USB Wi-Fi 链路：一个 MT7601U USB 网卡从插在
+本章前面几节讲了 MT7601U 驱动的使用、构建和故障定位。本节、第~\ref{dbg:ch} 节和后面两章换一个角度，把这条链路逐层拆开：结合 rpi3-lock 分支 xv6-book 的 MT7601U 章节，说明 Tiny210 上 xv6 的 USB Wi-Fi 链路：一个 MT7601U USB 网卡从插在
 SDK 底板 USB-A Host 口开始，到用 WPA2 连上 TP-Link\_B114 路由器、DHCP 拿到 IP 为止，
 每一层用的是哪个驱动、哪个函数，以及实板串口上对应打印哪一行日志。文中的日志都是
 2026-11-14 在实板上抓到的真实输出。三章内容和
@@ -33,7 +33,7 @@ SDK 底板 USB-A Host 口开始，到用 WPA2 连上 TP-Link\_B114 路由器、D
 \fn{net.c} 只看到一个能收发 Ethernet 帧的 \fn{wlan0}；\fn{mt7601u.c} 把 Ethernet 帧
 翻译成 802.11 帧并管理连接状态；\fn{ehci-hcd.c} 只负责把字节按 USB 协议搬到设备的某个端点。
 
-\section{与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}\label{wa:rpi}
+\subsection{与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}\label{wa:rpi}
 
 rpi3-lock 分支的 xv6-book 第 7 章“USB 无线网卡：MT7601U”记录了同一颗网卡在树莓派 3B 上的驱动。
 Tiny210 的 \fn{mt7601u.c} 就是从那份驱动移植过来的：802.11 状态机、WPA2 密码学和 TXWI/RXWI 格式完全相同，
@@ -60,7 +60,7 @@ SSID/口令 & 早期写死在驱动里 & 来自 \fn{/etc/wifi.conf} → \fn{wifi
 
 两个版本最终的结果一样：DHCP 拿到 192.168.0.219、网关 192.168.0.1，ARP 解析出网关。
 
-\section{总体分层}
+\subsection{总体分层}
 
 \begin{figure}[H]
 \centering
@@ -94,7 +94,7 @@ HCD & \fn{usb/host/ehci-hcd.c} & 寄存器 + DMA 描述符 \\
 \bottomrule
 \end{longtable}\endgroup
 
-\section{硬件连接}
+\subsection{硬件连接}
 
 \begin{figure}[H]
 \centering
@@ -152,7 +152,7 @@ EP0 & control & 厂商请求：读写 32 位寄存器、eFuse、FCE 固件 DMA �
 \caption{MT7601U USB 端点（日志 \fn{bulk in 4,5/512 out 8/512}）}
 \end{table}
 
-\subsection{SoC 内部：USB Host 子系统}
+\subsubsection{SoC 内部：USB Host 子系统}
 
 \begin{figure}[H]
 \centering
@@ -203,7 +203,7 @@ PHY 参考时钟 & 24 MHz（UPHYCLK = 3） & \fn{host\_phy\_init} \\
 \end{tabular}
 \end{table}
 
-\subsection{板上：USB2514 Hub 与 USB-A 口}
+\subsubsection{板上：USB2514 Hub 与 USB-A 口}
 
 Tiny210 SDK 底板把 SoC 唯一的 Host 口接到一颗 SMSC USB2514（VID:PID 0424:2514，4 口高速 Hub），
 Hub 的 4 个下行口引到底板的 USB-A 插座，网卡插在下行口 3。Hub 自己是一个 USB 设备（类 9），
@@ -213,7 +213,7 @@ VBUS 5 V 由底板电源经 Hub 的端口电源开关供给，xv6 不需要控�
 Hub 和网卡都是高速设备，所以主机到网卡的包在 Hub 里只是转发（repeater），不经过事务转换器（TT），
 QH 的 \fn{epcap} 里不填 Hub 地址/端口。只有全/低速设备插在 Hub 后面时，\fn{qh\_create} 才填 split 目标。
 
-\subsection{电气与链路层：480 Mbit/s 上传的是什么}
+\subsubsection{电气与链路层：480 Mbit/s 上传的是什么}
 
 \begin{itemize}[leftmargin=2em,itemsep=0pt]
 \item \textbf{信号}：D+/D- 差分，高速模式 400 mV 摆幅、45 Ω 端接；比特用 NRZI 编码（0 = 翻转，1 = 不变），连续 6 个 1 后插一个 0（bit stuffing）。
@@ -224,13 +224,13 @@ QH 的 \fn{epcap} 里不填 Hub 地址/端口。只有全/低速设备插在 Hub
 \item \textbf{时间片}：高速以 125 µs 的微帧（microframe）为单位，每微帧开头主机发 SOF；一个微帧里最多可以跑 13 个 512 字节的 bulk 包。
 \end{itemize}
 
-\subsection{空口：网卡到路由器}
+\subsubsection{空口：网卡到路由器}
 
 MT7601U 是 1T1R 的 2.4 GHz 802.11b/g/n 芯片。TP-Link\_B114 在信道 9（中心频率 2452 MHz，20 MHz 带宽）。
 本驱动发出的所有帧都用 CCK 1 Mbit/s（TXWI \fn{rate\_ctl = 0}），这是最稳、但最慢的速率；接收方向芯片按 AP 实际使用的速率解调。
 ACK、重传、FCS（帧尾 4 字节 CRC-32）都由芯片硬件完成，主机看不到。
 
-\section{软件架构}
+\subsection{软件架构}
 
 \begin{figure}[H]
 \centering
@@ -266,7 +266,7 @@ ACK、重传、FCS（帧尾 4 字节 CRC-32）都由芯片硬件完成，主机�
 \caption{软件架构与源文件}
 \end{figure}
 
-\subsection{执行上下文}
+\subsubsection{执行上下文}
 
 \begingroup\small\begin{longtable}{p{32mm}p{103mm}}
 \toprule

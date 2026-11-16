@@ -1,6 +1,7 @@
 // tftpclient [server-ip[:port] [remote-filename]]   (from rpi3-lock)
-// Downloads a file from a TFTP server into /boot; by default the kernel
-// image BL1 loads (xv6_tiny210.img) from the server named in /etc/tftp.conf.
+// Downloads a file from a TFTP server into /boot; by default a kernel image
+// copy (xv6_tiny210.img) from the server named in /etc/tftp.conf.  BL1 boots
+// the raw uImage at SD sector 49, so this does not change the boot kernel.
 #include "kernel/types.h"
 #include "kernel/fcntl.h"
 #include "user/user.h"
@@ -19,11 +20,10 @@ static uint16 tftp_port = TFTP_PORT;
 #define TFTP_TIMEOUT_TICKS 10
 #define TFTP_PROGRESS_BYTES (16 * 1024)
 #define TFTP_PATH_SIZE 128
-#define TFTP_DEFAULT_FILE "xv6_tiny210.img"   // what BL1 loads from the FAT32 partition
+#define TFTP_DEFAULT_FILE "xv6_tiny210.img"   // copy in /boot; BL1 boots sector 49
 #define TFTP_CONF "/etc/tftp.conf"           // "server=a.b.c.d", written by make tiny210
 // Downloads land in an 8.3 temporary file first and are copied over the
-// target only when complete, so a dropped transfer never leaves a half
-// kernel where BL1 will look for it.
+// target only when complete, so a dropped transfer never leaves a half file.
 #define TFTP_TEMP "/boot/TFTP.TMP"
 // `tftpclient FILE DIR` (DIR other than /boot) fetches tiny210/FILE --
 // make tiny210 copies every user program to /private/tftpboot/tiny210/ --

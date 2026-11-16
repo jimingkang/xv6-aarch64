@@ -5,10 +5,23 @@
 #include "linux/input.h"
 
 #define INPUT_KEY_WORDS ((KEY_MAX + 32) / 32)
-#define INPUT_MAX_DEVICES 4
+#define INPUT_MAX_DEVICES 4   // /dev/input/event0..3 (minor = event number)
+#define INPUT_MAX_HANDLERS 4
 #define EVDEV_BUFFER 256    // events per open file; power of two
 
 struct input_dev;
+
+// An in-kernel consumer of input events, like Linux struct input_handler
+// (keyboard.c's kbd_handler, mousedev, ...).  evdev is built into the core;
+// other handlers register here and are connected to every device whose
+// capabilities match(), whether the device appears before or after them.
+// event() runs with the device's spinlock held (possibly in interrupt
+// context): it must not sleep and must not call back into the input core.
+struct input_handler {
+  char *name;
+  int (*match)(struct input_dev *dev);
+  void (*event)(struct input_dev *dev, uint16 type, uint16 code, int value);
+};
 
 // One per open("/dev/input/event0"), like Linux struct evdev_client.  Each
 // reader sees every event from the moment it opened the device, independently
@@ -40,10 +53,11 @@ struct input_dev {
   uint32 keybit[INPUT_KEY_WORDS];
   uint32 keystate[INPUT_KEY_WORDS];
   struct evdev_client *clients;
+  struct input_handler *handlers[INPUT_MAX_HANDLERS];   // connected handlers
   int refs;
   int registered;
   int disconnected;
-  int event_number;
+  int event_number;               // N of /dev/input/eventN, -1 when gone
   int sync_pending;               // EV_KEY queued since the last SYN_REPORT
 };
 
@@ -55,5 +69,7 @@ int input_register_device(struct input_dev *dev);
 void input_unregister_device(struct input_dev *dev);
 void input_report_key(struct input_dev *dev, int code, int value);
 void input_sync(struct input_dev *dev);
+int input_register_handler(struct input_handler *handler);
+int input_has_key(struct input_dev *dev, int code);
 
 #endif

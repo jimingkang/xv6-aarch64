@@ -36,6 +36,36 @@ main(int argc, char *argv[])
   if(fb == MAP_FAILED)
     fail("mmap");
   uint stride = fix.line_length/4;
+
+  /* A camera picture of ordinary text cannot distinguish a weak font from
+   * RGB/VCLK sampling trouble.  These native one-pixel patterns can: every
+   * edge must be crisp and must not have a coloured echo on either side. */
+  if(argc > 1 && strcmp(argv[1], "sharp") == 0){
+    uint q = var.yres/4;
+    for(uint y = 0; y < var.yres; y++){
+      for(uint x = 0; x < var.xres; x++){
+        uint c;
+        if(y < q)
+          c = (x & 1) ? 0xffffff : 0x000000;       // vertical 1 px lines
+        else if(y < 2*q)
+          c = (y & 1) ? 0xffffff : 0x000000;       // horizontal 1 px lines
+        else if(y < 3*q)
+          c = ((x ^ y) & 1) ? 0xffffff : 0x000000; // 1 px checkerboard
+        else {
+          static const uint fine[4] = {0xff0000, 0x00ff00, 0x0000ff, 0xffffff};
+          c = fine[(x/2) & 3];                     // narrow RGB transitions
+        }
+        fb[y*stride+x] = c;
+      }
+    }
+    printf("fbtest: sharpness pattern: vertical, horizontal, checkerboard, RGB\n");
+    sleep_ticks((argc > 2 ? atoi(argv[2]) : 30) * 10);
+    if(munmap(fb, fix.smem_len) < 0)
+      fail("munmap sharpness pattern");
+    close(fd);
+    exit(0);
+  }
+
   static const uint bar[8] = {0xffffff,0xffff00,0x00ffff,0x00ff00,0xff00ff,0xff0000,0x0000ff,0x000000};
   for(uint y = 0; y < var.yres; y++)
     for(uint x = 0; x < var.xres; x++)

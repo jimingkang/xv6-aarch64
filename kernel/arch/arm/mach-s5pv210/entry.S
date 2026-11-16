@@ -1,6 +1,6 @@
 /* Tiny210 (S5PV210, Cortex-A8) kernel entry, after BL1 (or a U-Boot bootm):
-     iROM -> BL1 (SD sector 1, iRAM) -> xv6_tiny210.img from FAT32 or the
-     raw image at sector 49, loaded to DRAM+0x8000 (0x20008000)
+     iROM -> BL1 (SD sector 1, iRAM) -> raw uImage at sector 49, loaded to
+     DRAM+0x8000 (0x20008000)
    On entry (ARM Linux boot protocol): SVC mode, IRQ/FIQ masked, MMU and
    D-cache off, I-cache may be on,
      r0 = 0, r1 = machine type (board.h BOARD_MACH),

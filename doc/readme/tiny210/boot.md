@@ -3,16 +3,17 @@
 ## 1. SD 启动布局
 
 Tiny210 不依赖 U-Boot。S5PV210 iROM（BL0）从 SD 卡固定位置加载本仓库的 BL1；
-BL1 初始化 SDHCI 后读取 MBR，在第一个 FAT32 分区的根目录中查找并加载
-`xv6_tiny210.img`：
+BL1 只通过 iROM 的 `CopySDMMCtoMem` 从固定第 49 扇区读取 legacy uImage，
+不解析 MBR，也不读取 FAT32。FAT32 分区只在内核启动后用于根文件系统
+（`FS.IMG`）、`/boot` 和固件文件：
 
 | SD 扇区 | 内容 | 运行/加载位置 |
 | --- | --- | --- |
 | 0 | MBR，制作镜像时保留 | 不执行 |
 | 1..32 | 16 KiB `tiny210-bl1.bin` | iRAM `0xD0020000`，代码入口 `0xD0020010` |
 | 33..48 | 保留 | — |
-| 49.. | 原始 uImage 救援副本（可选） | FAT32 文件不可用时才读取 |
-| MBR 指定的 FAT32 分区 | 根目录 `xv6_tiny210.img` | 主启动内核；先放到 DRAM+`0x7fc0`，uImage payload 位于 DRAM+`0x8000` |
+| 49.. | 原始 uImage（启动内核） | 读到 DRAM+`0x7fc0`，uImage payload 位于 DRAM+`0x8000` |
+| MBR 指定的 FAT32 分区 | `FS.IMG`、`mt7601u.bin` 等 | 仅内核启动后使用，BL1 不读取 |
 
 BL1 的前 16 字节是 iROM 所需的大小、保留字段和字节校验和。链接脚本
 [`bl1/bl1.ld`](../../../kernel/arch/arm/mach-s5pv210/bl1/bl1.ld) 强制代码不超过
@@ -24,8 +25,7 @@ BL1 的前 16 字节是 iROM 所需的大小、保留字段和字节校验和。
 sequenceDiagram
   participant ROM as S5PV210 iROM (BL0)
   participant BL1 as xv6 BL1
-  participant SD as SDHCI / SD card
-  participant FAT as MBR + FAT32
+  participant SD as iROM CopySDMMCtoMem
   participant DDR as DMC0 DDR2
   participant K as xv6 _entry
 
@@ -34,40 +34,34 @@ sequenceDiagram
   BL1->>BL1: PS_HOLD、关 watchdog、PLL/分频
   BL1->>BL1: UART0 115200 8N1
   BL1->>DDR: 配置 DMC0、JEDEC 初始化、容量和读写测试
-  BL1->>SD: 读取 LBA 0，检查 MBR 0x55AA
-  SD-->>FAT: 找到首个 0x0b/0x0c FAT32 分区
-  BL1->>FAT: 解析 BPB、FAT 和根目录 cluster chain
-  FAT-->>BL1: 匹配 xv6_tiny210.img（VFAT/8.3，不区分大小写）
-  BL1->>SD: 沿文件 cluster chain 读取完整 legacy uImage
+  BL1->>SD: 取 0xD0037488 的启动通道，读扇区 49
+  SD-->>DDR: uImage 头 @ 0x20007fc0
+  BL1->>BL1: 校验 header CRC、load/entry
+  BL1->>SD: 按 header size 继续读取剩余扇区
   SD-->>DDR: uImage @ 0x20007fc0，payload @ 0x20008000
-  BL1->>BL1: 校验 uImage header CRC / data CRC
+  BL1->>BL1: 校验 data CRC
   BL1->>DDR: 生成 CORE/MEM/CMDLINE ATAG @ 0x20000100
   BL1->>K: r0=0, r1=3466, r2=ATAG，跳到 0x20008000
 ```
 
 BL1 入口在 [`bl1/start.S`](../../../kernel/arch/arm/mach-s5pv210/bl1/start.S)，
-硬件初始化和加载决策在 [`bl1/bl1.c`](../../../kernel/arch/arm/mach-s5pv210/bl1/bl1.c)，
-FAT32 只读实现位于 [`bl1/bl1fat.c`](../../../kernel/arch/arm/mach-s5pv210/bl1/bl1fat.c)。
-由于实板 iROM 的 `CopySDMMCtoMem` 读取 LBA 0 会卡住，主路径复用
-[`sdcore.c`](../../../kernel/drivers/mmc/host/sdcore.c) 的小型 SDHCI PIO 核心读取
-MBR、FAT 和文件数据；iROM 复制服务只保留给扇区 49 的救援回退。
+硬件初始化和加载逻辑在 [`bl1/bl1.c`](../../../kernel/arch/arm/mach-s5pv210/bl1/bl1.c)。
+BL1 不包含 FAT32 读取器，也不包含自己的 SDHCI 驱动；内核读取只经过 iROM 的
+`CopySDMMCtoMem`（函数指针在 `0xD0037F98`）。
 
-BL1 的 FAT32 加载顺序为：
+BL1 的加载顺序为：
 
 ```text
-LBA 0
-  -> 校验 0x55AA
-  -> 扫描 4 个 MBR partition entry
-  -> 选择第一个 type=0x0b/0x0c 的 FAT32 分区
-  -> 读取 VBR/BPB，计算 fat_lba、data_lba、root_cluster
-  -> 遍历根目录 cluster chain
-  -> 匹配 xv6_tiny210.img 的 VFAT 长文件名或 8.3 别名
-  -> 沿 FAT cluster chain 把文件读到 DRAM+0x7fc0
-  -> 校验 uImage header、load/entry、文件长度和 data CRC
+固定扇区 49
+  -> CopySDMMCtoMem 读 1 个扇区到 DRAM+0x7fc0
+  -> 校验 uImage 魔数、header CRC、load/entry == DRAM+0x8000
+  -> 按 header 的 size 计算总扇区数（iROM 单次最多 0x8000 块）
+  -> 继续读到 DRAM+0x7fc0，payload 恰好落在 DRAM+0x8000
+  -> 校验 data CRC
 ```
 
-只有 MBR/FAT32 无效或根目录找不到内核文件时，BL1 才读取固定扇区 49 的救援
-uImage。这样日常升级只需替换 FAT32 文件，不必重新写内核原始扇区。
+根文件系统与启动镜像无关：内核启动后自己探测 raw xv6 分区和 FAT32 中的
+`FS.IMG`，这部分逻辑没有因为 BL1 简化而改变。
 
 交接遵循 ARM Linux 传统启动约定：
 
@@ -170,7 +164,7 @@ Tiny210 构建实际使用 [`kernel/arch/arm/init.c`](../../../kernel/arch/arm/i
 | 最后可见信息 | 优先检查 |
 | --- | --- |
 | 完全无串口 | SD 启动拨码、BL1 扇区、UART0/COM0、波特率 |
-| `BL1: ... halted` | PLL、DDR、SDHCI、MBR/FAT32、uImage CRC |
+| `BL1: ... halted` | PLL、DDR、第 49 扇区的 uImage、uImage CRC |
 | `_entry` early error | 加载地址、`bootm` 交接、MMU 状态 |
 | 打印内核 banner 后停止 | MMU 映射、kalloc、platform device/initcall |
 | timer 日志前停止 | VIC 或 PWM 资源/时钟 |

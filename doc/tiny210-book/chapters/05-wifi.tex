@@ -88,6 +88,69 @@ USB PHY MMIO & \passthrough{\lstinline!0xEC100000..0xEC100fff!} \\
 \end{longtable}
 }
 
+\section{USB/Wi-Fi 分层 Trace 开关}\label{tiny210-wifi-trace}
+
+Tiny210 构建提供一个总开关和五个可独立覆盖的分层开关。一次打开 USB
+探测、枚举、传输以及 MT7601U 配置和数据路径：
+
+\begin{lstlisting}[language=sh]
+make tiny210 USB_WIFI_TRACE=1
+\end{lstlisting}
+
+等级 2 进一步打开逐寄存器和逐 802.11 帧日志。若只编译镜像、不执行 SD
+卡安装流程，可直接指定 Tiny210 Makefile 的镜像目标：
+
+\begin{lstlisting}[language=sh]
+make tiny210 USB_WIFI_TRACE=2
+make -f ports/tiny210/Makefile USB_WIFI_TRACE=1 \
+  build/tiny210/xv6-tiny210.uImage
+\end{lstlisting}
+
+\begingroup\small
+\begin{longtable}{p{35mm}p{24mm}p{73mm}}
+\toprule
+开关 & 日志前缀 & 覆盖阶段 \\ \midrule \endhead
+{\ttfamily\scriptsize USB\_CORE\_TRACE} & {\ttfamily\scriptsize usb-core:} & device/driver 注册、ID 匹配、probe/remove \\
+{\ttfamily\scriptsize USB\_ENUM\_TRACE} & {\ttfamily\scriptsize usb-enum:} & EHCI 根口、Hub、描述符、地址和端点枚举 \\
+{\ttfamily\scriptsize USB\_XFER\_TRACE} & {\ttfamily\scriptsize usb-xfer:} & control/bulk、QH/qTD、RX arm/completion 和 IRQ \\
+{\ttfamily\scriptsize MT7601U\_\allowbreak CONFIG\_\allowbreak TRACE=1} & {\ttfamily\scriptsize wifi-config:} & 固件、eFuse、MAC/BBP/RF、校准和状态机 \\
+{\ttfamily\scriptsize MT7601U\_\allowbreak CONFIG\_\allowbreak TRACE=2} & {\ttfamily\scriptsize wifi-reg:} & 在配置跟踪上增加逐寄存器访问 \\
+{\ttfamily\scriptsize MT7601U\_\allowbreak DATA\_\allowbreak TRACE=1} & {\ttfamily\scriptsize wifi-data:} & TX/RX、NAPI、Ethernet 与 USB 缓冲流转 \\
+{\ttfamily\scriptsize MT7601U\_\allowbreak DATA\_\allowbreak TRACE=2} & {\ttfamily\scriptsize wifi-frame:} & 在数据跟踪上增加逐 802.11 帧摘要 \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+总开关只是五项的默认值，因此可以打开总体跟踪后单独关闭最密集的 EHCI
+传输日志：
+
+\begin{lstlisting}[language=sh]
+make tiny210 USB_WIFI_TRACE=1 USB_XFER_TRACE=0
+\end{lstlisting}
+
+日志前缀与函数调用链的关系如下：
+
+\begin{lstlisting}
+ehci_enumerate_device
+  -> usb-enum: descriptor/address/config/endpoint
+  -> usb_device_register
+     -> usb-core: match 148f:7601 -> mt7601u_probe
+        -> wifi-config: firmware/eFuse/MAC/BBP/RF/calibration
+           -> usb-xfer: EP0/EP8/EP4/EP5 QH and qTD
+
+EHCI IRQ 55
+  -> usb-xfer: EP4 completion
+  -> mt7601u_rx_irq -> NAPI -> mt7601u_rx_parse
+     -> wifi-data: Ethernet/NAPI path
+     -> wifi-frame: each 802.11 frame (level 2 only)
+\end{lstlisting}
+
+错误、超时和初始化结果不受 Trace 开关影响。构建系统把当前五项取值写入
+\passthrough{\lstinline!build/tiny210/.usb-wifi-trace!}；任一值变化都会自动重编译
+\passthrough{\lstinline!usb.c!}、\passthrough{\lstinline!ehci-hcd.c!} 和
+\passthrough{\lstinline!mt7601u.c!}，无需先执行
+\passthrough{\lstinline!make clean!}。
+
 根口上的 full/low-speed 设备需要 OHCI，当前没有 OHCI 驱动；高速 MT7601U
 可直接由 EHCI 管理。也可以通过
 \passthrough{\lstinline!S5PV210\_USB\_OTG=1!} 编入 OTG/DWC2 host

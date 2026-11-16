@@ -373,3 +373,29 @@ PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
 \bottomrule
 \end{longtable}\endgroup
 
+\section{用分层 Trace 对齐 USB 与 Wi-Fi 调用链}\label{wa:usb-wifi-trace}
+
+第~\ref{tiny210-wifi-trace} 节给出了完整开关表。对 USB 主机栈分析最有用的
+三个前缀是 \fn{usb-enum:}、\fn{usb-core:} 和 \fn{usb-xfer:}：前两项回答
+“发现了什么设备、为何绑定这个驱动”，后一项回答“哪个端点的哪笔 QH/qTD
+完成或失败”。它们和 MT7601U 的两个驱动层前缀可以按下列顺序对齐：
+
+\begin{lstlisting}
+ehci_enum_thread
+  -> ehci_enumerate_device        usb-enum:
+  -> usb_device_register          usb-core:
+  -> mt7601u_probe                wifi-config: / wifi-reg:
+  -> control or bulk transfer     usb-xfer:
+
+ehci_irq                          usb-xfer:
+  -> mt7601u_rx_irq
+  -> napi_workfn
+  -> mt7601u_napi_poll            wifi-data:
+  -> mt7601u_rx_parse             wifi-frame: (level 2)
+  -> net_rx_dev
+\end{lstlisting}
+
+常规实板调试先用 \fn{USB\_WIFI\_TRACE=1}。如果串口被 qTD 日志淹没，可附加
+\fn{USB\_XFER\_TRACE=0}；只有定位寄存器时序或某一帧格式时才使用等级 2。
+这些宏只包围诊断输出，不改变枚举、DMA、锁或 NAPI 的执行路径。
+

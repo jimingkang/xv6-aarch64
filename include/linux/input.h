@@ -66,16 +66,35 @@
 #define KEY_LEFTALT    56
 #define KEY_SPACE      57
 #define KEY_CAPSLOCK   58
+#define KEY_F1         59
+#define KEY_F2         60
+#define KEY_F3         61
+#define KEY_F4         62
+#define KEY_F5         63
+#define KEY_F6         64
+#define KEY_F7         65
+#define KEY_F8         66
+#define KEY_F9         67
+#define KEY_F10        68
+#define KEY_F11        87
+#define KEY_F12        88
 #define KEY_RIGHTCTRL  97
 #define KEY_RIGHTALT  100
+#define KEY_HOME      102
 #define KEY_UP        103
+#define KEY_PAGEUP    104
 #define KEY_LEFT      105
 #define KEY_RIGHT     106
+#define KEY_END       107
 #define KEY_DOWN      108
+#define KEY_PAGEDOWN  109
+#define KEY_INSERT    110
+#define KEY_DELETE    111
 #define KEY_LEFTMETA  125
 #define KEY_RIGHTMETA 126
 #define KEY_MAX       255
 
+#define BUS_USB  0x03
 #define BUS_HOST 0x19
 
 /* Deliberately matches the kernel event record: one read returns one or

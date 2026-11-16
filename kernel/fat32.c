@@ -1444,6 +1444,29 @@ fat32init(void)
              start, end, sectors, sectors / 2048);
     }
 
+    // Bring-up probe: dump the first bytes of each partition's leading
+    // sectors straight from the card.  If the host wrote fs.img to a GPT
+    // slice whose offset differs from the MBR entry, the board reads 0xff
+    // here while the host still sees the superblock.  Compare each lba with
+    //   sudo dd if=/dev/rdiskN bs=512 skip=<lba> count=1 | xxd -l 8
+    // Remove this once the board mounts p2 directly.
+    for(int i = 0; i < 4; i++){
+      const uchar *part = entries[i];
+      uint32 start = le32(part + 8);
+      if(start == 0)
+        continue;
+      for(uint32 off = 0; off < 3; off++){
+        uint32 lba = start + off;
+        if(sdsector(lba, scratch, 0) < 0){
+          printf("sdprobe: p%d lba %d: read failed\n", i + 1, lba);
+          continue;
+        }
+        printf("sdprobe: p%d lba %d: %x %x %x %x %x %x %x %x\n",
+               i + 1, lba, scratch[0], scratch[1], scratch[2], scratch[3],
+               scratch[4], scratch[5], scratch[6], scratch[7]);
+      }
+    }
+
     // Root storage is independent from bootfs.  Prefer partition type 0x7f,
     // but also accept another primary partition when its block-1 superblock
     // carries the xv6 magic.  macOS diskutil can create MBR Linux partitions

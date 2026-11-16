@@ -38,26 +38,34 @@ static struct device board_devices[] = {
    make S5PV210_LCD=s70|h43|w50|a70. DE-mode panels mostly ignore the
    sync widths; totals and pixel clock matter. */
 static const struct s3c_fb_panel panels[] = {
-  {"S70", 800, 480, 60,  80, 36, 10, 22, 15,  8, 1, 1, 1, 0},
-  {"H43", 480, 272, 60,   5, 40,  2,  8,  8,  2, 1, 1, 1, 0},
-  {"W50", 800, 480, 60,  40, 40, 48, 20, 20, 12, 1, 1, 1, 0},
-  {"A70", 800, 480, 60,  40, 40, 48, 17, 29, 24, 1, 1, 1, 0},
+#ifndef S5PV210_LCD_VCLK_INVERT
+#define S5PV210_LCD_VCLK_INVERT 1
+#endif
+  {"S70", 800, 480, 60,  80, 36, 10, 22, 15,  8, S5PV210_LCD_VCLK_INVERT, 1, 1, 0},
+  {"H43", 480, 272, 60,   5, 40,  2,  8,  8,  2, S5PV210_LCD_VCLK_INVERT, 1, 1, 0},
+  {"W50", 800, 480, 60,  40, 40, 48, 20, 20, 12, S5PV210_LCD_VCLK_INVERT, 1, 1, 0},
+  {"A70", 800, 480, 60,  40, 40, 48, 17, 29, 24, S5PV210_LCD_VCLK_INVERT, 1, 1, 0},
 };
 #ifndef S5PV210_LCD_INDEX
 #define S5PV210_LCD_INDEX 0
 #endif
 
 /* GPF0[7:0], GPF1[7:0], GPF2[7:0], GPF3[3:0] = LCD (function 2) at the
-   strongest drive; DISPLAY_CONTROL[1:0] = 2 routes FIMD to the RGB pins. */
+   strongest drive; DISPLAY_CONTROL[1:0] = 2 routes FIMD to the RGB pins.
+   Disable the internal pulls as Linux's s5pv210_fb_gpio_setup_24bpp() does.
+   The reset value enables pull-downs; leaving them active degrades the edge
+   seen by a parallel RGB panel, especially VCLK and one-pixel text. */
 static void
 fb_setup_gpio(void)
 {
   for(int n = 0; n < 3; n++){
     REG(0xE0200120 + 0x20*n) = 0x22222222;
+    REG(0xE0200128 + 0x20*n) = 0x00000000;
     REG(0xE020012C + 0x20*n) = 0xffffffff;
   }
   REG(0xE0200180) = (REG(0xE0200180) & ~0xffffU) | 0x2222;
-  REG(0xE020018C) |= 0xff;
+  REG(0xE0200188) &= ~0xffU;
+  REG(0xE020018C) = (REG(0xE020018C) & ~0xffU) | 0xffU;
   REG(0xE0100464) |= 1;                                  /* CLK_GATE_IP1: FIMD */
   REG(0xE0107008) = (REG(0xE0107008) & ~3U) | 2;         /* DISPLAY_CONTROL */
 }

@@ -38,10 +38,12 @@ int InvalidateRect(HWND hwnd,const RECT *rc,int erase);
 HDC BeginPaint(HWND hwnd,PAINTSTRUCT *ps);
 int EndPaint(HWND hwnd,const PAINTSTRUCT *ps);
 int FillRect(HDC hdc,const RECT *rc,COLORREF color);
+COLORREF SetTextColor(HDC hdc,COLORREF color);
 int TextOut(HDC hdc,int x,int y,const char *s,int len);
 int DrawText(HDC hdc,const char *s,int len,const RECT *rc,uint fmt);
 int GetClientRect(HWND hwnd,RECT *rc);
 int GetSystemMetrics(int index);
+HWND SetActiveWindow(HWND hwnd);
 int WinInit(void);
 void WinExit(void);
 

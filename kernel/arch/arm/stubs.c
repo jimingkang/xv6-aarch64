@@ -7,9 +7,11 @@
 void epollinit(void) {}
 void epollclose(struct epoll *p) { (void)p; }
 #endif
+#ifndef XV6_HAVE_PTY
 void ptyclose(struct pty *p,int m) { (void)p; (void)m; }
 int ptyread(struct pty *p,int m,uint64 a,int n) { (void)p;(void)m;(void)a;(void)n;return -1; }
 int ptywrite(struct pty *p,int m,uint64 a,int n) { (void)p;(void)m;(void)a;(void)n;return -1; }
+#endif
 #ifndef XV6_HAVE_NET
 int net_tcp_close(int s) { (void)s;return -1; }
 int net_tcp_read(int s,uint64 a,int n,int f) { (void)s;(void)a;(void)n;(void)f;return -1; }

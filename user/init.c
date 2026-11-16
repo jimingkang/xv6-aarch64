@@ -97,6 +97,9 @@ main(void)
   mknod("dev/tty", TTY, 0);
   mknod("dev/ttyS0", TTYS0, 0);
   mknod("dev/input/event0", INPUT, 0);
+  mknod("dev/input/event1", INPUT, 1);
+  mknod("dev/input/event2", INPUT, 2);
+  mknod("dev/input/event3", INPUT, 3);
   if(open("/dev/ttyS0", O_RDWR) < 0 &&
      open("/dev/console", O_RDWR) < 0)
     exit(1);

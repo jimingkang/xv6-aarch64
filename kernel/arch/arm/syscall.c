@@ -96,6 +96,10 @@ extern uint64 sys_fstat(void);
 extern uint64 sys_chdir(void);
 extern uint64 sys_dup(void);
 extern uint64 sys_getpid(void);
+extern uint64 sys_gettid(void);
+extern uint64 sys_clone(void);
+extern uint64 sys_texit(void);
+extern uint64 sys_tjoin(void);
 extern uint64 sys_sbrk(void);
 extern uint64 sys_sleep(void);
 extern uint64 sys_uptime(void);
@@ -114,6 +118,7 @@ extern uint64 sys_vmdump(void);
 extern uint64 sys_mmap(void);
 extern uint64 sys_munmap(void);
 extern uint64 sys_ioctl(void);
+extern uint64 sys_pty_open(void);
 extern uint64 sys_win32k(void);
 // Board hook (mach-*/): ports without one return -1.
 extern uint64 sys_reboot(void) __attribute__((weak));
@@ -141,6 +146,10 @@ static uint64 (*calls[])(void) = {
   [SYS_chdir] = sys_chdir,
   [SYS_dup] = sys_dup,
   [SYS_getpid] = sys_getpid,
+  [SYS_gettid] = sys_gettid,
+  [SYS_clone] = sys_clone,
+  [SYS_texit] = sys_texit,
+  [SYS_tjoin] = sys_tjoin,
   [SYS_sbrk] = sys_sbrk,
   [SYS_sleep] = sys_sleep,
   [SYS_uptime] = sys_uptime,
@@ -159,6 +168,7 @@ static uint64 (*calls[])(void) = {
   [SYS_mmap] = sys_mmap,
   [SYS_munmap] = sys_munmap,
   [SYS_ioctl] = sys_ioctl,
+  [SYS_pty_open] = sys_pty_open,
   [SYS_win32k] = sys_win32k,
   [SYS_reboot] = sys_reboot,
 #ifdef XV6_HAVE_VFS

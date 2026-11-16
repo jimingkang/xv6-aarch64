@@ -14,7 +14,8 @@ S5PV210 iROM (BL0) SD boot: read 16 KiB from sector 1 into iRAM at
 0xD0020000, verify the 16-byte header, run from 0xD0020010.
   0x0 BL1 size (16384)   0x4 reserved (0)
   0x8 checksum = sum of bytes 16..16383    0xC reserved (0)
-ports/tiny210/bl1 is that BL1: it sets up clocks, the console UART and DDR, then copies
+kernel/arch/arm/mach-s5pv210/bl1 is that BL1: it sets up clocks, the console
+UART and DDR, then copies
 the xv6 uImage from sector 49 (where the BSP keeps BL2/U-Boot) to
 DRAM+0x7FC0 with the iROM's CopySDMMCtoMem and jumps to DRAM+0x8000.
 """
@@ -28,7 +29,7 @@ BL1_SIZE = 16 * 1024
 BL1_HDR = 16
 SECTOR = 512
 BL1_SECTOR = 1          # iROM fixed location
-KERNEL_SECTOR = 49      # raw fallback image (classic BL2 slot); bl1.c KERNEL_SECTOR
+KERNEL_SECTOR = 49      # raw boot image (classic BL2 slot); bl1.c KERNEL_SECTOR
 KERNEL_MAX = 32 * 1024 * 1024   # bl1lib.c uimage_check limit
 
 

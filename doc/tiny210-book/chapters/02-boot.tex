@@ -4,8 +4,10 @@
 \section{SD 启动布局}\label{sd-ux542fux52a8ux5e03ux5c40}
 
 Tiny210 不依赖 U-Boot。S5PV210 iROM（BL0）从 SD 卡固定位置加载本仓库的
-BL1； BL1 初始化 SDHCI 后读取 MBR，在第一个 FAT32
-分区的根目录中查找并加载 \passthrough{\lstinline!xv6\_tiny210.img!}：
+BL1；BL1 只通过 iROM 的 \passthrough{\lstinline!CopySDMMCtoMem!}
+从固定第 49 扇区读取 legacy uImage，不解析 MBR，也不读取 FAT32。
+FAT32 分区只在内核启动后用于根文件系统（\passthrough{\lstinline!FS.IMG!}）、
+\passthrough{\lstinline!/boot!} 和固件文件：
 
 {\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}p{0.18\linewidth}p{0.26\linewidth}p{0.50\linewidth}@{}}
@@ -20,11 +22,11 @@ SD 扇区 & 内容 & 运行/加载位置 \\
 \passthrough{\lstinline!0xD0020000!}，代码入口
 \passthrough{\lstinline!0xD0020010!} \\
 33..48 & 保留 & --- \\
-49.. & 原始 uImage 救援副本（可选） & FAT32 文件不可用时才读取 \\
-MBR 指定的 FAT32 分区 & 根目录
-\passthrough{\lstinline!xv6\_tiny210.img!} & 主启动内核；先放到
+49.. & 原始 uImage（启动内核） & 读到
 DRAM+\passthrough{\lstinline!0x7fc0!}，uImage payload 位于
 DRAM+\passthrough{\lstinline!0x8000!} \\
+MBR 指定的 FAT32 分区 & \passthrough{\lstinline!FS.IMG!}、\passthrough{\lstinline!mt7601u.bin!}
+等 & 仅内核启动后使用，BL1 不读取 \\
 \end{longtable}
 }
 
@@ -38,32 +40,25 @@ BL1 的前 16 字节是 iROM 所需的大小、保留字段和字节校验和。
 
 BL1 入口在
 \href{../../../kernel/arch/arm/mach-s5pv210/bl1/start.S}{\passthrough{\lstinline!bl1/start.S!}}，
-硬件初始化和加载决策在
-\href{../../../kernel/arch/arm/mach-s5pv210/bl1/bl1.c}{\passthrough{\lstinline!bl1/bl1.c!}}，
-FAT32 只读实现位于
-\href{../../../kernel/arch/arm/mach-s5pv210/bl1/bl1fat.c}{\passthrough{\lstinline!bl1/bl1fat.c!}}。
-由于实板 iROM 的 \passthrough{\lstinline!CopySDMMCtoMem!} 读取 LBA 0
-会卡住，主路径复用
-\href{../../../kernel/drivers/mmc/host/sdcore.c}{\passthrough{\lstinline!sdcore.c!}}
-的小型 SDHCI PIO 核心读取 MBR、FAT 和文件数据；iROM 复制服务只保留给扇区
-49 的救援回退。
+硬件初始化和加载逻辑在
+\href{../../../kernel/arch/arm/mach-s5pv210/bl1/bl1.c}{\passthrough{\lstinline!bl1/bl1.c!}}。
+BL1 不包含 FAT32 读取器，也不包含自己的 SDHCI 驱动；内核读取只经过
+iROM 的 \passthrough{\lstinline!CopySDMMCtoMem!}（函数指针在
+\passthrough{\lstinline!0xD0037F98!}）。
 
-BL1 的 FAT32 加载顺序为：
+BL1 的加载顺序为：
 
 \begin{lstlisting}
-LBA 0
-  -> 校验 0x55AA
-  -> 扫描 4 个 MBR partition entry
-  -> 选择第一个 type=0x0b/0x0c 的 FAT32 分区
-  -> 读取 VBR/BPB，计算 fat_lba、data_lba、root_cluster
-  -> 遍历根目录 cluster chain
-  -> 匹配 xv6_tiny210.img 的 VFAT 长文件名或 8.3 别名
-  -> 沿 FAT cluster chain 把文件读到 DRAM+0x7fc0
-  -> 校验 uImage header、load/entry、文件长度和 data CRC
+固定扇区 49
+  -> CopySDMMCtoMem 读 1 个扇区到 DRAM+0x7fc0
+  -> 校验 uImage 魔数、header CRC、load/entry == DRAM+0x8000
+  -> 按 header 的 size 计算总扇区数（iROM 单次最多 0x8000 块）
+  -> 继续读到 DRAM+0x7fc0，payload 恰好落在 DRAM+0x8000
+  -> 校验 data CRC
 \end{lstlisting}
 
-只有 MBR/FAT32 无效或根目录找不到内核文件时，BL1 才读取固定扇区 49
-的救援 uImage。这样日常升级只需替换 FAT32 文件，不必重新写内核原始扇区。
+根文件系统与启动镜像无关：内核启动后自己探测 raw xv6 分区和 FAT32 中的
+\passthrough{\lstinline!FS.IMG!}，这部分逻辑没有因为 BL1 简化而改变。
 
 交接遵循 ARM Linux 传统启动约定：
 
@@ -212,7 +207,7 @@ Tiny210 构建实际使用
 \endlastfoot
 完全无串口 & SD 启动拨码、BL1 扇区、UART0/COM0、波特率 \\
 \passthrough{\lstinline!BL1: ... halted!} &
-PLL、DDR、SDHCI、MBR/FAT32、uImage CRC \\
+PLL、DDR、第 49 扇区的 uImage、uImage CRC \\
 \passthrough{\lstinline!\_entry!} early error &
 加载地址、\passthrough{\lstinline!bootm!} 交接、MMU 状态 \\
 打印内核 banner 后停止 & MMU 映射、kalloc、platform device/initcall \\

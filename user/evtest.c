@@ -25,7 +25,8 @@ main(int argc, char **argv)
     printf("evtest: cannot open %s\n", path);
     exit(1);
   }
-  printf("evtest: reading %s; Tiny210 K1-K8 use KEY_1-KEY_8\n", path);
+  printf("evtest: reading %s; Tiny210 K1-K8 use KEY_1-KEY_8 (event0),\n"
+         "        a USB keyboard is the next eventN\n", path);
   for(;;){
     int n = read(fd, events, sizeof(events));
     if(n <= 0){

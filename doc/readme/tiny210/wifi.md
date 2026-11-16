@@ -362,3 +362,65 @@ dhcp: dev=wlan0 address=... gateway=... dns=...
 | `wifi: associated` 但 DHCP 失败 | 使用 `wlan0`、ARP/DHCP response 是否进入 `net_rx_dev()` |
 | 一直连不上非 TP-Link_B114 | 当前 association request 的硬编码 SSID 限制 |
 
+## 12. USB/Wi-Fi 分层 Trace 开关
+
+Tiny210 构建提供一个总开关和五个可独立覆盖的分层开关。一次打开全部日志：
+
+```sh
+make tiny210 USB_WIFI_TRACE=1
+```
+
+`USB_WIFI_TRACE=2` 会进一步打开 MT7601U 的逐寄存器和逐 802.11 帧日志；
+`USB_XFER_TRACE` 本身也很密集，因此只建议短时间抓取：
+
+```sh
+make tiny210 USB_WIFI_TRACE=2
+```
+
+如果只想编译而不执行 Tiny210 SD 卡安装流程，可使用：
+
+```sh
+make -f ports/tiny210/Makefile USB_WIFI_TRACE=1 \
+  build/tiny210/xv6-tiny210.uImage
+```
+
+各开关和输出前缀如下：
+
+| 编译开关 | 日志前缀 | 覆盖的调用阶段 |
+| --- | --- | --- |
+| `USB_CORE_TRACE` | `usb-core:` | device/driver 注册、ID 匹配、probe/remove |
+| `USB_ENUM_TRACE` | `usb-enum:` | EHCI 根口、Hub、描述符、地址与端点枚举 |
+| `USB_XFER_TRACE` | `usb-xfer:` | control/bulk、QH/qTD、RX arm/completion 和 IRQ |
+| `MT7601U_CONFIG_TRACE=1` | `wifi-config:` | probe、固件、eFuse、MAC/BBP/RF、校准和连接状态 |
+| `MT7601U_CONFIG_TRACE=2` | `wifi-reg:` | 在上项基础上输出逐寄存器访问 |
+| `MT7601U_DATA_TRACE=1` | `wifi-data:` | TX/RX、NAPI、Ethernet 与 USB 缓冲流转 |
+| `MT7601U_DATA_TRACE=2` | `wifi-frame:` | 在上项基础上输出逐 802.11 帧摘要 |
+
+总开关只是五个默认值的来源，仍可单独关闭噪声最大的层。例如保留枚举、
+usbcore 和 Wi-Fi 日志，但关闭每笔 EHCI 传输：
+
+```sh
+make tiny210 USB_WIFI_TRACE=1 USB_XFER_TRACE=0
+```
+
+从启动到联网时，前缀顺序可直接映射到调用链：
+
+```text
+ehci_enum_thread / ehci_enumerate_device
+  -> usb-enum: 描述符、地址、配置、端点
+  -> usb_device_register
+       -> usb-core: 匹配 148f:7601 并调用 mt7601u_probe
+            -> wifi-config: 固件、eFuse、MAC/BBP/RF、校准
+                 -> usb-xfer: EP8 OUT / EP4、EP5 IN 的 QH/qTD
+
+EHCI IRQ 55
+  -> usb-xfer: EP4 completion
+  -> mt7601u_rx_irq -> NAPI -> mt7601u_rx_parse
+       -> wifi-data: Ethernet/NAPI 收发
+       -> wifi-frame: 逐 802.11 帧（仅 level 2）
+```
+
+错误、超时和初始化结果日志不依赖这些开关，关闭 Trace 后仍会保留。构建系统还会把
+五个取值写入 `build/tiny210/.usb-wifi-trace`；值发生变化时会自动重编译
+`usb.c`、`ehci-hcd.c` 和 `mt7601u.c`，无需先执行 `make clean`。
+

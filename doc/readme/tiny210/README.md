@@ -69,6 +69,13 @@ kernel/drivers/
 make tiny210
 ```
 
+生成整卡镜像并写入已挂载的 SD 卡（BL1 到第 1 扇区、uImage 到第 49 扇区，
+MBR 不动，写后读回校验）：
+
+```sh
+make tiny210-sdimg
+```
+
 等价的显式 Tiny210 构建是：
 
 ```sh
@@ -82,8 +89,8 @@ make -f ports/tiny210/Makefile \
 | 产物 | 作用 |
 | --- | --- |
 | `tiny210-bl1.bin` | 16 KiB、带 iROM 头的 BL1，写入 SD 扇区 1 |
-| `xv6-tiny210.uImage` | legacy uImage；BL1 优先从 MBR 指定的 FAT32 分区加载，扇区 49 仅作救援回退 |
-| `tiny210-sd.img` | BL1 与 fallback uImage 已放到固定扇区的整卡原始镜像 |
+| `xv6-tiny210.uImage` | legacy uImage；写在第 49 扇区，是 BL1 唯一的启动内核 |
+| `tiny210-sd.img` | BL1@1 与 uImage@49 已放到固定扇区的整卡原始镜像 |
 | `kernel.elf` / `kernel.map` | 带符号调试文件和链接映射 |
 | `fs.img` | 4 MiB xv6fs；构建时会被嵌入内核 `.ramdisk` |
 
@@ -121,9 +128,8 @@ make tiny210-clean
 flowchart LR
   ROM["S5PV210 iROM / BL0"] --> BL1["xv6 BL1<br/>iRAM 0xD0020010"]
   BL1 --> DDR["时钟、UART、DDR2"]
-  DDR --> MBR["SD LBA 0<br/>解析 MBR"]
-  MBR --> FAT["首个 FAT32 分区<br/>根目录 xv6_tiny210.img"]
-  FAT --> IMG["沿 cluster chain<br/>加载 uImage"]
+  DDR --> RAW["SD 第 49 扇区<br/>原始 uImage"]
+  RAW --> IMG["iROM 拷贝到 DRAM+0x7FC0<br/>payload @ DRAM+0x8000，校验 CRC"]
   IMG --> ENTRY["_entry<br/>DRAM+0x8000"]
   ENTRY --> MAIN["x210_main()"]
   MAIN --> MMU["MMU / kalloc / device core"]
@@ -151,8 +157,8 @@ flowchart LR
 
 - 串口先看 BL1 是否打印；完全无输出时优先检查启动拨码、COM0、115200 8N1。
 - BL1 可单独构建串口测试：`make -f ports/tiny210/Makefile uarttest`。
-- 内核加载前失败依次看 `tiny210-bl1.bin`、MBR 分区类型、FAT32 BPB、根目录
-  `xv6_tiny210.img` 和 fallback 固定扇区；内核入口失败看 `_entry`。
+- 内核加载前失败依次看 `tiny210-bl1.bin`、第 49 扇区的 `xv6-tiny210.uImage`
+  和 uImage CRC；根文件系统的 FAT32/raw 探测错误属于内核侧；内核入口失败看 `_entry`。
 - 进入内核后按 `initcall:` 日志判断失败属于 clock、VIC、timer、serial 还是 LCD probe。
 - LCD 无显示但串口正常时，先选择正确 `S5PV210_LCD`，再核对 RGB 排线、供电和背光。
 - 完整烧录步骤与风险提示见 [ports/tiny210/README.md](../../../ports/tiny210/README.md)。

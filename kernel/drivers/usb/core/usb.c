@@ -5,6 +5,15 @@
 #include "kernel/usb.h"
 #include "kernel/module.h"
 
+#ifndef USB_CORE_TRACE
+#define USB_CORE_TRACE 0
+#endif
+#if USB_CORE_TRACE
+#define USB_CORE_LOG(...) printf("usb-core: " __VA_ARGS__)
+#else
+#define USB_CORE_LOG(...) do { } while(0)
+#endif
+
 #define USB_CONTAINER(ptr, type, member) \
   ((type *)((char *)(ptr) - __builtin_offsetof(type, member)))
 
@@ -33,8 +42,18 @@ usb_match(struct device *dev, struct device_driver *driver)
         id->subclass == udev->subclass) &&
        (!(flags & USB_DEVICE_ID_MATCH_PROTOCOL) ||
         id->protocol == udev->protocol))
-      return 1;
+      {
+        USB_CORE_LOG("match device=%x:%x class=%d/%d/%d driver=%s\n",
+                     udev->vendor, udev->product, udev->class,
+                     udev->subclass, udev->protocol,
+                     driver->name ? driver->name : "<unnamed>");
+        return 1;
+      }
   }
+  USB_CORE_LOG("no-match device=%x:%x class=%d/%d/%d driver=%s\n",
+               udev->vendor, udev->product, udev->class,
+               udev->subclass, udev->protocol,
+               driver->name ? driver->name : "<unnamed>");
   return 0;
 }
 
@@ -46,7 +65,14 @@ usb_probe(struct device *dev)
   if(dev->driver == 0)
     return -1;
   udrv = USB_CONTAINER(dev->driver, struct usb_driver, driver);
-  return udrv->probe ? udrv->probe(udev) : 0;
+  USB_CORE_LOG("probe begin driver=%s device=%x:%x addr=%d\n",
+               dev->driver->name ? dev->driver->name : "<unnamed>",
+               udev->vendor, udev->product, udev->address);
+  int r = udrv->probe ? udrv->probe(udev) : 0;
+  USB_CORE_LOG("probe end driver=%s device=%x:%x result=%d\n",
+               dev->driver->name ? dev->driver->name : "<unnamed>",
+               udev->vendor, udev->product, r);
+  return r;
 }
 
 static void
@@ -71,6 +97,7 @@ static struct bus_type usb_bus = {
 void
 usb_bus_init(void)
 {
+  USB_CORE_LOG("register bus\n");
   bus_register(&usb_bus);
 }
 
@@ -86,6 +113,9 @@ usb_device_register(struct usb_device *udev)
   if(udev == 0 || udev->ops == 0 || udev->ops->control == 0)
     return -1;
   udev->dev.bus = &usb_bus;
+  USB_CORE_LOG("register device=%x:%x addr=%d class=%d/%d/%d\n",
+               udev->vendor, udev->product, udev->address, udev->class,
+               udev->subclass, udev->protocol);
   return device_register(&udev->dev);
 }
 
@@ -101,6 +131,8 @@ usb_register_driver(struct usb_driver *driver)
   if(driver == 0)
     return -1;
   driver->driver.bus = &usb_bus;
+  USB_CORE_LOG("register driver=%s\n",
+               driver->driver.name ? driver->driver.name : "<unnamed>");
   return driver_register(&driver->driver);
 }
 

@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="1153" viewBox="0 0 1420 1153" font-family="WenQuanYi Zen Hei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+</defs>
+<rect width="1420" height="1153" fill="#fff"/>
+<text x="710" y="30" text-anchor="middle" font-size="20" font-weight="bold">MT7601U 固定 ch9 运行时序图：auth 成功一次，association 无响应，之后 AP 不再回应</text>
+<text x="710" y="52" text-anchor="middle" font-size="13" fill="#57606a">构建 05:51:59 · WCID_CLEAR=0 · TX 走 EP8/MGMT · SCAN_CHAN=9 · 红色 = 出错/缺失，橙色 = 可疑</text>
+<rect x="15" y="66" width="210" height="46" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+<text x="120" y="86" text-anchor="middle" font-weight="bold">用户进程 wifi</text><text x="120" y="103" text-anchor="middle" font-size="11" fill="#57606a">sys_wifi_connect → mt7601u_connect</text>
+<line x1="120" y1="112" x2="120" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="255" y="66" width="210" height="46" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+<text x="360" y="86" text-anchor="middle" font-weight="bold">mt7601u_wq 工作线程 (pid 4)</text><text x="360" y="103" text-anchor="middle" font-size="11" fill="#57606a">state_worker + NAPI poll（串行）</text>
+<line x1="360" y1="112" x2="360" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="495" y="66" width="210" height="46" rx="6" fill="#fff8c5" stroke="#9a6700"/>
+<text x="600" y="86" text-anchor="middle" font-weight="bold">EHCI 中断上下文</text><text x="600" y="103" text-anchor="middle" font-size="11" fill="#57606a">ehci_irq → mt7601u_rx_irq</text>
+<line x1="600" y1="112" x2="600" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="725" y="66" width="210" height="46" rx="6" fill="#fff8c5" stroke="#9a6700"/>
+<text x="830" y="86" text-anchor="middle" font-weight="bold">EHCI 主控 / USB</text><text x="830" y="103" text-anchor="middle" font-size="11" fill="#57606a">EP8 OUT · EP4 IN</text>
+<line x1="830" y1="112" x2="830" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="955" y="66" width="210" height="46" rx="6" fill="#f6f8fa" stroke="#57606a"/>
+<text x="1060" y="86" text-anchor="middle" font-weight="bold">MT7601U 芯片</text><text x="1060" y="103" text-anchor="middle" font-size="11" fill="#57606a">MAC · TX 队列 · TX 状态 FIFO</text>
+<line x1="1060" y1="112" x2="1060" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="1185" y="66" width="210" height="46" rx="6" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="1290" y="86" text-anchor="middle" font-weight="bold">AP  TP-Link_B114</text><text x="1290" y="103" text-anchor="middle" font-size="11" fill="#57606a">f0:09:0d:cb:b1:14  ch9</text>
+<line x1="1290" y1="112" x2="1290" y2="963" stroke="#8c959f" stroke-dasharray="4 4"/>
+<rect x="10" y="126" width="1400" height="20" fill="#f6f8fa"/><text x="20" y="140" font-weight="bold" fill="#57606a">① 加入：connect 设置目标，唤醒状态机</text>
+<line x1="120" y1="170" x2="354" y2="170" stroke="#0969da" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="240.0" y="164" text-anchor="middle" fill="#0969da">joining TP-Link_B114 → mod_delayed_work</text>
+<text x="240.0" y="185" text-anchor="middle" font-size="11" fill="#57606a">持 dev->lock 写 want_ssid/pmk；随后每 tick sleep(&amp;ticks) 轮询 handshake_done（30 s）</text>
+<rect x="10" y="201" width="1400" height="20" fill="#f6f8fa"/><text x="20" y="215" font-weight="bold" fill="#57606a">② 扫描/发现：beacon 走 EP4 IN 中断路径</text>
+<line x1="1290" y1="245" x2="1066" y2="245" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<text x="1175.0" y="239" text-anchor="middle" fill="#1a7f37">beacon (≈10 个/秒)</text>
+<line x1="1060" y1="271" x2="836" y2="271" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="945.0" y="265" text-anchor="middle" fill="#333">EP4 IN 完成 (420 B)</text>
+<line x1="830" y1="297" x2="606" y2="297" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="715.0" y="291" text-anchor="middle" fill="#333">USBINT</text>
+<line x1="600" y1="323" x2="366" y2="323" stroke="#9a6700" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="480.0" y="317" text-anchor="middle" fill="#9a6700">napi_schedule → queue_work</text>
+<rect x="352" y="339" width="16" height="24" fill="#ddf4ff" stroke="#0969da"/>
+<text x="376" y="355" font-size="12">NAPI poll → rx_parse → rx_mgmt：target found，写 BSSID 0x1010/0x1014</text>
+<rect x="520" y="379" width="470" height="46" rx="5" fill="#ffebe9" stroke="#cf222e"/>
+<text x="528" y="399" font-size="12">③ RX 大量丢失：ch9 上 3 个 AP，30 s 应有约 900 个 beacon，</text>
+<text x="528" y="417" font-size="12">   实际只收到 62 个 USB 缓冲（约 7%）。auth/assoc 响应也可能被漏掉。</text>
+<rect x="10" y="425" width="1400" height="20" fill="#f6f8fa"/><text x="20" y="439" font-weight="bold" fill="#57606a">④ 认证：第 1 个 auth 无响应，第 2 个成功</text>
+<rect x="352" y="457" width="16" height="120" fill="#ffebe9" stroke="#cf222e"/>
+<text x="346" y="509" text-anchor="end" font-size="11" fill="#cf222e">持 dev->lock</text><text x="346" y="524" text-anchor="end" font-size="11" fill="#cf222e">（关中断）</text>
+<line x1="360" y1="469" x2="824" y2="469" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="595.0" y="463" text-anchor="middle" fill="#333">tx_raw: auth #1 (60 B, EP8, QSEL=MGMT)</text>
+<line x1="830" y1="495" x2="1054" y2="495" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="945.0" y="489" text-anchor="middle" fill="#333">bulk OUT 完成 → tx-complete</text>
+<line x1="830" y1="521" x2="366" y2="521" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)" stroke-dasharray="6 4"/>
+<text x="595.0" y="515" text-anchor="middle" fill="#bc4c00">返回 60 = 只代表进了芯片，不代表已发上空口</text>
+<line x1="360" y1="547" x2="1054" y2="547" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<text x="710.0" y="541" text-anchor="middle" fill="#bc4c00">tx_stat_drain：FIFO 空（帧还在排队）</text>
+<line x1="1060" y1="573" x2="1198.0" y2="573" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="1198.0" y="578" text-anchor="middle" fill="#cf222e" font-weight="bold" font-size="16">✕</text>
+<text x="1129.0" y="567" text-anchor="middle" fill="#cf222e">auth #1 → 无响应</text>
+<line x1="1060" y1="603" x2="1284" y2="603" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="1175.0" y="597" text-anchor="middle" fill="#333">auth #2 (seq=1)</text>
+<line x1="1290" y1="629" x2="1066" y2="629" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<text x="1175.0" y="623" text-anchor="middle" fill="#1a7f37">auth 响应 status=0 (68 B)</text>
+<text x="376" y="651" font-size="12" fill="#1a7f37">→ "Open-System authentication accepted"</text>
+<line x1="1290" y1="675" x2="1066" y2="675" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)" stroke-dasharray="6 4"/>
+<text x="1175.0" y="669" text-anchor="middle" fill="#bc4c00">又一个 68 B 帧 = AP 重发 auth 响应？</text>
+<text x="1175.0" y="690" text-anchor="middle" font-size="11" fill="#57606a">若带 retry 位，说明 AP 没收到我们的 ACK</text>
+<rect x="10" y="701" width="1400" height="20" fill="#f6f8fa"/><text x="20" y="715" font-weight="bold" fill="#57606a">⑤ 关联：assoc 请求发 3 次，没有任何回应</text>
+<line x1="360" y1="745" x2="1054" y2="745" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="710.0" y="739" text-anchor="middle" fill="#333">assoc #1 (74 B, rsn=22) → tx-complete</text>
+<line x1="1060" y1="745" x2="1210" y2="745" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/><text x="1212" y="750" fill="#cf222e" font-weight="bold" font-size="16">✕</text><text x="1230" y="749" fill="#cf222e" font-size="12">无 assoc 响应 / 无 deauth</text>
+<line x1="360" y1="775" x2="1054" y2="775" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="710.0" y="769" text-anchor="middle" fill="#333">assoc #2 (74 B, rsn=22) → tx-complete</text>
+<line x1="1060" y1="775" x2="1210" y2="775" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/><text x="1212" y="780" fill="#cf222e" font-weight="bold" font-size="16">✕</text><text x="1230" y="779" fill="#cf222e" font-size="12">无 assoc 响应 / 无 deauth</text>
+<line x1="360" y1="805" x2="1054" y2="805" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="710.0" y="799" text-anchor="middle" fill="#333">assoc #3 (74 B, rsn=22) → tx-complete</text>
+<line x1="1060" y1="805" x2="1210" y2="805" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/><text x="1212" y="810" fill="#cf222e" font-weight="bold" font-size="16">✕</text><text x="1230" y="809" fill="#cf222e" font-size="12">无 assoc 响应 / 无 deauth</text>
+<text x="376" y="833" fill="#cf222e" font-weight="bold">association timeout → 回到 AUTH_PENDING</text>
+<rect x="10" y="843" width="1400" height="20" fill="#f6f8fa"/><text x="20" y="857" font-weight="bold" fill="#57606a">⑥ 重新认证：auth 共 9 次，AP 一次都没再回应</text>
+<line x1="360" y1="887" x2="1054" y2="887" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="710.0" y="881" text-anchor="middle" fill="#333">auth ×3 → tx-complete（USB 都成功）</text>
+<line x1="1060" y1="887" x2="1210" y2="887" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/><text x="1212" y="892" fill="#cf222e" font-weight="bold" font-size="16">✕</text><text x="1230" y="891" fill="#cf222e" font-size="12">无响应</text>
+<text x="376" y="913" fill="#cf222e" font-weight="bold">authentication timeout → SCAN → 再次 found → 再 auth ×3 …（循环 3 轮）</text>
+<line x1="360" y1="947" x2="126" y2="947" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)" stroke-dasharray="6 4"/>
+<text x="240.0" y="941" text-anchor="middle" fill="#cf222e">30 s 到：handshake_done 仍为 0</text>
+<text x="136" y="973" fill="#cf222e" font-weight="bold">"no handshake within 30000 ms (state 0, found 0)" → wifi: association failed</text>
+<rect x="20" y="1013" width="1360" height="118" rx="5" fill="#f6f8fa" stroke="#57606a"/>
+<text x="28" y="1033" font-size="12">要点：USB 层所有 TX 都返回成功（之前的 EP8 3 秒卡死已消失，和 WCID_CLEAR=0 相关），但从 assoc 开始 AP 再也没有任何回应。</text>
+<text x="28" y="1051" font-size="12">嫌疑 A（首要）：tx_stat_drain 在 USB 写完后立刻读，FIFO 总是空（日志里一条 tx-status 都没有）。若芯片真的生成状态，FIFO 会一直积累，满了以后 MAC 停止发射，</text>
+<text x="28" y="1069" font-size="12">             正好解释“前几帧有效、之后全部石沉大海”。已改为在等待响应超时时再读一次 FIFO。</text>
+<text x="28" y="1087" font-size="12">嫌疑 B：重复的 68 B 帧 = AP 重发 auth 响应，我们的硬件 ACK 没到 AP；很多 AP 会因此不认可认证，后续 assoc 被忽略。</text>
+<text x="28" y="1105" font-size="12">嫌疑 C：RX 只收到约 7% 的帧，assoc 响应可能被漏收（但 9 次 auth 全部无响应，单靠漏收很难解释）。</text>
+<text x="28" y="1123" font-size="12">下一次日志看：tx-status acked/not-acked，以及 rx-mgmt subtype=11 retry=1 / subtype=1 / subtype=12。</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpkMGM0NDRhZi0zYjYxLTRlMzgtOTY0NC0wMGJiYWM4MjM5NDYAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaHfdSW/K/zc0DHKw8L1yQqkAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo4MGI1NDRjMS1mMzYyLTQwNjUtOTJkNC0zMTFkYzI1NWVhNDRscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoCNqHmwVUkCwAlsrkc5DeJgAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggmbkpeWLStRlVEcgzED6zcig2rk1ol6eR6QX933OueR2kZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaNhl+onaQNuwOGvDvoolEL8AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIAwD8P5JFtGl4NDPUXUXH7bpX2rQozO9it89lF9vM8LjZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GS9oZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmQwYzQ0NGFmLTNiNjEtNGUzOC05NjQ0LTAwYmJhYzgyMzk0Ni9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmM4MTFjZDU3LWE0NzUtNDRiNi05YjlhLThlMWJhNjc4Y2U3OXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCZuSl5YtK1GVURyDMQPrNyKDauTWiXp5HpBf3fc655HaJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggUbSEf4HHOv+GYyaftO1s0SJN937aG4LgRmxbL4ksQBGiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggIcjYP0JBn0PULbTzbowJjktX2pNxJ3ZbUJsZ7Df8IC90Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQPq7o0x03zo8n5A8bSavtZ74POY1ym/g22EZnX64ZYmMWgZWH5x3r4S6uNBNrKTO/FCLAywgKgY7Cd1xzWRvPB8=</c2pa:manifest></metadata></svg>

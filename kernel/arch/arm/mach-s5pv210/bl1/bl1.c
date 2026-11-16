@@ -2,9 +2,9 @@
    boots xv6 with no U-Boot in between.
 
      iROM (BL0) ──► this BL1 (SD sector 1, iRAM 0xD0020010)
-                ──► MBR ──► first FAT32 partition ──► xv6_tiny210.img
-                    copied to DRAM+0x7FC0, so its uImage payload sits at
-                    DRAM+0x8000 (raw sector 49 is only a rescue fallback)
+                ──► raw uImage at fixed SD sector 49, copied to DRAM+0x7FC0
+                    so its payload sits at DRAM+0x8000
+                ──► verify header, load/entry and data CRC
                 ──► jump with r0=0, r1=BOARD_MACH, r2=ATAGs @ DRAM+0x100
 
    The bring-up mirrors Samsung's S5PV210 U-Boot lowlevel_init/cpu_init.S
@@ -13,14 +13,12 @@
      MSYS 200/100, DSYS 166/83, PSYS 133/66.7 MHz, console UART 115200 8N1,
      DMC0 DDR2 (512 MiB at 0x20000000). DMC1 is left uninitialised;
      ATAG_MEM reports DMC0 only.
-   The FAT32 path uses the small SDHCI PIO core shared with the kernel,
-   on the channel from which iROM booted (0xD0037488).  The iROM
-   CopySDMMCtoMem service (pointer at 0xD0037F98) remains available for
-   the raw-sector rescue path. */
+   The kernel is read with the iROM CopySDMMCtoMem service (pointer at
+   0xD0037F98) from the channel the iROM booted from (0xD0037488).  BL1 has
+   no FAT32 reader and no SDHCI driver of its own: the FAT32/raw partition
+   probe for the root file system belongs to the kernel. */
 #include "kernel/types.h"
 #include "bl1lib.h"
-#include "bl1fat.h"
-#include "kernel/drivers/mmc/host/sdcore.h"
 #include "board.h"
 
 #define REG(a) (*(volatile uint32*)(uintptr)(a))
@@ -282,61 +280,13 @@ static void ddr_test(void) {
   }
 }
 
-/* ---- kernel from the FAT32 partition ------------------------------------
-   The kernel uImage is looked up as xv6_tiny210.img (long name, any case)
-   or its 8.3 alias in the root directory of the
-   first FAT32 partition (MBR type 0x0b/0x0c, or a partitionless FAT32
-   volume). Only sector reads through the iROM routine are needed: MBR, the
-   boot sector, root directory clusters, FAT sectors and the file clusters.
-   Without such a file BL1 reads the raw image at sector 49 as before. */
-#define FAT_NAME "xv6_tiny210.img"
+/* ---- kernel from the raw SD image ---------------------------------------
+   The iROM (BL0) loaded us from sector 1; the xv6 uImage always sits at
+   sector 49.  Only the iROM's block-copy service is used: BL1 has no MBR,
+   FAT32 or SDHCI code.  Copying the image to DRAM+0x7FC0 puts the uImage
+   payload exactly at DRAM+0x8000, the kernel's link address. */
 static copy_sdmmc_fn sd_copy;
 static uint32 sd_ch;
-static int own_sd;            /* 1: our SDHCI PIO reads (sdcore.c), 0: iROM routine */
-static uint32 irom_reinit;    /* 1 once our init touched the controller */
-
-/* PWM timer 3 free-running at PCLK_PSYS/16 (the kernel programs it the
-   same way): the time base sdcore.c needs for delays and timeouts. */
-#define PWM 0xE2500000U
-static void timer3_start(void) {
-  REG(PWM+0x08) &= ~(0xfU<<16);
-  REG(PWM+0x00) &= ~(0xffU<<8);
-  REG(PWM+0x04) = (REG(PWM+0x04) & ~(0xfU<<12)) | (4U<<12);
-  REG(PWM+0x30) = 0xffffffffU;
-  REG(PWM+0x08) = (REG(PWM+0x08) & ~(0xfU<<16)) | (1U<<17);
-  REG(PWM+0x08) = (REG(PWM+0x08) & ~(0xfU<<16)) | (1U<<19) | (1U<<16);
-}
-static uint64 timer3_now(void) { return 0xffffffffU - REG(PWM+0x38); }
-static void sd_log(const char *m, uint32 v) { uputs("BL1: "); uputs(m); uputc(' '); puthex(v); uputs("\n"); }
-static struct sdc_env bl1_env = { timer3_now, 1, sd_log, 3 };   /* trace the first transfers */
-
-/* Pins GPG<n>[6:0] (CLK, CMD, CD, DATA0-3), HSMMCn clock gate, SCLK_MMCn =
-   24 MHz crystal; same as the kernel's board setup (devices.c). */
-static void sd_pins_clock(uint32 ch) {
-  uint32 gpg = 0xE02001A0 + 0x20*ch;
-  REG(gpg) = (REG(gpg) & ~0x0fffffffU) | 0x02222222;
-  REG(gpg + 0x8) &= ~0x3fffU;
-  REG(gpg + 0xc) |= 0x3fffU;
-  REG(0xE0100468) |= 1U << (16 + ch);
-  REG(0xE0100210) &= ~(0xfU << (4*ch));
-  REG(0xE0100310) &= ~(0xfU << (4*ch));
-  REG(0xE0100280) |= 1U << ch;
-}
-
-static int rd_sec(uint32 lba, void *dst, uint32 n) {
-  if(!own_sd){
-    /* After a failed attempt of our own the controller was reset: ask the
-       iROM routine to initialise the card again (last argument). */
-    int ok = sd_copy(sd_ch, lba, (uint16)n, (uint32*)dst, irom_reinit) != 0;
-    if(ok) irom_reinit = 0;
-    return ok ? 0 : -1;
-  }
-  for(uint32 i = 0; i < n; i++)
-    if(sdc_transfer(lba + i, (uint32*)dst + 128*i, 0) < 0 &&
-       sdc_transfer(lba + i, (uint32*)dst + 128*i, 0) < 0)
-      return -1;
-  return 0;
-}
 
 static void check_header(struct uimage_info *ui) {
   const char *bad=uimage_check((const uchar*)(uintptr)(KERNEL_RUN-UIMAGE_HDR),ui);
@@ -357,45 +307,17 @@ static void load_kernel(struct uimage_info *ui) {
   sd_copy=(copy_sdmmc_fn)REG(IROM_COPY_SDMMC);
   sd_ch=ch;
   uint8 *dst=(uint8*)(uintptr)(KERNEL_RUN-UIMAGE_HDR);
-  uputs("BL1: SD channel "); putdec(ch); uputc('\n');
-  /* The iROM copy routine reads the raw image fine but hangs on sector 0,
-     so the FAT32 path uses our own SDHCI code; the iROM routine stays the
-     fallback for the raw image at sector 49. */
-  timer3_start();
-  bl1_env.ticks_per_us = udiv(uart_pclk, 16000000U);
-  if(bl1_env.ticks_per_us == 0) bl1_env.ticks_per_us = 1;
-  sd_pins_clock(ch);
-  own_sd = sdc_init(0xEB000000U + 0x100000U*ch, &bl1_env) == 0;
-  irom_reinit = 1;
-  if(!own_sd) uputs("BL1: own SD init failed, using the iROM routine (raw image only)\n");
+  uputs("BL1: SD channel "); putdec(ch); uputs(", uImage at sector "); putdec(KERNEL_SECTOR); uputc('\n');
 
-  uint32 first, size, part, spc;
-  /* Sector buffer in DDR, 16 MiB above the kernel's load address. */
-  uint8 *secbuf=(uint8*)(uintptr)(DRAM_BASE+0x01000000);
-  int m=-1;
-  if(own_sd){
-    uputs("BL1: reading MBR\n");
-    m=fat_mount(rd_sec,secbuf,&part,&spc);
-    if(m<0) uputs("BL1: no FAT32 partition found\n");
-  }
-
-  if(m==0) { uputs("BL1: FAT32 at sector "); putdec(part); uputs(", "); putdec(spc); uputs(" sectors/cluster\n"); }
-  if(m==0 && fat_find(FAT_NAME,&first,&size)==0) {
-    uputs("BL1: loading " FAT_NAME " ("); putdec(size); uputs(" bytes) from FAT32\n");
-    if(size < UIMAGE_HDR || fat_read(first,size,dst) < 0) die("FAT32 read of " FAT_NAME " failed");
-    check_header(ui);
-    if(UIMAGE_HDR+ui->size > size) die(FAT_NAME " shorter than its uImage header says");
-  } else {
-    uputs("BL1: no " FAT_NAME " on FAT32, raw image at sector "); putdec(KERNEL_SECTOR); uputc('\n');
-    if(rd_sec(KERNEL_SECTOR,dst,1) < 0) die("SD read of the uImage header failed");
-    check_header(ui);
-    uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;
-    /* The iROM routine takes a 16-bit block count. */
-    for(uint32 done=0; done<sectors; ) {
-      uint32 n=sectors-done; if(n>0x8000) n=0x8000;
-      if(rd_sec(KERNEL_SECTOR+done,dst+done*512,n) < 0) die("SD read of the kernel failed");
-      done+=n;
-    }
+  if(sd_copy(sd_ch,KERNEL_SECTOR,1,(uint32*)dst,0)==0) die("SD read of the uImage header failed");
+  check_header(ui);
+  uint32 sectors=(UIMAGE_HDR+ui->size+511)>>9;    /* including the header sector */
+  /* The iROM routine takes a 16-bit block count. */
+  for(uint32 done=1; done<sectors; ) {
+    uint32 n=sectors-done; if(n>0x8000) n=0x8000;
+    if(sd_copy(sd_ch,KERNEL_SECTOR+done,(uint16)n,(uint32*)(dst+done*512),0)==0)
+      die("SD read of the kernel failed");
+    done+=n;
   }
   if(crc32(0,(const uchar*)(uintptr)KERNEL_RUN,ui->size)!=ui->dcrc) die("kernel data CRC mismatch");
   uputs("BL1: data CRC OK\n");

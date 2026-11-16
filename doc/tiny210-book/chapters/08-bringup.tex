@@ -2,8 +2,9 @@
 与串口}\label{tiny210-ux4e0aux677fux8c03ux8bd5ux8bb0ux5f55bl1sdusb-ux4e0eux4e32ux53e3}
 
 本文记录在 FriendlyARM Tiny210（S5PV210）实板上调通 BL1 → xv6 启动链、
-SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一条都对应
-一次实际的串口现象，便于以后遇到同类问题时对照。
+SD 卡文件系统、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一条都对应
+一次实际的串口现象，便于以后遇到同类问题时对照。第 5、6 节记录的 BL1
+自带 SDHCI/FAT32 路径后来已删除：现在 BL1 只从固定第 49 扇区读原始 uImage。
 
 相关代码：\passthrough{\lstinline!kernel/arch/arm/mach-s5pv210/bl1/!}（BL1）、
 \passthrough{\lstinline!kernel/drivers/mmc/host/!}（SD）、\passthrough{\lstinline!kernel/drivers/usb/host/ehci-hcd.c!}、
@@ -15,8 +16,8 @@ SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一�
 上电 → iROM（BL0，片内 ROM 0xD0000000）
      → 从 SD 第 1 扇区读 16 KiB 到 iRAM 0xD0020000，校验 16 字节头
      → 跳到 0xD0020010：BL1（在 iRAM 中运行）
-         时钟 / UART / DDR 初始化 → 读 MBR → FAT32 → xv6_tiny210.img
-         → 读到 DDR 0x20007FC0（uImage 数据正好落在 0x20008000）
+         时钟 / UART / DDR 初始化 → iROM CopySDMMCtoMem 读第 49 扇区 uImage
+         → 读到 DDR 0x20007FC0（uImage 数据正好落在 0x20008000），校验 CRC
      → 跳到 0x20008000：xv6 内核（在 DDR 中运行）
          SDHCI → fat32init（FS.IMG 作根文件系统）→ init 挂载 /boot
 \end{lstlisting}
@@ -49,8 +50,8 @@ SD 卡 FAT32、EHCI/MT7601U 时遇到的问题、原因和解决办法。每一�
   \end{longtable}
   }
 \item
-  DDR 初始化好以后，大块数据都放在 DDR：内核 0x20007FC0、扇区缓冲
-  0x21000000、ATAG 0x20000100。
+  DDR 初始化好以后，大块数据都放在 DDR：内核 0x20007FC0、
+  ATAG 0x20000100。
 \end{itemize}
 
 \section{串口：板子正常，终端显示乱码}\label{ux4e32ux53e3ux677fux5b50ux6b63ux5e38ux7ec8ux7aefux663eux793aux4e71ux7801}
@@ -160,6 +161,10 @@ qTD/QH 末尾的 \passthrough{\lstinline!buf\_hi[5]!}。软件字段必须放在
   扇区的后备内核。
 \end{itemize}
 
+\textbf{现状}：BL1 已不再解析 MBR/FAT32，这段自有 SDHCI 代码从 BL1 中
+删除；启动只读取第 49 扇区，从不访问第 0 扇区。\passthrough{\lstinline!sdcore.c!}
+仍由内核的 \passthrough{\lstinline!sdhci-s3c.c!} 使用。
+
 \section{初始化``无声失败''：R1b 的 busy
 结束判断}\label{ux521dux59cbux5316ux65e0ux58f0ux5931ux8d25r1b-ux7684-busy-ux7ed3ux675fux5224ux65ad}
 
@@ -173,6 +178,8 @@ busy 的 R1b 响应，原来只等 Transfer Complete
 Complete \textbf{或} PRNSTS bit20（DAT0
 电平）变高为结束。之后初始化成功：
 \passthrough{\lstinline!SD 2.0 card, ocr 0xc0ff8000!}、\passthrough{\lstinline!SDHC/SDXC card, 4-bit 24 MHz, rca 0x21e1!}。
+这段是当时 BL1 自有 SDHCI 路径的记录；该路径现已删除，内核侧的 SD
+初始化仍使用同样的结束条件。
 
 \section{没有异常向量表时，出错只会``卡死''}\label{ux6ca1ux6709ux5f02ux5e38ux5411ux91cfux8868ux65f6ux51faux9519ux53eaux4f1aux5361ux6b7b}
 
@@ -236,6 +243,8 @@ SCTLR.A=1（开着对齐检查）。
 \textbf{解决}（6653ddc）：BL1 用
 \passthrough{\lstinline!-mno-unaligned-access!} 编译，并在启动时清
 SCTLR.A。内核的 \passthrough{\lstinline!entry.S!} 本来就清了 A 位。
+触发问题的 MBR 解析路径已随 BL1 的 FAT32 支持一起删除，但编译选项和
+SCTLR.A 处理仍然保留。
 
 \section{SD 卡布局与文件}\label{sd-ux5361ux5e03ux5c40ux4e0eux6587ux4ef6}
 
@@ -249,30 +258,36 @@ SCTLR.A。内核的 \passthrough{\lstinline!entry.S!} 本来就清了 A 位。
 \endlastfoot
 第 0 扇区 & MBR（不动） \\
 第 1--32 扇区 & BL1（16 KiB） \\
-第 49 扇区起 & 后备内核（原始 uImage，约 8.6k 扇区） \\
+第 49 扇区起 & 启动内核（原始 uImage，\passthrough{\lstinline!make!}
+会打印实际扇区数） \\
 第 31248 扇区起 & FAT32（\passthrough{\lstinline!/Volumes/bootfs!}） \\
 FAT32 根目录 &
-\passthrough{\lstinline!xv6\_tiny210.img!}（内核）、\passthrough{\lstinline!FS.IMG!}（根文件系统，可写）、\passthrough{\lstinline!mt7601u.bin!} \\
+\passthrough{\lstinline!FS.IMG!}（根文件系统，可写）、\passthrough{\lstinline!mt7601u.bin!}；BL1 不读取 \\
 \end{longtable}
 }
 
 \begin{itemize}
 \tightlist
 \item
-  \passthrough{\lstinline!xv6\_tiny210.img!} 是 VFAT 长文件名，BL1
-  不区分大小写匹配。
+  BL1 只读第 49 扇区，不解析 MBR，也不读取 FAT32；FAT32 根目录里的
+  \passthrough{\lstinline!xv6\_tiny210.img!} 只是
+  \passthrough{\lstinline!tftpclient!} 下载的副本，不参与启动。
 \item
-  内核镜像里还内嵌了一份 4 MiB 的 fs.img 作为后备根文件系统， 卡上没有
-  \passthrough{\lstinline!FS.IMG!} 时使用（只在内存中，修改不保存）。
+  实板构建不内嵌 fs.img，根文件系统来自卡上的
+  \passthrough{\lstinline!FS.IMG!} 或第 2 个原始分区。
 \item
-  \passthrough{\lstinline!make tiny210!} 会把内核和固件拷到
+  \passthrough{\lstinline!make tiny210!} 会把固件和
+  \passthrough{\lstinline!FS.IMG!} 拷到
   \passthrough{\lstinline!/Volumes/bootfs!}；\passthrough{\lstinline!FS.IMG!}
   只在卡上 没有时才写（\passthrough{\lstinline!BOOTFS\_FSIMG=1!}
-  强制覆盖）。BL1 变化时需要手动：
+  强制覆盖）。BL1 或内核变化时用
+  \passthrough{\lstinline!make tiny210-sdimg!} 把整卡镜像写到卡
+  （BL1@1、uImage@49，MBR 不动，读回校验后推出）；手工等价命令：
 \end{itemize}
 
 \begin{lstlisting}[language=sh]
-sudo dd if=build/tiny210/tiny210-bl1.bin of=/dev/rdisk4 bs=512 seek=1
+sudo dd if=build/tiny210/tiny210-bl1.bin    of=/dev/rdisk4 bs=512 seek=1
+sudo dd if=build/tiny210/xv6-tiny210.uImage of=/dev/rdisk4 bs=512 seek=49
 \end{lstlisting}
 
 \section{固件与文件的加载时机}\label{ux56faux4ef6ux4e0eux6587ux4ef6ux7684ux52a0ux8f7dux65f6ux673a}
@@ -392,11 +407,11 @@ FIFO，并打印前 8 条状态 （\passthrough{\lstinline!acked!} /
   位置相关的代码（BL1）要在链接脚本里断言入口地址。
 \item
   iROM / Boot ROM 提供的函数只在它们被验证过的用法下可靠（这里：读 第 49
-  扇区到 DDR），超出这个范围就自己实现。
+  扇区到 DDR）；BL1 现在就只保留这一种用法。
 \item
   iROM 留下的 CPU 状态（SCTLR.A、V 位、cache）要显式设成自己需要的值。
 \item
-  主机测试只能验证逻辑（FAT32 解析、CRC、ATAG），验证不了内存类型、
+  主机测试只能验证逻辑（CRC、uImage 头、ATAG），验证不了内存类型、
   对齐、时序这些硬件相关的问题。
 \item
   从另一个平台移植代码时，要核对它依赖的``周期性调用''（定时器节拍里的

@@ -89,6 +89,13 @@ kernel/drivers/
 make tiny210
 \end{lstlisting}
 
+生成整卡镜像并写入已挂载的 SD 卡（BL1 到第 1 扇区、uImage 到第 49
+扇区，MBR 不动，写后读回校验）：
+
+\begin{lstlisting}[language=sh]
+make tiny210-sdimg
+\end{lstlisting}
+
 等价的显式 Tiny210 构建是：
 
 \begin{lstlisting}[language=sh]
@@ -109,9 +116,9 @@ make -f ports/tiny210/Makefile \
 \endlastfoot
 \passthrough{\lstinline!tiny210-bl1.bin!} & 16 KiB、带 iROM 头的
 BL1，写入 SD 扇区 1 \\
-\passthrough{\lstinline!xv6-tiny210.uImage!} & legacy uImage；BL1 优先从
-MBR 指定的 FAT32 分区加载，扇区 49 仅作救援回退 \\
-\passthrough{\lstinline!tiny210-sd.img!} & BL1 与 fallback uImage
+\passthrough{\lstinline!xv6-tiny210.uImage!} & legacy uImage；写在
+第 49 扇区，是 BL1 唯一的启动内核 \\
+\passthrough{\lstinline!tiny210-sd.img!} & BL1@1 与 uImage@49
 已放到固定扇区的整卡原始镜像 \\
 \passthrough{\lstinline!kernel.elf!} /
 \passthrough{\lstinline!kernel.map!} & 带符号调试文件和链接映射 \\
@@ -204,9 +211,10 @@ LCD & S70 800×480，XRGB8888（可编译选择其他面板） \\
   BL1
   可单独构建串口测试：\passthrough{\lstinline!make -f ports/tiny210/Makefile uarttest!}。
 \item
-  内核加载前失败依次看 \passthrough{\lstinline!tiny210-bl1.bin!}、MBR
-  分区类型、FAT32 BPB、根目录 \passthrough{\lstinline!xv6\_tiny210.img!}
-  和 fallback 固定扇区；内核入口失败看
+  内核加载前失败依次看
+  \passthrough{\lstinline!tiny210-bl1.bin!}、第 49 扇区的
+  \passthrough{\lstinline!xv6-tiny210.uImage!} 和 uImage CRC；
+  根文件系统的 FAT32/raw 探测错误属于内核侧；内核入口失败看
   \passthrough{\lstinline!\_entry!}。
 \item
   进入内核后按 \passthrough{\lstinline!initcall:!} 日志判断失败属于
