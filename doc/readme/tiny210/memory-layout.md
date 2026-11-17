@@ -2,6 +2,10 @@
 
 本文分析 tiny210 分支 ARM32 内核的内存布局：物理 RAM、内核镜像、页分配器、MMIO 外设区、
 用户/内核虚拟地址空间，并说明新增的 Linux 风格 `/proc/meminfo` 与 `/proc/iomem` 如何把它们显示出来。
+![内存布局：虚拟地址、物理地址与 /proc/iomem、/proc/meminfo 的对应](images/memory-layout.svg)
+
+（PNG 版：`images/memory-layout.png`；由 `tools/memory_layout_svg.py` 生成。）
+
 数值分两列：**实板**（Tiny210，DRAM 在 0x20000000）和 **QEMU**（cubieboard 替身，DRAM 在 0x40000000）。
 
 ## 1. 物理内存
