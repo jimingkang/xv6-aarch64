@@ -256,7 +256,15 @@ def pmid(key):
 
 arrow(vx + vw, vmid("0x48000000 帧缓冲"), lx, l1pos["[480..483]"], "#8e44ad")
 arrow(vx + vw, vmid("0x47000000 win32k"), lx, l1pos["[470..47f]"], "#8e44ad")
-arrow(vx + vw, vmid("0x40000000 – 0x46FFFFFF"), lx, l1pos["[400]"], "#1e8449")
+# VA -> L1 index is VA >> 20: the kernel VA 0x46FE1000 uses L1[46f], the
+# start of DRAM 0x40000000 uses L1[400]; mark both inside the DRAM row.
+for va_, idx_, col_ in ((0x46FE1000, "[46f]", "#2160a0"), (0x40008000, "[400]", "#1e8449")):
+    yy = l1pos[idx_]
+    rect(vx + 120, yy - 12, 106, 18, "#ffffff", col_, sw=1.3, rx=2)
+    text(vx + 125, yy + 2, f"VA {va_:08X}", 11, col_, mono=True)
+    arrow(vx + vw, yy - 3, lx, yy - 3, col_, sw=1.8)
+text(vx + 120, l1pos["[46f]"] + 22, "VA>>20 = 46f", 10.5, "#2160a0", mono=True)
+text(vx + 120, l1pos["[400]"] + 22, "VA>>20 = 400", 10.5, "#1e8449", mono=True)
 arrow(vx + vw, vmid("0x10000000 – 0x17FFFFFF"), lx, l1pos["[100..17f]"], "#a93d8c")
 arrow(vx + vw, vmid("0x01C00000 – 0x01CFFFFF"), lx, l1pos["[01c]"], "#c0392b")
 arrow(vx + vw, vmid("0x00000000 – 0x01BFFFFF"), lx, l1pos["[000..01b]"], "#d35400")
