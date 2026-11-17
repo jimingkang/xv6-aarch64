@@ -2,10 +2,11 @@
 
 Scenes
   MemoryInit    DRAM layout, kernel image, kinit() filling the kalloc freelist
-  MmuSetup      kvminit()/kvminithart() on the real Tiny210, laid out like
-                doc/readme/tiny210/images/mmu-page-tables.svg: code steps ①-⑧,
-                the L1 table filling (sections + descriptor bits), install() and
-                SCTLR.M, then a process L1 copy and its L2 table (from the log)
+  MmuSetup      kvminit()/kvminithart() laid out like memory-layout.svg (virtual
+                left, physical right), all addresses from the QEMU log:
+                descriptor format, rootalloc, DRAM / win32k / framebuffer / MMIO
+                sections with descriptor bits, unmapped ranges, install() +
+                SCTLR.M, two table walks, per-process L1 copies
   ProcessExec   exec("/bin/sh"): L1 root copy, L2 table, kalloc'd pages,
                 readi() of the ELF LOAD segment, user stack, switch TTBR0
 
@@ -180,71 +181,73 @@ class MemoryInit(Scene):
 
 # ---------------------------------------------------------------- scene 2
 class MmuSetup(Scene):
-    """kvminit()/kvminithart() and a process's L2 table on the real Tiny210,
-    following doc/readme/tiny210/images/mmu-page-tables.svg (modelled on
-    minios' __create_page_tables diagram): numbered code panel on the left,
-    the L1 table filling in the middle, physical memory on the right, the
-    descriptor / register explanation underneath; then a process L1 copy
-    with its L2 table (values from the MMU_TRACE=3 log)."""
+    """kvminit()/kvminithart() laid out like memory-layout.svg (virtual
+    column left, physical column right, high addresses on top), with every
+    address taken from the QEMU MMU_TRACE log (DRAM at 0x40000000)."""
 
-    DRAM, PHYSTOP, ROOTS = 0x20000000, 0x27000000, 0x200D4000
-
-    CODE = [  # text, step (None = plain); leading spaces become NBSP
-        ("void kvminit(void) {", None),
-        ("  kernel_pagetable = rootalloc(); //①", 1),
-        ("  for(a=EXTMEM; a<PHYSTOP; a+=1M) //②", 2),
-        ("    L1[a>>20] = a|(1<<12)|(1<<10)|2;", 2),
-        ("  tiny210_map_devices(kernel_pagetable);", None),
-        ("}", None),
-        ("void tiny210_map_devices(p) {", None),
-        ("  GUI: p[a>>20] = SECTION_RAM(a); //③", 3),
-        ("  for(each MEM resource r)        //④", 4),
-        ("    for(a=r.start&~0xFFFFF; a<=r.end;)", 4),
-        ("      p[a>>20] = fb ? SECTION_NC(a)", 4),
-        ("                    : SECTION_DEV(a);", 4),
-        ("}", None),
-        ("void kvminithart(void) {", None),
-        ("  install(kernel_pagetable);      //⑤", 5),
-        ("  SCTLR |= M; isb();              //⑥", 6),
-        ("}", None),
-        ("uvmcreate(): p = rootalloc();     //⑦", 7),
-        ("  memmove(p, kernel_pagetable, 16K);", 7),
-        ("walk(p, va, alloc=1):             //⑧", 8),
-        ("  if(!p[va>>20]) p[va>>20]=kalloc()|1;", 8),
-        ("  return &L2[(va>>12) & 255];", 8),
-    ]
+    def load_log(self):
+        g = lambda pat: find(pat)
+        self.DRAM = hx(g(r"mm: region (\w+)-\w+ System RAM").group(1))
+        self.DRAMEND = hx(g(r"mm: region \w+-(\w+) System RAM").group(1)) + 1
+        kin = g(r"mm: kinit: freerange (\w+)-(\w+) -> (\d+) pages.*PHYSTOP=(\w+)")
+        self.KLO, self.KHI, self.PHYSTOP = hx(kin.group(1)), hx(kin.group(2)), hx(kin.group(4))
+        self.ROOTS = hx(g(r"mmu: TTBR0=(\w+)").group(1))
+        self.SCTLR = g(r"mmu: SCTLR=(\w+):")
+        self.code_r = g(r"mm: kernel code (\w+)-(\w+)")
+        self.data_r = g(r"mm: kernel data (\w+)-(\w+)")
+        self.rd_r = g(r"mm: kernel ramdisk (\w+)-(\w+)")
+        self.bss_r = g(r"mm: kernel bss\s+(\w+)-(\w+)")
+        self.gui = g(r"mm: region (\w+)-(\w+) win32k")
+        self.unused = g(r"mm: region (\w+)-(\w+) Unused")
+        self.FB = hx(g(r"mm: iomem\s+(\w+)-\w+ : simple-framebuffer").group(1))
+        # Top-level iomem lines that are not RAM = device MMIO.
+        self.DEVICES = []
+        for l in LINES:
+            m = re.match(r"mm: iomem (\w+)-(\w+) : (\S+) (\S+)", l)
+            if m and m.group(3) != "System":
+                self.DEVICES.append((m.group(3), hx(m.group(1)), hx(m.group(2)) - hx(m.group(1)) + 1, m.group(4)))
+        self.runs = [re.search(r"L1\[(\w+)\.\.(\w+)\].*entry=(\w+)", l) for l in LINES if re.search(r"mmu:\s+L1\[", l)]
+        self.NSECT = int(g(r"mmu: (\d+) of 4096 L1 entries").group(1))
 
     def construct(self):
         self.cap = None
-        self.strip = None
-        title(self, "2. MMU 初始化：kvminit() / kvminithart()（实板 Tiny210，两级页表）",
-              "按 mmu-page-tables.svg：左 = 代码 ①–⑧，中 = L1 表 roots[0]，右 = 物理内存；内核用 L1 段，进程用 L1 → L2")
-        self.build_code()
-        self.build_l1()
-        self.build_pa()
-        self.step1()
-        self.step2()
-        self.step3()
-        self.step4()
-        self.step56()
-        self.step78()
-        self.wait(3)
+        self.load_log()
+        title(self, "2. MMU 页表建立：kvminit() / kvminithart()（QEMU 地址）",
+              "按 memory-layout.svg：左 = 虚拟地址，右 = 物理地址；地址全部取自 QEMU MMU_TRACE 日志（DRAM 从 0x40000000）")
+        self.intro_descriptor()
+        self.build_columns()
+        self.step_root()
+        self.step_dram()
+        self.step_gui_fb()
+        self.step_mmio()
+        self.step_unmapped()
+        self.step_enable()
+        self.step_walk_examples()
+        self.step_per_process()
+        self.wait(3.5)
 
     # ---------------------------------------------------------- helpers
     def say(self, s, color=YELLOW):
         self.cap = caption(self, self.cap, s, color)
 
-    def show_strip(self, *mobs):
-        new = VGroup(*mobs).arrange(DOWN, aligned_edge=LEFT, buff=0.1)
-        if new.width > 9.4:
-            new.scale_to_fit_width(9.4)
-        if new.height > 1.55:
-            new.scale_to_fit_height(1.55)
-        new.move_to([2.15, -2.5, 0])
-        if self.strip is not None:
-            self.play(FadeOut(self.strip), run_time=0.3)
-        self.play(FadeIn(new, shift=UP * 0.15), run_time=0.6)
-        self.strip = new
+    def panel(self, *mobs, wait=0.0):
+        """Replace the right-hand explanation panel."""
+        new = VGroup(*mobs).arrange(DOWN, aligned_edge=LEFT, buff=0.16)
+        if new.width > 6.0:
+            new.scale_to_fit_width(6.0)
+        if new.height > 5.4:
+            new.scale_to_fit_height(5.4)
+        new.move_to([3.9, -0.27, 0])
+        old = getattr(self, "pan", None)
+        if old is not None:
+            self.play(FadeOut(old), run_time=0.3)
+        self.play(FadeIn(new, shift=LEFT * 0.2), run_time=0.6)
+        self.pan = new
+        if wait:
+            self.wait(wait)
+
+    def code(self, *lines):
+        return VGroup(*[T(l, 14, "#9cdcfe", mono=True) for l in lines]).arrange(DOWN, aligned_edge=LEFT, buff=0.05)
 
     def bits(self, value, kind):
         tex, ap, xn, c, b = (value >> 12) & 7, (value >> 10) & 3, (value >> 4) & 1, (value >> 3) & 1, (value >> 2) & 1
@@ -252,295 +255,290 @@ class MmuSetup(Scene):
                   ("XN", f"{xn}", RED), ("C", f"{c}", PURPLE), ("B", f"{b}", PURPLE), ("类型", "10", GREY_B)]
         row = VGroup()
         for name, val, col in fields:
-            cell = VGroup(Rectangle(width=0.8, height=0.42, stroke_color=col, fill_color=col, fill_opacity=0.18),
-                          T(val, 14, col, mono=True), T(name, 10, GREY_B))
+            cell = VGroup(Rectangle(width=0.78, height=0.48, stroke_color=col, fill_color=col, fill_opacity=0.18),
+                          T(val, 15, col, mono=True), T(name, 11, GREY_B))
             cell[1].move_to(cell[0])
-            cell[2].next_to(cell[0], DOWN, buff=0.02)
+            cell[2].next_to(cell[0], DOWN, buff=0.03)
             row.add(cell)
         row.arrange(RIGHT, buff=0.04)
-        head = T(f"段描述符 {value:08x} = PA基址 | TEX<<12 | AP<<10 | XN<<4 | C<<3 | B<<2 | 0b10  →  {kind}", 13)
-        return VGroup(head, row).arrange(DOWN, aligned_edge=LEFT, buff=0.06)
+        head = T(f"段描述符 = {value:08x}  →  {kind}", 15, mono=False)
+        return VGroup(head, row).arrange(DOWN, aligned_edge=LEFT, buff=0.08)
 
-    def hl(self, step):
-        anims = []
-        for band, s in zip(self.bands, self.band_steps):
-            anims.append(band.animate.set_fill(opacity=0.85 if s == step else 0.0))
-        self.play(*anims, run_time=0.4)
+    # ---------------------------------------------------------- 0. format
+    def intro_descriptor(self):
+        va = VGroup()
+        for name, w, col, sub in [("[31:20]  L1 索引", 2.6, ORANGE, "4096 项 × 1 MiB"),
+                                  ("[19:12]  L2 索引", 2.0, GREEN, "256 项 × 4 KiB"),
+                                  ("[11:0]  页内偏移", 1.8, BLUE, "")]:
+            r = VGroup(Rectangle(width=w, height=0.6, stroke_color=col, fill_color=col, fill_opacity=0.2),
+                       T(name, 15, col, mono=True))
+            r[1].move_to(r[0])
+            if sub:
+                r.add(T(sub, 13, GREY_B).next_to(r[0], DOWN, buff=0.05))
+            va.add(r)
+        va.arrange(RIGHT, buff=0.04, aligned_edge=UP).move_to([0, 1.3, 0])
+        lab = T("32 位虚拟地址", 18).next_to(va, UP, buff=0.15)
+        kinds = VGroup(
+            T("L1 项低 2 位：", 17),
+            T("00  缺页（fault）—— 访问即 Data Abort", 16, GREY_B),
+            T("01  指向 L2 页表（1 KiB，256 个 4 KiB 小页）—— 用户进程用", 16, GREEN),
+            T("10  段（section）—— 直接映射 1 MiB；内核全部用段", 16, ORANGE),
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.1).move_to([0, -1.0, 0])
+        self.say("ARMv7 短描述符格式：VA 高 12 位查 L1 表；内核只用 1 MiB 段，所以内核页表只有一级")
+        self.play(FadeIn(lab), LaggedStart(*[FadeIn(v) for v in va], lag_ratio=0.3), run_time=1.5)
+        self.play(FadeIn(kinds, shift=UP * 0.1), run_time=1)
+        self.wait(4)
+        self.play(FadeOut(VGroup(lab, va, kinds)), run_time=0.5)
 
-    # ---------------------------------------------------------- layout
-    def build_code(self):
-        panel = Rectangle(width=4.25, height=5.75, stroke_width=0, fill_color="#16213a", fill_opacity=1) \
-            .move_to([-4.85, -0.05, 0])
-        hdr = T("vm.c + mach-s5pv210/devices.c", 11, "#cdd6f4", mono=True) \
-            .next_to(panel.get_corner(UP + LEFT), DOWN + RIGHT, buff=0.08)
-        lines = VGroup()
-        self.bands, self.band_steps = VGroup(), []
-        y = panel.get_top()[1] - 0.42
-        for txt, step in self.CODE:
-            lead = len(txt) - len(txt.lstrip(" "))
-            t = T(txt.lstrip(" "), 10.5,
-                  "#f9e2af" if step is None and txt.endswith("{") else "#e6e6e6", mono=True)
-            if t.width > 4.0 - 0.085 * lead:
-                t.scale_to_fit_width(4.0 - 0.085 * lead)
-            t.move_to([0, y, 0]).align_to(panel, LEFT).shift(RIGHT * (0.1 + 0.085 * lead))
-            if step is not None:
-                band = Rectangle(width=4.1, height=0.235, stroke_width=0, fill_color="#3d5a80", fill_opacity=0.0) \
-                    .move_to([panel.get_center()[0], y, 0])
-                self.bands.add(band)
-                self.band_steps.append(step)
-            lines.add(t)
-            y -= 0.245
-        self.play(FadeIn(panel), FadeIn(hdr), FadeIn(self.bands), FadeIn(lines, lag_ratio=0.02), run_time=1.5)
-
-    L1ROWS = [  # key, index text, color
-        ("f80", "[f80]", RED), ("f20", "[f20..f23]", RED), ("e01", "[e01][e02][e25][e27]", RED),
-        ("e29", "[e29][eb0][ec1][ec2]", RED), ("hole", "[284..e00] 等", GREY),
-        ("280", "[280..283]", PURPLE), ("270", "[270..27f]", PURPLE), ("26f", "[26f]", GREEN),
-        ("dots", "…  [201..26e]", GREEN), ("200", "[200]", GREEN), ("100", "[100..17f]", "#d080c0"),
-        ("000", "[000..01f]", ORANGE),
-    ]
-
-    def build_l1(self):
-        self.arrows = VGroup()
-        box = Rectangle(width=5.2, height=4.15, stroke_color="#7a5cf0", stroke_width=2, fill_color="#1b1830",
-                        fill_opacity=1).move_to([0.35, 0.55, 0])
-        head = Rectangle(width=5.2, height=0.42, stroke_width=0, fill_color="#5b3fb5", fill_opacity=1) \
-            .align_to(box, UP).align_to(box, LEFT)
-        ht = T(f"L1 = roots[0] @ {self.ROOTS:08x}（TTBR0）", 13, WHITE).move_to(head)
-        self.l1box = VGroup(box, head, ht)
-        self.l1 = {}
-        y = head.get_bottom()[1] - 0.2
-        for key, idx, col in self.L1ROWS:
-            it = T(idx, 11, col, mono=True).move_to([0, y, 0]).align_to(box, LEFT).shift(RIGHT * 0.1)
-            val = T("00000000", 11, GREY_D, mono=True).move_to([box.get_left()[0] + 2.6, y, 0])
-            note = T("缺页", 10, GREY_D).move_to([0, y, 0]).align_to(box, RIGHT).shift(LEFT * 0.08)
-            self.l1[key] = [it, val, note, y]
-            y -= 0.3
-        self.play(FadeIn(self.l1box), *[FadeIn(VGroup(*v[:3])) for v in self.l1.values()], run_time=1)
-
-    PAROWS = [  # key, label, height, color
-        ("hi", "F2000000 VIC · F8000000 FIMD", 0.42, RED),
-        ("io", "E0100000–EC2FFFFF 外设", 0.55, RED),
-        ("unused", "28400000–3FFFFFFF 未用 DRAM", 0.42, GREY_D),
-        ("fb", "28000000 帧缓冲 4 MiB", 0.3, "#8e5ba8"),
-        ("gui", "27000000 win32k 16 MiB", 0.3, PURPLE),
-        ("dram", "20000000 ATAG/内核/bss(roots)", 0.45, BLUE_E),
-        ("kalloc", "2053A000–26FFFFFF kalloc 页池", 0.85, GREEN_E),
-        ("low", "00000000–1FFFFFFF 非 DRAM", 0.7, GREY_D),
-    ]
-
-    def build_pa(self):
-        y = 2.52
-        self.pa = {}
-        grp = VGroup(T("物理内存（实板）", 13).move_to([5.25, 2.72, 0]))
-        for key, lab, h, col in self.PAROWS:
-            r = Rectangle(width=3.3, height=h, stroke_color=GREY, stroke_width=1, fill_color=col, fill_opacity=0.3) \
-                .move_to([5.25, y - h / 2, 0])
-            t = T(lab, 10.5).move_to(r)
-            if t.width > 3.2:
-                t.scale_to_fit_width(3.2)
-            self.pa[key] = VGroup(r, t)
-            grp.add(self.pa[key])
+    # ---------------------------------------------------------- columns
+    def build_columns(self):
+        # key, height, color, PA label, mapped kind
+        x = lambda m, i: hx(m.group(i))
+        H = lambda v: f"{v:08X}"
+        rows = [
+            ("top", 0.32, GREY_D, f"{H(self.DRAMEND)}–FFFFFFFF  无映射"),
+            ("unused", 0.4, GREY_D, f"{H(x(self.unused, 1))}–{H(x(self.unused, 2))}  未使用 DRAM"),
+            ("fb", 0.3, "#8e5ba8", f"{H(self.FB)}–{H(self.FB + 0x3FFFFF)}  帧缓冲"),
+            ("gui", 0.3, PURPLE, f"{H(x(self.gui, 1))}–{H(x(self.gui, 2))}  win32k"),
+            ("kalloc", 0.62, GREEN_E, f"{H(self.KLO)}–{H(self.KHI)}  kalloc"),
+            ("bss", 0.36, "#3d5a80", f"{H(x(self.bss_r, 1))}–{H(x(self.bss_r, 2))}  bss(roots)"),
+            ("rd", 0.3, "#4a6fa5", f"{H(x(self.rd_r, 1))}–{H(x(self.rd_r, 2))}  ramdisk"),
+            ("data", 0.22, BLUE_E, f"{H(x(self.data_r, 1))}–{H(x(self.data_r, 2))}  data"),
+            ("code", 0.22, BLUE, f"{H(x(self.code_r, 1))}–{H(x(self.code_r, 2))}  code"),
+            ("atag", 0.22, YELLOW, f"{H(self.DRAM)}–{H(self.DRAM + 0x7FFF)}  ATAG"),
+            ("gap", 0.3, GREY_D, "20000000–3FFFFFFF  无 DRAM"),
+            ("low", 0.8, GREY_D, "02000000–1FFFFFFF  无 DRAM"),
+            ("io", 0.3, RED, "01C00000–01CFFFFF  sun4i 外设"),
+            ("sram", 0.4, GREY_D, "00000000–01BFFFFF  A10 SRAM/BROM"),
+        ]
+        top = 2.55
+        self.R = {}
+        self.vrow = {}
+        cols = VGroup()
+        for key, h, col, lab in rows:
+            y = top - h / 2
+            pr = Rectangle(width=2.6, height=h, stroke_color=GREY, stroke_width=1, fill_color=col, fill_opacity=0.25) \
+                .move_to([-0.9, y, 0])
+            pt = T(lab, 10, WHITE).move_to(pr)
+            if pt.width > 2.5:
+                pt.scale_to_fit_width(2.5)
+            self.R[key] = VGroup(pr, pt)
+            cols.add(self.R[key])
+            if key not in ("low", "sram"):
+                vlab = "缺页" if key != "io" else "01C00000–01CFFFFF  缺页"
+                vr = Rectangle(width=2.6, height=h, stroke_color=GREY, stroke_width=1, fill_color="#22262e",
+                               fill_opacity=1).move_to([-5.2, y, 0])
+                vt = T(vlab, 10, GREY).move_to(vr)
+                self.vrow[key] = VGroup(vr, vt)
+                cols.add(self.vrow[key])
+            top -= h
+        # Virtual user window, split like the SVG (MMIO row shared with PA).
+        low = self.R["low"][0]
+        y = low.get_top()[1]
+        for key, h, lab in [("vgap2", 0.22, "18000000–1FFFFFFF"), ("vmmap", 0.36, "10000000–17FFFFFF mmap 窗口"),
+                            ("vgap1", 0.22, "02000000–0FFFFFFF")]:
+            vr = Rectangle(width=2.6, height=h, stroke_color=GREY, stroke_width=1, fill_color="#22262e",
+                           fill_opacity=1).move_to([-5.2, y - h / 2, 0])
+            vt = T(lab, 10, GREY).move_to(vr)
+            self.vrow[key] = VGroup(vr, vt)
+            cols.add(self.vrow[key])
             y -= h
-        self.pagrp = grp
-        self.play(FadeIn(grp), run_time=0.8)
+        sram = self.R["sram"][0]
+        vr = Rectangle(width=2.6, height=sram.height, stroke_color=GREY, stroke_width=1, fill_color="#22262e",
+                       fill_opacity=1).move_to([-5.2, sram.get_center()[1], 0])
+        self.vrow["vuser"] = VGroup(vr, T("00000000–01BFFFFF 用户", 10, GREY).move_to(vr))
+        cols.add(self.vrow["vuser"])
+        heads = VGroup(T("虚拟地址（L1 索引 = VA>>20）", 14).move_to([-5.2, 2.8, 0]),
+                       T("物理地址", 14).move_to([-0.9, 2.8, 0]))
+        maxva = Line([-6.6, low.get_top()[1], 0], [0.45, low.get_top()[1], 0], color=RED, stroke_width=2.5)
+        mtxt = T("MAXVA 20000000：↑内核 ↓用户", 10, RED) \
+            .next_to(maxva, DOWN, buff=0.04).align_to(self.R["low"][0], LEFT).shift(RIGHT * 0.05)
+        self.count = 0
+        self.ctxt = T("已写 L1 段描述符：0 / 4096", 14, GREEN).move_to([3.9, 2.75, 0])
+        self.say("开始时（rootalloc 刚返回）整张 L1 表全是 0：任何地址都缺页")
+        self.play(FadeIn(heads), FadeIn(cols, lag_ratio=0.03), Create(maxva), FadeIn(mtxt), FadeIn(self.ctxt),
+                  run_time=2)
+        self.maxva = VGroup(maxva, mtxt)
 
-    def fill(self, key, value, note, color, pa=None, curve=0.0):
-        it, val, nt, y = self.l1[key]
-        nv = T(value, 11, color, mono=True).move_to([self.l1box[0].get_left()[0] + 2.6, y, 0])
-        nn = T(note, 10, color).move_to(nt).align_to(nt, RIGHT)
-        anims = [Transform(val, nv), Transform(nt, nn), Indicate(it, color=color, scale_factor=1.05)]
-        self.play(*anims, run_time=0.6)
-        if pa is not None:
-            start = [self.l1box[0].get_right()[0], y, 0]
-            end = self.pa[pa][0].get_left()
-            a = CurvedArrow(start, end, angle=curve, color=color, stroke_width=2) if curve else \
-                Arrow(start, end, buff=0.04, color=color, stroke_width=2, max_tip_length_to_length_ratio=0.06)
-            self.arrows.add(a)
-            self.play(Create(a), run_time=0.5)
+    def bump(self, n):
+        self.count += n
+        new = T(f"已写 L1 段描述符：{self.count} / 4096", 14, GREEN).move_to(self.ctxt)
+        self.play(Transform(self.ctxt, new), run_time=0.3)
+
+    def map_rows(self, keys, color, label, arrows=True):
+        anims = []
+        for k in keys:
+            vr = self.vrow[k]
+            anims.append(vr[0].animate.set_fill(color, opacity=0.55))
+            anims.append(Transform(vr[1], T(label(k), 10, WHITE).move_to(vr[0])))
+        self.play(*anims, run_time=0.8)
+        if arrows:
+            self.play(*[GrowArrow(Arrow(self.vrow[k][0].get_right(), self.R[k][0].get_left(), buff=0.03,
+                                        stroke_width=2, color=color, max_tip_length_to_length_ratio=0.06))
+                        for k in keys], run_time=0.6)
 
     # ---------------------------------------------------------- steps
-    def step1(self):
-        self.hl(1)
-        self.say(f"① rootalloc()：从 .bss 的静态池 roots[256][4096] 取 roots[0]（{self.ROOTS:08x}，16 KiB 对齐）并清零")
-        self.show_strip(T("L1 表 = 4096 项 × 4 字节 = 16 KiB，覆盖 4 GiB；索引 = VA >> 20，每项管 1 MiB", 15),
-                        T("项的低 2 位：00 缺页 · 01 指向 L2 表（进程用）· 10 段，直接映射 1 MiB（内核全部用段）", 15, GREY_B))
-        self.play(Indicate(self.pa["dram"], color=ORANGE), run_time=1.2)
-        self.wait(3)
-
-    def step2(self):
-        self.hl(2)
-        self.say("② DRAM 恒等映射：a 从 0x20000000 到 PHYSTOP（+112 MiB），每 MiB 一个段，共 112 项 L1[200..26f]")
-        self.show_strip(self.bits(SEC_RAM(self.DRAM), "Normal 不可缓存 · 仅特权级读写 · 可执行"),
-                        T("TEX=001 C=0 B=0：Normal 不可缓存（D-cache 关）；AP=01：用户态访问 → Permission fault", 13, GREY_B))
-        self.fill("200", f"{SEC_RAM(0x20000000):08x}", "PA 20000000", GREEN, "dram", curve=-0.25)
-        self.fill("dots", "…", "112 段", GREEN)
-        self.fill("26f", f"{SEC_RAM(0x26F00000):08x}", "PA 26F00000", GREEN, "kalloc", curve=-0.15)
-        self.wait(3)
-
-    def step3(self):
-        self.hl(3)
-        self.say("③ win32k 表面缓存区 16 MiB：SECTION_RAM，属性与 DRAM 相同（注释说 cached，实际不可缓存）")
-        self.show_strip(self.bits(SEC_RAM(0x27000000), "win32k：Normal 不可缓存"))
-        self.fill("270", f"{SEC_RAM(0x27000000):08x}…", "win32k", PURPLE, "gui")
+    def step_root(self):
+        self.panel(
+            T("① rootalloc()", 18, ORANGE),
+            self.code("kernel_pagetable = rootalloc();",
+                      "// roots[256][4096] 在 .bss，16 KiB 对齐"),
+            T(f"内核 L1 表 = roots[0] @ {self.ROOTS:08x}", 15),
+            T("4096 项 × 4 字节 = 16 KiB，覆盖整个 4 GiB", 15, GREY_B),
+        )
+        self.say(f"kvminit() 先从 bss 里的静态池取 roots[0]（{self.ROOTS:08x}）做内核 L1 表，并清零")
+        self.play(Indicate(self.R["bss"], color=ORANGE), run_time=1.2)
         self.wait(2.5)
 
-    def step4(self):
-        self.hl(4)
-        self.say("④ devices.c 每个 MEM 资源 → 覆盖它的 1 MiB 段：帧缓冲用 SECTION_NC，其余 SECTION_DEV")
-        self.show_strip(self.bits(SEC_NC(0x28000000), "帧缓冲：Normal 不可缓存 + XN"),
-                        self.bits(SEC_DEV(0xE2900000), "UART0：Strongly-ordered + XN"))
-        self.fill("280", f"{SEC_NC(0x28000000):08x}…", "帧缓冲 NC+XN", "#b98ad6", "fb")
-        self.fill("e01", "e0100412…", "clock gpio pwm wdt", RED)
-        self.fill("e29", f"{SEC_DEV(0xE2900000):08x}", "uart sdhci phy ehci", RED, "io")
-        self.fill("f20", f"{SEC_DEV(0xF2000000):08x}…", "VIC0-3", RED)
-        self.fill("f80", f"{SEC_DEV(0xF8000000):08x}", "FIMD", RED, "hi")
-        self.say("MMIO 共 13 段：寄存器块小于 1 MiB 也占整段；Strongly-ordered = 不缓存、不合并、不乱序")
-        self.wait(2)
-        self.say("结果：内核 L1 共 145 个段（112 + 16 + 4 + 13），其余 3951 项为 0 → 访问即 Translation fault")
-        self.play(Indicate(self.l1["hole"][0], color=GREY_B), Indicate(self.pa["unused"], color=GREY_B), run_time=1.2)
-        self.wait(2.5)
+    def step_dram(self):
+        n = (self.PHYSTOP - self.DRAM) >> 20
+        e = self.DRAM | (1 << 12) | (1 << 10) | 2
+        r = f"L1[{self.DRAM >> 20:03x}..{(self.PHYSTOP >> 20) - 1:03x}]"
+        self.panel(
+            T("② DRAM 恒等映射（vm.c kvminit）", 18, GREEN),
+            self.code("for(a = EXTMEM; a < PHYSTOP; a += 1 MiB)",
+                      "  L1[a>>20] = a | (1<<12) | (1<<10) | 2;"),
+            T(f"{r}：VA {self.DRAM:08x}–{self.PHYSTOP - 1:08x} = PA，共 {n} 段", 15),
+            self.bits(e, "Normal 不可缓存，可执行，仅特权级读写"),
+            T("TEX=001 C=0 B=0：Normal 不可缓存（D-cache 关）", 13, GREY_B),
+            T("AP=01：特权级读写，用户态访问会 Permission fault", 13, GREY_B),
+        )
+        self.say(f"DRAM 从 ATAG 到 PHYSTOP（+112 MiB）逐 MiB 写段描述符：VA = PA，ATAG、内核镜像、kalloc 页池都在这里")
+        self.map_rows(["atag", "code", "data", "rd", "bss", "kalloc"], GREEN, lambda k: f"VA = PA  {r}")
+        self.bump(n)
+        self.wait(3.5)
 
-    def step56(self):
-        self.hl(5)
-        regs = [("dsb", "写 L1 的 str 全部完成，页表遍历器可见"),
-                ("mcr c2,c0,2  TTBCR = 0", "N=0：整个 4 GiB 只用 TTBR0（没有 TTBR1）"),
-                (f"mcr c2,c0,0  TTBR0 = {self.ROOTS:#x}", "L1 表物理基址，16 KiB 对齐"),
-                ("mcr c3,c0,0  DACR = 1", "domain0 = client：按 AP 位检查"),
-                ("dsb; mcr c8,c7,0; dsb; isb", "flush_tlb()：TLBIALL")]
-        rows = VGroup(*[VGroup(T(a, 12, "#9cdcfe", mono=True), T(b, 12, GREY_B)).arrange(RIGHT, buff=0.3)
-                        for a, b in regs])
-        for r in rows:
-            r[1].shift(RIGHT * (4.2 - r[0].width))
-        rows.arrange(DOWN, aligned_edge=LEFT, buff=0.05)
-        self.say("⑤ install()：MMU 还关着；写 TTBCR、TTBR0、DACR，再作废全部 TLB")
-        self.show_strip(rows)
-        self.wait(3)
-        self.hl(6)
-        off = T("SCTLR: M=0 I=0 Z=0 C=0    MMU 关", 15, GREY_B, mono=True)
-        on = T("SCTLR: M=1 I=1 Z=1 C=0    MMU 开，I-cache/分支预测开，D-cache 关", 15, GREEN, mono=True)
-        self.say("⑥ 置 SCTLR.M=1：因为 VA = PA，下一条指令的地址不变，照常取指；之后 setup.c 打开 I-cache 和分支预测")
-        self.show_strip(off)
+    def step_gui_fb(self):
+        gui = hx(self.gui.group(1))
+        g = gui | (1 << 12) | (1 << 10) | 2
+        f = self.FB | (1 << 12) | (1 << 10) | (1 << 4) | 2
+        gi, fi = f"L1[{gui >> 20:03x}..{(gui >> 20) + 15:03x}]", f"L1[{self.FB >> 20:03x}..{(self.FB >> 20) + 3:03x}]"
+        self.panel(
+            T("③ tiny210_map_devices()：win32k 区和帧缓冲", 18, PURPLE),
+            self.code(f"{gi} = SECTION_RAM(a)   // win32k 16 MiB",
+                      f"{fi} = SECTION_NC(a)    // simplefb 4 MiB"),
+            self.bits(g, "win32k：Normal 不可缓存"),
+            self.bits(f, "帧缓冲：Normal 不可缓存 + XN"),
+            T("win32k 段与 DRAM 段属性相同，所以日志里合并成一段 L1[400..47f]；", 13, GREY_B),
+            T("帧缓冲是 simple-framebuffer 的 MEM 资源，名字为 \"framebuffer\" 所以用 NC + XN", 13, GREY_B),
+        )
+        self.say("PHYSTOP 以上：win32k 区 16 段、帧缓冲 4 段也映射进内核，但它们不归 kalloc 管")
+        self.map_rows(["gui"], PURPLE, lambda k: f"VA = PA  {gi}")
+        self.map_rows(["fb"], "#8e5ba8", lambda k: f"VA = PA  {fi}")
+        self.bump(20)
+        self.wait(3.5)
+
+    def step_mmio(self):
+        uart = next(d for d in self.DEVICES if "uart" in d[0])
+        e = (uart[1] & 0xFFF00000) | (1 << 10) | (1 << 4) | 2
+        lines = VGroup()
+        secs = set()
+        for name, pa, size, res in self.DEVICES:
+            a, b = pa >> 20, (pa + size - 1) >> 20
+            for i in range(a, b + 1):
+                secs.add(i)
+            idx = f"L1[{a:03x}]" if a == b else f"L1[{a:03x}..{b:03x}]"
+            lines.add(T(f"{idx:<14}{pa:08x}  {name} {res}", 12, "#ff8a80", mono=True))
+        lines.arrange(DOWN, aligned_edge=LEFT, buff=0.04)
+        self.panel(
+            T("④ 外设：devices.c（QEMU 表）每个 MEM 资源 → 1 MiB 段", 18, RED),
+            self.code("for(each MEM resource r)",
+                      "  for(a = r.start & ~0xFFFFF; a <= r.end; a += 1 MiB)",
+                      "    L1[a>>20] = SECTION_DEV(a);"),
+            self.bits(e, "Strongly-ordered + XN（sun4i 外设）"),
+            lines,
+            T("三个寄存器块都在同一个 1 MiB 内，只写 1 个段 L1[01c]", 13, GREY_B),
+            T("注意：01C00000 在 MAXVA 以下的用户窗口里，用户页长到 0x01C00000 时", 13, ORANGE),
+            T("walk() 看到这里是段（不是 01 型）就失败 → QEMU 上单进程最多约 28 MiB", 13, ORANGE),
+        )
+        self.say(f"MMIO：Strongly-ordered（不缓存、不合并、不乱序）+ XN（不可执行），共 {len(secs)} 段；"
+                 f"小于 1 MiB 的寄存器块也占整段")
+        self.map_rows(["io"], RED, lambda k: "VA = PA  L1[01c] 外设")
+        self.bump(len(secs))
+        self.wait(5)
+
+    def step_unmapped(self):
+        un = self.unused
+        mib = (hx(un.group(2)) - hx(un.group(1)) + 1) >> 20
+        self.panel(
+            T("⑤ 其余 L1 项保持 0 = 缺页", 18, GREY_B),
+            T(f"{hx(un.group(1)):08X}–{hx(un.group(2)):08X}：剩余 {mib} MiB DRAM，不映射", 15),
+            T(f"{self.DRAMEND:08X}–FFFFFFFF、20000000–3FFFFFFF：没有 RAM", 15),
+            T("00000000–1FFFFFFF：用户窗口，内核表里只有 L1[01c] 外设段，", 15),
+            T("      其余由每个进程在自己的 L1 里用 L2 表填（见第 3 段）", 15, GREY_B),
+            T(f"日志：mmu: {self.NSECT} of 4096 L1 entries are sections → 其余 {4096 - self.NSECT} 项缺页", 15, GREEN),
+        )
+        self.say("没写的项都是 0：访问这些地址会触发 Translation fault（t113_fault 打印 far/dfsr）")
+        self.play(Indicate(self.vrow["unused"], color=GREY_B), Indicate(self.vrow["gap"], color=GREY_B),
+                  Indicate(self.vrow["vuser"], color=ORANGE), run_time=1.5)
+        self.wait(3.5)
+
+    def step_enable(self):
+        regs = [("TTBCR", "0", "N=0：整个 4 GiB 只用 TTBR0"),
+                ("TTBR0", f"{self.ROOTS:08x}", "L1 表物理基址（16 KiB 对齐）"),
+                ("DACR", "1", "domain0 = client：按 AP 位检查权限"),
+                ("TLBIALL", "0", "flush_tlb()：作废旧的 TLB")]
+        rows = VGroup(*[T(f"mcr  {n:<8}= {v:<10}  {d}", 13, "#9cdcfe", mono=True) for n, v, d in regs])
+        rows.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
+        off = T("SCTLR: M=0  I=0  Z=0  C=0    MMU 关（物理地址直接访问）", 14, GREY_B, mono=True)
+        on = T(f"SCTLR={hx(self.SCTLR.group(1)):08x}: M=1 I=1 Z=1 C=0  MMU 开，I-cache/分支预测开", 14, GREEN, mono=True)
+        self.panel(T("⑥ kvminithart() → install()，然后打开 MMU", 18, GREEN), rows, off)
+        self.say("install()：先写 TTBCR、TTBR0、DACR，清 TLB；再置 SCTLR.M=1。因为 VA = PA，打开 MMU 后下一条指令照常执行")
         on.move_to(off).align_to(off, LEFT)
+        self.wait(2.5)
         self.play(ReplacementTransform(off, on), run_time=1.2)
-        self.strip = on
-        self.play(Indicate(self.l1box[2], color=GREEN))
-        self.wait(3)
-
-    def step78(self):
-        """Process L1 copy + L2 table. The values come from the QEMU log, so
-        the L1 rows and the physical column switch to the QEMU addresses
-        (DRAM at 0x40000000) -- no QEMU value points at a board range."""
-        self.hl(7)
-        ex = find(r"exec: /bin/sh pid (\d+): inode")
-        start = next(i for i, l in enumerate(LINES) if f"exec: /bin/sh pid {ex.group(1)}: inode" in l)
-        end = next(i for i, l in enumerate(LINES) if l.startswith(f"exec: /bin/sh pid {ex.group(1)}: sz"))
-        body = LINES[start:end]
-        root = next(re.search(r"L1 root roots\[(\d+)\] at (\w+)", l) for l in body if "L1 root roots" in l)
-        l2 = next(re.search(r"L2 table: kalloc pa (\w+) -> L1\[(\w+)\] = (\w+)", l) for l in body if "L2 table" in l)
-        pages = [re.search(r"page: kalloc pa (\w+) -> VA (\w+) \(PTE (\w+)\)", l).groups()
-                 for l in body if "page: kalloc" in l]
-        ttbr = hx(find(r"mmu: TTBR0=(\w+)").group(1))
-        bss = find(r"mm: kernel bss\s+(\w+)-(\w+)")
-        kin = find(r"mm: kinit: freerange (\w+)-(\w+) ->")
-        runs = [re.search(r"mmu:\s+L1\[(\w+)\.\.(\w+)\] VA (\w+)-\w+ -> PA (\w+)\s+\d+ MiB\s+(.+?) AP=.*entry=(\w+)", l)
-                for l in LINES if re.search(r"mmu:\s+L1\[", l)]
-        k, kaddr = int(root.group(1)), hx(root.group(2))
-
-        self.say("⑦ 以下数值都来自 QEMU 日志：右边物理内存换成 QEMU 的地址（DRAM 从 0x40000000 开始），不再对应实板区间")
-        old = VGroup(self.arrows, self.pagrp, *[VGroup(*v[:3]) for v in self.l1.values()])
-        if self.strip is not None:
-            old.add(self.strip)
-            self.strip = None
-        self.play(FadeOut(old), run_time=0.8)
-
-        # QEMU physical column, high addresses on top.
-        rows = [("fb", "48000000–483FFFFF 帧缓冲", 0.32, "#8e5ba8"),
-                ("gui", "47000000–47FFFFFF win32k", 0.32, PURPLE),
-                ("kalloc", f"{hx(kin.group(1)):08x}–{hx(kin.group(2)):08x} kalloc 页池", 1.55, GREEN_E),
-                ("bss", f"{hx(bss.group(1)):08x}–{hx(bss.group(2)):08x} .bss（roots 池）", 0.75, "#3d5a80"),
-                ("img", "40008000 内核 code/data/ramdisk", 0.35, BLUE_E),
-                ("mmio", "01C00000 sun4i 外设", 0.3, RED)]
-        y, P = 2.52, {}
-        pa = VGroup(T("物理内存（QEMU）", 13).move_to([5.25, 2.72, 0]))
-        for key, lab, h, col in rows:
-            r = Rectangle(width=3.3, height=h, stroke_color=GREY, stroke_width=1, fill_color=col, fill_opacity=0.3) \
-                .move_to([5.25, y - h / 2, 0])
-            t = T(lab, 10.5).next_to(r.get_top(), DOWN, buff=0.04)
-            if t.width > 3.2:
-                t.scale_to_fit_width(3.2)
-            P[key] = r
-            pa.add(r, t)
-            y -= h
-        # Exact pages near the top of the kalloc pool (freelist head = highest address).
-        sub_y = P["kalloc"].get_top()[1] - 0.45
-        pg0 = hx(pages[0][0])
-        sp = Rectangle(width=2.9, height=0.24, stroke_color=GREEN, fill_color=GREEN, fill_opacity=0.75).move_to([5.25, sub_y, 0])
-        spt = T(f"{pg0:08x} 用户页（VA 0）", 10.5, WHITE, mono=True).move_to(sp)
-        sl = Rectangle(width=2.9, height=0.24, stroke_color=ORANGE, fill_color=ORANGE, fill_opacity=0.75) \
-            .next_to(sp, DOWN, buff=0.05)
-        slt = T(f"{hx(l2.group(1)):08x} L2 表", 10.5, WHITE, mono=True).move_to(sl)
-        sr = Rectangle(width=2.9, height=0.24, stroke_color=ORANGE, fill_color="#5a3a10", fill_opacity=0.9) \
-            .move_to([5.25, P["bss"].get_center()[1] - 0.12, 0])
-        srt = T(f"{kaddr:08x} roots[{k}]（进程 L1）", 10.5, WHITE, mono=True).move_to(sr)
-        self.play(FadeIn(pa), run_time=0.8)
-
-        # L1 rows: the copied kernel entries as the QEMU kernel built them.
-        head = T(f"进程 L1 = roots[{k}] @ {kaddr:08x}（拷贝 roots[0] @ {ttbr:08x}）", 12, WHITE).move_to(self.l1box[2])
-        self.play(self.l1box[1].animate.set_fill(ORANGE), Transform(self.l1box[2], head), run_time=0.8)
-        top = self.l1box[1].get_bottom()[1] - 0.25
-        left = self.l1box[0].get_left()[0]
-        lines, ly = VGroup(), {}
-        entries = []
-        for m in reversed(runs):
-            a, b = hx(m.group(1)), hx(m.group(2))
-            what = "MMIO" if "Strongly" in m.group(5) else ("帧缓冲" if "XN" in m.group(5) else "DRAM 128 MiB")
-            entries.append((f"[{a:03x}..{b:03x}]" if a != b else f"[{a:03x}]", f"{hx(m.group(6)):08x}", what, GREEN if what.startswith("DRAM") else RED if what == "MMIO" else PURPLE))
-        entries.insert(len(entries) - 1, ("其余", "00000000", "缺页", GREY))
-        entries += [("[100..17f]", "00000000", "mmap 时写用户段", "#d080c0"), ("[000]", "00000000", "缺页", GREY)]
-        for i, (idx, val, note, col) in enumerate(entries):
-            yy = top - i * 0.42
-            row = VGroup(T(idx, 11, col, mono=True).move_to([left + 0.1, yy, 0], aligned_edge=LEFT),
-                         T(val, 11, col, mono=True).move_to([left + 2.6, yy, 0]),
-                         T(note, 10, col).move_to([left + 5.1, yy, 0], aligned_edge=RIGHT))
-            lines.add(row)
-            ly[idx] = (row, yy)
-        self.say(f"⑦ uvmcreate()：rootalloc() 在 .bss 的 roots 池取 roots[{k}]（{kaddr:08x}），memmove 拷贝 roots[0] 的 4096 项")
-        self.play(FadeIn(lines), run_time=0.8)
-        self.play(FadeIn(sr), FadeIn(srt))
-        self.play(Create(Arrow(self.l1box[1].get_right(), sr.get_left(), buff=0.05, color=ORANGE, stroke_width=2,
-                               max_tip_length_to_length_ratio=0.06)), run_time=0.7)
+        self.pan.remove(off)
+        self.pan.add(on)
+        self.play(Indicate(on, color=GREEN))
         self.wait(2.5)
 
-        self.hl(8)
-        row0, y0 = ly["[000]"]
-        nv = VGroup(T("[000]", 11, ORANGE, mono=True).move_to(row0[0], aligned_edge=LEFT),
-                    T(l2.group(3), 11, ORANGE, mono=True).move_to(row0[1]),
-                    T("01 型 → L2 表", 10, ORANGE).move_to(row0[2], aligned_edge=RIGHT))
-        self.say(f"⑧ walk()：L1[0] 为 0 → kalloc() 取 freelist 表头 {l2.group(1)} 作 L2 表，L1[0] = {l2.group(3)}")
-        self.play(Transform(row0, nv), FadeIn(sl), FadeIn(slt), run_time=0.8)
-        self.play(Create(Arrow([self.l1box[0].get_right()[0], y0, 0], sl.get_left(), buff=0.05, color=ORANGE,
-                               stroke_width=2, max_tip_length_to_length_ratio=0.06)), run_time=0.7)
-        box = Rectangle(width=5.75, height=1.6, stroke_color=ORANGE, stroke_width=2, fill_color="#2a1a10",
-                        fill_opacity=1).move_to([0.2, -2.55, 0])
-        bt = T(f"L2 @ {l2.group(1)}（kalloc 页，只用前 1 KiB）  索引 = (VA>>12) & 255", 12, ORANGE) \
-            .next_to(box.get_top(), DOWN, buff=0.06)
-        self.play(FadeIn(box), FadeIn(bt))
-        prow = VGroup()
-        for pa_, va, pte in pages[:4]:
-            prow.add(T(f"L2[{hx(va) >> 12 & 255}] = {pte}   VA {hx(va):05x} → PA {pa_}", 11, WHITE, mono=True))
-        prow.add(T(f"…  共 {len(pages)} 个用户页，全在 kalloc 页池顶部", 11, GREY_B))
-        prow.arrange(DOWN, aligned_edge=LEFT, buff=0.04).next_to(bt, DOWN, buff=0.08).align_to(bt, LEFT)
-        self.play(FadeIn(prow[0], shift=RIGHT * 0.1), FadeIn(sp), FadeIn(spt), run_time=0.6)
-        self.play(Create(Arrow(prow[0].get_right(), sp.get_left(), buff=0.08, color=GREEN, stroke_width=2,
-                               max_tip_length_to_length_ratio=0.05)), run_time=0.7)
-        self.say(f"用户 VA 0 → L1[0] → L2[0] = {pages[0][2]} → PA {pages[0][0]}；"
-                 f"同一页在内核里就是 VA {pages[0][0]}（DRAM 恒等映射）")
-        for r in prow[1:]:
-            self.play(FadeIn(r, shift=RIGHT * 0.1), run_time=0.4)
-        self.wait(3)
-        self.say("小结：L1 都在 .bss 的 roots 池（内核 roots[0]，进程各占一槽）；L2 表和用户页来自 kalloc 页池顶部")
-        self.wait(3)
+    def walk(self, va, l1row, desc, pa, note, color):
+        steps = VGroup(
+            T(f"VA {va:08x}", 16, WHITE, mono=True),
+            T(f"→ 索引 VA>>20 = {va >> 20:03x}，读 TTBR0 + {va >> 20:03x}×4 = {self.ROOTS + (va >> 20) * 4:08x}", 13,
+              ORANGE, mono=True),
+            T(f"→ L1[{va >> 20:03x}] = {desc:08x}  （类型 10 = 段）", 13, color, mono=True),
+            T(f"→ PA = {desc & 0xFFF00000:08x} | {va & 0xFFFFF:05x} = {pa:08x}", 13, GREEN, mono=True),
+            T(note, 13, GREY_B),
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.07)
+        return steps
+
+    def step_walk_examples(self):
+        uart = next(d for d in self.DEVICES if "uart" in d[0])[1]
+        d_uart = (uart & 0xFFF00000) | (1 << 10) | (1 << 4) | 2
+        kcode = hx(self.code_r.group(1))
+        d_code = (kcode & 0xFFF00000) | (1 << 12) | (1 << 10) | 2
+        self.panel(T("⑦ 硬件查表举例（MMU 开启后）", 18, YELLOW),
+                   self.walk(kcode, "code", d_code, kcode, "取内核第一条指令：_entry，可执行，经 I-cache", BLUE),
+                   self.walk(uart, "io", d_uart, uart, "写 UART0 THR：Strongly-ordered，每次写都直达设备", RED))
+        self.say("一次访问只查一级：L1 段描述符给出 1 MiB 物理基址，低 20 位直接作页内偏移")
+        self.play(Indicate(self.vrow["code"], color=BLUE), Indicate(self.R["code"], color=BLUE), run_time=1.2)
+        self.play(Indicate(self.vrow["io"], color=RED), Indicate(self.R["io"], color=RED), run_time=1.2)
+        self.wait(2.5)
+
+    def step_per_process(self):
+        self.panel(
+            T("⑧ 每个进程的 L1 = 内核 L1 的拷贝 + 自己的用户映射", 18, ORANGE),
+            self.code("pagetable_t uvmcreate(void) {",
+                      "  p = rootalloc();",
+                      "  memmove(p, kernel_pagetable, 16384);",
+                      "}"),
+            T("• L1[000..01b]（用户页）用 01 型项指向 kalloc 来的 L2 表", 14),
+            T("• L1[100..17f]（mmap 窗口）是 AP=11 的用户段，例如 /dev/fb0", 14),
+            T("• 内核段 AP=01：用户态看得到项，访问会 Permission fault", 14),
+            T("• 切换进程只换 TTBR0（switchuvm），不需要 TTBR1", 14, GREY_B),
+        )
+        self.say("进程切换只写 TTBR0：所有进程共享同一份内核映射，用户部分各不相同")
+        self.play(self.vrow["vuser"][0].animate.set_fill(ORANGE, opacity=0.55),
+                  self.vrow["vmmap"][0].animate.set_fill("#a93d8c", opacity=0.55), run_time=1)
+        self.play(Transform(self.vrow["vuser"][1], T("用户页 → L2 → kalloc 页", 10).move_to(self.vrow["vuser"][0])),
+                  Transform(self.vrow["vmmap"][1], T("mmap 段 → 帧缓冲", 10).move_to(self.vrow["vmmap"][0])))
+        a1 = CurvedArrow(self.vrow["vuser"][0].get_right(), self.R["kalloc"][0].get_left() + DOWN * 0.15,
+                         angle=0.6, color=ORANGE, stroke_width=2)
+        a2 = CurvedArrow(self.vrow["vmmap"][0].get_right(), self.R["fb"][0].get_left(),
+                         angle=0.5, color="#a93d8c", stroke_width=2)
+        self.play(Create(a1), Create(a2), run_time=1.2)
+        self.wait(3.5)
 
 
 SEC_RAM = lambda a: a | (1 << 12) | (1 << 10) | 2

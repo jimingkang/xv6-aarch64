@@ -270,15 +270,15 @@ exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404c
 
 配套动画 \texttt{doc/readme/tiny210/videos/memory-anim.mp4}（manim，约 2 分钟，
 \texttt{tools/manim/memory\_anim.py}）共三段。第 1、3 段读取上面这份真实日志：内存初始化与 kinit 空闲链表；
-fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、kalloc 页和 readi 加载。第 2 段按图~\ref{fig:mmu-page-tables}
-的结构（左代码 ①--⑧、中 L1 表、右物理内存）用实板地址讲页表的建立：
+fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、kalloc 页和 readi 加载。第 2 段按图~\ref{fig:memory-layout} 的两栏（左虚拟、右物理）讲内核 L1 表的建立，
+地址全部取自 QEMU 日志（DRAM 从 0x40000000 开始）：
 \begin{enumerate}
-\item ① \texttt{rootalloc()} 取 bss 中的 \texttt{roots[0]} 作内核 L1 表；
-\item ② DRAM 恒等映射 L1[200..26f]，112 段，附段描述符位分解（TEX=001 C=B=0、AP=01）；
-\item ③ win32k 区 L1[270..27f]；④ 帧缓冲 L1[280..283]（NC+XN）与 13 个 MMIO 段（Strongly-ordered + XN）；
-\item ⑤ \texttt{install()} 写 TTBCR/TTBR0/DACR、清 TLB；⑥ 置 SCTLR.M=1；
-\item ⑦ 进程 \texttt{uvmcreate()} 拷贝内核 L1；⑧ \texttt{walk()} kalloc 一页作 L2 表，L1[0] 写成 01 型表描述符，
-      L2 小页 PTE 逐项取自日志。
+\item 短描述符格式；\texttt{rootalloc()} 取 \texttt{roots[0]}（0x404B4000）；
+\item DRAM 恒等映射 L1[400..46f]，112 段，附段描述符位分解；
+\item win32k L1[470..47f] 与帧缓冲 L1[480..483]（NC+XN）；
+\item sun4i 外设 L1[01c]：三个寄存器块共用一段，且落在用户窗口内——用户页长到 0x01C00000 时
+      \texttt{walk()} 遇到段而失败，所以 QEMU 上单进程约 28 MiB 封顶；
+\item 其余项缺页（日志：133 of 4096）；\texttt{install()} 后置 SCTLR.M；两个查表实例；每个进程拷贝 L1。
 \end{enumerate}
 重新生成用 \texttt{tools/manim/render.sh}。
 

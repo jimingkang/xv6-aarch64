@@ -194,9 +194,10 @@ exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404c
 动画 `videos/memory-anim.mp4`（约 2 分钟，manim，`tools/manim/memory_anim.py`）分三段：
 
 1. 内存初始化与 kinit 空闲链表（读日志 `tools/manim/qemu-mmu-trace3.log`）；
-2. MMU 初始化，按 5.1 节的 kvminit 图解：左边代码 ①–⑧ 逐行高亮，中间 L1 表 roots[0] 逐项填入段描述符（附位分解），
-   右边物理内存；⑤⑥ install() 写 TTBCR/TTBR0/DACR、清 TLB、置 SCTLR.M；⑦⑧ 进程拷贝 L1，walk() kalloc 一页作 L2 表，
-   L2 小页 PTE 取自日志；
+2. MMU 页表建立，按上面的布局图两栏（左虚拟、右物理），地址全部取自 QEMU 日志（DRAM 0x40000000）：
+   短描述符格式、rootalloc 取 roots[0]（0x404B4000）、DRAM 恒等映射 L1[400..46f]、win32k L1[470..47f]、
+   帧缓冲 L1[480..483]、sun4i 外设 L1[01c]（注意它落在用户窗口内，QEMU 上单进程约 28 MiB 封顶），
+   未映射区、install() + SCTLR.M、两个查表实例、每个进程拷贝 L1（共 133 段）；
 3. fork + exec `/bin/sh` 时的 L1 根、L2 表、kalloc 页和 readi 加载（读日志）。
 
 重新生成：`tools/manim/render.sh`。
