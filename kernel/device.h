@@ -87,5 +87,11 @@ int chrdev_write(int major, int user_src, uint64 src, int n);
 int chrdev_ioctl(struct file *f, uint64 cmd, uint64 arg);
 int chrdev_mmap(struct file *f, struct vm_area_struct *vma);
 int device_format(char *buf, int max);
+struct iomem_res {
+  uint64 start, end;
+  char dev[DEVICE_NAME_MAX];
+  char res[16];
+};
+int device_mem_resources(struct iomem_res *out, int max);
 
 #endif

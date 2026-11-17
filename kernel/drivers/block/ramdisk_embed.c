@@ -28,3 +28,11 @@ fat32rw(struct buf *b, int write)
 {
   ramdisk_embed_rw(b, write);
 }
+
+// No SD controller (QEMU stand-in): fat32init() then falls back to the
+// RAM disk, and procfs still mounts through kernel/vfs.c.
+__attribute__((weak)) int
+sdsector(uint32 sector, void *buf, int write)
+{
+  return -1;
+}

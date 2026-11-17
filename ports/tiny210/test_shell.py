@@ -62,7 +62,7 @@ try:
     for token in (b"xv6 ARM32 / QEMU cubieboard", b"machid=4104 r2=40000100",
                   b"atags: at 40000100", b"atags: memory 40000000 + 512 MiB",
                   b'atags: cmdline "console=ttySAC0,115200 xv6test"',
-                  b"kernel 40008000-", b"DRAM 40000000-48000000"):
+                  b"kernel 40008000-", b"DRAM 40000000-47000000"):
         if token not in banner:
             raise AssertionError(f"boot banner missing {token!r}:\n{banner.decode(errors='replace')}")
     if b"r2 ignored" in banner:
@@ -84,7 +84,16 @@ try:
     command("echo one; echo two", b"\r\ntwo\r\n")
     command("fbtest", b"fbtest: OK", faults=True)
     command("echo AFTER_FB", b"\r\nAFTER_FB\r\n")
-    print("PASS: /dev/fb0 ioctl+mmap (fork-shared, munmap), Cortex-A8 bootm/ATAG handoff (r1/r2, ATAG_MEM, ATAG_CMDLINE) at DRAM+0x8000, init/sh, fork/exec/wait, pipes, redirection, directories, timer sleep, user isolation/fault recovery, fork growth/reaping and filesystem stress")
+    out = command("cat /proc/meminfo", b"\r\nMemTotal:")
+    for token in (b"MemFree:", b"Buffers:", b"KernelStack:", b"PageTables:", b"KallocRange:"):
+        if token not in out:
+            raise AssertionError(f"/proc/meminfo missing {token!r}:\n{out.decode(errors='replace')}")
+    out = command("cat /proc/iomem", b"\r\n40000000-5fffffff : System RAM\r\n")
+    for token in (b"  40008000-", b": Kernel code", b": Page allocator (kalloc)",
+                  b"  48000000-483fffff : simple-framebuffer framebuffer", b"01c28000-01c283ff : sun4i-uart uart0"):
+        if token not in out:
+            raise AssertionError(f"/proc/iomem missing {token!r}:\n{out.decode(errors='replace')}")
+    print("PASS: /proc/meminfo + /proc/iomem, /dev/fb0 ioctl+mmap (fork-shared, munmap), Cortex-A8 bootm/ATAG handoff (r1/r2, ATAG_MEM, ATAG_CMDLINE) at DRAM+0x8000, init/sh, fork/exec/wait, pipes, redirection, directories, timer sleep, user isolation/fault recovery, fork growth/reaping and filesystem stress")
 finally:
     proc.terminate()
     try:

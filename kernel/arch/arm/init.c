@@ -19,6 +19,10 @@ int main(void) {
   mkdir("/boot");
   if(mount("sd0p1","/boot","fat32",0)==0)
     printf("init: /boot is the SD card's FAT32 partition\n");
+  /* procfs: /proc/meminfo, /proc/iomem, /proc/devices, /proc/<pid>/status
+     (read-only, flag 1 = VFS_MOUNT_RDONLY). */
+  mkdir("/proc");
+  mount("proc","/proc","procfs",1);
   if(tty_attach(0)<0) exit(1);
   if(open("/dev/ttyS0",O_RDWR)<0) exit(1);
   dup(0); dup(0);

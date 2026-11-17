@@ -238,102 +238,17 @@ putnum(char *p, char *end, uint64 value)
   return p;
 }
 
-static char*
-puthex(char *p, char *end, uint64 value)
-{
-  static char digits[] = "0123456789abcdef";
-  p = putstr(p, end, "0x");
-  for(int shift = 60; shift >= 0 && p < end; shift -= 4)
-    *p++ = digits[(value >> shift) & 15];
-  return p;
-}
-
-static char*
-putmap(char *p, char *end, uint64 pa0, uint64 pa1, char *name)
-{
-  p = puthex(p, end, pa0);
-  p = putstr(p, end, "-");
-  p = puthex(p, end, pa1);
-  p = putstr(p, end, " : ");
-  p = putstr(p, end, name);
-  p = putstr(p, end, "\n");
-  return p;
-}
-
+// /proc/meminfo and /proc/iomem: kernel/memstat.c formats a page.
 static int
 proc_memread(int iomem, uint64 off, void *dst, int n)
 {
   char *buf = kalloc();
-  char *p, *limit;
   int len;
   if(buf == 0)
     return -1;
-  p = buf;
-  limit = buf + PGSIZE;
-
-  if(!iomem){
-    p = putstr(p, limit, "MemTotal:       ");
-    p = putnum(p, limit, PHYSTOP / 1024);
-    p = putstr(p, limit, " kB\nMemFree:        ");
-    p = putnum(p, limit, kfreepages() * PGSIZE / 1024);
-    p = putstr(p, limit, " kB\nKernelTextPA:   ");
-    p = puthex(p, limit, KERNPA);
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, V2P(etext) - 1);
-    p = putstr(p, limit, "\nKernelDataPA:   ");
-    p = puthex(p, limit, V2P(etext));
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, V2P(end) - 1);
-#ifdef XV6_ARM32
-    p = putstr(p, limit, "\n");
-  } else {
-    p = putmap(p, limit, EXTMEM, PHYSTOP - 1, "System RAM");
-    p = putmap(p, limit, KERNPA, V2P(etext) - 1, "  Kernel code");
-    p = putmap(p, limit, V2P(etext), V2P(end) - 1, "  Kernel data/bss");
-  }
-#else
-    p = putstr(p, limit, "\nRamdiskPA:      ");
-    p = puthex(p, limit, RAMDISK_PA);
-    p = putstr(p, limit, "-");
-    p = puthex(p, limit, RAMDISK_PA + RAMDISK_SIZE - 1);
-    p = putstr(p, limit, "\n\nMMIO mappings (PA -> kernel VA):\n");
-    p = putstr(p, limit, "BCM2837 peripherals  ");
-    p = puthex(p, limit, PERIPHERAL_BASE_PA);
-    p = putstr(p, limit, " -> ");
-    p = puthex(p, limit, PERIPHERAL_BASE);
-    p = putstr(p, limit, " size=16MB Device-nGnRnE XN\n");
-    p = putstr(p, limit, "ARM local peripherals ");
-    p = puthex(p, limit, LOCAL_BASE_PA);
-    p = putstr(p, limit, " -> ");
-    p = puthex(p, limit, LOCAL_BASE);
-    p = putstr(p, limit, " size=4KB Device-nGnRnE XN\n");
-    p = putstr(p, limit, "See /proc/iomem for controller subranges.\n");
-  } else {
-    p = putmap(p, limit, 0x00000000, PHYSTOP - 1, "System RAM");
-    p = putmap(p, limit, KERNPA, V2P(etext) - 1, "  Kernel code");
-    p = putmap(p, limit, V2P(etext), V2P(end) - 1, "  Kernel data/bss");
-    p = putmap(p, limit, RAMDISK_PA, RAMDISK_PA + RAMDISK_SIZE - 1,
-               "QEMU xv6 ramdisk");
-    p = putmap(p, limit, 0x3f000000, 0x3fffffff,
-               "BCM2837 peripheral MMIO window");
-    p = putmap(p, limit, 0x3f003000, 0x3f003fff, "  BCM system timer");
-    p = putmap(p, limit, 0x3f00b000, 0x3f00b3ff,
-               "  legacy interrupt controller");
-    p = putmap(p, limit, 0x3f00b880, 0x3f00b8bf, "  property mailbox");
-    p = putmap(p, limit, 0x3f200000, 0x3f2000ff, "  GPIO controller");
-    p = putmap(p, limit, 0x3f201000, 0x3f201fff, "  PL011 UART0 (unused)");
-    p = putmap(p, limit, 0x3f215000, 0x3f215fff,
-               "  AUX block / Mini UART");
-    p = putmap(p, limit, 0x3f300000, 0x3f3000ff, "  Arasan EMMC/SD");
-    p = putmap(p, limit, 0x3f980000, 0x3f9fffff, "  DWC2 USB host");
-    p = putmap(p, limit, 0x40000000, 0x40000fff,
-               "BCM2836/7 ARM-local interrupt/timer MMIO");
-  }
-#endif
-
-  len = p - buf;
-  if(off >= (uint64)len)
-    n = 0;
+  len = iomem ? iomem_format(buf, PGSIZE) : meminfo_format(buf, PGSIZE);
+  if(len < 0 || off >= (uint64)len)
+    n = len < 0 ? -1 : 0;
   else {
     if(n > len - off)
       n = len - off;

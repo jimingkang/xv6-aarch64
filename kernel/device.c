@@ -346,6 +346,30 @@ putnum(char *p, char *end, uint64 value, int hex)
   return p;
 }
 
+// Copy the MEM resources of every registered device (for /proc/iomem).
+// Names are copied too: devices may be unregistered after the lock drops.
+int
+device_mem_resources(struct iomem_res *out, int max)
+{
+  int n = 0;
+  acquire(&device_core.lock);
+  for(int i = 0; i < device_core.ndevice; i++){
+    struct device *d = device_core.devices[i];
+    for(int j = 0; j < d->nresource && n < max; j++){
+      struct resource *r = &d->resource[j];
+      if(r->type != IORESOURCE_MEM)
+        continue;
+      out[n].start = r->start;
+      out[n].end = r->end;
+      safestrcpy(out[n].dev, d->name ? d->name : "?", sizeof(out[n].dev));
+      safestrcpy(out[n].res, r->name ? r->name : "", sizeof(out[n].res));
+      n++;
+    }
+  }
+  release(&device_core.lock);
+  return n;
+}
+
 int
 device_format(char *buf, int max)
 {

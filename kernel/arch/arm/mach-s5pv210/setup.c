@@ -21,6 +21,7 @@
 #include "kernel/defs.h"
 #include "kernel/device.h"
 #include "kernel/module.h"
+#include "kernel/memstat.h"
 #include "kernel/arch/arm/fdt.h"
 #include "kernel/arch/arm/irq.h"
 #include "kernel/arch/arm/time.h"
@@ -86,6 +87,43 @@ static void boot_info(uint r0, uint machid, uint r2) {
            bootp.mem_base[i],bootp.mem_size[i]>>20);
   if(bootp.cmdline[0]) printf("%s: cmdline \"%s\"\n",bootp.kind==1 ? "atags" : "dtb",bootp.cmdline);
   if(bootp.initrd_size) printf("atags: initrd %x + %d bytes (ignored)\n",bootp.initrd_base,bootp.initrd_size);
+}
+
+/* /proc/iomem (kernel/memstat.c): the DRAM banks the boot loader reported
+   (or the board's nominal DRAM), with the carve-outs of this port's layout:
+     DRAM_BASE .. +32K        ATAGs / zero page (below the kernel)
+     +32K .. end              kernel image (memstat.c adds its sections)
+     end .. PHYSTOP           page allocator (memstat.c)
+     +112M .. +128M           win32k surface arena (cached, never kalloc'd)
+     +128M .. +132M           LCD frame buffer (s3c-fb/simplefb resource)
+     +132M .. top             unused: outside the allocator (caches off) */
+int arch_iomem_regions(struct iomem_region *r, int max) {
+  int n=0;
+  uint top=0;
+  for(int i=0;i<bootp.nmem && n<max;i++) {
+    uint64 base=bootp.mem_base[i], sz=bootp.mem_size[i];
+    if(!sz) continue;
+    r[n].start=base; r[n].end=base+sz-1; r[n].name="System RAM"; n++;
+    if(base<=DRAM_BASE && base+sz>DRAM_BASE) top=(uint)(base+sz);
+  }
+  if(top==0) {
+#ifdef TINY210_QEMU
+    top=PHYSTOP;
+#else
+    top=DRAM_BASE+BOARD_DRAM_SIZE;
+#endif
+    if(top<PHYSTOP) top=PHYSTOP;
+    if(n<max) { r[n].start=DRAM_BASE; r[n].end=top-1; r[n].name="System RAM"; n++; }
+  }
+  if(n<max) { r[n].start=DRAM_BASE; r[n].end=KERNPA-1; r[n].name="Reserved (ATAGs, below kernel)"; n++; }
+  uint gui=DRAM_BASE+S5PV210_GUI_OFFSET, fbend=DRAM_BASE+S5PV210_FB_OFFSET+S5PV210_FB_SIZE;
+  if(n<max && gui>=PHYSTOP && gui+S5PV210_GUI_SIZE<=top) {
+    r[n].start=gui; r[n].end=gui+S5PV210_GUI_SIZE-1; r[n].name="win32k surface arena"; n++;
+  }
+  if(n<max && fbend<top) {
+    r[n].start=fbend; r[n].end=top-1; r[n].name="Unused (outside page allocator)"; n++;
+  }
+  return n;
 }
 
 extern const char xv6_build_info[];   /* generated: build/<port>/version.c */

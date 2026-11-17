@@ -35,6 +35,19 @@ static pagetable_t rootalloc(void) {
   }
   release(&rootlock); return 0;
 }
+/* /proc/meminfo: L1 roots in use (16 KiB each, from the static pool in
+   .bss) and L2 tables (1 KiB each, one kalloc page per table) in the user
+   window of those roots. The kernel root maps 1 MiB sections only. */
+void vm_pagetable_stats(uint *nroots, uint *nl2) {
+  uint r=0, l2=0;
+  acquire(&rootlock);
+  for(int i=0;i<ROOTS;i++) if(used[i]) {
+    r++;
+    for(uint j=0;j<(MAXVA>>20);j++) if((roots[i][j]&3)==1) l2++;
+  }
+  release(&rootlock);
+  *nroots=r; *nl2=l2;
+}
 void kvminit(void) {
   initlock(&rootlock,"arm-l1");
   kernel_pagetable=rootalloc();

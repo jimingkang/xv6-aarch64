@@ -22,6 +22,9 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  uint64 nfree;          // pages on freelist
+  uint64 managed;        // pages ever handed to the allocator (MemTotal)
+  uint64 lo, hi;         // physical range those pages came from
 } kmem;
 
 // Junk-filling pages catches use-after-free; it is skipped while the boot
@@ -49,6 +52,12 @@ freerange(void *vstart, void *vend)
   p = (char*)PGROUNDUP((uint64)vstart);
   int first = 1;
   kfree_nofill = 1;
+  if(p + PGSIZE <= (char*)vend){
+    uint64 lo = V2P(p), hi = V2P(PGROUNDDOWN((uint64)vend));
+    if(kmem.managed == 0 || lo < kmem.lo) kmem.lo = lo;
+    if(hi > kmem.hi) kmem.hi = hi;
+    kmem.managed += (hi - lo) / PGSIZE;
+  }
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE){
     if(first)
       boot_uart_mark('b');
@@ -88,6 +97,7 @@ kfree(void *va)
     boot_uart_mark('f');
   r->next = kmem.freelist;
   kmem.freelist = r;
+  kmem.nfree++;
   release(&kmem.lock);
 }
 
@@ -101,8 +111,10 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r){
     kmem.freelist = r->next;
+    kmem.nfree--;
+  }
   release(&kmem.lock);
 
   if(r)
@@ -113,11 +125,22 @@ kalloc(void)
 uint64
 kfreepages(void)
 {
-  uint64 pages = 0;
-  struct run *r;
+  uint64 pages;
   acquire(&kmem.lock);
-  for(r = kmem.freelist; r; r = r->next)
-    pages++;
+  pages = kmem.nfree;
   release(&kmem.lock);
   return pages;
+}
+
+// Page-allocator statistics for /proc/meminfo and /proc/iomem: pages
+// managed, pages free, and the physical range [lo, hi) they came from.
+void
+kmemstat(uint64 *managed, uint64 *nfree, uint64 *lo, uint64 *hi)
+{
+  acquire(&kmem.lock);
+  *managed = kmem.managed;
+  *nfree = kmem.nfree;
+  *lo = kmem.lo;
+  *hi = kmem.hi;
+  release(&kmem.lock);
 }

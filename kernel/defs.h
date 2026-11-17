@@ -126,8 +126,13 @@ int             vfsmount(char*, char*, int);
 void*           kalloc(void);
 void            kfree(void *);
 uint64          kfreepages(void);
+void            kmemstat(uint64*, uint64*, uint64*, uint64*);
 void            kinit1(void *, void *);
 void            kinit2(void *, void *);
+
+// memstat.c (/proc/meminfo, /proc/iomem)
+int             meminfo_format(char*, int);
+int             iomem_format(char*, int);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -308,6 +313,7 @@ void            uartputc_sync(int);
 int             uartgetc(void);
 
 // vm.c
+void            vm_pagetable_stats(uint*, uint*);
 uint64          walkaddr(pagetable_t, uint64);
 pte_t*          walk(pagetable_t, uint64, int);
 void            kvminit(void);
