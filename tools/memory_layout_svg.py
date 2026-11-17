@@ -10,6 +10,7 @@ FONT = "'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif"
 MONO = "Menlo,'SF Mono',Consolas,monospace"
 
 C = {  # fill, stroke
+    "rd":     ("#cfdcf0", "#4a6fa5"),
     "mmio":   ("#fde2e1", "#c0392b"),
     "hole":   ("#f2f2f2", "#9a9a9a"),
     "unused": ("#ececec", "#8a8a8a"),
@@ -29,41 +30,40 @@ C = {  # fill, stroke
 TOP = 150
 rows = [
     # key, height, kind, PA label lines, iomem lines, meminfo lines
-    ("hi",   70, "mmio", ["0xF2000000 – 0xF800FFFF", "VIC0-3、FIMD(LCD)"],
-     ["f2000000-f23fffff : s5pv210-vic vic0-3",
-      "f8000000-f800ffff : s3c-fb fimd"], []),
-    ("io",  128, "mmio", ["0xE0100000 – 0xEC2FFFFF", "外设寄存器（1 MiB 段，", "Strongly-ordered, XN）"],
-     ["e0100000-e010ffff : s5pv210-clock clock",
-      "e0200000-e0200fff : s5pv210-gpio gpio",
-      "e0200000-e0200fff : s5pv210-keys gpio-eint",
-      "e2500000-e25003ff : s5pv210-pwm pwm",
-      "e2700000-e27003ff : s3c2410-wdt wdt",
-      "e2900000-e29003ff : s5pv210-uart uart",
-      "eb000000-eb0fffff : s3c-sdhci hsmmc",
-      "ec100000-ec100fff : s5p-ehci usb-phy",
-      "ec200000-ec2fffff : s5p-ehci ehci"], []),
-    ("gap",  44, "hole", ["0x40000000 – 0xDFFFFFFF", "无 DRAM（iRAM 0xD0020000 仅 BL1 用）"], [], []),
-    ("unused", 46, "unused", ["0x28400000 – 0x3FFFFFFF  380 MiB", "未使用：不在页分配器内"],
-     ["  28400000-3fffffff : Unused (outside page allocator)"], []),
-    ("fb",   36, "fb", ["0x28000000 – 0x283FFFFF  4 MiB", "LCD 帧缓冲（Normal 不可缓存）"],
-     ["  28000000-283fffff : s3c-fb framebuffer"], []),
-    ("gui",  36, "gui", ["0x27000000 – 0x27FFFFFF  16 MiB", "win32k 表面缓存区"],
-     ["  27000000-27ffffff : win32k surface arena"], []),
-    ("kalloc", 104, "kalloc", ["0x2053A000 – 0x26FFFFFF  ≈106.8 MiB", "页分配器 kalloc（4 KiB 空闲链表）",
-                               "PHYSTOP = DRAM + 112 MiB", "用户页 / 内核栈 / L2 页表 / 管道"],
-     ["  2053a000-26ffffff : Page allocator (kalloc)"],
-     ["MemTotal:     109336 kB", "MemFree / MemAvailable", "AnonPages    (用户页)", "KernelStack  (每进程 1 页)",
-      "PageTables   (L2 表部分)", "KallocRange: 2053a000-26ffffff"]),
-    ("bss",  62, "bss", ["0x20040000 – 0x20539FFF  ≈5 MiB", "内核 .bss：L1 根池 4 MiB(roots)、", "bcache、fw_buf、diskmap…"],
-     ["  20040000-20539fff : Kernel bss"],
-     ["KernelBss:      5096 kB", "PageTables   (L1 根 16 KiB/个)", "Buffers:          30 kB (bcache)"]),
-    ("data", 34, "data", ["0x2002F000 – 0x2003FFFF  68 KiB", ".rodata/.initcall/.data"],
-     ["  2002f000-2003ffff : Kernel data"], ["KernelData:       68 kB"]),
-    ("code", 34, "code", ["0x20008000 – 0x2002EFFF  156 KiB", ".text（_entry 在最前）"],
-     ["  20008000-2002efff : Kernel code"], ["KernelText:      156 kB"]),
-    ("atag", 30, "atag", ["0x20000000 – 0x20007FFF  32 KiB", "ATAG(DRAM+0x100)/零页"],
-     ["  20000000-20007fff : Reserved (ATAGs, below kernel)"], []),
-    ("low", 150, "hole", ["0x00000000 – 0x1FFFFFFF", "无 DRAM（iROM 等）", "内核不映射这段物理地址"], [], []),
+    # All values: QEMU cubieboard stand-in, MMU_TRACE=3 kernel (DRAM 0x40000000),
+    # from tools/manim/qemu-mmu-trace3.log and `cat /proc/meminfo /proc/iomem`.
+    ("top",  44, "hole", ["0x60000000 – 0xFFFFFFFF", "无 RAM（cubieboard 这段 xv6 不用）"], [], []),
+    ("unused", 46, "unused", ["0x48400000 – 0x5FFFFFFF  380 MiB", "未使用：不在页分配器内"],
+     ["  48400000-5fffffff : Unused (outside page allocator)"], []),
+    ("fb",   36, "fb", ["0x48000000 – 0x483FFFFF  4 MiB", "simplefb 帧缓冲（Normal 不可缓存）"],
+     ["  48000000-483fffff : simple-framebuffer framebuffer"], []),
+    ("gui",  36, "gui", ["0x47000000 – 0x47FFFFFF  16 MiB", "win32k 表面缓存区"],
+     ["  47000000-47ffffff : win32k surface arena"], []),
+    ("kalloc", 104, "kalloc", ["0x408C0000 – 0x46FFFFFF  ≈103 MiB", "页分配器 kalloc（4 KiB 空闲链表）",
+                               "PHYSTOP = 0x47000000（DRAM + 112 MiB）", "用户页 / 内核栈 / L2 页表 / 管道"],
+     ["  408c0000-46ffffff : Page allocator (kalloc)"],
+     ["MemTotal:       105728 kB", "MemFree:        105556 kB", "AnonPages:          80 kB",
+      "KernelStack:        24 kB", "PageTables:        124 kB", "KallocRange: 408c0000-46ffffff"]),
+    ("bss",  62, "bss", ["0x40424000 – 0x408BFFFF  ≈4.6 MiB", "内核 .bss：L1 根池 roots @ 0x404B4000",
+                         "（256 × 16 KiB = 4 MiB）、bcache…"],
+     ["  40424000-408bffff : Kernel bss"],
+     ["KernelBss:         4720 kB", "PageTables   (L1 根 16 KiB/个)", "Buffers:             30 kB (bcache)"]),
+    ("rd",   40, "rd", ["0x40024000 – 0x40423FFF  4 MiB", "内嵌根文件系统 fs.img（.ramdisk）"],
+     ["  40024000-40423fff : Kernel ramdisk (root fs)"], ["RamdiskRoot:       4096 kB"]),
+    ("data", 34, "data", ["0x40021000 – 0x400237AF  9 KiB", ".rodata/.initcall/.data"],
+     ["  40021000-400237af : Kernel data"], ["KernelData:          12 kB"]),
+    ("code", 34, "code", ["0x40008000 – 0x40020FFF  100 KiB", ".text（_entry 在最前）"],
+     ["  40008000-40020fff : Kernel code"], ["KernelText:         100 kB"]),
+    ("atag", 30, "atag", ["0x40000000 – 0x40007FFF  32 KiB", "ATAG(DRAM+0x100)/零页"],
+     ["  40000000-40007fff : Reserved (ATAGs, below kernel)"], []),
+    ("gap",  44, "hole", ["0x20000000 – 0x3FFFFFFF", "无 RAM"], [], []),
+    # ---- below MAXVA (user window in the virtual column) ----
+    ("lgap", 96, "hole", ["0x02000000 – 0x1FFFFFFF", "无 RAM"], [], []),
+    ("io",   54, "mmio", ["0x01C00000 – 0x01CFFFFF", "A10 外设（1 MiB 段，", "Strongly-ordered, XN）"],
+     ["01c20400-01c207ff : sun4i-intc intc",
+      "01c20c00-01c20fff : sun4i-timer timer",
+      "01c28000-01c283ff : sun4i-uart uart0"], []),
+    ("sram", 54, "hole", ["0x00000000 – 0x01BFFFFF", "A10 SRAM / BROM 等", "内核不映射"], [], []),
 ]
 y = TOP
 for i, r in enumerate(rows):
@@ -72,13 +72,13 @@ for i, r in enumerate(rows):
 BOTTOM = y
 R = {r["key"]: r for r in rows}
 
-# Virtual column: identity rows above 0x20000000, user window below it.
-low = R["low"]
+# Virtual column: identity rows above 0x20000000; below it the user window,
+# which in QEMU also contains the kernel's MMIO section L1[01c].
+low = R["lgap"]
 vsub = [  # key, height, kind, label lines
     ("vgap2", 26, "hole", ["0x18000000 – 0x1FFFFFFF  未映射"]),
     ("vmmap", 44, "mmap", ["0x10000000 – 0x17FFFFFF  mmap 窗口", "1 MiB 用户段（/dev/fb0 mmap）"]),
     ("vgap1", 26, "hole", ["0x02000000 – 0x0FFFFFFF  未映射"]),
-    ("vuser", 54, "user", ["0x00000000 – 0x01FFFFFF  用户空间", "代码/数据/堆/栈，4 KiB 页(L2)", "sz < 32 MiB"]),
 ]
 assert sum(v[1] for v in vsub) == low["h"]
 vy = low["y"]
@@ -86,6 +86,8 @@ V = {}
 for k, h, kind, lab in vsub:
     V[k] = dict(y=vy, h=h, kind=kind, lab=lab)
     vy += h
+V["vuser"] = dict(y=R["sram"]["y"], h=R["sram"]["h"], kind="user",
+                  lab=["0x00000000 – 0x01BFFFFF  用户空间", "代码/数据/堆/栈，4 KiB 页(L2)", "QEMU 上 sz < 0x01C00000"])
 
 VX, VW = 40, 300          # virtual column
 PX, PW = 700, 300         # physical column
@@ -105,9 +107,9 @@ o('<defs>'
   '</defs>')
 o(f'<rect width="{W}" height="{BOTTOM + 190}" fill="#ffffff"/>')
 o(f'<text x="{W/2}" y="34" text-anchor="middle" font-size="22" font-weight="600" fill="#222">'
-  'Tiny210 (S5PV210) xv6 内存布局：虚拟地址 ↔ 物理地址 ↔ /proc/iomem、/proc/meminfo</text>')
+  'xv6 Tiny210 内核（QEMU 替身）内存布局：虚拟地址 ↔ 物理地址 ↔ /proc/iomem、/proc/meminfo</text>')
 o(f'<text x="{W/2}" y="58" text-anchor="middle" font-size="13" fill="#555">'
-  '实板地址（DRAM 0x20000000，512 MiB）；QEMU 替身 DRAM 在 0x40000000，结构相同。纵轴高地址在上，不按比例。</text>')
+  'QEMU cubieboard 地址（DRAM 0x40000000，512 MiB），取自 MMU_TRACE=3 日志与 /proc 实测；实板 DRAM 在 0x20000000，偏移相同。纵轴高地址在上，不按比例。</text>')
 
 def head(x, w, t, sub):
     o(f'<text x="{x + w/2}" y="{TOP - 34}" text-anchor="middle" font-size="16" font-weight="600" fill="#222">{esc(t)}</text>')
@@ -118,7 +120,7 @@ head(PX, PW, "物理地址空间", "kvminit / tiny210_map_devices 建立映射")
 o(f'<text x="{IX}" y="{TOP - 34}" font-size="16" font-weight="600" fill="#222">/proc/iomem</text>')
 o(f'<text x="{IX}" y="{TOP - 16}" font-size="11.5" fill="#666">（实际文件按地址升序；此处与左侧行对齐）</text>')
 o(f'<text x="{MX}" y="{TOP - 34}" font-size="16" font-weight="600" fill="#222">/proc/meminfo</text>')
-o(f'<text x="{MX}" y="{TOP - 16}" font-size="11.5" fill="#666">（数值为实板预期，动态项随负载变化）</text>')
+o(f'<text x="{MX}" y="{TOP - 16}" font-size="11.5" fill="#666">（QEMU 实测，动态项随负载变化）</text>')
 
 def box(x, w, y, h, kind, lines, mono_first=True, dash=False):
     f, s = C[kind]
@@ -148,15 +150,17 @@ for r in rows:
 ram_top, ram_bot = R["unused"]["y"], R["atag"]["y"] + R["atag"]["h"]
 bx = IX - 14
 o(f'<path d="M{bx+6},{ram_top+2} L{bx},{ram_top+2} L{bx},{ram_bot-2} L{bx+6},{ram_bot-2}" fill="none" stroke="#1e8449" stroke-width="1.5"/>')
-o(f'<text x="{IX}" y="{R["unused"]["y"] - 6}" font-family="{MONO}" font-size="11.2" font-weight="600" fill="#1e8449">20000000-3fffffff : System RAM</text>')
+o(f'<text x="{IX}" y="{R["unused"]["y"] - 6}" font-family="{MONO}" font-size="11.2" font-weight="600" fill="#1e8449">40000000-5fffffff : System RAM</text>')
 
 # Virtual column: identity rows mirror the physical ones.
-for r in rows[:-1]:
+for r in rows:
+    if r["key"] in ("lgap", "sram"):
+        continue
     lab = list(r["pa"][:1])
     if r["kind"] == "hole":
         lab += ["未映射"]
     elif r["kind"] == "mmio":
-        lab += ["内核：外设恒等映射"]
+        lab += ["内核外设段 L1[01c]（在用户窗口内！）"]
     elif r["key"] == "unused":
         lab += ["未映射"]
     else:
@@ -168,17 +172,17 @@ for k, v in V.items():
 # MAXVA line.
 my = low["y"]
 o(f'<line x1="{VX - 30}" y1="{my}" x2="{PX + PW + 4}" y2="{my}" stroke="#c0392b" stroke-width="2"/>')
-o(f'<text x="{PX + 8}" y="{my + 16}" font-size="11.5" font-weight="600" fill="#c0392b">↑ MAXVA = 0x20000000 = DRAM_BASE</text>')
+o(f'<text x="{PX + 8}" y="{my + 16}" font-size="11.5" font-weight="600" fill="#c0392b">↑ MAXVA = 0x20000000（固定值）</text>')
 o(f'<text x="{PX + 8}" y="{my + 30}" font-size="11" fill="#c0392b">红线以下是用户窗口（虚拟）</text>')
 
 # Identity arrows (VA = PA) for mapped rows.
-for key in ("hi", "io", "fb", "gui", "kalloc", "bss", "data", "code", "atag"):
+for key in ("io", "fb", "gui", "kalloc", "bss", "rd", "data", "code", "atag"):
     r = R[key]
     yy = r["y"] + r["h"]/2
     o(f'<line x1="{VX+VW+4}" y1="{yy}" x2="{PX-4}" y2="{yy}" stroke="#555" stroke-width="1.3" marker-end="url(#ar)"/>')
-o(f'<text x="{(VX+VW+PX)/2}" y="{R["gap"]["y"] + 13}" text-anchor="middle" font-size="11.5" fill="#555">内核：1 MiB 段，VA = PA</text>')
-o(f'<text x="{(VX+VW+PX)/2}" y="{R["gap"]["y"] + 27}" text-anchor="middle" font-size="11" fill="#777">DRAM：Normal 不可缓存（D-cache 关）</text>')
-o(f'<text x="{(VX+VW+PX)/2}" y="{R["gap"]["y"] + 41}" text-anchor="middle" font-size="11" fill="#777">MMIO：Strongly-ordered, XN</text>')
+o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 13}" text-anchor="middle" font-size="11.5" fill="#555">内核：1 MiB 段，VA = PA</text>')
+o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 27}" text-anchor="middle" font-size="11" fill="#777">DRAM：Normal 不可缓存（D-cache 关）</text>')
+o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 41}" text-anchor="middle" font-size="11" fill="#777">MMIO：Strongly-ordered, XN</text>')
 
 # User pages -> kalloc frames.
 u = V["vuser"]
@@ -203,9 +207,10 @@ o(f'<text x="{x1 + 8}" y="{y1 - 6}" font-size="11.5" fill="#a93d8c" font-weight=
 # Legend / notes.
 ny = BOTTOM + 36
 notes = [
+    "QEMU 特例：A10 外设在 0x01C00000，kvminit 给它写的段 L1[01c] 落在用户窗口内；用户页长到 0x01C00000 时 walk() 遇到段而失败，所以 QEMU 上单进程约 28 MiB 封顶（实板外设在 0xE0000000 以上，无此问题）。",
     "对应关系：/proc/iomem 的每一行就是右侧物理区域；MMIO 行来自 devices.c 平台设备的 MEM 资源，DRAM 子区来自 setup.c 的 arch_iomem_regions() 和内核链接符号。",
     "/proc/meminfo：MemTotal/MemFree = kalloc 区；KernelText/Data/Bss = 内核镜像三段；PageTables = L1 根（bss 里的静态池，16 KiB/个）+ L2 表（kalloc 页）；",
-    "Buffers = bss 里的 bcache（30×1 KiB）；KernelStack 与 AnonPages 都从 kalloc 区分配。512 MiB DRAM 只有 112 MiB 交给 kalloc（PHYSTOP），其余为保留区或未使用。",
+    "Buffers = bss 里的 bcache（30×1 KiB）；KernelStack 与 AnonPages 都从 kalloc 区分配。512 MiB DRAM 只有 112 MiB 交给 kalloc（PHYSTOP = 0x47000000），其余为保留区或未使用。",
     "每个进程的 L1 表 = 内核 L1 表的拷贝（uvmcreate 复制 16 KiB）+ 自己的用户映射，因此所有进程都能看到内核映射，但 AP 位只允许特权级访问。",
 ]
 o(f'<text x="40" y="{ny - 10}" font-size="14" font-weight="600" fill="#222">说明</text>')

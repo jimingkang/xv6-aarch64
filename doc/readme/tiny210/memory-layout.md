@@ -4,7 +4,7 @@
 用户/内核虚拟地址空间，并说明新增的 Linux 风格 `/proc/meminfo` 与 `/proc/iomem` 如何把它们显示出来。
 ![内存布局：虚拟地址、物理地址与 /proc/iomem、/proc/meminfo 的对应](images/memory-layout.svg)
 
-（PNG 版：`images/memory-layout.png`；由 `tools/memory_layout_svg.py` 生成。）
+（图中为 QEMU 地址：DRAM 从 0x40000000 开始，数值取自 MMU_TRACE=3 日志和 /proc 实测；实板偏移相同、基址 0x20000000，见下表。PNG 版：`images/memory-layout.png`；由 `tools/memory_layout_svg.py` 生成。）
 
 数值分两列：**实板**（Tiny210，DRAM 在 0x20000000）和 **QEMU**（cubieboard 替身，DRAM 在 0x40000000）。
 
@@ -107,7 +107,7 @@ ARMv7 短描述符页表，**只用 TTBR0**（TTBCR=0），内核与用户共用
 ![kvminit 图解：L1 段 + 进程的 L2 小页](images/mmu-page-tables.svg)
 
 （仿照 minios 的 `__create_page_tables` 图：左上代码 ①–⑧，右上两种描述符，中间 VA → L1 → L2 → PA，下面是 install() 和注意事项；
-`tools/mmu_page_tables_svg.py` 生成。）Cortex-A8 没有 LPAE，所以只有两级：内核只用 L1 段（145 个），
+`tools/mmu_page_tables_svg.py` 生成。）Cortex-A8 没有 LPAE，所以只有两级：内核只用 L1 段（QEMU 133 个，图中为 QEMU 地址；实板 145 个），
 用户窗口经 L1 表描述符（01 型）指向 kalloc 来的 L2 表，再映射 4 KiB 小页。
 
 ### 5.2 页表本身放在物理内存哪里

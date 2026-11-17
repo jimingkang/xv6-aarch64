@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1745" viewBox="0 0 1800 1745">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1645" viewBox="0 0 1800 1645">
 <defs><marker id="mc0392b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker><marker id="m1e8449" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e8449"/></marker><marker id="m5b3fb5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b3fb5"/></marker><marker id="m2160a0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2160a0"/></marker><marker id="m8e44ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8e44ad"/></marker><marker id="mb9770e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b9770e"/></marker><marker id="m555555" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555555"/></marker><marker id="md35400" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker><marker id="ma93d8c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a93d8c"/></marker></defs>
-<rect width="1800" height="1745" fill="#ffffff"/>
+<rect width="1800" height="1645" fill="#ffffff"/>
 <text x="900.0" y="40" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="26" fill="#222" font-weight="600" text-anchor="middle" xml:space="preserve">kvminit() 图解：Tiny210 的两级页表（L1 段 + 进程的 L2 小页）</text>
-<text x="900.0" y="66" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13" fill="#666" text-anchor="middle" xml:space="preserve">ARMv7 短描述符，Cortex-A8 无 LPAE：只有 TTBR0 一张 L1（4096 项 × 1 MiB）；内核全部用 1 MiB 段恒等映射，用户空间经 L2 表映射 4 KiB 小页。数值为实板地址，L2 示例取自 QEMU MMU_TRACE=3 日志</text>
+<text x="900.0" y="66" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13" fill="#666" text-anchor="middle" xml:space="preserve">ARMv7 短描述符，Cortex-A8 无 LPAE：只有 TTBR0 一张 L1（4096 项 × 1 MiB）；内核全部用 1 MiB 段恒等映射，用户空间经 L2 表映射 4 KiB 小页。全部为 QEMU 地址（DRAM 0x40000000），取自 MMU_TRACE=3 日志</text>
 <rect x="30" y="85" width="560" height="480" rx="6" fill="#16213a" stroke="#16213a" stroke-width="1.5"/>
 <text x="44" y="107" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#cdd6f4" xml:space="preserve">kernel/arch/arm/vm.c + mach-s5pv210/devices.c</text>
 <text x="46" y="129" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#f9e2af" xml:space="preserve">void kvminit(void) {</text>
@@ -49,17 +49,17 @@
 <text x="641" y="160" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">desc = (PA &amp; 0xFFF00000) | TEX&lt;&lt;12 | AP&lt;&lt;10 | XN&lt;&lt;4 | C&lt;&lt;3 | B&lt;&lt;2 | 0b10</text>
 <text x="641" y="182" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">L1[idx] = desc                                   // MMU 一次查表：PA = desc[31:20] | VA[19:0]</text>
 <text x="641" y="218" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#5b3fb5" xml:space="preserve">② DRAM / ③ win32k</text>
-<text x="815" y="218" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">20001402</text>
+<text x="815" y="218" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">40001402</text>
 <text x="915" y="218" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">TEX=001 C=0 B=0 → Normal 不可缓存</text>
 <text x="1215" y="218" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">AP=01 仅特权级</text>
 <text x="1345" y="218" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">XN=0 可执行</text>
 <text x="641" y="240" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#5b3fb5" xml:space="preserve">④ framebuffer</text>
-<text x="815" y="240" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">28001412</text>
+<text x="815" y="240" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">48001412</text>
 <text x="915" y="240" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">TEX=001 C=0 B=0 → Normal 不可缓存</text>
 <text x="1215" y="240" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">AP=01</text>
 <text x="1345" y="240" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">XN=1</text>
 <text x="641" y="262" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#5b3fb5" xml:space="preserve">④ MMIO 设备</text>
-<text x="815" y="262" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">e2900412</text>
+<text x="815" y="262" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">01c00412</text>
 <text x="915" y="262" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">TEX=000 C=0 B=0 → Strongly-ordered</text>
 <text x="1215" y="262" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">AP=01</text>
 <text x="1345" y="262" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">XN=1</text>
@@ -74,175 +74,160 @@
 <text x="641" y="490" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">mm:   L2 table: kalloc pa 46fe0000 -&gt; L1[0] = 46fe0001 (VA 0-fffff)</text>
 <text x="641" y="512" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#c0392b" xml:space="preserve">mm:   page: kalloc pa 46fe1000 -&gt; VA 0 (PTE 46fe1072)</text>
 <text x="641" y="534" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">PTE 0x072 = 小页(bit1) · AP=11 用户读写(bit5:4) · TEX=001 Normal 不可缓存(bit6) · XN=0</text>
-<rect x="20" y="585" width="1760" height="820" rx="8" fill="#fbfaf7" stroke="#ddd" stroke-width="1.5"/>
-<text x="36" y="611" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="16" fill="#222" font-weight="600" xml:space="preserve">结果：内核 L1 = 145 个段，其余 3951 项为 0（缺页）；每个进程的 L1 = 它的拷贝 + 用户窗口的 L2 表</text>
+<rect x="20" y="585" width="1760" height="720" rx="8" fill="#fbfaf7" stroke="#ddd" stroke-width="1.5"/>
+<text x="36" y="611" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="16" fill="#222" font-weight="600" xml:space="preserve">结果：内核 L1 = 133 个段（日志 133 of 4096），其余 3963 项为 0（缺页）；每个进程的 L1 = 它的拷贝 + 用户窗口的 L2 表</text>
 <text x="40" y="653" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13" fill="#222" font-weight="600" xml:space="preserve">虚拟地址（TTBR0，整个 4 GiB）</text>
-<rect x="40" y="665" width="230" height="50" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
-<text x="50" y="682" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0xF2000000 / 0xF8000000</text>
-<text x="50" y="698" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">VIC、FIMD</text>
-<rect x="40" y="715" width="230" height="70" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
-<text x="50" y="732" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0xE0100000 – 0xEC2FFFFF</text>
-<text x="50" y="748" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">外设寄存器</text>
-<rect x="40" y="785" width="230" height="60" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
-<text x="50" y="802" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x28400000 – 0xDFFFFFFF</text>
-<text x="50" y="818" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">未映射（缺页）</text>
-<rect x="40" y="845" width="230" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
-<text x="50" y="862" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x28000000 帧缓冲</text>
-<rect x="40" y="873" width="230" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
-<text x="50" y="890" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x27000000 win32k</text>
-<rect x="40" y="901" width="230" height="150" rx="2" fill="#e3f4e8" stroke="#1e8449" stroke-width="1.5"/>
-<text x="50" y="918" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x20000000 – 0x26FFFFFF</text>
-<text x="50" y="934" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">ATAG、内核、kalloc 页池</text>
-<text x="50" y="950" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">VA = PA</text>
-<rect x="40" y="1051" width="230" height="50" rx="2" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.5"/>
-<text x="50" y="1068" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x10000000 – 0x17FFFFFF</text>
-<text x="50" y="1084" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">mmap 窗口（用户段）</text>
-<rect x="40" y="1101" width="230" height="90" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1.5"/>
-<text x="50" y="1118" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x00000000 – 0x01FFFFFF</text>
-<text x="50" y="1134" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">用户代码/数据/栈</text>
-<text x="50" y="1150" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">（经 L2 表）</text>
+<rect x="40" y="665" width="230" height="60" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
+<text x="50" y="682" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x48400000 – 0xFFFFFFFF</text>
+<text x="50" y="698" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">未映射（缺页）</text>
+<rect x="40" y="725" width="230" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
+<text x="50" y="742" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x48000000 帧缓冲</text>
+<rect x="40" y="753" width="230" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
+<text x="50" y="770" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x47000000 win32k</text>
+<rect x="40" y="781" width="230" height="190" rx="2" fill="#e3f4e8" stroke="#1e8449" stroke-width="1.5"/>
+<text x="50" y="798" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x40000000 – 0x46FFFFFF</text>
+<text x="50" y="814" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">ATAG、内核、kalloc 页池</text>
+<text x="50" y="830" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">VA = PA</text>
+<rect x="40" y="971" width="230" height="50" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
+<text x="50" y="988" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x20000000 – 0x3FFFFFFF</text>
+<text x="50" y="1004" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">未映射（缺页）</text>
+<rect x="40" y="1021" width="230" height="50" rx="2" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.5"/>
+<text x="50" y="1038" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x10000000 – 0x17FFFFFF</text>
+<text x="50" y="1054" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">mmap 窗口（用户段）</text>
+<rect x="40" y="1071" width="230" height="46" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
+<text x="50" y="1088" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x01C00000 – 0x01CFFFFF</text>
+<text x="50" y="1104" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">内核外设段（在用户窗口内）</text>
+<rect x="40" y="1117" width="230" height="74" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1.5"/>
+<text x="50" y="1134" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">0x00000000 – 0x01BFFFFF</text>
+<text x="50" y="1150" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">用户代码/数据/栈（经 L2 表）</text>
 <text x="40" y="1209" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">MAXVA = 0x20000000：以下为用户窗口</text>
 <rect x="330" y="625" width="420" height="566" rx="6" fill="#fff" stroke="#5b3fb5" stroke-width="2"/>
 <rect x="330" y="625" width="420" height="36" rx="6" fill="#5b3fb5"/>
 <text x="540.0" y="641" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="14" fill="#fff" font-weight="600" text-anchor="middle" xml:space="preserve">L1（内核 kernel_pagetable = roots[0]）</text>
-<text x="540.0" y="656" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#e8e2ff" text-anchor="middle" xml:space="preserve">bss 静态池 @ 0x200d4000，16 KiB 对齐 → TTBR0</text>
-<text x="342" y="685" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#c0392b" xml:space="preserve">[f80]</text>
-<text x="520" y="685" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">f8000412</text>
-<text x="620" y="685" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">PA F8000000 FIMD</text>
-<text x="342" y="722" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#c0392b" xml:space="preserve">[f20..f23]</text>
-<text x="520" y="722" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">f2000412…</text>
-<text x="620" y="722" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">PA F2000000 VIC0-3</text>
-<text x="342" y="759" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#c0392b" xml:space="preserve">[e01] [e02] [e25] [e27]</text>
-<text x="520" y="759" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve"></text>
-<text x="620" y="759" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">clock gpio pwm wdt</text>
-<text x="342" y="796" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#c0392b" xml:space="preserve">[e29] [eb0] [ec1] [ec2]</text>
-<text x="520" y="796" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">e2900412</text>
-<text x="620" y="796" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">uart sdhci phy ehci</text>
-<text x="342" y="833" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#999" xml:space="preserve">[284..e00] 等</text>
-<text x="520" y="833" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
-<text x="620" y="833" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">缺页</text>
-<text x="342" y="870" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#8e44ad" xml:space="preserve">[280..283]</text>
-<text x="520" y="870" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">28001412…</text>
-<text x="620" y="870" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#8e44ad" xml:space="preserve">帧缓冲 NC+XN</text>
-<text x="342" y="907" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#8e44ad" xml:space="preserve">[270..27f]</text>
-<text x="520" y="907" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">27001402…</text>
-<text x="620" y="907" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#8e44ad" xml:space="preserve">win32k</text>
-<text x="342" y="944" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">[26f]</text>
-<text x="520" y="944" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">26f01402</text>
-<text x="620" y="944" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">PA 26F00000</text>
-<text x="342" y="981" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">…</text>
-<text x="520" y="981" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve"></text>
-<text x="620" y="981" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">112 段 = 112 MiB</text>
-<text x="342" y="1018" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">[200]</text>
-<text x="520" y="1018" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">20001402</text>
-<text x="620" y="1018" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">PA 20000000 内核</text>
-<text x="342" y="1055" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#a93d8c" xml:space="preserve">[100..17f]</text>
-<text x="520" y="1055" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
-<text x="620" y="1055" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">进程：用户段 AP=11</text>
-<text x="342" y="1092" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[000..01f]</text>
-<text x="520" y="1092" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
-<text x="620" y="1092" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">进程：→ L2 表</text>
-<text x="1450" y="653" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13" fill="#222" font-weight="600" xml:space="preserve">物理内存 PA（实板）</text>
-<rect x="1450" y="665" width="300" height="50" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
-<text x="1460" y="683" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">F2000000 VIC · F8000000 FIMD</text>
-<rect x="1450" y="715" width="300" height="70" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
-<text x="1460" y="733" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">E0100000 – EC2FFFFF 外设</text>
-<rect x="1450" y="785" width="300" height="60" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
-<text x="1460" y="803" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">28400000 – 3FFFFFFF 未用 DRAM</text>
-<rect x="1450" y="845" width="300" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
-<text x="1460" y="863" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">28000000 帧缓冲 4 MiB</text>
-<rect x="1450" y="873" width="300" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
-<text x="1460" y="891" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">27000000 win32k 16 MiB</text>
-<rect x="1450" y="901" width="300" height="50" rx="2" fill="#e3f4e8" stroke="#1e8449" stroke-width="1.5"/>
-<text x="1460" y="919" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">20000000 ATAG / 内核 / bss(roots)</text>
-<rect x="1450" y="951" width="300" height="100" rx="2" fill="#d9f2df" stroke="#1e8449" stroke-width="1.5"/>
-<text x="1460" y="969" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">2053A000 – 26FFFFFF kalloc 页池</text>
-<text x="1460" y="985" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">（L2 表、用户页、内核栈）</text>
-<rect x="1450" y="1051" width="300" height="140" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
-<text x="1460" y="1069" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">00000000 – 1FFFFFFF iROM 等，非 DRAM</text>
-<rect x="1450" y="1209" width="300" height="150" rx="4" fill="#fff8ef" stroke="#d35400" stroke-width="1.5" stroke-dasharray="5 3"/>
-<text x="1460" y="1227" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" font-weight="600" xml:space="preserve">QEMU 物理内存（L2 示例的真实地址）</text>
-<text x="1460" y="1247" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">408C0000 – 46FFFFFF kalloc 页池（顶部）：</text>
-<rect x="1460" y="1255" width="110" height="19" rx="2" fill="#d9f2df" stroke="#1e8449" stroke-width="1"/>
-<text x="1466" y="1269" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FE1000</text>
-<text x="1580" y="1269" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">用户页 VA 0</text>
-<rect x="1460" y="1277" width="110" height="19" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1"/>
-<text x="1466" y="1291" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FE0000</text>
-<text x="1580" y="1291" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">L2 表（L1[0] = 46fe0001）</text>
-<rect x="1460" y="1299" width="110" height="19" rx="2" fill="#d9f2df" stroke="#1e8449" stroke-width="1"/>
-<text x="1466" y="1313" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FDF000</text>
-<text x="1580" y="1313" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">用户页 VA 1000</text>
-<rect x="1460" y="1321" width="110" height="19" rx="2" fill="#d9f2df" stroke="#1e8449" stroke-width="1"/>
-<text x="1466" y="1335" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FDE000 …</text>
-<text x="1580" y="1335" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 2000 … 栈</text>
-<text x="1460" y="1355" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="10.5" fill="#888" xml:space="preserve">实板对应在 2053A000–26FFFFFF 顶部（未实测）</text>
-<rect x="830" y="1085" width="520" height="290" rx="6" fill="#fff" stroke="#d35400" stroke-width="2"/>
-<rect x="830" y="1085" width="520" height="36" rx="6" fill="#d35400"/>
-<text x="1090.0" y="1101" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="14" fill="#fff" font-weight="600" text-anchor="middle" xml:space="preserve">L2（进程 /bin/sh 的 L1[000] 所指，kalloc 页）</text>
-<text x="1090.0" y="1116" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#ffe9d6" text-anchor="middle" xml:space="preserve">QEMU 日志：L1[0] = 46fe0001 → L2 @ 46fe0000；只用前 1 KiB</text>
-<text x="846" y="1147" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[0]</text>
-<text x="930" y="1147" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fe1072</text>
-<text x="1040" y="1147" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 0000 代码/数据  PA 46fe1000</text>
-<text x="846" y="1177" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[1]</text>
-<text x="930" y="1177" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdf072</text>
-<text x="1040" y="1177" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 1000 代码/数据  PA 46fdf000</text>
-<text x="846" y="1207" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[2]</text>
-<text x="930" y="1207" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fde072</text>
-<text x="1040" y="1207" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 2000 数据/bss   PA 46fde000</text>
-<text x="846" y="1237" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[3]</text>
-<text x="930" y="1237" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdd052</text>
-<text x="1040" y="1237" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 3000 保护页（uvmclear 清 PTE_U → AP=01）</text>
-<text x="846" y="1267" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[4..7]</text>
-<text x="930" y="1267" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdc072…</text>
-<text x="1040" y="1267" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 4000–7FFF 用户栈</text>
-<text x="846" y="1297" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[8..255]</text>
-<text x="930" y="1297" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
-<text x="1040" y="1297" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">缺页</text>
-<text x="846" y="1333" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">PTE = PA | 0x72：小页 · AP=11 用户读写 · TEX=001 Normal 不可缓存</text>
-<text x="846" y="1353" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#888" xml:space="preserve">保护页：AP 只剩特权级 → 用户访问 Permission fault（栈溢出被抓住）</text>
-<line x1="270" y1="690.0" x2="330" y2="681" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
-<line x1="270" y1="750.0" x2="330" y2="792" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
-<line x1="270" y1="859.0" x2="330" y2="866" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
-<line x1="270" y1="887.0" x2="330" y2="903" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
-<line x1="270" y1="976.0" x2="330" y2="1014" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
-<line x1="270" y1="1076.0" x2="330" y2="1051" stroke="#a93d8c" stroke-width="1.6" marker-end="url(#ma93d8c)"/>
-<line x1="270" y1="1146.0" x2="330" y2="1088" stroke="#d35400" stroke-width="1.6" marker-end="url(#md35400)"/>
-<path d="M750,681 Q1100,661 1450,690.0" fill="none" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
-<path d="M750,792 Q1100,782 1450,750.0" fill="none" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
-<path d="M750,866 Q1100,826 1450,859.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
-<path d="M750,903 Q1100,863 1450,887.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
-<path d="M750,1014 Q1100,894 1450,926.0" fill="none" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
-<path d="M750,940 Q1100,880 1450,961.0" fill="none" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
-<path d="M750,1088 Q790,1088 830,1103" fill="none" stroke="#d35400" stroke-width="2" marker-end="url(#md35400)"/>
-<line x1="1350" y1="1142" x2="1460" y2="1264" stroke="#1e8449" stroke-width="2" marker-end="url(#m1e8449)"/>
-<line x1="1350" y1="1172" x2="1460" y2="1308" stroke="#1e8449" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#m1e8449)"/>
-<line x1="1350" y1="1103" x2="1460" y2="1286" stroke="#d35400" stroke-width="1.6" stroke-dasharray="2 3" marker-end="url(#md35400)"/>
-<path d="M750,1051 Q800,865.0 1450,865.0" fill="none" stroke="#a93d8c" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ma93d8c)"/>
-<text x="840" y="1071" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">紫色虚线：进程 mmap /dev/fb0（fbtest）时 L1[100..] 写成用户段 → 帧缓冲</text>
-<rect x="20" y="1430" width="880" height="290" rx="6" fill="#fff7ec" stroke="#d35400" stroke-width="1.5"/>
-<text x="36" y="1458" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="15" fill="#d35400" font-weight="600" xml:space="preserve">⑤⑥ 让 MMU 看到新表：install() + 打开 MMU（MMU 关闭时执行，VA = PA 所以下一条指令照常取）</text>
-<text x="40" y="1490" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">dsb</text>
-<text x="330" y="1490" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">前面写 L1 项的 str 全部完成，页表遍历器可见</text>
-<text x="40" y="1520" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c2,c0,2  TTBCR = 0</text>
-<text x="330" y="1520" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">N = 0：整个 4 GiB 都用 TTBR0（没有 TTBR1）</text>
-<text x="40" y="1550" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c2,c0,0  TTBR0 = 0x200d4000</text>
-<text x="330" y="1550" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">L1 表物理基址（必须 16 KiB 对齐）</text>
-<text x="40" y="1580" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c3,c0,0  DACR = 1</text>
-<text x="330" y="1580" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">domain 0 = client：按描述符的 AP 位检查权限</text>
-<text x="40" y="1610" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">dsb; mcr c8,c7,0; dsb; isb</text>
-<text x="330" y="1610" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">flush_tlb()：TLBIALL 作废全部 TLB 项</text>
-<text x="40" y="1640" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">SCTLR |= M; isb</text>
-<text x="330" y="1640" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">MMU 开；随后 setup.c 开 I-cache(I)、分支预测(Z)，D-cache(C) 保持关</text>
-<text x="40" y="1670" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">进程切换：switchuvm()</text>
-<text x="330" y="1670" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">只重写 TTBR0 = 进程自己的 L1 + flush_tlb()</text>
-<rect x="920" y="1430" width="860" height="290" rx="6" fill="#fdf0f0" stroke="#c0392b" stroke-width="1.5"/>
-<text x="936" y="1458" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="15" fill="#c0392b" font-weight="600" xml:space="preserve">需要注意</text>
-<text x="936" y="1490" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 两级而已：Cortex-A8 没有 LPAE，短描述符最多 L1 → L2；内核只用一级（段），用户才用到 L2</text>
-<text x="936" y="1518" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 没有高半区：内核恒等映射在 0x20000000 以上，用户窗口 0–0x1FFFFFFF 与它同在一张表</text>
-<text x="936" y="1546" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• L1 根来自 bss 的 roots[256]（4 MiB），不是 kalloc；也决定了最多 256 个地址空间</text>
-<text x="936" y="1574" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• L2 表一张只要 1 KiB，但 walk() 每张占一整页 kalloc（浪费 3 KiB）</text>
-<text x="936" y="1602" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 外设寄存器块小于 1 MiB 也占整段；未映射的 VA 访问 → Translation fault（打印 far/dfsr）</text>
-<text x="936" y="1630" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 内核段 AP=01：进程 L1 里看得到这些项，但用户态访问 → Permission fault</text>
-<text x="936" y="1658" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 只映射到 PHYSTOP（DRAM+112 MiB），再加 win32k / 帧缓冲；其余 380 MiB DRAM 不映射</text>
-<text x="936" y="1686" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 启动日志 MMU_TRACE=1 会打印合并后的 L1 段表和 TTBR0/TTBCR/DACR/SCTLR</text>
+<text x="540.0" y="656" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#e8e2ff" text-anchor="middle" xml:space="preserve">bss 静态池 @ 0x404b4000，16 KiB 对齐 → TTBR0</text>
+<text x="342" y="685" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#999" xml:space="preserve">[484..fff] 等</text>
+<text x="520" y="685" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
+<text x="620" y="685" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">缺页</text>
+<text x="342" y="735" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#8e44ad" xml:space="preserve">[480..483]</text>
+<text x="520" y="735" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">48001412…</text>
+<text x="620" y="735" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#8e44ad" xml:space="preserve">帧缓冲 NC+XN</text>
+<text x="342" y="785" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#8e44ad" xml:space="preserve">[470..47f]</text>
+<text x="520" y="785" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">47001402…</text>
+<text x="620" y="785" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#8e44ad" xml:space="preserve">win32k</text>
+<text x="342" y="835" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">[46f]</text>
+<text x="520" y="835" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46f01402</text>
+<text x="620" y="835" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">PA 46F00000</text>
+<text x="342" y="885" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">…</text>
+<text x="520" y="885" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve"></text>
+<text x="620" y="885" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">112 段 = 112 MiB</text>
+<text x="342" y="935" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#1e8449" xml:space="preserve">[400]</text>
+<text x="520" y="935" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">40001402</text>
+<text x="620" y="935" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#1e8449" xml:space="preserve">PA 40000000 内核</text>
+<text x="342" y="985" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#999" xml:space="preserve">[200..3ff] 等</text>
+<text x="520" y="985" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
+<text x="620" y="985" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#999" xml:space="preserve">缺页</text>
+<text x="342" y="1035" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#a93d8c" xml:space="preserve">[100..17f]</text>
+<text x="520" y="1035" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
+<text x="620" y="1035" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">进程：用户段 AP=11</text>
+<text x="342" y="1085" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#c0392b" xml:space="preserve">[01c]</text>
+<text x="520" y="1085" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">01c00412</text>
+<text x="620" y="1085" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#c0392b" xml:space="preserve">sun4i 外设 SO+XN</text>
+<text x="342" y="1135" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[000..01b]</text>
+<text x="520" y="1135" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
+<text x="620" y="1135" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">进程：→ L2 表</text>
+<text x="1450" y="653" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13" fill="#222" font-weight="600" xml:space="preserve">物理内存 PA（QEMU）</text>
+<rect x="1450" y="665" width="300" height="60" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
+<text x="1460" y="683" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">48400000 – 5FFFFFFF 未用 DRAM</text>
+<rect x="1450" y="725" width="300" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
+<text x="1460" y="743" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">48000000 帧缓冲 4 MiB</text>
+<rect x="1450" y="753" width="300" height="28" rx="2" fill="#efe1f7" stroke="#8e44ad" stroke-width="1.5"/>
+<text x="1460" y="771" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">47000000 win32k 16 MiB</text>
+<rect x="1450" y="781" width="300" height="130" rx="2" fill="#d9f2df" stroke="#1e8449" stroke-width="1.5"/>
+<text x="1460" y="799" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">408C0000 – 46FFFFFF kalloc 页池</text>
+<text x="1460" y="815" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">（L2 表、用户页、内核栈）</text>
+<rect x="1450" y="911" width="300" height="60" rx="2" fill="#e3f4e8" stroke="#1e8449" stroke-width="1.5"/>
+<text x="1460" y="929" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">40000000 ATAG / 内核 / ramdisk</text>
+<text x="1460" y="945" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">40424000 .bss（roots @ 404B4000）</text>
+<rect x="1450" y="971" width="300" height="50" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
+<text x="1460" y="989" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">20000000 – 3FFFFFFF 无 RAM</text>
+<rect x="1450" y="1021" width="300" height="96" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="1.5"/>
+<text x="1460" y="1039" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">01C00000 sun4i 外设</text>
+<rect x="1450" y="1117" width="300" height="74" rx="2" fill="#f2f2f2" stroke="#999" stroke-width="1.5"/>
+<text x="1460" y="1135" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#222" xml:space="preserve">00000000 – 01BFFFFF SRAM/BROM</text>
+<rect x="1460" y="829" width="96" height="19" rx="2" fill="#c8ecd2" stroke="#1e8449" stroke-width="1"/>
+<text x="1465" y="843" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FE1000</text>
+<text x="1562" y="843" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11" fill="#333" xml:space="preserve">用户页 VA 0</text>
+<rect x="1460" y="853" width="96" height="19" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1"/>
+<text x="1465" y="867" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FE0000</text>
+<text x="1562" y="867" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11" fill="#333" xml:space="preserve">L2 表（L1[0]=46fe0001）</text>
+<rect x="1460" y="877" width="96" height="19" rx="2" fill="#c8ecd2" stroke="#1e8449" stroke-width="1"/>
+<text x="1465" y="891" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11.5" fill="#222" xml:space="preserve">46FDF000</text>
+<text x="1562" y="891" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11" fill="#333" xml:space="preserve">用户页 VA 1000 …</text>
+<rect x="830" y="995" width="520" height="290" rx="6" fill="#fff" stroke="#d35400" stroke-width="2"/>
+<rect x="830" y="995" width="520" height="36" rx="6" fill="#d35400"/>
+<text x="1090.0" y="1011" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="14" fill="#fff" font-weight="600" text-anchor="middle" xml:space="preserve">L2（进程 /bin/sh 的 L1[000] 所指，kalloc 页）</text>
+<text x="1090.0" y="1026" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#ffe9d6" text-anchor="middle" xml:space="preserve">日志：L1[0] = 46fe0001 → L2 @ 46fe0000；只用前 1 KiB</text>
+<text x="846" y="1057" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[0]</text>
+<text x="930" y="1057" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fe1072</text>
+<text x="1040" y="1057" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 0000 代码/数据  PA 46fe1000</text>
+<text x="846" y="1087" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[1]</text>
+<text x="930" y="1087" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdf072</text>
+<text x="1040" y="1087" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 1000 代码/数据  PA 46fdf000</text>
+<text x="846" y="1117" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[2]</text>
+<text x="930" y="1117" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fde072</text>
+<text x="1040" y="1117" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 2000 数据/bss   PA 46fde000</text>
+<text x="846" y="1147" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[3]</text>
+<text x="930" y="1147" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdd052</text>
+<text x="1040" y="1147" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 3000 保护页（uvmclear 清 PTE_U → AP=01）</text>
+<text x="846" y="1177" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[4..7]</text>
+<text x="930" y="1177" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">46fdc072…</text>
+<text x="1040" y="1177" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">VA 4000–7FFF 用户栈</text>
+<text x="846" y="1207" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#d35400" xml:space="preserve">[8..255]</text>
+<text x="930" y="1207" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12" fill="#333" xml:space="preserve">00000000</text>
+<text x="1040" y="1207" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#333" xml:space="preserve">缺页</text>
+<text x="846" y="1243" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#d35400" xml:space="preserve">PTE = PA | 0x72：小页 · AP=11 用户读写 · TEX=001 Normal 不可缓存</text>
+<text x="846" y="1263" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#888" xml:space="preserve">保护页：AP 只剩特权级 → 用户访问 Permission fault（栈溢出被抓住）</text>
+<line x1="270" y1="739.0" x2="330" y2="731" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
+<line x1="270" y1="767.0" x2="330" y2="781" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
+<line x1="270" y1="876.0" x2="330" y2="931" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
+<line x1="270" y1="1046.0" x2="330" y2="1031" stroke="#a93d8c" stroke-width="1.6" marker-end="url(#ma93d8c)"/>
+<line x1="270" y1="1094.0" x2="330" y2="1081" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
+<line x1="270" y1="1154.0" x2="330" y2="1131" stroke="#d35400" stroke-width="1.6" marker-end="url(#md35400)"/>
+<path d="M750,731 Q1100,701 1450,739.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
+<path d="M750,781 Q1100,751 1450,767.0" fill="none" stroke="#8e44ad" stroke-width="1.6" marker-end="url(#m8e44ad)"/>
+<path d="M750,831 Q1100,791 1450,793" fill="none" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
+<path d="M750,931 Q1100,871 1450,941.0" fill="none" stroke="#1e8449" stroke-width="1.6" marker-end="url(#m1e8449)"/>
+<path d="M750,1081 Q1100,1341 1450,1069.0" fill="none" stroke="#c0392b" stroke-width="1.6" marker-end="url(#mc0392b)"/>
+<path d="M750,1131 Q790,1131 830,1013" fill="none" stroke="#d35400" stroke-width="2" marker-end="url(#md35400)"/>
+<line x1="1350" y1="1052" x2="1460" y2="838" stroke="#1e8449" stroke-width="2" marker-end="url(#m1e8449)"/>
+<line x1="1350" y1="1082" x2="1460" y2="886" stroke="#1e8449" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#m1e8449)"/>
+<line x1="1350" y1="1013" x2="1460" y2="862" stroke="#d35400" stroke-width="1.6" stroke-dasharray="2 3" marker-end="url(#md35400)"/>
+<path d="M750,1031 Q800,745.0 1450,745.0" fill="none" stroke="#a93d8c" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ma93d8c)"/>
+<text x="840" y="981" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="11.5" fill="#a93d8c" xml:space="preserve">紫色虚线：进程 mmap /dev/fb0（fbtest）时 L1[100..] 写成用户段 → 帧缓冲</text>
+<rect x="20" y="1330" width="880" height="290" rx="6" fill="#fff7ec" stroke="#d35400" stroke-width="1.5"/>
+<text x="36" y="1358" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="15" fill="#d35400" font-weight="600" xml:space="preserve">⑤⑥ 让 MMU 看到新表：install() + 打开 MMU（MMU 关闭时执行，VA = PA 所以下一条指令照常取）</text>
+<text x="40" y="1390" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">dsb</text>
+<text x="330" y="1390" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">前面写 L1 项的 str 全部完成，页表遍历器可见</text>
+<text x="40" y="1420" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c2,c0,2  TTBCR = 0</text>
+<text x="330" y="1420" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">N = 0：整个 4 GiB 都用 TTBR0（没有 TTBR1）</text>
+<text x="40" y="1450" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c2,c0,0  TTBR0 = 0x404b4000</text>
+<text x="330" y="1450" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">L1 表物理基址（必须 16 KiB 对齐）</text>
+<text x="40" y="1480" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">mcr c3,c0,0  DACR = 1</text>
+<text x="330" y="1480" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">domain 0 = client：按描述符的 AP 位检查权限</text>
+<text x="40" y="1510" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">dsb; mcr c8,c7,0; dsb; isb</text>
+<text x="330" y="1510" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">flush_tlb()：TLBIALL 作废全部 TLB 项</text>
+<text x="40" y="1540" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">SCTLR |= M; isb</text>
+<text x="330" y="1540" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">MMU 开；随后 setup.c 开 I-cache(I)、分支预测(Z)，D-cache(C) 保持关</text>
+<text x="40" y="1570" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="12.5" fill="#333" xml:space="preserve">进程切换：switchuvm()</text>
+<text x="330" y="1570" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">只重写 TTBR0 = 进程自己的 L1 + flush_tlb()</text>
+<rect x="920" y="1330" width="860" height="290" rx="6" fill="#fdf0f0" stroke="#c0392b" stroke-width="1.5"/>
+<text x="936" y="1358" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="15" fill="#c0392b" font-weight="600" xml:space="preserve">需要注意</text>
+<text x="936" y="1390" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 两级而已：Cortex-A8 没有 LPAE，短描述符最多 L1 → L2；内核只用一级（段），用户才用到 L2</text>
+<text x="936" y="1418" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 没有高半区：内核恒等映射 0x40000000 起，用户窗口 0–0x1FFFFFFF 与它同在一张表</text>
+<text x="936" y="1446" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• L1 根来自 bss 的 roots[256]（4 MiB），不是 kalloc；也决定了最多 256 个地址空间</text>
+<text x="936" y="1474" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• L2 表一张只要 1 KiB，但 walk() 每张占一整页 kalloc（浪费 3 KiB）</text>
+<text x="936" y="1502" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• QEMU 的外设段 L1[01c] 落在用户窗口内：用户页长到 0x01C00000 时 walk() 失败，单进程约 28 MiB 封顶</text>
+<text x="936" y="1530" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 内核段 AP=01：进程 L1 里看得到这些项，但用户态访问 → Permission fault</text>
+<text x="936" y="1558" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 只映射到 PHYSTOP = 0x47000000（DRAM+112 MiB），再加 win32k / 帧缓冲；其余 380 MiB 不映射</text>
+<text x="936" y="1586" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12.5" fill="#333" xml:space="preserve">• 启动日志 MMU_TRACE=1 会打印合并后的 L1 段表和 TTBR0/TTBCR/DACR/SCTLR</text>
 </svg>

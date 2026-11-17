@@ -11,7 +11,7 @@ QEMU 替身（cubieboard，DRAM 起始 0x40000000）结构相同，只是基址�
 \centering
 \rotatebox{90}{\includegraphics[width=0.92\textheight,height=\textwidth,keepaspectratio]{figures/memory-layout.pdf}}
 \caption{虚拟地址 $\leftrightarrow$ 物理地址 $\leftrightarrow$ \texttt{/proc/iomem}、\texttt{/proc/meminfo}
-（实板地址，高地址在上，不按比例；由 \texttt{tools/memory\_layout\_svg.py} 生成）}\label{fig:memory-layout}
+（QEMU 地址：DRAM 从 0x40000000 开始，数值取自 MMU\_TRACE 日志与 /proc 实测；实板偏移相同、基址为 0x20000000。高地址在上，不按比例；由 \texttt{tools/memory\_layout\_svg.py} 生成）}\label{fig:memory-layout}
 \end{figure}
 
 \section{物理内存}
@@ -145,7 +145,7 @@ L2 项 \texttt{PA|0x72} 映射 4 KiB 小页。
 \begin{figure}[p]
 \centering
 \includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/mmu-page-tables.pdf}
-\caption{kvminit() 图解：内核 L1 段与进程的 L2 小页（\texttt{tools/mmu\_page\_tables\_svg.py} 生成）}\label{fig:mmu-page-tables}
+\caption{kvminit() 图解：内核 L1 段与进程的 L2 小页（QEMU 地址；\texttt{tools/mmu\_page\_tables\_svg.py} 生成）}\label{fig:mmu-page-tables}
 \end{figure}
 
 \subsection{页表本身放在物理内存哪里}
