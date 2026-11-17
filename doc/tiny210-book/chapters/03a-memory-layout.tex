@@ -133,6 +133,21 @@ intc 0x01C20400、timer 0x01C20C00、uart0 0x01C28000。
       但它的位编码与 DRAM 段相同，实际同样不可缓存。
 \end{itemize}
 
+\subsection{kvminit() 图解：两级页表}
+
+Cortex-A8 没有 LPAE，短描述符最多两级。图~\ref{fig:mmu-page-tables} 仿照 minios 的
+\texttt{\_\_create\_page\_tables} 图解画出 Tiny210 的情况：左上是代码 ①--⑧，右上是两种描述符
+（L1 段、L1 表描述符 + L2 小页），中间按 VA $\rightarrow$ L1 $\rightarrow$ L2 $\rightarrow$ PA 画出结果，
+下面是 \texttt{install()} 的寄存器写入和注意事项。内核只用 L1 段（共 145 个：DRAM 112、win32k 16、
+帧缓冲 4、MMIO 13）；用户窗口的 L1 项是 01 型表描述符，指向 \texttt{walk()} 从 kalloc 取的 L2 表，
+L2 项 \texttt{PA|0x72} 映射 4 KiB 小页。
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/mmu-page-tables.pdf}
+\caption{kvminit() 图解：内核 L1 段与进程的 L2 小页（\texttt{tools/mmu\_page\_tables\_svg.py} 生成）}\label{fig:mmu-page-tables}
+\end{figure}
+
 \section{/proc/meminfo 与 /proc/iomem}
 
 实现在 \texttt{kernel/memstat.c}，由 \texttt{kernel/vfs.c} 的 procfs 调用：
@@ -241,17 +256,15 @@ exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404c
 
 配套动画 \texttt{doc/readme/tiny210/videos/memory-anim.mp4}（manim，约 2 分钟，
 \texttt{tools/manim/memory\_anim.py}）共三段。第 1、3 段读取上面这份真实日志：内存初始化与 kinit 空闲链表；
-fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、kalloc 页和 readi 加载。第 2 段按图~\ref{fig:memory-layout}
-的两栏（左虚拟、右物理）用实板地址分 8 步讲内核 L1 表的建立：
+fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、kalloc 页和 readi 加载。第 2 段按图~\ref{fig:mmu-page-tables}
+的结构（左代码 ①--⑧、中 L1 表、右物理内存）用实板地址讲页表的建立：
 \begin{enumerate}
-\item 短描述符格式：VA[31:20] 查 L1，L1 项低 2 位 00=缺页、01=L2 表、10=段；
-\item \texttt{rootalloc()} 取 bss 中的 \texttt{roots[0]} 作内核 L1 表；
-\item DRAM 恒等映射 L1[200..26f]，112 段，TEX=001 C=B=0、AP=01；
-\item win32k 区 L1[270..27f] 与帧缓冲 L1[280..283]（后者加 XN）；
-\item \texttt{devices.c} 中每个 MEM 资源一个段，共 13 段，Strongly-ordered + XN；
-\item 其余 3951 项保持 0，访问即 Translation fault；
-\item \texttt{install()} 写 TTBCR/TTBR0/DACR、清 TLB，再置 SCTLR.M=1；
-\item 两个查表实例（内核代码 0x20008000、UART0 0xE2900020），以及每个进程拷贝内核 L1 后再加用户 L2 与 mmap 段。
+\item ① \texttt{rootalloc()} 取 bss 中的 \texttt{roots[0]} 作内核 L1 表；
+\item ② DRAM 恒等映射 L1[200..26f]，112 段，附段描述符位分解（TEX=001 C=B=0、AP=01）；
+\item ③ win32k 区 L1[270..27f]；④ 帧缓冲 L1[280..283]（NC+XN）与 13 个 MMIO 段（Strongly-ordered + XN）；
+\item ⑤ \texttt{install()} 写 TTBCR/TTBR0/DACR、清 TLB；⑥ 置 SCTLR.M=1；
+\item ⑦ 进程 \texttt{uvmcreate()} 拷贝内核 L1；⑧ \texttt{walk()} kalloc 一页作 L2 表，L1[0] 写成 01 型表描述符，
+      L2 小页 PTE 逐项取自日志。
 \end{enumerate}
 重新生成用 \texttt{tools/manim/render.sh}。
 

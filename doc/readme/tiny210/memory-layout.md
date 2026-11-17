@@ -102,6 +102,14 @@ ARMv7 短描述符页表，**只用 TTBR0**（TTBCR=0），内核与用户共用
 - 缓存：I-cache 和分支预测开启，**D-cache 关闭**。DRAM 段用 TEX=001/C=0/B=0（Normal 不可缓存）。
   注意 `devices.c` 的 `SECTION_RAM` 注释写的是 "cached Normal memory"，但位编码与 DRAM 段相同，实际也是不可缓存的。
 
+### 5.1 kvminit() 图解：两级页表
+
+![kvminit 图解：L1 段 + 进程的 L2 小页](images/mmu-page-tables.svg)
+
+（仿照 minios 的 `__create_page_tables` 图：左上代码 ①–⑧，右上两种描述符，中间 VA → L1 → L2 → PA，下面是 install() 和注意事项；
+`tools/mmu_page_tables_svg.py` 生成。）Cortex-A8 没有 LPAE，所以只有两级：内核只用 L1 段（145 个），
+用户窗口经 L1 表描述符（01 型）指向 kalloc 来的 L2 表，再映射 4 KiB 小页。
+
 ## 6. /proc/meminfo 与 /proc/iomem
 
 实现位于 `kernel/memstat.c`，由 `kernel/vfs.c` 的 procfs 调用；板级区域由 `setup.c` 的
@@ -178,11 +186,9 @@ exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404c
 动画 `videos/memory-anim.mp4`（约 2 分钟，manim，`tools/manim/memory_anim.py`）分三段：
 
 1. 内存初始化与 kinit 空闲链表（读日志 `tools/manim/qemu-mmu-trace3.log`）；
-2. MMU 页表建立，按上面的布局图用实板地址，左栏虚拟地址、右栏物理地址，分 8 步：短描述符格式、
-   rootalloc 取 roots[0]、DRAM 恒等映射 L1[200..26f]（112 段）、win32k L1[270..27f] 与帧缓冲 L1[280..283]、
-   devices.c 的 13 个 MMIO 段（Strongly-ordered + XN），每类都有段描述符的位分解；未映射区为何缺页；
-   install() 写 TTBCR/TTBR0/DACR 后置 SCTLR.M；两个查表实例（内核代码 0x20008000、UART0 0xE2900020）；
-   每个进程拷贝内核 L1 再加用户 L2 与 mmap 段（内核 L1 共 145 个段，其余 3951 项缺页）；
+2. MMU 初始化，按 5.1 节的 kvminit 图解：左边代码 ①–⑧ 逐行高亮，中间 L1 表 roots[0] 逐项填入段描述符（附位分解），
+   右边物理内存；⑤⑥ install() 写 TTBCR/TTBR0/DACR、清 TLB、置 SCTLR.M；⑦⑧ 进程拷贝 L1，walk() kalloc 一页作 L2 表，
+   L2 小页 PTE 取自日志；
 3. fork + exec `/bin/sh` 时的 L1 根、L2 表、kalloc 页和 readi 加载（读日志）。
 
 重新生成：`tools/manim/render.sh`。
