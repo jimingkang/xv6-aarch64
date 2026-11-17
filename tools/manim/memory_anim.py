@@ -301,6 +301,7 @@ class MmuSetup(Scene):
     ]
 
     def build_l1(self):
+        self.arrows = VGroup()
         box = Rectangle(width=5.2, height=4.15, stroke_color="#7a5cf0", stroke_width=2, fill_color="#1b1830",
                         fill_opacity=1).move_to([0.35, 0.55, 0])
         head = Rectangle(width=5.2, height=0.42, stroke_width=0, fill_color="#5b3fb5", fill_opacity=1) \
@@ -341,6 +342,7 @@ class MmuSetup(Scene):
             self.pa[key] = VGroup(r, t)
             grp.add(self.pa[key])
             y -= h
+        self.pagrp = grp
         self.play(FadeIn(grp), run_time=0.8)
 
     def fill(self, key, value, note, color, pa=None, curve=0.0):
@@ -354,6 +356,7 @@ class MmuSetup(Scene):
             end = self.pa[pa][0].get_left()
             a = CurvedArrow(start, end, angle=curve, color=color, stroke_width=2) if curve else \
                 Arrow(start, end, buff=0.04, color=color, stroke_width=2, max_tip_length_to_length_ratio=0.06)
+            self.arrows.add(a)
             self.play(Create(a), run_time=0.5)
 
     # ---------------------------------------------------------- steps
@@ -425,58 +428,118 @@ class MmuSetup(Scene):
         self.wait(3)
 
     def step78(self):
+        """Process L1 copy + L2 table. The values come from the QEMU log, so
+        the L1 rows and the physical column switch to the QEMU addresses
+        (DRAM at 0x40000000) -- no QEMU value points at a board range."""
         self.hl(7)
-        self.say("⑦ 创建进程：uvmcreate() 再取一个 roots[k]，整张复制内核 L1——内核的 145 个段在每个进程里都在")
         ex = find(r"exec: /bin/sh pid (\d+): inode")
-        root = find(r"mm:\s+L1 root roots\[(\d+)\] at (\w+)")
-        new_head = T(f"进程 L1 = roots[{root.group(1)}] @ {root.group(2)}（拷贝）", 13, WHITE).move_to(self.l1box[2])
-        self.play(self.l1box[1].animate.set_fill(ORANGE), Transform(self.l1box[2], new_head), run_time=1)
-        self.show_strip(T("进程切换只写 TTBR0（switchuvm）：内核部分人人相同，用户窗口 L1[000..1ff] 各不相同", 15),
-                        T("下面是 exec(\"/bin/sh\") 的真实日志（QEMU，MMU_TRACE=3）", 13, GREY_B))
-        self.wait(3)
+        start = next(i for i, l in enumerate(LINES) if f"exec: /bin/sh pid {ex.group(1)}: inode" in l)
+        end = next(i for i, l in enumerate(LINES) if l.startswith(f"exec: /bin/sh pid {ex.group(1)}: sz"))
+        body = LINES[start:end]
+        root = next(re.search(r"L1 root roots\[(\d+)\] at (\w+)", l) for l in body if "L1 root roots" in l)
+        l2 = next(re.search(r"L2 table: kalloc pa (\w+) -> L1\[(\w+)\] = (\w+)", l) for l in body if "L2 table" in l)
+        pages = [re.search(r"page: kalloc pa (\w+) -> VA (\w+) \(PTE (\w+)\)", l).groups()
+                 for l in body if "page: kalloc" in l]
+        ttbr = hx(find(r"mmu: TTBR0=(\w+)").group(1))
+        bss = find(r"mm: kernel bss\s+(\w+)-(\w+)")
+        kin = find(r"mm: kinit: freerange (\w+)-(\w+) ->")
+        runs = [re.search(r"mmu:\s+L1\[(\w+)\.\.(\w+)\] VA (\w+)-\w+ -> PA (\w+)\s+\d+ MiB\s+(.+?) AP=.*entry=(\w+)", l)
+                for l in LINES if re.search(r"mmu:\s+L1\[", l)]
+        k, kaddr = int(root.group(1)), hx(root.group(2))
+
+        self.say("⑦ 以下数值都来自 QEMU 日志：右边物理内存换成 QEMU 的地址（DRAM 从 0x40000000 开始），不再对应实板区间")
+        old = VGroup(self.arrows, self.pagrp, *[VGroup(*v[:3]) for v in self.l1.values()])
+        if self.strip is not None:
+            old.add(self.strip)
+            self.strip = None
+        self.play(FadeOut(old), run_time=0.8)
+
+        # QEMU physical column, high addresses on top.
+        rows = [("fb", "48000000–483FFFFF 帧缓冲", 0.32, "#8e5ba8"),
+                ("gui", "47000000–47FFFFFF win32k", 0.32, PURPLE),
+                ("kalloc", f"{hx(kin.group(1)):08x}–{hx(kin.group(2)):08x} kalloc 页池", 1.55, GREEN_E),
+                ("bss", f"{hx(bss.group(1)):08x}–{hx(bss.group(2)):08x} .bss（roots 池）", 0.75, "#3d5a80"),
+                ("img", "40008000 内核 code/data/ramdisk", 0.35, BLUE_E),
+                ("mmio", "01C00000 sun4i 外设", 0.3, RED)]
+        y, P = 2.52, {}
+        pa = VGroup(T("物理内存（QEMU）", 13).move_to([5.25, 2.72, 0]))
+        for key, lab, h, col in rows:
+            r = Rectangle(width=3.3, height=h, stroke_color=GREY, stroke_width=1, fill_color=col, fill_opacity=0.3) \
+                .move_to([5.25, y - h / 2, 0])
+            t = T(lab, 10.5).next_to(r.get_top(), DOWN, buff=0.04)
+            if t.width > 3.2:
+                t.scale_to_fit_width(3.2)
+            P[key] = r
+            pa.add(r, t)
+            y -= h
+        # Exact pages near the top of the kalloc pool (freelist head = highest address).
+        sub_y = P["kalloc"].get_top()[1] - 0.45
+        pg0 = hx(pages[0][0])
+        sp = Rectangle(width=2.9, height=0.24, stroke_color=GREEN, fill_color=GREEN, fill_opacity=0.75).move_to([5.25, sub_y, 0])
+        spt = T(f"{pg0:08x} 用户页（VA 0）", 10.5, WHITE, mono=True).move_to(sp)
+        sl = Rectangle(width=2.9, height=0.24, stroke_color=ORANGE, fill_color=ORANGE, fill_opacity=0.75) \
+            .next_to(sp, DOWN, buff=0.05)
+        slt = T(f"{hx(l2.group(1)):08x} L2 表", 10.5, WHITE, mono=True).move_to(sl)
+        sr = Rectangle(width=2.9, height=0.24, stroke_color=ORANGE, fill_color="#5a3a10", fill_opacity=0.9) \
+            .move_to([5.25, P["bss"].get_center()[1] - 0.12, 0])
+        srt = T(f"{kaddr:08x} roots[{k}]（进程 L1）", 10.5, WHITE, mono=True).move_to(sr)
+        self.play(FadeIn(pa), run_time=0.8)
+
+        # L1 rows: the copied kernel entries as the QEMU kernel built them.
+        head = T(f"进程 L1 = roots[{k}] @ {kaddr:08x}（拷贝 roots[0] @ {ttbr:08x}）", 12, WHITE).move_to(self.l1box[2])
+        self.play(self.l1box[1].animate.set_fill(ORANGE), Transform(self.l1box[2], head), run_time=0.8)
+        top = self.l1box[1].get_bottom()[1] - 0.25
+        left = self.l1box[0].get_left()[0]
+        lines, ly = VGroup(), {}
+        entries = []
+        for m in reversed(runs):
+            a, b = hx(m.group(1)), hx(m.group(2))
+            what = "MMIO" if "Strongly" in m.group(5) else ("帧缓冲" if "XN" in m.group(5) else "DRAM 128 MiB")
+            entries.append((f"[{a:03x}..{b:03x}]" if a != b else f"[{a:03x}]", f"{hx(m.group(6)):08x}", what, GREEN if what.startswith("DRAM") else RED if what == "MMIO" else PURPLE))
+        entries.insert(len(entries) - 1, ("其余", "00000000", "缺页", GREY))
+        entries += [("[100..17f]", "00000000", "mmap 时写用户段", "#d080c0"), ("[000]", "00000000", "缺页", GREY)]
+        for i, (idx, val, note, col) in enumerate(entries):
+            yy = top - i * 0.42
+            row = VGroup(T(idx, 11, col, mono=True).move_to([left + 0.1, yy, 0], aligned_edge=LEFT),
+                         T(val, 11, col, mono=True).move_to([left + 2.6, yy, 0]),
+                         T(note, 10, col).move_to([left + 5.1, yy, 0], aligned_edge=RIGHT))
+            lines.add(row)
+            ly[idx] = (row, yy)
+        self.say(f"⑦ uvmcreate()：rootalloc() 在 .bss 的 roots 池取 roots[{k}]（{kaddr:08x}），memmove 拷贝 roots[0] 的 4096 项")
+        self.play(FadeIn(lines), run_time=0.8)
+        self.play(FadeIn(sr), FadeIn(srt))
+        self.play(Create(Arrow(self.l1box[1].get_right(), sr.get_left(), buff=0.05, color=ORANGE, stroke_width=2,
+                               max_tip_length_to_length_ratio=0.06)), run_time=0.7)
+        self.wait(2.5)
 
         self.hl(8)
-        l2 = find(r"mm:\s+L2 table: kalloc pa (\w+) -> L1\[(\w+)\] = (\w+)")
-        pages = []
-        start = next(i for i, l in enumerate(LINES) if f"exec: /bin/sh pid {ex.group(1)}: inode" in l)
-        for l in LINES[start:]:
-            m = re.search(r"mm:\s+page: kalloc pa (\w+) -> VA (\w+) \(PTE (\w+)\)", l)
-            if m:
-                pages.append(m.groups())
-            if l.startswith(f"exec: /bin/sh pid {ex.group(1)}: sz"):
-                break
-        self.say(f"⑧ walk()：VA 0 所在 1 MiB 没有 L2 表 → kalloc 一页 {l2.group(1)} 作 L2，"
-                 f"L1[0] = {l2.group(3)}（低 2 位 01 = 表描述符）")
-        self.fill("000", l2.group(3), "→ L2 表", ORANGE)
-        # L2 table replaces the bottom strip.
-        if self.strip is not None:
-            self.play(FadeOut(self.strip), run_time=0.3)
-            self.strip = None
-        box = Rectangle(width=6.2, height=1.75, stroke_color=ORANGE, stroke_width=2, fill_color="#2a1a10",
-                        fill_opacity=1).move_to([0.4, -2.5, 0])
-        bt = T(f"L2 @ {l2.group(1)}（kalloc 页，只用前 1 KiB：256 项）  索引 = (VA>>12) & 255", 12, ORANGE) \
+        row0, y0 = ly["[000]"]
+        nv = VGroup(T("[000]", 11, ORANGE, mono=True).move_to(row0[0], aligned_edge=LEFT),
+                    T(l2.group(3), 11, ORANGE, mono=True).move_to(row0[1]),
+                    T("01 型 → L2 表", 10, ORANGE).move_to(row0[2], aligned_edge=RIGHT))
+        self.say(f"⑧ walk()：L1[0] 为 0 → kalloc() 取 freelist 表头 {l2.group(1)} 作 L2 表，L1[0] = {l2.group(3)}")
+        self.play(Transform(row0, nv), FadeIn(sl), FadeIn(slt), run_time=0.8)
+        self.play(Create(Arrow([self.l1box[0].get_right()[0], y0, 0], sl.get_left(), buff=0.05, color=ORANGE,
+                               stroke_width=2, max_tip_length_to_length_ratio=0.06)), run_time=0.7)
+        box = Rectangle(width=5.75, height=1.6, stroke_color=ORANGE, stroke_width=2, fill_color="#2a1a10",
+                        fill_opacity=1).move_to([0.2, -2.55, 0])
+        bt = T(f"L2 @ {l2.group(1)}（kalloc 页，只用前 1 KiB）  索引 = (VA>>12) & 255", 12, ORANGE) \
             .next_to(box.get_top(), DOWN, buff=0.06)
         self.play(FadeIn(box), FadeIn(bt))
-        self.play(Create(Arrow([self.l1box[0].get_left()[0] + 0.9, self.l1["000"][3] - 0.1, 0],
-                               [self.l1box[0].get_left()[0] + 0.9, box.get_top()[1] + 0.02, 0], buff=0.0,
-                               color=ORANGE, stroke_width=2, max_tip_length_to_length_ratio=0.3)))
-        rows = VGroup()
-        for k, (pa, va, pte) in enumerate(pages[:4]):
-            rows.add(T(f"L2[{hx(va) >> 12 & 255}] = {pte}    VA {hx(va):05x} → PA {pa}", 11, WHITE, mono=True))
-        rows.add(T(f"…  共 {len(pages)} 个 kalloc 页（代码/数据、保护页、栈）", 11, GREY_B))
-        rows.arrange(DOWN, aligned_edge=LEFT, buff=0.04).next_to(bt, DOWN, buff=0.08).align_to(bt, LEFT)
-        for k, r in enumerate(rows):
-            self.play(FadeIn(r, shift=RIGHT * 0.1), run_time=0.45)
-            if k == 0:
-                self.play(Create(Arrow(box.get_right() + UP * 0.3, self.pa["kalloc"][0].get_left() + DOWN * 0.15,
-                                       buff=0.05, color=ORANGE, stroke_width=2)), run_time=0.5)
-        note = T("PTE = PA | 0x72：小页 · AP=11 用户读写 · TEX=001 Normal 不可缓存",
-                 11, GREY_B).next_to(rows, DOWN, buff=0.05).align_to(rows, LEFT)
-        if note.width > 6.0:
-            note.scale_to_fit_width(6.0)
-        self.play(FadeIn(note))
-        self.say("用户地址两次查表：L1[VA>>20] → L2[(VA>>12)&255] → 4 KiB 页；内核地址一次查表（段）")
-        self.fill("100", "00000000", "mmap 时：用户段", "#d080c0")
+        prow = VGroup()
+        for pa_, va, pte in pages[:4]:
+            prow.add(T(f"L2[{hx(va) >> 12 & 255}] = {pte}   VA {hx(va):05x} → PA {pa_}", 11, WHITE, mono=True))
+        prow.add(T(f"…  共 {len(pages)} 个用户页，全在 kalloc 页池顶部", 11, GREY_B))
+        prow.arrange(DOWN, aligned_edge=LEFT, buff=0.04).next_to(bt, DOWN, buff=0.08).align_to(bt, LEFT)
+        self.play(FadeIn(prow[0], shift=RIGHT * 0.1), FadeIn(sp), FadeIn(spt), run_time=0.6)
+        self.play(Create(Arrow(prow[0].get_right(), sp.get_left(), buff=0.08, color=GREEN, stroke_width=2,
+                               max_tip_length_to_length_ratio=0.05)), run_time=0.7)
+        self.say(f"用户 VA 0 → L1[0] → L2[0] = {pages[0][2]} → PA {pages[0][0]}；"
+                 f"同一页在内核里就是 VA {pages[0][0]}（DRAM 恒等映射）")
+        for r in prow[1:]:
+            self.play(FadeIn(r, shift=RIGHT * 0.1), run_time=0.4)
+        self.wait(3)
+        self.say("小结：L1 都在 .bss 的 roots 池（内核 roots[0]，进程各占一槽）；L2 表和用户页来自 kalloc 页池顶部")
         self.wait(3)
 
 

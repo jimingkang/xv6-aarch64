@@ -211,6 +211,23 @@ for lab, h, c, f in prows:
     ppos[lab.split(" ")[0]] = (y, h)
     y += h
 
+# QEMU physical pages for the L2 example (the example values are QEMU's,
+# so they must not point into the board ranges above).
+qy0 = y + 18
+rect(px, qy0, pw, 150, "#fff8ef", "#d35400", dash="5 3", rx=4)
+text(px + 10, qy0 + 18, "QEMU 物理内存（L2 示例的真实地址）", 11.5, "#d35400", weight="600")
+text(px + 10, qy0 + 38, "408C0000 – 46FFFFFF kalloc 页池（顶部）：", 11.5, "#333")
+qrows = [("46FE1000", "用户页 VA 0"), ("46FE0000", "L2 表（L1[0] = 46fe0001）"), ("46FDF000", "用户页 VA 1000"),
+         ("46FDE000 …", "VA 2000 … 栈")]
+qpos = {}
+for i, (a_, b_) in enumerate(qrows):
+    yy = qy0 + 60 + i * 22
+    rect(px + 10, yy - 14, 110, 19, "#d9f2df" if "L2" not in b_ else "#fde9cf", "#1e8449" if "L2" not in b_ else "#d35400", sw=1, rx=2)
+    text(px + 16, yy, a_, 11.5, "#222", mono=True)
+    text(px + 130, yy, b_, 11.5, "#333")
+    qpos[a_] = yy - 5
+text(px + 10, qy0 + 146, "实板对应在 2053A000–26FFFFFF 顶部（未实测）", 10.5, "#888")
+
 # L2 table (process example)
 qx, qw, qy = 830, 520, vy0 + 420
 o(f'<rect x="{qx}" y="{qy}" width="{qw}" height="290" rx="6" fill="#fff" stroke="#d35400" stroke-width="2"/>')
@@ -260,8 +277,9 @@ arrow(lx + lw, l1pos["[200]"], px, pmid("20000000"), "#1e8449", curve=(1100, l1p
 arrow(lx + lw, l1pos["[26f]"], px, pmid("2053A000") - 40, "#1e8449", curve=(1100, l1pos["[26f]"] - 60))
 # L1[000] -> L2 table, L2 -> PA kalloc
 arrow(lx + lw, l1pos["[000..01f]"], qx, qy + 18, "#d35400", sw=2, curve=(790, l1pos["[000..01f]"]))
-arrow(qx + qw, qy + 70, px, pmid("2053A000") + 30, "#d35400", sw=2)
-arrow(qx + qw, qy + 160, px, pmid("2053A000") + 45, "#d35400", sw=1.4, dash="5 3")
+arrow(qx + qw, qy + 57, px + 10, qpos["46FE1000"], "#1e8449", sw=2)
+arrow(qx + qw, qy + 87, px + 10, qpos["46FDF000"], "#1e8449", sw=1.4, dash="5 3")
+arrow(qx + qw, qy + 18, px + 10, qpos["46FE0000"], "#d35400", sw=1.6, dash="2 3")
 # mmap section -> framebuffer
 arrow(lx + lw, l1pos["[100..17f]"], px, pmid("28000000") + 6, "#a93d8c", dash="5 3",
       curve=(800, pmid("28000000") + 6))
