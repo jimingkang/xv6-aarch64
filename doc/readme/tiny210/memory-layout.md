@@ -175,9 +175,17 @@ exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
 exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
 ```
 
-动画 `videos/memory-anim.mp4`（约 76 秒，manim，`tools/manim/memory_anim.py`）直接读这份日志
-（`tools/manim/qemu-mmu-trace3.log`），分三段：内存初始化与 kinit 空闲链表、kvminit 建内核 L1 表并打开 MMU、
-fork + exec `/bin/sh` 时的 L1 根、L2 表、kalloc 页和 readi 加载。重新生成：`tools/manim/render.sh`。
+动画 `videos/memory-anim.mp4`（约 2 分钟，manim，`tools/manim/memory_anim.py`）分三段：
+
+1. 内存初始化与 kinit 空闲链表（读日志 `tools/manim/qemu-mmu-trace3.log`）；
+2. MMU 页表建立，按上面的布局图用实板地址，左栏虚拟地址、右栏物理地址，分 8 步：短描述符格式、
+   rootalloc 取 roots[0]、DRAM 恒等映射 L1[200..26f]（112 段）、win32k L1[270..27f] 与帧缓冲 L1[280..283]、
+   devices.c 的 13 个 MMIO 段（Strongly-ordered + XN），每类都有段描述符的位分解；未映射区为何缺页；
+   install() 写 TTBCR/TTBR0/DACR 后置 SCTLR.M；两个查表实例（内核代码 0x20008000、UART0 0xE2900020）；
+   每个进程拷贝内核 L1 再加用户 L2 与 mmap 段（内核 L1 共 145 个段，其余 3951 项缺页）；
+3. fork + exec `/bin/sh` 时的 L1 根、L2 表、kalloc 页和 readi 加载（读日志）。
+
+重新生成：`tools/manim/render.sh`。
 
 ## 8. 观察到的可改进点
 

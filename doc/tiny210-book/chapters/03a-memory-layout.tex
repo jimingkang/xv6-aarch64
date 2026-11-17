@@ -239,10 +239,21 @@ exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
 exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
 \end{lstlisting}
 
-配套动画 \texttt{doc/readme/tiny210/videos/memory-anim.mp4}（manim，约 76 秒）由
-\texttt{tools/manim/memory\_anim.py} 读取上面这份真实日志生成，共三段：内存初始化与 kinit 空闲链表；
-kvminit 建立内核 L1 表、段描述符各位的含义、打开 MMU；fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、
-kalloc 页和 readi 加载。重新生成用 \texttt{tools/manim/render.sh}。
+配套动画 \texttt{doc/readme/tiny210/videos/memory-anim.mp4}（manim，约 2 分钟，
+\texttt{tools/manim/memory\_anim.py}）共三段。第 1、3 段读取上面这份真实日志：内存初始化与 kinit 空闲链表；
+fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、kalloc 页和 readi 加载。第 2 段按图~\ref{fig:memory-layout}
+的两栏（左虚拟、右物理）用实板地址分 8 步讲内核 L1 表的建立：
+\begin{enumerate}
+\item 短描述符格式：VA[31:20] 查 L1，L1 项低 2 位 00=缺页、01=L2 表、10=段；
+\item \texttt{rootalloc()} 取 bss 中的 \texttt{roots[0]} 作内核 L1 表；
+\item DRAM 恒等映射 L1[200..26f]，112 段，TEX=001 C=B=0、AP=01；
+\item win32k 区 L1[270..27f] 与帧缓冲 L1[280..283]（后者加 XN）；
+\item \texttt{devices.c} 中每个 MEM 资源一个段，共 13 段，Strongly-ordered + XN；
+\item 其余 3951 项保持 0，访问即 Translation fault；
+\item \texttt{install()} 写 TTBCR/TTBR0/DACR、清 TLB，再置 SCTLR.M=1；
+\item 两个查表实例（内核代码 0x20008000、UART0 0xE2900020），以及每个进程拷贝内核 L1 后再加用户 L2 与 mmap 段。
+\end{enumerate}
+重新生成用 \texttt{tools/manim/render.sh}。
 
 \section{可改进点}
 
