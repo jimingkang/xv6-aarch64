@@ -148,6 +148,20 @@ L2 项 \texttt{PA|0x72} 映射 4 KiB 小页。
 \caption{kvminit() 图解：内核 L1 段与进程的 L2 小页（\texttt{tools/mmu\_page\_tables\_svg.py} 生成）}\label{fig:mmu-page-tables}
 \end{figure}
 
+\subsection{页表本身放在物理内存哪里}
+
+\begin{itemize}
+\item \textbf{内核 L1} 就是 \texttt{roots[0]}。\texttt{roots[256][4096]} 是 \texttt{vm.c} 的静态数组，位于内核
+      \textbf{.bss}，不来自 kalloc：实板 roots 池在 0x200D4000--0x204D3FFF，开机 TTBR0 = 0x200D4000
+      （QEMU 为 0x404B4000）。
+\item \textbf{进程 L1}：\texttt{uvmcreate()} 调 \texttt{rootalloc()} 在\textbf{同一个 roots 池}里取空槽 roots[k]，
+      再 \texttt{memmove} 整张 16 KiB；地址 = roots 基址 + k$\times$0x4000（QEMU 日志：/bin/sh 用 roots[6] = 0x404CC000）。
+      \texttt{uvmfree} 只把 \texttt{used[k]} 清 0，不经过 kalloc。
+\item \textbf{L2 表}：\texttt{walk()} 发现 L1 项为 0 时 \texttt{kalloc()} 一页，位于 \textbf{kalloc 页池}
+      （实板 0x2053A000--0x26FFFFFF）。freelist 后进先出，kinit 按地址升序 kfree，表头是最高地址的页，
+      所以最早分配的 L2 表和用户页紧贴 PHYSTOP 下方（QEMU：L2 在 0x46FE0000，用户页 0x46FE1000 起）。
+\end{itemize}
+
 \section{/proc/meminfo 与 /proc/iomem}
 
 实现在 \texttt{kernel/memstat.c}，由 \texttt{kernel/vfs.c} 的 procfs 调用：

@@ -487,6 +487,108 @@ SEC_DEV = lambda a: a | (1 << 10) | (1 << 4) | 2
 
 # ---------------------------------------------------------------- scene 3
 class ProcessExec(Scene):
+    def where_tables(self, body, cap):
+        """Where the page tables live in physical memory: the kernel L1 is
+        roots[0] in .bss, a process L1 is a copy in another roots[] slot of
+        the same .bss pool, its L2 tables come from the top of the kalloc
+        pool (LIFO freelist, kinit freed pages in ascending order)."""
+        ttbr = hx(find(r"mmu: TTBR0=(\w+)").group(1))
+        bss = find(r"mm: kernel bss\s+(\w+)-(\w+)")
+        kin = find(r"mm: kinit: freerange (\w+)-(\w+) -> .*PHYSTOP=(\w+)")
+        root = next(re.search(r"L1 root roots\[(\d+)\] at (\w+)", l) for l in body if "L1 root roots" in l)
+        l2 = next(re.search(r"L2 table: kalloc pa (\w+) -> L1\[(\w+)\] = (\w+)", l) for l in body if "L2 table" in l)
+        pg = next(re.search(r"page: kalloc pa (\w+) -> VA (\w+)", l) for l in body if "page: kalloc" in l)
+        k, kaddr = int(root.group(1)), hx(root.group(2))
+
+        # Physical strip (not to scale), high addresses on top.
+        x = -4.3
+        segs = [("kalloc", f"kalloc 页池  {hx(kin.group(1)):08x}–{hx(kin.group(2)):08x}", 2.6, GREEN_E),
+                ("bss", f"内核 .bss  {hx(bss.group(1)):08x}–{hx(bss.group(2)):08x}", 2.3, "#3d5a80"),
+                ("img", "内核 code / data / ramdisk", 0.7, BLUE_E)]
+        y = 2.2
+        R = {}
+        grp = VGroup(T("物理内存（QEMU 日志地址）", 14).move_to([x, 2.42, 0]))
+        for key, lab, h, col in segs:
+            r = Rectangle(width=3.6, height=h, stroke_color=GREY, fill_color=col, fill_opacity=0.35) \
+                .move_to([x, y - h / 2, 0])
+            t = T(lab, 12).next_to(r.get_top(), DOWN, buff=0.06)
+            R[key] = r
+            grp.add(r, t)
+            y -= h
+        phys = T(f"← PHYSTOP {hx(kin.group(3)):08x}", 11, RED).next_to(R["kalloc"].get_corner(UP + RIGHT), RIGHT, buff=0.05)
+        grp.add(phys)
+        # roots[] pool inside .bss: 16 x 16 slots of 16 KiB.
+        pool = VGroup(*[Rectangle(width=0.15, height=0.07, stroke_width=0.4, stroke_color=GREY_D,
+                                  fill_color="#22262e", fill_opacity=1) for _ in range(256)])
+        pool.arrange_in_grid(rows=16, cols=16, buff=0.012).move_to(R["bss"].get_center() + UP * 0.05)
+        plab = T(f"roots 池 @ {ttbr:08x}：256 槽 × 16 KiB = 4 MiB", 10, GREY_B).next_to(pool, DOWN, buff=0.05)
+        cap = caption(self, cap, "先看页表放在哪里：所有 L1 都在内核 .bss 的 roots 池里，L2 表和用户页来自 kalloc 页池")
+        self.play(FadeIn(grp), run_time=1)
+        self.play(FadeIn(pool), FadeIn(plab), run_time=0.8)
+
+        rx = 0.6
+        info = VGroup()
+
+        def note(s, col=WHITE, size=15):
+            t = T(s, size, col)
+            if t.width > 6.3:
+                t.scale_to_fit_width(6.3)
+            if len(info):
+                t.next_to(info[-1], DOWN, buff=0.14, aligned_edge=LEFT)
+            else:
+                t.move_to([rx, 2.3, 0], aligned_edge=LEFT)
+            info.add(t)
+            return t
+
+        # Kernel L1 = roots[0].
+        self.play(pool[0].animate.set_fill(BLUE, opacity=1))
+        n1 = note(f"① 内核 L1 = roots[0] = {ttbr:08x}", BLUE)
+        n1b = note("   开机时 kvminit() 写好，TTBR0 指向它；在 .bss 里，不是 kalloc 来的", GREY_B, 12)
+        a0 = Arrow(n1.get_left() + LEFT * 0.05, pool[0].get_right(), buff=0.05, color=BLUE, stroke_width=2,
+                   max_tip_length_to_length_ratio=0.05)
+        cap = caption(self, cap, f"内核 L1 就是 .bss 里的 roots[0]（{ttbr:08x}）；实板上 roots 在 0x200d4000")
+        self.play(FadeIn(n1), FadeIn(n1b), GrowArrow(a0))
+        self.wait(2)
+
+        # Process L1 = copy into roots[k].
+        cap = caption(self, cap, f"uvmcreate()：rootalloc() 在同一个池里找空槽 roots[{k}]，memmove 整张 16 KiB（4096 项）")
+        n2 = note(f"② 进程 L1 = roots[{k}] = {kaddr:08x}（= {ttbr:08x} + {k}×0x4000）", ORANGE)
+        n2b = note("   memmove(p, kernel_pagetable, 16384)：内核的段项原样复制", GREY_B, 12)
+        n2c = note("   进程退出/exec 换表：uvmfree 把 used[k] 清 0，槽还给池子", GREY_B, 12)
+        copy = pool[0].copy()
+        self.play(FadeIn(n2), FadeIn(n2b), FadeIn(n2c))
+        self.play(copy.animate.move_to(pool[k]).set_fill(ORANGE, opacity=1), run_time=1.2)
+        self.play(pool[k].animate.set_fill(ORANGE, opacity=1), FadeOut(copy), run_time=0.3)
+        for i in range(1, k):
+            pool[i].set_fill(GREY_B, opacity=0.8)
+        used = T(f"roots[1..{k - 1}]：其他进程的 L1（灰）", 10, GREY_B).next_to(plab, DOWN, buff=0.03)
+        self.play(FadeIn(used), GrowArrow(Arrow(n2.get_left() + LEFT * 0.05, pool[k].get_right(), buff=0.05,
+                                                color=ORANGE, stroke_width=2, max_tip_length_to_length_ratio=0.05)))
+        self.wait(2)
+
+        # L2 from the top of the kalloc pool.
+        l2pa = hx(l2.group(1))
+        top = R["kalloc"].get_top()[1]
+        slot = Rectangle(width=1.5, height=0.28, stroke_color=ORANGE, fill_color=ORANGE, fill_opacity=0.8) \
+            .move_to([x + 0.8, top - 0.55, 0])
+        stxt = T(f"L2 {l2pa:08x}", 11, WHITE, mono=True).move_to(slot)
+        page = Rectangle(width=1.5, height=0.28, stroke_color=GREEN, fill_color=GREEN, fill_opacity=0.8) \
+            .next_to(slot, DOWN, buff=0.04)
+        ptxt = T(f"页 {hx(pg.group(1)):08x}", 11, WHITE, mono=True).move_to(page)
+        cap = caption(self, cap, f"walk()：L1[{l2.group(2)}] 为 0 → kalloc() 取 freelist 表头 → L2 表在 {l2pa:08x}，"
+                                 f"紧贴 PHYSTOP 下方")
+        n3 = note(f"③ L2 表 = kalloc 页 {l2pa:08x}（只用前 1 KiB）", GREEN)
+        n3b = note(f"   roots[{k}][{l2.group(2)}] = {l2.group(3)}：低 2 位 01 = 指向 L2 表", GREY_B, 12)
+        n3c = note("   freelist 后进先出，kinit 按地址升序 kfree → 表头是最高地址的页", GREY_B, 12)
+        n4 = note(f"④ 用户页同样来自 kalloc：{hx(pg.group(1)):08x} → VA {hx(pg.group(2)):05x} …", GREEN)
+        self.play(FadeIn(n3), FadeIn(n3b), FadeIn(n3c), FadeIn(slot), FadeIn(stxt))
+        self.play(Create(CurvedArrow(pool[k].get_left(), slot.get_left(), angle=-1.2, color=ORANGE, stroke_width=2)),
+                  run_time=1)
+        self.play(FadeIn(n4), FadeIn(page), FadeIn(ptxt))
+        self.wait(3)
+        self.play(*[FadeOut(m) for m in self.mobjects if m is not cap and m is not self._title], run_time=0.6)
+        return cap
+
     def construct(self):
         ex = find(r"exec: /bin/sh pid (\d+): inode (\d+), (\d+) bytes, ELF entry (\w+), (\d+) program headers")
         pid = ex.group(1)
@@ -497,13 +599,14 @@ class ProcessExec(Scene):
         summ = re.search(r"sz (\w+) sp (\w+) entry (\w+), (\d+) kalloc pages, new L1 root (\w+)", LINES[end])
         fork = find(rf"mm: fork: (\S+) pid (\d+) -> pid {pid}: kstack pa (\w+), L1 root (\w+), copying (\d+)", default=False)
 
-        title(self, "3. 创建用户进程：fork() + exec(\"/bin/sh\")",
-              f"kalloc 分配页面、建 L2 页表、从文件加载镜像（pid {pid}；每一步对应日志中的一行，MMU_TRACE=3）")
+        self._title = title(self, "3. 创建用户进程：fork() + exec(\"/bin/sh\")",
+                            f"kalloc 分配页面、建 L2 页表、从文件加载镜像（pid {pid}；每一步对应日志中的一行，MMU_TRACE=3）")
         cap = None
         if fork:
             cap = caption(self, cap, f"fork()：{fork.group(1)} pid {fork.group(2)} → pid {pid}，"
                                      f"kalloc 内核栈 {fork.group(3)}，复制父进程 {fork.group(5)} 个用户页")
             self.wait(1.5)
+        cap = self.where_tables(body, cap)
 
         # File (left), process VA (middle), kalloc pool (right).
         fsize = int(ex.group(3))

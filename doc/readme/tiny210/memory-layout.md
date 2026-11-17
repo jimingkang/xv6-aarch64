@@ -110,6 +110,14 @@ ARMv7 短描述符页表，**只用 TTBR0**（TTBCR=0），内核与用户共用
 `tools/mmu_page_tables_svg.py` 生成。）Cortex-A8 没有 LPAE，所以只有两级：内核只用 L1 段（145 个），
 用户窗口经 L1 表描述符（01 型）指向 kalloc 来的 L2 表，再映射 4 KiB 小页。
 
+### 5.2 页表本身放在物理内存哪里
+
+- **内核 L1** = `roots[0]`。`roots[256][4096]` 是 `vm.c` 里的静态数组，位于内核 **.bss**，不来自 kalloc。实板 roots 池在 0x200D4000–0x204D3FFF，TTBR0 开机时为 0x200D4000；QEMU 为 0x404B4000（启动日志 `mmu: TTBR0=`）。
+- **进程 L1**：`uvmcreate()` → `rootalloc()` 在**同一个 roots 池**里取空槽 roots[k]，`memmove` 整张 16 KiB，地址 = roots 基址 + k×0x4000（QEMU 日志：/bin/sh 用 roots[6] = 0x404CC000）。`uvmfree` 只把 `used[k]` 清 0，不经过 kalloc。
+- **L2 表**：`walk()` 发现 L1 项为 0 时 `kalloc()` 一页，位于 **kalloc 页池**（实板 0x2053A000–0x26FFFFFF）。freelist 后进先出、kinit 按地址升序 kfree，所以表头是最高地址的页，最早分配的 L2 表和用户页都紧贴 PHYSTOP 下方（QEMU：L2 0x46FE0000，用户页 0x46FE1000…）。
+
+动画第 3 段开头有一屏专门演示这三点。
+
 ## 6. /proc/meminfo 与 /proc/iomem
 
 实现位于 `kernel/memstat.c`，由 `kernel/vfs.c` 的 procfs 调用；板级区域由 `setup.c` 的
