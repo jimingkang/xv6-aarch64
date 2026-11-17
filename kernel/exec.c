@@ -5,7 +5,11 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "elf.h"
+#include "mmtrace.h"
 
 static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
 
@@ -54,6 +58,11 @@ exec(char *path, char **argv)
     )
     goto bad;
 
+  uint64 free0 = kfreepages();
+  if(MMTRACE(2))
+    printf("exec: %s pid %d: inode %d, %d bytes, ELF entry %x, %d program headers\n",
+           path, p->pid, ip->inum, ip->size, (uint)elf.entry, elf.phnum);
+  p->mmtrace = 1;
   if((pagetable = uvmcreate()) == 0)
     goto bad;
 
@@ -63,9 +72,9 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.type != ELF_PROG_LOAD)
       continue;
-    // Debug trace (normally disabled): ELF segment selected for loading.
-    // printf("exec: path=%s load va=%p filesz=%p memsz=%p off=%p\n",
-    //        path, ph.vaddr, ph.filesz, ph.memsz, ph.off);
+    if(MMTRACE(2))
+      printf("exec:   LOAD VA %x memsz %x filesz %x file off %x flags %x\n",
+             (uint)ph.vaddr, (uint)ph.memsz, (uint)ph.filesz, (uint)ph.off, ph.flags);
     if(ph.memsz < ph.filesz)
       goto bad;
     if(ph.vaddr + ph.memsz < ph.vaddr)
@@ -99,6 +108,9 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-(USTACKPAGES + 1)*PGSIZE);
   sp = sz;
   stackbase = sp - USTACKPAGES*PGSIZE;
+  if(MMTRACE(2))
+    printf("exec:   stack: guard page VA %x (PTE_U cleared), stack VA %x-%x\n",
+           (uint)(stackbase - PGSIZE), (uint)stackbase, (uint)sz - 1);
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -144,9 +156,11 @@ exec(char *path, char **argv)
   p->trapframe->elr = elf.entry;  // initial program counter = main
   p->trapframe->spsr = 0x10; // ARM user mode, IRQ enabled.
   p->trapframe->sp = sp; // initial stack pointer
-  // Debug trace (normally disabled): installed entry point and user stack.
-  // printf("exec: path=%s entry=%p sz=%p sp=%p\n",
-  //        path, elf.entry, sz, sp);
+  p->mmtrace = 0;
+  if(MMTRACE(2))
+    printf("exec: %s pid %d: sz %x sp %x entry %x, %d kalloc pages, new L1 root %x\n",
+           path, p->pid, (uint)sz, (uint)sp, (uint)elf.entry,
+           (int)(free0 - kfreepages()), (uint)(uintptr)pagetable);
   uvmsync_icache(pagetable, sz);
   switchuvm(p);
   // uvmdump(p->vm->pagetable, p->pid, p->name, "exec-image");
@@ -155,6 +169,7 @@ exec(char *path, char **argv)
   return argc; // this ends up in x0, the first argument to main(argc, argv)
 
  bad:
+  p->mmtrace = 0;
   acquire(&vm->lock);
   vm->execing = 0;
   release(&vm->lock);
@@ -187,6 +202,9 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
       n = PGSIZE;
     if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
       return -1;
+    if(MMTRACE_PAGES())
+      printf("exec:   readi inode %d off %x -> VA %x (pa %x) %d bytes\n",
+             ip->inum, offset + i, (uint)(va + i), (uint)pa, n);
   }
   
   return 0;

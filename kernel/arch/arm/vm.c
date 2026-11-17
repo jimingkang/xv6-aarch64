@@ -6,6 +6,7 @@
 #include "kernel/proc.h"
 #include "kernel/defs.h"
 #include "kernel/mmap.h"
+#include "kernel/mmtrace.h"
 /* Short-descriptor L1 roots must be 16 KiB aligned. A bounded root pool is
    separate from the 4 KiB allocator; each root is reclaimed on exit/exec. */
 #define ROOTS 256
@@ -48,6 +49,42 @@ void vm_pagetable_stats(uint *nroots, uint *nl2) {
   release(&rootlock);
   *nroots=r; *nl2=l2;
 }
+/* MMU_TRACE: the kernel L1 table as runs of 1 MiB sections with the same
+   attributes and contiguous physical addresses, and the MMU registers. */
+static const char *sect_attr(uint32 e) {
+  uint tex=(e>>12)&7, c=(e>>3)&1, b=(e>>2)&1;
+  if(tex==0 && !c && !b) return "Strongly-ordered";
+  if(tex==0 && !c && b) return "Device";
+  if(tex==1 && !c && !b) return "Normal non-cacheable";
+  if(c) return "Normal cacheable";
+  return "other";
+}
+void vm_dump_kernel_map(void) {
+  uint32 ttbr0, ttbcr, dacr, sctlr;
+  asm volatile("mrc p15, 0, %0, c2, c0, 0":"=r"(ttbr0));
+  asm volatile("mrc p15, 0, %0, c2, c0, 2":"=r"(ttbcr));
+  asm volatile("mrc p15, 0, %0, c3, c0, 0":"=r"(dacr));
+  asm volatile("mrc p15, 0, %0, c1, c0, 0":"=r"(sctlr));
+  printf("mmu: TTBR0=%x (kernel L1 root, 16 KiB aligned) TTBCR=%x DACR=%x\n",ttbr0,ttbcr,dacr);
+  printf("mmu: SCTLR=%x: M(MMU)=%d C(D-cache)=%d Z(branch pred)=%d I(I-cache)=%d\n",
+         sctlr,sctlr&1,(sctlr>>2)&1,(sctlr>>11)&1,(sctlr>>12)&1);
+  printf("mmu: kernel L1 (short descriptors, 1 MiB sections, VA = PA):\n");
+  uint n=0;
+  for(uint i=0;i<4096;) {
+    uint32 e=kernel_pagetable[i];
+    if((e&3)!=2) { i++; continue; }
+    uint j=i+1;
+    while(j<4096 && (kernel_pagetable[j]&3)==2 &&
+          (kernel_pagetable[j]&0xFFFFF)==(e&0xFFFFF) &&
+          (kernel_pagetable[j]&~0xFFFFFU)==(e&~0xFFFFFU)+((j-i)<<20)) j++;
+    uint ap=((e>>10)&3)|(((e>>15)&1)<<2);
+    printf("mmu:   L1[%x..%x] VA %x-%x -> PA %x  %d MiB  %s%s AP=%d(%s) entry=%x\n",
+           i,j-1,i<<20,(j<<20)-1,e&~0xFFFFFU,j-i,sect_attr(e),(e&0x10)?" XN":"",
+           ap,ap==1?"priv RW":ap==3?"user RW":ap==2?"user RO":"?",e);
+    n+=j-i; i=j;
+  }
+  printf("mmu: %d of 4096 L1 entries are sections; the rest fault. User VA 0-%x uses L2 tables per process.\n",n,(uint)MAXVA-1);
+}
 void kvminit(void) {
   initlock(&rootlock,"arm-l1");
   kernel_pagetable=rootalloc();
@@ -68,6 +105,8 @@ void kvminit(void) {
 }
 void kvminithart(void) {
   install(kernel_pagetable);
+  /* MMU still off here, and the console is not up yet: the boot report
+     (vm_dump_kernel_map) prints these registers once printf works. */
   uint v; asm volatile("mrc p15, 0, %0, c1, c0, 0":"=r"(v));
   v |= 1; asm volatile("mcr p15, 0, %0, c1, c0, 0"::"r"(v):"memory"); isb();
 }
@@ -78,6 +117,9 @@ pte_t *walk(pagetable_t p, uint64 va, int alloc) {
     if(!alloc) return 0;
     void *tab=kalloc(); if(!tab) return 0;
     memset(tab,0,PGSIZE); p[i]=(uintptr)tab | 1;
+    if(MMTRACE_PAGES())
+      printf("mm:   L2 table: kalloc pa %x -> L1[%x] = %x (VA %x-%x)\n",
+             (uint)(uintptr)tab,i,(uint)p[i],i<<20,(i<<20)+0xFFFFF);
   }
   if((p[i]&3)!=1) return 0;
   return &((uint32*)(uintptr)(p[i]&~1023U))[((uint)va>>12)&255];
@@ -100,7 +142,11 @@ pagetable_t uvmcreate(void) {
   pagetable_t p=rootalloc(); if(!p) return 0;
   /* Also inherit device mappings, which lie below MAXVA. User allocation
      is bounded below MMIO (32 MiB); device entries remain privileged. */
-  memmove(p,kernel_pagetable,16384); return p;
+  memmove(p,kernel_pagetable,16384);
+  if(MMTRACE_PAGES())
+    printf("mm:   L1 root roots[%d] at %x: copy of the kernel L1 (16 KiB, 4096 entries)\n",
+           (int)(((uint32(*)[4096])p)-roots),(uint)(uintptr)p);
+  return p;
 }
 uint64 walkaddr(pagetable_t p,uint64 va) {
   pte_t *e=walk(p,va,0);
@@ -131,6 +177,9 @@ uint64 uvmalloc(pagetable_t p,uint64 old,uint64 n) {
     if(mappages(p,a,PGSIZE,(uintptr)mem,PTE_NORMAL|PTE_U)<0) {
       kfree(mem); goto fail;
     }
+    if(MMTRACE_PAGES())
+      printf("mm:   page: kalloc pa %x -> VA %x (PTE %x)\n",
+             (uint)(uintptr)mem,(uint)a,(uint)*walk(p,a,0));
   }
   return n;
 fail:
@@ -191,6 +240,8 @@ int uvmcopy(pagetable_t old,pagetable_t n,uint64 sz) {
     pte_t *e=walk(old,a,0); if(!e || !(*e&PTE_V)) panic("uvmcopy");
     void *m=kalloc(); if(!m) goto fail;
     memmove(m,(void*)(uintptr)PTE2PA(*e),PGSIZE);
+    if(MMTRACE_PAGES())
+      printf("mm:   copy: VA %x pa %x -> kalloc pa %x\n",(uint)a,(uint)PTE2PA(*e),(uint)(uintptr)m);
     if(mappages(n,a,PGSIZE,(uintptr)m,PTE_FLAGS(*e)&~PTE_V)<0) { kfree(m); goto fail; }
   }
   return 0;

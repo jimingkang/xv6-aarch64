@@ -9,6 +9,7 @@
 #include "proc.h"
 #include "sched.h"
 #include "defs.h"
+#include "mmtrace.h"
 
 struct cpu cpus[NCPU];
 struct proc *proc_head;
@@ -504,6 +505,10 @@ userinit(void)
   // and data into it.
   uvminit(p->vm->pagetable, initcode, initcode_end - initcode);
   p->vm->sz = PGSIZE;
+  if(MMTRACE(2))
+    printf("mm: userinit: pid %d kstack pa %x, L1 root %x, initcode %d bytes -> VA 0 (pa %x)\n",
+           p->pid, (uint)p->kstack_pa, (uint)(uintptr)p->vm->pagetable,
+           (int)(initcode_end - initcode), (uint)walkaddr(p->vm->pagetable, 0));
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->elr = 0;      // user program counter
@@ -585,9 +590,15 @@ fork(void)
     return -1;
   }
 
+  if(MMTRACE(2))
+    printf("mm: fork: %s pid %d -> pid %d: kstack pa %x, L1 root %x, copying %d user pages\n",
+           p->name, p->pid, np->pid, (uint)np->kstack_pa, (uint)(uintptr)np->vm->pagetable,
+           (int)(PGROUNDUP(p->vm->sz) / PGSIZE));
   // Copy user memory from parent to child.
+  p->mmtrace = 1;          // the copies are allocated in the parent's context
   acquire(&p->vm->lock);
   if(uvmcopy(p->vm->pagetable, np->vm->pagetable, p->vm->sz) < 0){
+    p->mmtrace = 0;
     release(&p->vm->lock);
     freeproc(np);
     release(&np->lock);
@@ -595,6 +606,7 @@ fork(void)
   }
   np->vm->sz = p->vm->sz;
   release(&p->vm->lock);
+  p->mmtrace = 0;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

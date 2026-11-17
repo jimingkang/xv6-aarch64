@@ -107,6 +107,7 @@ struct vmspace {
 // Per-process state
 struct proc {
   struct spinlock lock;
+  int mmtrace;                 // MMU_TRACE=2: log this proc's page allocations (fork/exec)
 
   // p->lock must be held when using these:
   enum procstate state;        // Process state

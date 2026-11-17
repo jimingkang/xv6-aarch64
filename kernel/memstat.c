@@ -24,6 +24,7 @@
 #include "proc.h"
 #include "device.h"
 #include "memstat.h"
+#include "mmtrace.h"
 #include "defs.h"
 
 extern char etext[], end[];
@@ -267,4 +268,61 @@ iomem_format(char *buf, int max)
   kfree(e);
   kfree(res);
   return o.p - buf;
+}
+
+// ---- boot-time trace (MMU_TRACE >= 1) ----
+
+// After printf works: DRAM, kernel sections, page allocator, kernel L1 map.
+void
+mm_boot_report(void)
+{
+  if(!MMTRACE(1))
+    return;
+  struct iomem_region r[16];
+  int nr = arch_iomem_regions(r, 16);
+  for(int i = 0; i < nr; i++)
+    printf("mm: region %x-%x %s\n", (uint)r[i].start, (uint)r[i].end, r[i].name);
+  printf("mm: kernel code %x-%x (%d KiB)\n", (uint)V2P(KERNLINK), (uint)V2P(etext) - 1,
+         (int)((etext - (char*)KERNLINK) / 1024));
+  char *dend = bss_start ? bss_start : end;
+  if(ramdisk_start && ramdisk_end > ramdisk_start){
+    char *d = data_end ? data_end : ramdisk_start;
+    printf("mm: kernel data %x-%x (%d KiB)\n", (uint)V2P(etext), (uint)V2P(d) - 1,
+           (int)((d - etext) / 1024));
+    printf("mm: kernel ramdisk %x-%x (%d KiB, embedded root fs)\n", (uint)V2P(ramdisk_start),
+           (uint)V2P(ramdisk_end) - 1, (int)((ramdisk_end - ramdisk_start) / 1024));
+  } else
+    printf("mm: kernel data %x-%x (%d KiB)\n", (uint)V2P(etext), (uint)V2P(dend) - 1,
+           (int)((dend - etext) / 1024));
+  if(bss_start)
+    printf("mm: kernel bss  %x-%x (%d KiB)\n", (uint)V2P(bss_start), (uint)V2P(end) - 1,
+           (int)((end - bss_start) / 1024));
+  uint64 managed, nfree, lo, hi;
+  kmemstat(&managed, &nfree, &lo, &hi);
+  printf("mm: kinit: freerange %x-%x -> %d pages (%d KiB) on the kalloc freelist, PHYSTOP=%x\n",
+         (uint)lo, (uint)hi - 1, (int)managed, (int)(managed * PGSIZE / 1024), (uint)PHYSTOP);
+  vm_dump_kernel_map();
+}
+
+// After the platform devices are registered: the whole /proc/iomem tree.
+void
+mm_print_iomem(void)
+{
+  if(!MMTRACE(1))
+    return;
+  char *buf = kalloc();
+  if(buf == 0)
+    return;
+  int n = iomem_format(buf, PGSIZE - 1);
+  if(n > 0){
+    buf[n] = 0;
+    char *line = buf;
+    for(char *q = buf; *q; q++)
+      if(*q == '\n'){
+        *q = 0;
+        printf("mm: iomem %s\n", line);
+        line = q + 1;
+      }
+  }
+  kfree(buf);
 }

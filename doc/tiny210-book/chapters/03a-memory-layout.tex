@@ -205,6 +205,45 @@ $ cat /proc/iomem
 kalloc 2053a000--26ffffff、win32k 27000000--27ffffff、\texttt{s3c-fb framebuffer} 28000000--283fffff、
 Unused 28400000--3fffffff，然后是上一节表中的各个 MMIO 段。
 
+\section{MMU / 内存日志与动画}
+
+\texttt{make ... MMU\_TRACE=n}（默认 1，定义在 \texttt{kernel/mmtrace.h}）控制以下日志，
+每行以 \texttt{mm:}、\texttt{mmu:} 或 \texttt{exec:} 开头：
+\begin{itemize}
+\item \textbf{1 级}（启动）：DRAM 区域、内核 code/data/bss、kinit 放进空闲链表的页数、
+      内核 L1 表（合并为连续的 1 MiB 段并解码属性）、TTBR0/TTBCR/DACR/SCTLR，以及整棵 \texttt{/proc/iomem}；
+\item \textbf{2 级}：另加 userinit、fork、exec 的摘要（ELF LOAD 段、栈和保护页、共取了多少 kalloc 页、新 L1 根）；
+\item \textbf{3 级}：另加 fork/exec 期间的每个 kalloc 页、每张 L2 页表，以及 \texttt{readi} 读入的每一块。
+\end{itemize}
+
+QEMU 下 1 级的启动片段：
+\begin{lstlisting}
+mm: kinit: freerange 408c0000-46ffffff -> 26432 pages (105728 KiB) on the kalloc freelist, PHYSTOP=47000000
+mmu: TTBR0=404b4000 (kernel L1 root, 16 KiB aligned) TTBCR=0 DACR=1
+mmu: SCTLR=c51879: M(MMU)=1 C(D-cache)=0 Z(branch pred)=1 I(I-cache)=1
+mmu:   L1[1c..1c] VA 1c00000-1cfffff -> PA 1c00000  1 MiB  Strongly-ordered XN AP=1(priv RW) entry=1c00412
+mmu:   L1[400..47f] VA 40000000-47ffffff -> PA 40000000  128 MiB  Normal non-cacheable AP=1(priv RW) entry=40001402
+mmu:   L1[480..483] VA 48000000-483fffff -> PA 48000000  4 MiB  Normal non-cacheable XN AP=1(priv RW) entry=48001412
+\end{lstlisting}
+
+3 级下 \texttt{exec("/bin/sh")} 的片段：每个用户页先从 kalloc 取出、清零，再写 L2 PTE；
+\texttt{loadseg()} 再用 \texttt{readi()} 把文件内容直接读进这个物理页：
+\begin{lstlisting}
+exec: /bin/sh pid 5: inode 5, 45356 bytes, ELF entry 37c, 3 program headers
+mm:   L1 root roots[6] at 404cc000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 2254 filesz 21de file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe0000 -> L1[0] = 46fe0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe1000 -> VA 0 (PTE 46fe1072)
+exec:   readi inode 5 off 94 -> VA 0 (pa 46fe1000) 4096 bytes
+exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
+exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
+\end{lstlisting}
+
+配套动画 \texttt{doc/readme/tiny210/videos/memory-anim.mp4}（manim，约 76 秒）由
+\texttt{tools/manim/memory\_anim.py} 读取上面这份真实日志生成，共三段：内存初始化与 kinit 空闲链表；
+kvminit 建立内核 L1 表、段描述符各位的含义、打开 MMU；fork + exec \texttt{/bin/sh} 时的 L1 根、L2 表、
+kalloc 页和 readi 加载。重新生成用 \texttt{tools/manim/render.sh}。
+
 \section{可改进点}
 
 \begin{enumerate}

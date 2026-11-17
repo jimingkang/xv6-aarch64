@@ -133,6 +133,8 @@ void            kinit2(void *, void *);
 // memstat.c (/proc/meminfo, /proc/iomem)
 int             meminfo_format(char*, int);
 int             iomem_format(char*, int);
+void            mm_boot_report(void);
+void            mm_print_iomem(void);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -314,6 +316,7 @@ int             uartgetc(void);
 
 // vm.c
 void            vm_pagetable_stats(uint*, uint*);
+void            vm_dump_kernel_map(void);
 uint64          walkaddr(pagetable_t, uint64);
 pte_t*          walk(pagetable_t, uint64, int);
 void            kvminit(void);

@@ -150,7 +150,36 @@ $ cat /proc/iomem
 kalloc 2053a000-26ffffff、win32k 27000000-27ffffff、`s3c-fb framebuffer` 28000000-283fffff、
 Unused 28400000-3fffffff，然后是第 4 节表里的各个 MMIO 段。
 
-## 7. 观察到的可改进点
+## 7. MMU / 内存日志（MMU_TRACE）与动画
+
+`make ... MMU_TRACE=n`（默认 1，定义在 `kernel/mmtrace.h`）：
+
+| 级别 | 打印内容 |
+|---|---|
+| 0 | 关闭 |
+| 1 | 启动时：DRAM 区域、内核 code/data/bss、kinit 页数、内核 L1 表（合并后的 1 MiB 段 + 属性）、TTBR0/TTBCR/DACR/SCTLR、整棵 /proc/iomem |
+| 2 | 另加 userinit / fork / exec 的摘要（ELF LOAD 段、栈、取了多少 kalloc 页、新 L1 根） |
+| 3 | 另加 fork/exec 期间的每一个 kalloc 页、L2 页表、readi 读入的每一块 |
+
+QEMU 下抓日志：`make -f ports/tiny210/Makefile BUILD=build/tiny210-qemu QEMU_TEST=1 MMU_TRACE=3 qemu`。
+`exec("/bin/sh")` 在 3 级下的片段：
+
+```
+exec: /bin/sh pid 5: inode 5, 45356 bytes, ELF entry 37c, 3 program headers
+mm:   L1 root roots[6] at 404cc000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 2254 filesz 21de file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe0000 -> L1[0] = 46fe0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe1000 -> VA 0 (PTE 46fe1072)
+exec:   readi inode 5 off 94 -> VA 0 (pa 46fe1000) 4096 bytes
+exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
+exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
+```
+
+动画 `videos/memory-anim.mp4`（约 76 秒，manim，`tools/manim/memory_anim.py`）直接读这份日志
+（`tools/manim/qemu-mmu-trace3.log`），分三段：内存初始化与 kinit 空闲链表、kvminit 建内核 L1 表并打开 MMU、
+fork + exec `/bin/sh` 时的 L1 根、L2 表、kalloc 页和 readi 加载。重新生成：`tools/manim/render.sh`。
+
+## 8. 观察到的可改进点
 
 1. 512 MiB 只用 112 MiB：打开 D-cache 并处理好 DMA 缓存维护后，可以把 `USE_DRAM` 提到接近 DRAM 顶。
 2. L1 根池 4 MiB 静态占用 bss，可以改成按需从 kalloc 分配 4 个连续页（需要 16 KiB 对齐的分配器）。

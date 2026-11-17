@@ -162,12 +162,14 @@ void tiny210_main(uint r0, uint machid, uint r2) {
   boot_info(r0,machid,r2);
   printf("kernel %x-%x, DRAM %x-%x\n",KERNPA,(uint)(uintptr)end,DRAM_BASE,tiny210_phystop);
   printf("single CPU, ARMv7 MMU, embedded RAM disk\n");
+  mm_boot_report();        /* MMU_TRACE: DRAM, kernel sections, kalloc, L1 map */
   arm32_time_init();
   procinit();              /* before the drivers: some start kernel threads */
   workqueue_init();
   netinit();
   s5pv210_register_devices();
   do_initcalls();          /* drivers probe; interrupts stay off until scheduler() */
+  mm_print_iomem();        /* MMU_TRACE: resource tree incl. device MMIO */
 #ifdef XV6_HAVE_VFS
   /* Root: FS.IMG in the SD card's FAT32 partition (or a raw xv6 partition),
      else the built-in RAM disk. The FAT32 volume itself is mounted at /boot

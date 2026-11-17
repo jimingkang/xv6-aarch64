@@ -1,0 +1,95 @@
+xv6 ARM32 / QEMU cubieboard (Cortex-A8 stand-in for S5PV210)
+xv6: built 2026-11-17 19:10:14 (git cdf129d-dirty)
+kernel 40008000-408c0000, DRAM 40000000-47000000
+mm: region 40000000-5fffffff System RAM
+mm: region 40000000-40007fff Reserved (ATAGs, below kernel)
+mm: region 47000000-47ffffff win32k surface arena
+mm: region 48400000-5fffffff Unused (outside page allocator)
+mm: kernel code 40008000-40020fff (100 KiB)
+mm: kernel data 40021000-400237af (9 KiB)
+mm: kernel ramdisk 40024000-40423fff (4096 KiB, embedded root fs)
+mm: kernel bss  40424000-408bffff (4720 KiB)
+mm: kinit: freerange 408c0000-46ffffff -> 26432 pages (105728 KiB) on the kalloc freelist, PHYSTOP=47000000
+mmu: TTBR0=404b4000 (kernel L1 root, 16 KiB aligned) TTBCR=0 DACR=1
+mmu: SCTLR=c51879: M(MMU)=1 C(D-cache)=0 Z(branch pred)=1 I(I-cache)=1
+mmu: kernel L1 (short descriptors, 1 MiB sections, VA = PA):
+mmu:   L1[1c..1c] VA 1c00000-1cfffff -> PA 1c00000  1 MiB  Strongly-ordered XN AP=1(priv RW) entry=1c00412
+mmu:   L1[400..47f] VA 40000000-47ffffff -> PA 40000000  128 MiB  Normal non-cacheable AP=1(priv RW) entry=40001402
+mmu:   L1[480..483] VA 48000000-483fffff -> PA 48000000  4 MiB  Normal non-cacheable XN AP=1(priv RW) entry=48001412
+mmu: 133 of 4096 L1 entries are sections; the rest fault. User VA 0-1fffffff uses L2 tables per process.
+mm: iomem 01c20400-01c207ff : sun4i-intc intc
+mm: iomem 01c20c00-01c20fff : sun4i-timer timer
+mm: iomem 01c28000-01c283ff : sun4i-uart uart0
+mm: iomem 40000000-5fffffff : System RAM
+mm: iomem   40000000-40007fff : Reserved (ATAGs, below kernel)
+mm: iomem   40008000-40020fff : Kernel code
+mm: iomem   40021000-400237af : Kernel data
+mm: iomem   40024000-40423fff : Kernel ramdisk (root fs)
+mm: iomem   40424000-408bffff : Kernel bss
+mm: iomem   408c0000-46ffffff : Page allocator (kalloc)
+mm: iomem   47000000-47ffffff : win32k surface arena
+mm: iomem   48000000-483fffff : simple-framebuffer framebuffer
+mm: iomem   48400000-5fffffff : Unused (outside page allocator)
+xv6fs: fat32: cannot read SD sector 0; using the built-in RAM disk
+mm: userinit: pid 4 kstack pa 46ff4000, L1 root 404c4000, initcode 48 bytes -> VA 0 (pa 46ff3000)
+exec: /init pid 4: inode 3, 21032 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[5] at 404c8000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz dc8 filesz dc8 file off 98 flags 7
+mm:   L2 table: kalloc pa 46fef000 -> L1[0] = 46fef001 (VA 0-fffff)
+mm:   page: kalloc pa 46ff0000 -> VA 0 (PTE 46ff0072)
+exec:   readi inode 3 off 98 -> VA 0 (pa 46ff0000) 3528 bytes
+mm:   page: kalloc pa 46fee000 -> VA 1000 (PTE 46fee072)
+mm:   page: kalloc pa 46fed000 -> VA 2000 (PTE 46fed072)
+mm:   page: kalloc pa 46fec000 -> VA 3000 (PTE 46fec072)
+mm:   page: kalloc pa 46feb000 -> VA 4000 (PTE 46feb072)
+mm:   page: kalloc pa 46fea000 -> VA 5000 (PTE 46fea072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /init pid 4: sz 6000 sp 5fe0 entry 0, 7 kalloc pages, new L1 root 404c8000
+mm: fork: init pid 4 -> pid 5: kstack pa 46ff2000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46ff0000 -> kalloc pa 46fe9000
+mm:   L2 table: kalloc pa 46fe8000 -> L1[0] = 46fe8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fee000 -> kalloc pa 46fe7000
+mm:   copy: VA 2000 pa 46fed000 -> kalloc pa 46fe6000
+mm:   copy: VA 3000 pa 46fec000 -> kalloc pa 46fe5000
+mm:   copy: VA 4000 pa 46feb000 -> kalloc pa 46fe4000
+mm:   copy: VA 5000 pa 46fea000 -> kalloc pa 46fe3000
+exec: /bin/sh pid 5: inode 5, 45356 bytes, ELF entry 37c, 3 program headers
+mm:   L1 root roots[6] at 404cc000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 2254 filesz 21de file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe0000 -> L1[0] = 46fe0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe1000 -> VA 0 (PTE 46fe1072)
+mm:   page: kalloc pa 46fdf000 -> VA 1000 (PTE 46fdf072)
+mm:   page: kalloc pa 46fde000 -> VA 2000 (PTE 46fde072)
+exec:   readi inode 5 off 94 -> VA 0 (pa 46fe1000) 4096 bytes
+exec:   readi inode 5 off 1094 -> VA 1000 (pa 46fdf000) 4096 bytes
+exec:   readi inode 5 off 2094 -> VA 2000 (pa 46fde000) 478 bytes
+mm:   page: kalloc pa 46fdd000 -> VA 3000 (PTE 46fdd072)
+mm:   page: kalloc pa 46fdc000 -> VA 4000 (PTE 46fdc072)
+mm:   page: kalloc pa 46fdb000 -> VA 5000 (PTE 46fdb072)
+mm:   page: kalloc pa 46fda000 -> VA 6000 (PTE 46fda072)
+mm:   page: kalloc pa 46fd9000 -> VA 7000 (PTE 46fd9072)
+exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
+exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
+mm: fork: sh pid 5 -> pid 6: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fe4000
+mm:   L2 table: kalloc pa 46fe5000 -> L1[0] = 46fe5001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fe6000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fe7000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fe9000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd8000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fd7000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fd6000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fd5000
+exec: /bin/echo pid 6: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fc9000 -> L1[0] = 46fc9001 (VA 0-fffff)
+mm:   page: kalloc pa 46fca000 -> VA 0 (PTE 46fca072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fca000) 1504 bytes
+mm:   page: kalloc pa 46fc8000 -> VA 1000 (PTE 46fc8072)
+mm:   page: kalloc pa 46fc7000 -> VA 2000 (PTE 46fc7072)
+mm:   page: kalloc pa 46fc6000 -> VA 3000 (PTE 46fc6072)
+mm:   page: kalloc pa 46fc5000 -> VA 4000 (PTE 46fc5072)
+mm:   page: kalloc pa 46fc4000 -> VA 5000 (PTE 46fc4072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 6: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
