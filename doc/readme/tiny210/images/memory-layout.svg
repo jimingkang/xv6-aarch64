@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1054" viewBox="0 0 1640 1054" font-family="'PingFang SC','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12">
-<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker><marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker><marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a93d8c"/></marker></defs>
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker><marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker><marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2160a0"/></marker><marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a93d8c"/></marker></defs>
 <rect width="1640" height="1054" fill="#ffffff"/>
 <text x="820.0" y="34" text-anchor="middle" font-size="22" font-weight="600" fill="#222">xv6 Tiny210 内核（QEMU 替身）内存布局：虚拟地址 ↔ 物理地址 ↔ /proc/iomem、/proc/meminfo</text>
 <text x="820.0" y="58" text-anchor="middle" font-size="13" fill="#555">QEMU cubieboard 地址（DRAM 0x40000000，512 MiB），取自 MMU_TRACE=3 日志与 /proc 实测；实板 DRAM 在 0x20000000，偏移相同。纵轴高地址在上，不按比例。</text>
@@ -156,35 +156,42 @@
 <text x="520.0" y="163" text-anchor="middle" font-size="11.5" fill="#555">内核：1 MiB 段，VA = PA</text>
 <text x="520.0" y="177" text-anchor="middle" font-size="11" fill="#777">DRAM：Normal 不可缓存（D-cache 关）</text>
 <text x="520.0" y="191" text-anchor="middle" font-size="11" fill="#777">MMIO：Strongly-ordered, XN</text>
-<path d="M344,837.0 L651,837.0 C676,837.0 676,398 696,398" fill="none" stroke="#d35400" stroke-width="2" marker-end="url(#arO)"/>
-<text x="352" y="853.0" font-size="11.5" fill="#d35400" font-weight="600">L2 页表：4 KiB 用户页 → 任意 kalloc 页</text>
-<text x="352" y="867.0" font-size="11" fill="#d35400">（AnonPages；页表本身也是 kalloc 页）</text>
+<rect x="706" y="393" width="92" height="17" rx="2" fill="#ffffff" stroke="#2160a0" stroke-width="1.5"/>
+<text x="711" y="406" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11" fill="#2160a0">46FE1000</text>
+<rect x="46" y="393" width="128" height="17" rx="2" fill="#ffffff" stroke="#2160a0" stroke-width="1.5"/>
+<text x="51" y="406" font-family="Menlo,'SF Mono',Consolas,monospace" font-size="11" fill="#2160a0">内核 VA 46FE1000</text>
+<line x1="176" y1="401" x2="704" y2="401" stroke="#2160a0" stroke-width="1.6" stroke-dasharray="6 3" marker-end="url(#arB)"/>
+<text x="354" y="396" font-size="11" fill="#2160a0">内核：L1[46f] 段，VA = PA（AP=01）</text>
+<path d="M344,837.0 L659,837.0 C684,837.0 684,407 704,407" fill="none" stroke="#d35400" stroke-width="2" marker-end="url(#arO)"/>
+<text x="352" y="853.0" font-size="11.5" fill="#d35400" font-weight="600">用户：VA 0 → L1[000] → L2[0]=46fe1072 → 46FE1000</text>
+<text x="352" y="867.0" font-size="11" fill="#d35400">（同一物理页，内核另有 VA 46FE1000 这个入口）</text>
 <path d="M344,708.0 L606,708.0 C636,708.0 636,270 696,270" fill="none" stroke="#a93d8c" stroke-width="2" marker-end="url(#arP)"/>
 <text x="352" y="702.0" font-size="11.5" fill="#a93d8c" font-weight="600">remap_pfn_range：1 MiB 用户段 → 帧缓冲</text>
 <text x="40" y="890" font-size="14" font-weight="600" fill="#222">说明</text>
-<text x="40" y="912" font-size="12.5" fill="#333">QEMU 特例：A10 外设在 0x01C00000，kvminit 给它写的段 L1[01c] 落在用户窗口内；用户页长到 0x01C00000 时 walk() 遇到段而失败，所以 QEMU 上单进程约 28 MiB 封顶（实板外设在 0xE0000000 以上，无此问题）。</text>
-<text x="40" y="932" font-size="12.5" fill="#333">对应关系：/proc/iomem 的每一行就是右侧物理区域；MMIO 行来自 devices.c 平台设备的 MEM 资源，DRAM 子区来自 setup.c 的 arch_iomem_regions() 和内核链接符号。</text>
-<text x="40" y="952" font-size="12.5" fill="#333">/proc/meminfo：MemTotal/MemFree = kalloc 区；KernelText/Data/Bss = 内核镜像三段；PageTables = L1 根（bss 里的静态池，16 KiB/个）+ L2 表（kalloc 页）；</text>
-<text x="40" y="972" font-size="12.5" fill="#333">Buffers = bss 里的 bcache（30×1 KiB）；KernelStack 与 AnonPages 都从 kalloc 区分配。512 MiB DRAM 只有 112 MiB 交给 kalloc（PHYSTOP = 0x47000000），其余为保留区或未使用。</text>
-<text x="40" y="992" font-size="12.5" fill="#333">每个进程的 L1 表 = 内核 L1 表的拷贝（uvmcreate 复制 16 KiB）+ 自己的用户映射，因此所有进程都能看到内核映射，但 AP 位只允许特权级访问。</text>
-<rect x="40" y="1015" width="16" height="12" fill="#c6d8f7" stroke="#1f5fae"/>
-<text x="62" y="1026" font-size="12" fill="#333">内核镜像</text>
-<rect x="144" y="1015" width="16" height="12" fill="#d9f2df" stroke="#1e8449"/>
-<text x="166" y="1026" font-size="12" fill="#333">页分配器</text>
-<rect x="248" y="1015" width="16" height="12" fill="#efe1f7" stroke="#8e44ad"/>
-<text x="270" y="1026" font-size="12" fill="#333">win32k</text>
-<rect x="378" y="1015" width="16" height="12" fill="#e3d7f5" stroke="#6c3fb5"/>
-<text x="400" y="1026" font-size="12" fill="#333">帧缓冲</text>
-<rect x="469" y="1015" width="16" height="12" fill="#fff3cd" stroke="#b7950b"/>
-<text x="491" y="1026" font-size="12" fill="#333">ATAG 保留</text>
-<rect x="612" y="1015" width="16" height="12" fill="#ececec" stroke="#8a8a8a"/>
-<text x="634" y="1026" font-size="12" fill="#333">未使用 DRAM</text>
-<rect x="768" y="1015" width="16" height="12" fill="#fde2e1" stroke="#c0392b"/>
-<text x="790" y="1026" font-size="12" fill="#333">MMIO</text>
-<rect x="872" y="1015" width="16" height="12" fill="#fde9cf" stroke="#d35400"/>
-<text x="894" y="1026" font-size="12" fill="#333">用户页</text>
-<rect x="963" y="1015" width="16" height="12" fill="#f6e0f0" stroke="#a93d8c"/>
-<text x="985" y="1026" font-size="12" fill="#333">mmap 窗口</text>
-<rect x="1106" y="1015" width="16" height="12" fill="#f2f2f2" stroke="#9a9a9a"/>
-<text x="1128" y="1026" font-size="12" fill="#333">无映射 / 非 DRAM</text>
+<text x="40" y="912" font-size="12.5" fill="#333">同一物理页两个虚拟地址：/bin/sh 的代码页 PA 0x46FE1000，用户态经 VA 0（L1[000] → L2[0]，AP=11）访问；内核经 VA 0x46FE1000（L1[46f] 段，VA = PA，AP=01）访问，loadseg/copyout 就靠它直接写用户页。</text>
+<text x="40" y="932" font-size="12.5" fill="#333">QEMU 特例：A10 外设在 0x01C00000，kvminit 给它写的段 L1[01c] 落在用户窗口内；用户页长到 0x01C00000 时 walk() 遇到段而失败，所以 QEMU 上单进程约 28 MiB 封顶（实板外设在 0xE0000000 以上，无此问题）。</text>
+<text x="40" y="952" font-size="12.5" fill="#333">对应关系：/proc/iomem 的每一行就是右侧物理区域；MMIO 行来自 devices.c 平台设备的 MEM 资源，DRAM 子区来自 setup.c 的 arch_iomem_regions() 和内核链接符号。</text>
+<text x="40" y="972" font-size="12.5" fill="#333">/proc/meminfo：MemTotal/MemFree = kalloc 区；KernelText/Data/Bss = 内核镜像三段；PageTables = L1 根（bss 里的静态池，16 KiB/个）+ L2 表（kalloc 页）；</text>
+<text x="40" y="992" font-size="12.5" fill="#333">Buffers = bss 里的 bcache（30×1 KiB）；KernelStack 与 AnonPages 都从 kalloc 区分配。512 MiB DRAM 只有 112 MiB 交给 kalloc（PHYSTOP = 0x47000000），其余为保留区或未使用。</text>
+<text x="40" y="1012" font-size="12.5" fill="#333">每个进程的 L1 表 = 内核 L1 表的拷贝（uvmcreate 复制 16 KiB）+ 自己的用户映射，因此所有进程都能看到内核映射，但 AP 位只允许特权级访问。</text>
+<rect x="40" y="1035" width="16" height="12" fill="#c6d8f7" stroke="#1f5fae"/>
+<text x="62" y="1046" font-size="12" fill="#333">内核镜像</text>
+<rect x="144" y="1035" width="16" height="12" fill="#d9f2df" stroke="#1e8449"/>
+<text x="166" y="1046" font-size="12" fill="#333">页分配器</text>
+<rect x="248" y="1035" width="16" height="12" fill="#efe1f7" stroke="#8e44ad"/>
+<text x="270" y="1046" font-size="12" fill="#333">win32k</text>
+<rect x="378" y="1035" width="16" height="12" fill="#e3d7f5" stroke="#6c3fb5"/>
+<text x="400" y="1046" font-size="12" fill="#333">帧缓冲</text>
+<rect x="469" y="1035" width="16" height="12" fill="#fff3cd" stroke="#b7950b"/>
+<text x="491" y="1046" font-size="12" fill="#333">ATAG 保留</text>
+<rect x="612" y="1035" width="16" height="12" fill="#ececec" stroke="#8a8a8a"/>
+<text x="634" y="1046" font-size="12" fill="#333">未使用 DRAM</text>
+<rect x="768" y="1035" width="16" height="12" fill="#fde2e1" stroke="#c0392b"/>
+<text x="790" y="1046" font-size="12" fill="#333">MMIO</text>
+<rect x="872" y="1035" width="16" height="12" fill="#fde9cf" stroke="#d35400"/>
+<text x="894" y="1046" font-size="12" fill="#333">用户页</text>
+<rect x="963" y="1035" width="16" height="12" fill="#f6e0f0" stroke="#a93d8c"/>
+<text x="985" y="1046" font-size="12" fill="#333">mmap 窗口</text>
+<rect x="1106" y="1035" width="16" height="12" fill="#f2f2f2" stroke="#9a9a9a"/>
+<text x="1128" y="1046" font-size="12" fill="#333">无映射 / 非 DRAM</text>
 </svg>

@@ -102,6 +102,8 @@ o('<defs>'
   '<path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>'
   '<marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
   '<path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker>'
+  '<marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+  '<path d="M0,0 L10,5 L0,10 z" fill="#2160a0"/></marker>'
   '<marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
   '<path d="M0,0 L10,5 L0,10 z" fill="#a93d8c"/></marker>'
   '</defs>')
@@ -184,14 +186,23 @@ o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 13}" text-anchor="middle" font-
 o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 27}" text-anchor="middle" font-size="11" fill="#777">DRAM：Normal 不可缓存（D-cache 关）</text>')
 o(f'<text x="{(VX+VW+PX)/2}" y="{R["top"]["y"] + 41}" text-anchor="middle" font-size="11" fill="#777">MMIO：Strongly-ordered, XN</text>')
 
+# One physical page, two virtual addresses (QEMU log: /bin/sh, pid 5).
+ka = R["kalloc"]
+my_ = ka["y"] + ka["h"] - 12
+o(f'<rect x="{PX + 6}" y="{my_ - 11}" width="92" height="17" rx="2" fill="#ffffff" stroke="#2160a0" stroke-width="1.5"/>')
+o(f'<text x="{PX + 11}" y="{my_ + 2}" font-family="{MONO}" font-size="11" fill="#2160a0">46FE1000</text>')
+o(f'<rect x="{VX + 6}" y="{my_ - 11}" width="128" height="17" rx="2" fill="#ffffff" stroke="#2160a0" stroke-width="1.5"/>')
+o(f'<text x="{VX + 11}" y="{my_ + 2}" font-family="{MONO}" font-size="11" fill="#2160a0">内核 VA 46FE1000</text>')
+o(f'<line x1="{VX + 136}" y1="{my_ - 3}" x2="{PX + 4}" y2="{my_ - 3}" stroke="#2160a0" stroke-width="1.6" stroke-dasharray="6 3" marker-end="url(#arB)"/>')
+o(f'<text x="{VX + VW + 14}" y="{my_ - 8}" font-size="11" fill="#2160a0">内核：L1[46f] 段，VA = PA（AP=01）</text>')
+
 # User pages -> kalloc frames.
 u = V["vuser"]
-ka = R["kalloc"]
 x1, y1 = VX + VW + 4, u["y"] + u["h"]/2
-x2, y2 = PX - 4, ka["y"] + ka["h"] - 18
+x2, y2 = PX + 4, my_ + 3
 o(f'<path d="M{x1},{y1} L{x2-45},{y1} C{x2-20},{y1} {x2-20},{y2} {x2},{y2}" fill="none" stroke="#d35400" stroke-width="2" marker-end="url(#arO)"/>')
-o(f'<text x="{x1 + 8}" y="{y1 + 16}" font-size="11.5" fill="#d35400" font-weight="600">L2 页表：4 KiB 用户页 → 任意 kalloc 页</text>')
-o(f'<text x="{x1 + 8}" y="{y1 + 30}" font-size="11" fill="#d35400">（AnonPages；页表本身也是 kalloc 页）</text>')
+o(f'<text x="{x1 + 8}" y="{y1 + 16}" font-size="11.5" fill="#d35400" font-weight="600">用户：VA 0 → L1[000] → L2[0]=46fe1072 → 46FE1000</text>')
+o(f'<text x="{x1 + 8}" y="{y1 + 30}" font-size="11" fill="#d35400">（同一物理页，内核另有 VA 46FE1000 这个入口）</text>')
 
 # mmap window -> framebuffer.
 m = V["vmmap"]
@@ -207,6 +218,7 @@ o(f'<text x="{x1 + 8}" y="{y1 - 6}" font-size="11.5" fill="#a93d8c" font-weight=
 # Legend / notes.
 ny = BOTTOM + 36
 notes = [
+    "同一物理页两个虚拟地址：/bin/sh 的代码页 PA 0x46FE1000，用户态经 VA 0（L1[000] → L2[0]，AP=11）访问；内核经 VA 0x46FE1000（L1[46f] 段，VA = PA，AP=01）访问，loadseg/copyout 就靠它直接写用户页。",
     "QEMU 特例：A10 外设在 0x01C00000，kvminit 给它写的段 L1[01c] 落在用户窗口内；用户页长到 0x01C00000 时 walk() 遇到段而失败，所以 QEMU 上单进程约 28 MiB 封顶（实板外设在 0xE0000000 以上，无此问题）。",
     "对应关系：/proc/iomem 的每一行就是右侧物理区域；MMIO 行来自 devices.c 平台设备的 MEM 资源，DRAM 子区来自 setup.c 的 arch_iomem_regions() 和内核链接符号。",
     "/proc/meminfo：MemTotal/MemFree = kalloc 区；KernelText/Data/Bss = 内核镜像三段；PageTables = L1 根（bss 里的静态池，16 KiB/个）+ L2 表（kalloc 页）；",
