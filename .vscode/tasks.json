@@ -1,0 +1,55 @@
+{
+  // QEMU (cubieboard stand-in for Tiny210) halted on :1234 for the debugger,
+  // monitor on :4444 (nc localhost 4444: info usb / device_add / device_del).
+  // See ports/tiny210/qemu-usb-debug.sh.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "qemu-usb: storage",
+      "type": "shell",
+      "command": "${workspaceFolder}/ports/tiny210/qemu-usb-debug.sh storage",
+      "options": { "env": { "USB_CORE_TRACE": "0", "USB_ENUM_TRACE": "1", "USB_XFER_TRACE": "0", "USBHID_TRACE": "0" } },
+      "isBackground": true,
+      "presentation": { "panel": "dedicated", "reveal": "always", "focus": false },
+      "problemMatcher": {
+        "owner": "qemu", "pattern": { "regexp": "^__never__$" },
+        "background": { "activesBegin": true, "beginsPattern": "^.", "endsPattern": "qemu-usb-debug: waiting for gdb" }
+      }
+    },
+    {
+      "label": "qemu-usb: usb-kbd",
+      "type": "shell",
+      "command": "${workspaceFolder}/ports/tiny210/qemu-usb-debug.sh none -device usb-kbd,bus=usb-bus.0,id=k",
+      "options": { "env": { "USB_CORE_TRACE": "0", "USB_ENUM_TRACE": "1", "USB_XFER_TRACE": "0", "USBHID_TRACE": "0" } },
+      "isBackground": true,
+      "presentation": { "panel": "dedicated", "reveal": "always", "focus": false },
+      "problemMatcher": {
+        "owner": "qemu", "pattern": { "regexp": "^__never__$" },
+        "background": { "activesBegin": true, "beginsPattern": "^.", "endsPattern": "qemu-usb-debug: waiting for gdb" }
+      }
+    },
+    {
+      "label": "qemu-usb: Mac device passthrough",
+      "type": "shell",
+      "command": "${workspaceFolder}/ports/tiny210/qemu-usb-debug.sh host",
+      "options": { "env": { "USB_VID": "${input:usbVid}", "USB_PID": "${input:usbPid}", "USB_CORE_TRACE": "0", "USB_ENUM_TRACE": "1", "USB_XFER_TRACE": "0", "USBHID_TRACE": "0" } },
+      "isBackground": true,
+      "presentation": { "panel": "dedicated", "reveal": "always", "focus": false },
+      "problemMatcher": {
+        "owner": "qemu", "pattern": { "regexp": "^__never__$" },
+        "background": { "activesBegin": true, "beginsPattern": "^.", "endsPattern": "qemu-usb-debug: waiting for gdb" }
+      }
+    },
+    {
+      "label": "qemu-usb: stop",
+      "type": "shell",
+      "command": "pkill -f 'qemu-system-arm.*tiny210-qemu-usb' || true",
+      "presentation": { "reveal": "never" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    { "id": "usbVid", "type": "promptString", "description": "USB vendor id (QEMU monitor: info usbhost)", "default": "0x046d" },
+    { "id": "usbPid", "type": "promptString", "description": "USB product id", "default": "0xc534" }
+  ]
+}

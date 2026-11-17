@@ -1,0 +1,184 @@
+qemu-usb-debug: waiting for gdb on :1234, monitor on :4444
+
+
+xv6 ARM32 / QEMU cubieboard (Cortex-A8 stand-in for S5PV210)
+xv6: built 2026-11-17 18:20:07 (git 5b5cac9-dirty)
+boot: r0=0 machid=4104 r2=40000100
+atags: at 40000100
+atags: memory 40000000 + 512 MiB
+atags: cmdline "console=ttySAC0,115200"
+kernel 40008000-408ce000, DRAM 40000000-47000000
+single CPU, ARMv7 MMU, embedded RAM disk
+irqchip: sun4i-intc at 1c20400
+clocksource: sun4i-timer0 at 24000000 Hz
+usb-core: register bus
+win32k: Tiny210 compositor, 16 MiB cached surface arena
+input: handler kbd registered
+serial: 8250 (sun4i) at 1c28000 (console)
+fb0: simplefb 640x480 32 bpp, 1228800 bytes at 48000000
+usb-core: register driver=usbkbd
+usb-core: register driver=usbmouse
+usb-enum: platform probe mmio=1c14000 irq=39
+ehci: s5p-ehci at 1c14000, enumeration deferred to ehci-enum
+xv6fs: fat32: cannot read SD sector 0; using the built-in RAM disk
+vfs: native root rw; waiting for /etc/fstab mounts
+usb-enum: ehci-enum kthread entered
+usb-enum: controller start cap=1c14000
+usb-enum: caplength=32 op=1c14020 hcsparams=1306 hccparams=80 ports=6
+ehci: INSNREG01 thresholds 0 -> 0
+usb-enum: async-head=408c1800 USBINTR=3 USBCMD=10031 CONFIGFLAG=1
+vfs: mounted procfs at /proc read-only
+init: starting sh
+ehci: 6 port(s), hccparams 80, running, async schedule on, periodic on
+usb-enum: root-port=0 PORTSC=1003 connected=1 enabled=0 line=0
+ehci: port 0: high-speed device connected
+usb-enum: enumerate begin addr=0 speed=high parent-hub=0 port=0 depth=0
+usb-xfer: qh-create qh=408c18c0 addr=0 ep=0 speed=2 mps=64 control=1 tt=0/0
+usb-xfer: control begin addr=0 type=80 req=6 value=100 index=0 len=8
+usb-xfer: irq=39 status=5 usbcmd=10031
+usb-xfer: control end addr=0 req=6 result=8
+usb-enum: device descriptor[0:8] mps0=64; assigning address=1
+usb-xfer: control begin addr=0 type=0 req=5 value=1 index=0 len=0
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=0 req=5 result=0
+usb-xfer: qh-create qh=408c1920 addr=1 ep=0 speed=2 mps=64 control=1 tt=0/0
+usb-xfer: control begin addr=1 type=80 req=6 value=100 index=0 len=18
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=6 result=18
+usb-enum: device addr=1 vid:pid=627:1 device-class=0/0/0
+usb-xfer: control begin addr=1 type=80 req=6 value=200 index=0 len=9
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=6 result=9
+usb-enum: configuration addr=1 value=1 total=34
+usb-xfer: control begin addr=1 type=80 req=6 value=200 index=0 len=34
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=6 result=34
+usb-enum: interface=0 class=3/1/1 endpoints=1
+usb-enum: endpoint addr=81 ep=1 dir=IN type=3 mps=8 interval=7
+usb-xfer: control begin addr=1 type=0 req=9 value=1 index=0 len=0
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=9 result=0
+ehci: high-speed device 627:1 class 3 at address 1 (hub 0 port 0)
+ehci:   bulk in 0,0/0 out 0/0 (0 OUT endpoints) intr in 1
+usb-enum: register non-hub addr=1 vid:pid=627:1 on usb bus
+usb-core: register device=627:1 addr=1 class=3/1/1
+usb-core: match device=627:1 class=3/1/1 driver=usbkbd
+usb-core: probe begin driver=usbkbd device=627:1 addr=1
+usbkbd: probe 627:1 addr 1 iface 0 class 3/1/1 intr-in ep1 mps 8 interval 7
+usb-xfer: control begin addr=1 type=21 req=b value=0 index=0 len=0
+usb-xfer: irq=39 status=1 usbcmd=10031
+$ usb-xfer: control end addr=1 req=b result=0
+usbkbd: SET_PROTOCOL(boot) ok
+usb-xfer: control begin addr=1 type=21 req=a value=0 index=0 len=0
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=a result=0
+usbkbd: SET_IDLE(0) ok
+usbkbd: SET_REPORT(output) leds=0 (caps=0)
+usb-xfer: control begin addr=1 type=21 req=9 value=200 index=0 len=1
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=9 result=1
+input: USB HID Boot Keyboard registered as /dev/input/event0
+usb-xfer: qh-intr qh=408c1980 addr=1 ep=1 speed=2 mps=8 tt=0/0
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: 627:1 keyboard on ep1 in, mps 8, interval 7
+usb-core: probe end driver=usbkbd device=627:1 result=0
+usb-enum: root-port=1 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=2 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=3 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=4 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=5 PORTSC=1000 connected=0 enabled=0 line=0
+usb-xfer: irq=39 status=9 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: first report mod=0 keys=4,0,0,0,0,0
+usbkbd:   usage 0x4 -> KEY 30 down
+kbd: KEY 30 -> console 61 mods=0 caps=0
+ausb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #2 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x4 -> KEY 30 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=9 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #3 mod=2 keys=0,0,0,0,0,0
+usbkbd:   modifier usage 0xe1 -> KEY 42 down
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #4 mod=2 keys=5,0,0,0,0,0
+usbkbd:   usage 0x5 -> KEY 48 down
+kbd: KEY 48 -> console 42 mods=1 caps=0
+Busb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #5 mod=2 keys=0,0,0,0,0,0
+usbkbd:   usage 0x5 -> KEY 48 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #6 mod=0 keys=0,0,0,0,0,0
+usbkbd:   modifier usage 0xe1 -> KEY 42 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=9 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #7 mod=0 keys=39,0,0,0,0,0
+usbkbd:   usage 0x39 -> KEY 58 down
+usbkbd: SET_REPORT(output) leds=2 (caps=1)
+usb-xfer: control begin addr=1 type=21 req=9 value=200 index=0 len=1
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: control end addr=1 req=9 result=1
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #8 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x39 -> KEY 58 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=9 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #9 mod=0 keys=6,0,0,0,0,0
+usbkbd:   usage 0x6 -> KEY 46 down
+kbd: KEY 46 -> console 43 mods=0 caps=1
+Cusb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #10 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x6 -> KEY 46 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+usb-xfer: irq=39 status=9 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=-7fff7300 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #11 mod=0 keys=28,0,0,0,0,0
+usbkbd:   usage 0x28 -> KEY 28 down
+kbd: KEY 28 -> console a mods=0 caps=1
+
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+exec aBC failed
+$ usb-xfer: irq=39 status=1 usbcmd=10031
+usb-xfer: intr-complete addr=1 ep=1 token=8d00 len=8
+usbkbd: urb done status=0 len=8
+usbkbd: report #12 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x28 -> KEY 28 up
+usb-xfer: intr-submit addr=1 ep=1 len=8
+usbkbd: urb resubmitted ep1 len 8
+qemu-system-arm: terminating on signal 15 from pid 3927 (<unknown process>)

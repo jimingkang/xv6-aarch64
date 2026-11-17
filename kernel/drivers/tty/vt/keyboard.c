@@ -23,6 +23,10 @@
 
 int win32k_owns_input(void) __attribute__((weak));
 
+#ifndef USBHID_TRACE
+#define USBHID_TRACE 0
+#endif
+
 #define MOD_LSHIFT (1U << 0)
 #define MOD_RSHIFT (1U << 1)
 #define MOD_LCTRL  (1U << 2)
@@ -139,8 +143,17 @@ kbd_event(struct input_dev *dev, uint16 type, uint16 code, int value)
     }
   }
   release(&kbd_lock);
-  if(n && win32k_owns_input && win32k_owns_input())
+  if(n && win32k_owns_input && win32k_owns_input()){
+#if USBHID_TRACE >= 2
+    printf("kbd: KEY %d -> win32k (console skipped)\n", code);
+#endif
     return;
+  }
+#if USBHID_TRACE >= 2
+  if(n)
+    printf("kbd: KEY %d -> console %x%s mods=%x caps=%d\n", code,
+           (uchar)out[0], n > 1 ? "..." : "", modifiers, capslock);
+#endif
   for(int i = 0; i < n; i++)
     consoleintr(out[i]);
 }

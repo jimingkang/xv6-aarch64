@@ -10,7 +10,10 @@ static char *event_name(unsigned short type, unsigned short code)
   if(type == EV_SYN && code == SYN_DROPPED)
     return "SYN_DROPPED";
   if(type == EV_KEY)
-    return "EV_KEY";
+    return code >= BTN_MOUSE ? "EV_KEY(BTN)" : "EV_KEY";
+  if(type == EV_REL)
+    return code == REL_X ? "REL_X" : code == REL_Y ? "REL_Y" :
+           code == REL_WHEEL ? "REL_WHEEL" : "EV_REL";
   return "UNKNOWN";
 }
 

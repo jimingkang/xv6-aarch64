@@ -96,8 +96,9 @@ input_queue_locked(struct input_dev *dev, uint16 type, uint16 code, int value)
     if(dev->handlers[i])
       dev->handlers[i]->event(dev, type, code, value);
   /* The hook only appends to win32k's raw queue and schedules work; it does
-     not compose or sleep while the input spinlock is held. */
-  if(win32k_input_event && type != EV_SYN)
+     not compose or sleep while the input spinlock is held.  SYN_REPORT is
+     passed on too: win32k applies a mouse frame's motion once per frame. */
+  if(win32k_input_event)
     win32k_input_event(type, code, value);
   dev->sync_pending = !(type == EV_SYN && code == SYN_REPORT);
 }
@@ -248,9 +249,12 @@ input_free_device(struct input_dev *dev)
 void
 input_set_capability(struct input_dev *dev, int type, int code)
 {
-  if(dev == 0 || type != EV_KEY || code <= KEY_RESERVED || code > KEY_MAX)
+  if(dev == 0)
     return;
-  dev->keybit[code / 32] |= 1U << (code % 32);
+  if(type == EV_REL && code >= 0 && code <= REL_MAX)
+    dev->relbit |= 1U << code;
+  else if(type == EV_KEY && code > KEY_RESERVED && code <= KEY_MAX)
+    dev->keybit[code / 32] |= 1U << (code % 32);
 }
 
 int
@@ -394,13 +398,25 @@ input_report_key(struct input_dev *dev, int code, int value)
   release(&dev->lock);
 }
 
+// Relative motion (mice): no state, so every non-zero delta is an event.
+void
+input_report_rel(struct input_dev *dev, int code, int value)
+{
+  if(dev == 0 || code < 0 || code > REL_MAX || value == 0)
+    return;
+  acquire(&dev->lock);
+  if(dev->registered && !dev->disconnected && (dev->relbit & (1U << code)))
+    input_queue_locked(dev, EV_REL, code, value);
+  release(&dev->lock);
+}
+
 void
 input_sync(struct input_dev *dev)
 {
   if(dev == 0)
     return;
   acquire(&dev->lock);
-  // Like Linux, a frame with no state change produces no SYN_REPORT.
+  // Like Linux, a frame with no change produces no SYN_REPORT.
   if(dev->registered && !dev->disconnected && dev->sync_pending)
     input_queue_locked(dev, EV_SYN, SYN_REPORT, 0);
   release(&dev->lock);

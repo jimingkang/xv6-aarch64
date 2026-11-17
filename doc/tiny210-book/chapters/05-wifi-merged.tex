@@ -1,6 +1,75 @@
-% 第 5 章：Wi-Fi 驱动 + 架构总览与硬件连接（原第 6 章）+ 关联失败排查。
-% 05-wifi.tex 由 tools/convert.sh 生成，不要手改；合并通过本文件 \input 完成。
+% Wi-Fi 驱动架构：原第 5 章（05-wifi + 05a + 05d）与原第 6 章（05b USB 主机栈）合并成一章。
+% 05-wifi.tex 由 tools/convert.sh 生成，不要手改；它自带的 \chapter 标题在这里被吞掉。
+% 05b-usb-stack.tex 的标题已整体降一级（\chapter→\section，依此类推）。
+\chapter{Wi-Fi 驱动架构}\label{ch:wifi-arch}
+\begingroup
+\renewcommand{\chapter}[1]{}
 \input{chapters/05-wifi}
+\endgroup
 \input{chapters/05a-wifi-arch-hw}
+\input{chapters/05b-usb-stack}
+
+\clearpage
+\section{通信图：EP4 接收环、NAPI 与 EP4 OUT 发送}\label{wa:comm}
+这一节用和 USB 键盘通信图相同的画法，把 MT7601U 的一次收发拆成 0--10 号消息：
+先给出参与者（进程、中断上下文、EHCI 异步调度、Hub、芯片、AP）和它们之间的消息与锁，
+然后用和 EHCI QH 队列图相同的画法，画出异步环上 EP4 IN、EP4 OUT、EP0 三个 QH 各自挂着的 qTD，并把消息号标在它作用的 qTD 上（图~\ref{fig:wifi-comm-qh}）：哪块缓冲是 \texttt{q->head}、哪块正被 HC 填、重挂挂到哪里，一眼可见；
+最后逐条展开每个消息经过的函数调用链、寄存器或描述符的按位格式，以及打开
+\texttt{MT7601U\_CONFIG\_TRACE} / \texttt{MT7601U\_DATA\_TRACE} 后应看到的日志。
+
+要点有三条：
+\begin{itemize}
+\item 接收靠 EP4 IN QH 上一直挂着的 4 个 16\,KB qTD。HC 在异步环上自己轮询，
+      一个 qTD 是一次传输，里面可能有许多个 512\,B 事务，装满或遇到短包才完成；
+      完成后 IRQ 55 只做 \texttt{napi\_schedule}，解析放在 \texttt{mt7601u\_wq} 的 NAPI poll 里。
+\item 一次传输里可能聚合了多个 802.11 帧（\texttt{USB\_DMA\_CFG} 打开 RX\_AGG），
+      \texttt{rx\_parse} 按 DMA 头 + RXWI + MPDU + FCE 信息逐段拆开，再转成以太网帧交给 \texttt{net\_rx\_dev}。
+\item 发送没有中断：\texttt{net\_xmit} 在调用者上下文里持 \texttt{dev->lock} 组 TXINFO + TXWI，
+      在 EP4 OUT 上做一次同步 bulk，并忙等完成；之后从 EP0 读 \texttt{TX\_STAT\_FIFO}。
+\end{itemize}
+
+\begin{figure}[p]
+\centering
+\rotatebox{90}{\includegraphics[width=0.9\textheight,height=\textwidth,keepaspectratio]{figures/wifi-comm-overview.pdf}}
+\caption{MT7601U 收发通信图：参与者、0--10 号消息与锁}\label{fig:wifi-comm-overview}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\rotatebox{90}{\includegraphics[width=0.9\textheight,height=\textwidth,keepaspectratio]{figures/wifi-comm-qh-queues.pdf}}
+\caption{EHCI 异步环里的 WiFi 队列：每个 QH 下的 qTD 链，圆圈数字对应图~\ref{fig:wifi-comm-overview} 的消息号}\label{fig:wifi-comm-qh}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/wifi-comm-steps-0-2.pdf}
+\caption{消息 0--2：probe 预挂接收 qTD，HC 执行传输，IRQ 55 转 NAPI}\label{fig:wifi-comm-0-2}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/wifi-comm-steps-3-4.pdf}
+\caption{消息 3--4：NAPI poll 摘下完成的 qTD，rx\_parse 拆聚合段}\label{fig:wifi-comm-3-4}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/wifi-comm-steps-5-6.pdf}
+\caption{消息 5--6：802.11 转以太网交给网络栈，缓冲重新挂回 EP4 IN}\label{fig:wifi-comm-5-6}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/wifi-comm-steps-7-8.pdf}
+\caption{消息 7--8：net\_xmit 组 TXINFO + TXWI，EP4 OUT 同步 bulk}\label{fig:wifi-comm-7-8}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.92\textheight,keepaspectratio]{figures/wifi-comm-steps-9-10.pdf}
+\caption{消息 9--10：读 TX\_STAT\_FIFO，出错时的 Halted 恢复}\label{fig:wifi-comm-9-10}
+\end{figure}
+
+\clearpage
 \section{实板排查：关联失败、时序图与通信图}\label{dbg:ch}
 \input{chapters/05d-wifi-debug}

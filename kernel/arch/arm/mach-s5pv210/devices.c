@@ -27,6 +27,12 @@ static struct device board_devices[] = {
   { .name = "sun4i-intc",  .resource = { MEM(0x01C20400, 0x400, "intc") }, .nresource = 1 },
   { .name = "sun4i-timer", .resource = { MEM(0x01C20C00, 0x400, "timer"), IRQ(22, "timer0") }, .nresource = 2 },
   { .name = "sun4i-uart",  .resource = { MEM(0x01C28000, 0x400, "uart0") }, .nresource = 1 },
+#ifdef TINY210_QEMU_USB
+  /* A10 EHCI0 (QEMU bus "usb-bus.0"), so USB can be debugged under QEMU:
+     -device usb-storage,bus=usb-bus.0 or -device usb-host,... (high-speed only;
+     the OHCI companion at 0x01C14400 has no driver yet). */
+  { .name = "s5p-ehci",    .resource = { MEM(0x01C14000, 0x400, "ehci"), IRQ(39, "ehci0") }, .nresource = 2 },
+#endif
   /* No display in QEMU: plain RAM, so /dev/fb0 and mmap() can be tested. */
   { .name = "simple-framebuffer",
     .resource = { MEM(DRAM_BASE + S5PV210_FB_OFFSET, S5PV210_FB_SIZE, "framebuffer") }, .nresource = 1 },

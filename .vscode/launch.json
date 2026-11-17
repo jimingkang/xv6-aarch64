@@ -1,0 +1,73 @@
+{
+  // Debug the USB stack of the Tiny210 kernel under QEMU (cubieboard, A10
+  // EHCI0 = usb-bus.0). The preLaunchTask builds build/tiny210-qemu-usb with
+  // QEMU_USB=1 and starts QEMU halted; the serial console is in that task's
+  // terminal. Needs Homebrew gdb (multi-arch) for the cppdbg entries, or the
+  // CodeLLDB extension for the lldb entry.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "xv6 USB: usb-storage (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/tiny210-qemu-usb/kernel.elf",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/opt/homebrew/bin/gdb",
+      "miDebuggerServerAddress": "localhost:1234",
+      "stopAtConnect": false,
+      "setupCommands": [
+        { "text": "set pagination off" },
+        { "text": "set print pretty on" }
+      ],
+      "postRemoteConnectCommands": [
+        { "text": "break ehci_probe" },
+        { "text": "break root_ports" },
+        { "text": "break enumerate" }
+      ],
+      "preLaunchTask": "qemu-usb: storage",
+      "postDebugTask": "qemu-usb: stop"
+    },
+    {
+      "name": "xv6 USB: usb-kbd (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/tiny210-qemu-usb/kernel.elf",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/opt/homebrew/bin/gdb",
+      "miDebuggerServerAddress": "localhost:1234",
+      "setupCommands": [ { "text": "set pagination off" } ],
+      "postRemoteConnectCommands": [
+        { "text": "break root_ports" },
+        { "text": "break ehci_irq" }
+      ],
+      "preLaunchTask": "qemu-usb: usb-kbd",
+      "postDebugTask": "qemu-usb: stop"
+    },
+    {
+      "name": "xv6 USB: Mac device passthrough (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/tiny210-qemu-usb/kernel.elf",
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/opt/homebrew/bin/gdb",
+      "miDebuggerServerAddress": "localhost:1234",
+      "setupCommands": [ { "text": "set pagination off" } ],
+      "postRemoteConnectCommands": [ { "text": "break root_ports" } ],
+      "preLaunchTask": "qemu-usb: Mac device passthrough",
+      "postDebugTask": "qemu-usb: stop"
+    },
+    {
+      "name": "xv6 USB: usb-storage (lldb)",
+      "type": "lldb",
+      "request": "custom",
+      "targetCreateCommands": [ "target create ${workspaceFolder}/build/tiny210-qemu-usb/kernel.elf" ],
+      "processCreateCommands": [ "gdb-remote localhost:1234" ],
+      "initCommands": [ "breakpoint set -n ehci_probe", "breakpoint set -n root_ports" ],
+      "preLaunchTask": "qemu-usb: storage",
+      "postDebugTask": "qemu-usb: stop"
+    }
+  ]
+}

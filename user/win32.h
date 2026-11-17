@@ -25,6 +25,20 @@ typedef struct { HDC hdc; RECT rcPaint; } PAINTSTRUCT;
 #define WM_QUIT 0x0012
 #define WM_KEYDOWN 0x0100
 #define WM_CHAR 0x0102
+#define WM_MOUSEMOVE 0x0200
+#define WM_LBUTTONDOWN 0x0201
+#define WM_LBUTTONUP 0x0202
+#define WM_RBUTTONDOWN 0x0204
+#define WM_RBUTTONUP 0x0205
+#define WM_MBUTTONDOWN 0x0207
+#define WM_MBUTTONUP 0x0208
+#define WM_MOUSEWHEEL 0x020a
+#define MK_LBUTTON 0x01
+#define MK_RBUTTON 0x02
+#define MK_MBUTTON 0x10
+#define GET_X_LPARAM(lp) ((int)(short)((lp) & 0xffff))
+#define GET_Y_LPARAM(lp) ((int)(short)(((lp) >> 16) & 0xffff))
+#define GET_WHEEL_DELTA_WPARAM(wp) ((short)((wp) >> 16))
 #define DT_LEFT 0
 
 int RegisterClass(const WNDCLASS *wc);

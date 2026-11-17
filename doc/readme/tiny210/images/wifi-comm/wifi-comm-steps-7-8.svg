@@ -1,0 +1,1080 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1079" viewBox="0 5236 1400 1079" font-family="WenQuanYi Zen Hei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+</defs>
+<rect y="5236" width="1400" height="1079" fill="#fff"/>
+<text x="700" y="30" font-size="19" fill="#1f2328" font-weight="bold" text-anchor="middle">MT7601U 收发通信图：EP4 批量接收环、NAPI、EP4 OUT 发送（Tiny210 实板：148f:7601，地址 3，Hub 口 4）</text>
+<text x="700" y="52" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">蓝框 = 进程，黄框 = 中断上下文，灰框 = 硬件，紫框 = 网络栈（在调用者上下文执行），绿框 = 无线芯片；🔒 = 自旋锁（持有期间关中断），💤 = 睡眠锁</text>
+<rect x="40" y="90" width="330" height="170" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/>
+<text x="205" y="114" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">进程 4：用户进程（ping / nc / httpd）</text>
+<text x="55" y="138" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">send / sendto → 网络栈 → net_xmit</text>
+<text x="55" y="160" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">  发送在调用者自己的上下文里完成</text>
+<text x="55" y="182" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">recv → 在 socket 上 sleep</text>
+<text x="55" y="204" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">  收到数据由 NAPI worker 唤醒</text>
+<text x="55" y="226" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="start">ARP 应答、TCP ACK 可能在 NAPI 里直接发</text>
+<rect x="470" y="90" width="430" height="250" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/>
+<text x="685" y="114" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">进程 2：mt7601u_wq 工作线程（1 个 worker）</text>
+<rect x="490" y="126" width="390" height="112" rx="6" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="685" y="145" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">work B：NAPI poll（mt7601u_napi_poll，预算 4）</text>
+<text x="500" y="164" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">mt7601u_service(1,0) 循环：</text>
+<text x="500" y="182" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  bulk_rx_complete 摘 q-&gt;head（非 Active）</text>
+<text x="500" y="200" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  rx_parse 拆聚合段 → rx_mgmt / rx_data</text>
+<text x="500" y="218" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  bulk_rx_arm 同一块缓冲挂回队尾</text>
+<rect x="490" y="244" width="390" height="42" rx="6" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="685" y="262" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="middle">work A：state_worker（扫描 / 关联 / WPA2 / 超时）</text>
+<text x="685" y="279" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="middle">EP0 寄存器读写、EP4 OUT 发管理帧</text>
+<text x="490" y="306" font-size="12" fill="#cf222e" font-weight="bold" text-anchor="start">A、B 在同一个线程里串行：A 做同步 USB 传输时 B 不能跑，</text>
+<text x="490" y="324" font-size="12" fill="#cf222e" font-weight="bold" text-anchor="start">这段时间只靠已挂着的接收缓冲接住数据。</text>
+<rect x="1010" y="90" width="350" height="150" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="1185" y="114" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">进程 1：ehci-enum kthread</text>
+<text x="1025" y="138" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">枚举：Hub 口 4 → 高速设备 148f:7601</text>
+<text x="1025" y="157" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">mt7601u_probe：固件、eFuse、寄存器表</text>
+<text x="1025" y="176" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">USB_DMA_CFG：打开 RX 聚合</text>
+<text x="1025" y="195" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">bulk_rx_arm × 4（4 × 16 KB）</text>
+<text x="1025" y="214" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="start">ready = 1 后空闲</text>
+<rect x="1010" y="290" width="350" height="112" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="2"/>
+<text x="1185" y="314" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">中断上下文：EHCI IRQ 55</text>
+<text x="1025" y="336" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">ehci_irq：读并清 USBSTS（W1C）</text>
+<text x="1025" y="353" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ ehci_intr_reap（HID 键盘/鼠标）</text>
+<text x="1025" y="370" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ mt7601u_rx_irq → napi_schedule</text>
+<text x="1025" y="387" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ queue_work(mt7601u_wq, napi.work)</text>
+<rect x="40" y="300" width="380" height="220" rx="8" fill="#fbefff" stroke="#8250df" stroke-width="2"/>
+<text x="230" y="324" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">网络栈（kernel/net.c）</text>
+<text x="55" y="348" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接收：net_rx_dev(wlan0, 以太网帧)</text>
+<text x="55" y="368" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  ARP → arp_rx（可能立即回应答）</text>
+<text x="55" y="388" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  IP → UDP / TCP → socket 队列 → wakeup</text>
+<text x="55" y="408" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">发送：net_tx → dev-&gt;ops-&gt;start_xmit</text>
+<text x="55" y="428" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  = mt7601u_net_xmit（🔒 dev-&gt;lock）</text>
+<text x="55" y="448" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  → send_llc：以太网 → 802.11 + LLC</text>
+<text x="55" y="468" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  → tx_raw：TXINFO + TXWI + MPDU</text>
+<text x="55" y="488" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  → bulk(EP4 OUT) 同步，wait_qtd ≤ 3 s</text>
+<rect x="470" y="410" width="430" height="220" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+<text x="685" y="434" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">EHCI 主控：异步调度（ASYNCLIST 环）</text>
+<text x="485" y="458" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">head_qh → … → EP4 IN QH（地址 3，高速，mps 512）</text>
+<text x="485" y="478" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  qTD×4：IN 16 KB，IOC → dummy（一直挂着）</text>
+<text x="485" y="498" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  一个 qTD = 一次传输 = 多个 512 B 事务</text>
+<text x="485" y="518" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  收满 16 KB 或短包（&lt; 512 B）才算完成</text>
+<text x="485" y="538" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ EP4 OUT QH：bulk() 挂 qTD，CPU 忙等完成</text>
+<text x="485" y="558" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ EP0 QH：寄存器读写（TX_STAT 等）</text>
+<text x="485" y="578" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start">高速设备直连 Hub 口：不需要 split / TT</text>
+<text x="485" y="598" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start">↓ 每个 QH 的 qTD 链见下方绿色面板</text>
+<rect x="40" y="560" width="380" height="100" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="230" y="584" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">AP TP-Link_B114（信道 9）</text>
+<text x="55" y="606" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">beacon、auth/assoc 响应、EAPOL</text>
+<text x="55" y="624" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">DHCP / ARP / IP 数据帧</text>
+<text x="55" y="642" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">收到我方帧后回 802.11 ACK</text>
+<rect x="470" y="660" width="430" height="76" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+<text x="685" y="684" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">USB2514 Hub（高速）</text>
+<text x="685" y="706" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">口 4 → MT7601U：480 Mb/s 直通（无 split）</text>
+<text x="685" y="724" font-size="12" fill="#57606a" font-weight="normal" text-anchor="middle">口 3 → 键盘：低速，走 TT（周期调度）</text>
+<rect x="1010" y="620" width="350" height="116" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+<text x="1185" y="644" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="middle">MT7601U 148f:7601（地址 3）</text>
+<text x="1025" y="666" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">RX：多个 802.11 帧聚合进一次 bulk 传输</text>
+<text x="1025" y="683" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">TX：EDCA 队列 → 空口，等 AP 的 ACK</text>
+<text x="1025" y="700" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">TX_STAT_FIFO：每帧结果，须由主机读空</text>
+<text x="1025" y="717" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">没数据时对 IN 回 NAK</text>
+<path d="M1060,240 L1060,256 L950,256 L950,450 L905,450" fill="none" stroke="#0969da" stroke-width="2" marker-end="url(#ab)"/>
+<text x="958" y="262" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0: bulk_rx_arm × 4</text>
+<text x="958" y="278" font-size="11.5" fill="#9a6700" font-weight="normal" text-anchor="start">💤 xfer_lock 🔒 ehci_lock</text>
+<path d="M230,660 L230,770 L1185,770 L1185,740" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#ag)"/>
+<text x="560" y="764" font-size="12" fill="#1a7f37" font-weight="normal" text-anchor="start">1: 802.11 帧（空口：AP → 芯片）</text>
+<path d="M1250,740 L1250,785 L180,785 L180,664" fill="none" stroke="#cf222e" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+<text x="560" y="800" font-size="12" fill="#cf222e" font-weight="normal" text-anchor="start">9: 我方发出的 802.11 帧（芯片 → AP），AP 回 ACK</text>
+<path d="M1006,676 L904,676" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#ag)"/>
+<text x="912" y="670" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">2: IN 包 / NAK</text>
+<path d="M904,712 L1006,712" fill="none" stroke="#cf222e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="912" y="730" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">9: OUT 包</text>
+<path d="M640,660 L640,634" fill="none" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<path d="M730,634 L730,660" fill="none" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<text x="740" y="652" font-size="11.5" fill="#333" font-weight="normal" text-anchor="start">2 / 9</text>
+<path d="M905,600 L1340,600 L1340,406" fill="none" stroke="#9a6700" stroke-width="2" marker-end="url(#ay)"/>
+<text x="1332" y="428" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">3: USBINT</text>
+<path d="M1010,330 L905,300" fill="none" stroke="#9a6700" stroke-width="2" marker-end="url(#ay)"/>
+<text x="1010" y="290" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<text x="962" y="478" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start">4: napi_schedule → 唤醒进程 2</text>
+<text x="962" y="494" font-size="11.5" fill="#9a6700" font-weight="normal" text-anchor="start">🔒 napi-&gt;lock 🔒 wq-&gt;lock</text>
+<path d="M860,340 L860,406" fill="none" stroke="#0969da" stroke-width="2" marker-end="url(#ab)"/>
+<text x="852" y="360" font-size="12" fill="#0969da" font-weight="normal" text-anchor="end">5: bulk_rx_complete 摘</text>
+<text x="852" y="376" font-size="12" fill="#0969da" font-weight="normal" text-anchor="end">7: bulk_rx_arm 重挂</text>
+<text x="852" y="392" font-size="11.5" fill="#9a6700" font-weight="normal" text-anchor="end">🔒 dev-&gt;lock 🔒 ehci_lock</text>
+<path d="M560,340 L560,352 L425,352" fill="none" stroke="#8250df" stroke-width="2" marker-end="url(#ap)"/>
+<text x="430" y="346" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<text x="568" y="356" font-size="12" fill="#8250df" font-weight="normal" text-anchor="start">6: net_rx_dev</text>
+<path d="M120,300 L120,264" fill="none" stroke="#0969da" stroke-width="2" marker-end="url(#ab)"/>
+<text x="128" y="288" font-size="11.5" fill="#0969da" font-weight="normal" text-anchor="start">6: wakeup</text>
+<path d="M300,260 L300,296" fill="none" stroke="#8250df" stroke-width="2" marker-end="url(#ap)"/>
+<text x="308" y="284" font-size="11.5" fill="#8250df" font-weight="normal" text-anchor="start">8: send</text>
+<path d="M420,500 L466,500" fill="none" stroke="#cf222e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="416" y="542" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="end">8: net_xmit → bulk(EP4 OUT)</text>
+<text x="424" y="515" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<text x="1360" y="80" font-size="12" fill="#cf222e" font-weight="normal" text-anchor="end">10: 出错 → Halted → 停异步调度、qh_flush、重挂剩余缓冲</text>
+<rect x="40" y="818" width="1320" height="542" rx="8" fill="#f3fbf5" stroke="#1a7f37" stroke-width="2"/>
+<text x="700" y="844" font-size="15" fill="#1a7f37" font-weight="bold" text-anchor="middle">EHCI 异步环里的 WiFi 队列（与 ehci-qh-queues 图同一画法）：圆圈数字 = 上图消息号</text>
+<text x="700" y="864" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="middle">ASYNCLIST → head_qh，HC 沿 horiz 一圈圈转；每个端点一个 QH，传输是挂在 QH 下面的 qTD 链；黄 = Active（等 HC 执行），绿 = 已完成（Active=0，等 NAPI 摘），虚线 = dummy 队尾</text>
+<rect x="60" y="884" width="250" height="40" rx="6" fill="#eaeef2" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="70" y="901" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">head_qh（环头）</text>
+<text x="70" y="918" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">H=1，从不执行；ASYNCLIST 指向它</text>
+<text x="332" y="908.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">next = T（无 qTD）</text>
+<rect x="60" y="950" width="250" height="72" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="70" y="967" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP4 IN 批量（收）</text>
+<text x="70" y="984" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">HS，mps 512，无 split</text>
+<text x="70" y="999" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">4 块 16 KB 缓冲一直挂着</text>
+<path d="M310,986.0 L330,986.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<circle cx="321" cy="964.0" r="10" fill="#0969da"/>
+<text x="321" y="968.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">0</text>
+<rect x="332" y="965.0" width="106" height="42" rx="4" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.3"/>
+<text x="385.0" y="982.0" font-size="10.7" fill="#1f2328" font-weight="bold" text-anchor="middle">缓冲 0 = q-&gt;head</text>
+<text x="385.0" y="998.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">完成，实收 1836 B</text>
+<path d="M438,986.0 L450,986.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="450" y="965.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="503.0" y="982.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">缓冲 1</text>
+<text x="503.0" y="998.0" font-size="10.4" fill="#57606a" font-weight="normal" text-anchor="middle">HC 正在填，Active</text>
+<path d="M556,986.0 L568,986.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="568" y="965.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="621.0" y="982.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">缓冲 2</text>
+<text x="621.0" y="998.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">IN 16 KB，IOC</text>
+<path d="M674,986.0 L686,986.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="686" y="965.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="739.0" y="982.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">缓冲 3</text>
+<text x="739.0" y="998.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">IN 16 KB，IOC</text>
+<path d="M792,986.0 L804,986.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="804" y="965.0" width="80" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1.3" stroke-dasharray="4 3"/>
+<text x="844.0" y="982.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="844.0" y="998.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<circle cx="385" cy="955.0" r="10" fill="#cf222e"/>
+<text x="385" y="959.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<circle cx="844" cy="955.0" r="10" fill="#0969da"/>
+<text x="844" y="959.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<circle cx="503" cy="955.0" r="10" fill="#1a7f37"/>
+<text x="503" y="959.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="332" y="1023.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">⓪ probe 挂上 4 块 → ② HC 每圈对“第一个 Active 的 qTD”发 IN，芯片没数据就 NAK，下一圈再问 → 收满 16 KB 或遇短包，Active 清零、IOC 置 USBINT</text>
+<text x="332" y="1039.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">⑤ NAPI 只从 q-&gt;head 摘（顺序 = HC 完成顺序，帧不乱）→ ⑦ 同一块缓冲用 dummy 法挂回队尾：队列里始终有 3–4 块等着接数据</text>
+<rect x="60" y="1088" width="250" height="64" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="70" y="1105" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP4 OUT 批量（发）</text>
+<text x="70" y="1122" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">bulk() 同步挂 1 个 qTD</text>
+<text x="70" y="1137" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">发完释放，只剩 dummy</text>
+<path d="M310,1120.0 L330,1120.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="332" y="1099.0" width="224" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="444.0" y="1116.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">TXINFO + TXWI + MPDU + 4 B 0</text>
+<text x="444.0" y="1132.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">OUT，total 字节，IOC</text>
+<path d="M556,1120.0 L568,1120.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="568" y="1099.0" width="80" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1.3" stroke-dasharray="4 3"/>
+<text x="608.0" y="1116.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="608.0" y="1132.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<circle cx="444" cy="1089.0" r="10" fill="#cf222e"/>
+<text x="444" y="1093.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="662" y="1115.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">⑧ 调用者持 🔒 dev-&gt;lock + 💤 xfer_lock，</text>
+<text x="662" y="1130.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">   qh_append 后在 wait_qtd 里忙等 Active 清零（≤ 3 s）</text>
+<text x="662" y="1145.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">   芯片 NAK 就一直 PING/重发，见 5.16 节的 TX 卡死</text>
+<rect x="60" y="1178" width="250" height="64" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="70" y="1195" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP0（控制）</text>
+<text x="70" y="1212" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">寄存器读写：USB_DMA_CFG、</text>
+<text x="70" y="1227" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">TX_STAT_FIFO 等</text>
+<path d="M310,1210.0 L330,1210.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="332" y="1189.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="385.0" y="1206.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">SETUP 8 B</text>
+<text x="385.0" y="1222.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">C0 07 … 读寄存器</text>
+<path d="M438,1210.0 L450,1210.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="450" y="1189.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="503.0" y="1206.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">DATA IN 4 B</text>
+<text x="503.0" y="1222.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">TX_STAT_FIFO 值</text>
+<path d="M556,1210.0 L568,1210.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="568" y="1189.0" width="106" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.3"/>
+<text x="621.0" y="1206.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">STATUS OUT 0 B</text>
+<text x="621.0" y="1222.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">IOC</text>
+<path d="M674,1210.0 L686,1210.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="686" y="1189.0" width="80" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1.3" stroke-dasharray="4 3"/>
+<text x="726.0" y="1206.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="726.0" y="1222.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<circle cx="385" cy="1179.0" r="10" fill="#cf222e"/>
+<text x="385" y="1183.5" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">9</text>
+<text x="780" y="1205.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">⑨ 发完立刻读 TX_STAT_FIFO_EXT / TX_STAT_FIFO，</text>
+<text x="780" y="1220.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">   同样是同步控制传输（💤 xfer_lock）</text>
+<text x="780" y="1235.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">   ⓪ probe 的寄存器写也走这条 QH</text>
+<rect x="60" y="1268" width="250" height="40" rx="6" fill="#eaeef2" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="70" y="1285" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">其他设备的 QH</text>
+<text x="70" y="1302" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">Hub EP0、键盘 EP0（低速走 split）</text>
+<text x="332" y="1292.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">键盘的中断 IN QH 不在这里：它挂在周期调度 anchor_qh 后面；但两边完成都报到同一个 IRQ 55</text>
+<path d="M180,924 L180,950" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M180,1022 L180,1088" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M180,1152 L180,1178" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M180,1242 L180,1268" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M60,1288.0 L50,1288.0 L50,904 L58,904" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<text x="188" y="940" font-size="10.5" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">horiz</text>
+<circle cx="70" cy="1338" r="10" fill="#cf222e"/>
+<text x="70" y="1342.5" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">10</text>
+<text x="88" y="1342" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">出错（CERR 减到 0、babble、XactErr）：qTD 的 Halted=1，HC 停在这个 QH 上 → IRQ 55 带 USBERRINT → 停异步调度、qh_flush 清掉该 QH 的 qTD、清 overlay 的 Halted，再把剩下的接收缓冲重新挂上。</text>
+<rect x="40" y="1380" width="1320" height="212" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="60" y="1404" font-size="15" fill="#1f2328" font-weight="normal" text-anchor="start">这条路径上的锁（单核；自旋锁 = 关中断）</text>
+<text x="60" y="1430" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">🔒 dev-&gt;lock（&quot;mt7601u&quot;）：驱动状态。NAPI 的 service 和 net_xmit 都在持有它时做 USB 传输：持锁期间中断关闭，IRQ 55 被推迟到放锁之后。</text>
+<text x="60" y="1454" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">💤 xfer_lock（&quot;ehci-xfer&quot;）：一次只允许一个同步 control/bulk 传输（EP0 读写、EP4 OUT 发帧）。</text>
+<text x="60" y="1478" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">🔒 ehci_lock（&quot;ehci&quot;）：qTD 池、qh_append、q-&gt;head。bulk_rx_arm / bulk_rx_complete 都拿它。</text>
+<text x="60" y="1502" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start">🔒 napi-&gt;lock（&quot;napi&quot;）：scheduled / missed 标志，中断里也会拿。   🔒 wq-&gt;lock（&quot;mt7601u_wq&quot;）：工作队列。</text>
+<text x="60" y="1526" font-size="12.5" fill="#1a7f37" font-weight="normal" text-anchor="start">接收不拿 xfer_lock：bulk_rx_arm 只是挂 qTD，不等完成。所以发送忙等时，已挂着的 4 个接收 qTD 仍由 HC 在异步环上照常执行。</text>
+<text x="60" y="1558" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="start">参与者：mt7601u_wq worker（收包、状态机）· 发送方的调用者（用户进程 / net_wq / NAPI 自己）· IRQ 55（只做调度）· ehci-enum（只在 probe 时）。</text>
+<text x="60" y="1578" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="start">与键盘共用 IRQ 55：键盘报告完成时 mt7601u_rx_irq 也会被调用，poll 发现队首仍 Active 就空跑一次结束。</text>
+<text x="40" y="1622" font-size="18" fill="#1f2328" font-weight="bold" text-anchor="start">0–10 号消息逐步说明（函数按调用链缩进，寄存器/描述符按位展开；日志为按代码推出的预期输出）</text>
+<rect x="40" y="1642" width="1320" height="695" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="1666" r="15" fill="#0969da"/>
+<text x="68" y="1671" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">0</text>
+<text x="94" y="1664" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">probe：打开 RX 聚合，在 EP4 IN QH 上预挂 4 个 16 KB 接收 qTD</text>
+<text x="94" y="1684" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ehci-enum kthread → mt7601u_probe → ehci_usb_bulk_rx_arm × 4 → 异步调度</text>
+<text x="1345" y="1664" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：💤 xfer_lock（EP0 写寄存器）· 🔒 ehci_lock（qh_append）</text>
+<text x="94" y="1704" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">MT7601U 是高速设备，直接插在 Hub 口 4 上，所以它的 QH 不带 split 目标（epcap 的 Hub/Port 为 0），和键盘走 TT 的周期 QH 完全不同。</text>
+<text x="94" y="1722" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">probe 写 USB_DMA_CFG 打开批量收发 DMA 和 RX 聚合：芯片会把一段时间（超时 0x80）里收到的多个帧拼进同一次 bulk 传输，最多 0x20 个单位。</text>
+<text x="94" y="1740" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">然后调用 4 次 bulk_rx_arm：第一次时 ep_qh 为 EP4 IN 建 QH 并插进异步环，每次挂一个 16 KB、带 IOC 的 IN qTD。它们只挂上，不等完成。</text>
+<text x="94" y="1766" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="1766" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_basic_hw_init</text>
+<path d="M190,1770 V1779 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1783" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_write32(MT_USB_DMA_CFG, 0x00e08020)</text>
+<path d="M525.9,1779 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1783" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">EP0 写，💤 xfer_lock</text>
+<text x="180" y="1800" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for i in 0..3: bulk_rx_arm(udev, 4, mt_rx_buf[i], 16384)</text>
+<path d="M190,1804 V1813 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1817" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ep_qh(udev, 4, in=1)</text>
+<path d="M358.0,1813 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1817" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">第一次：qh_create(3, 4, HIGH, 512, 0, 0, 0)</text>
+<path d="M216,1821 V1830 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="1834" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;horiz = head_qh-&gt;horiz; head_qh-&gt;horiz = phys(q)</text>
+<path d="M610.3,1830 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1834" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">插进异步环</text>
+<path d="M190,1838 V1847 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1851" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_fill(t, buf, 16384, PID_IN | IOC)</text>
+<path d="M482.1,1847 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1851" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">16 KB = 4 个页指针</text>
+<path d="M190,1855 V1864 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1868" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_append(q, t, t)</text>
+<path d="M343.4,1864 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1868" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">🔒 ehci_lock，dummy 法</text>
+<text x="180" y="1885" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">napi_enable; ready = 1</text>
+<path d="M346.6,1881 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1885" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">此后 IRQ 才转给 NAPI</text>
+<text x="94" y="1912" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="1912" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">异步调度：EP4 IN QH 一直挂着 4 个 Active qTD；HC 每转到它就发 IN，没数据时设备回 NAK</text>
+<text x="94" y="1939" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="1957" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ MT_USB_DMA_CFG（0x0238）= 0x00e08020</text>
+<text x="1312.03125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="1977" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="1983" width="287.5" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="323.75" y="2003" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="467.5" y="1983" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="485.46875" y="2003" font-size="10.645833333333334" fill="#1f2328" font-weight="normal" text-anchor="middle">TX_EN</text>
+<rect x="503.4" y="1983" width="35.9" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="521.40625" y="2003" font-size="10.645833333333334" fill="#1f2328" font-weight="normal" text-anchor="middle">RX_EN</text>
+<rect x="539.4" y="1983" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="557.34375" y="2003" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">AGG</text>
+<rect x="575.3" y="1983" width="179.7" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="665.15625" y="2003" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="755.0" y="1983" width="287.5" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="898.75" y="2003" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">RX_AGG_TOUT = 0x80</text>
+<rect x="1042.5" y="1983" width="287.5" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="1186.25" y="2003" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">RX_AGG_LMT = 0x20</text>
+<text x="180" y="2031" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b23</text>
+<text x="242" y="2031" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">TX_BULK_EN</text>
+<text x="324.0" y="2031" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">批量 OUT 发送 DMA</text>
+<text x="180" y="2049" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b22</text>
+<text x="242" y="2049" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">RX_BULK_EN</text>
+<text x="324.0" y="2049" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">批量 IN 接收 DMA</text>
+<text x="180" y="2067" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b21</text>
+<text x="242" y="2067" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">RX_AGG_EN</text>
+<text x="316.8" y="2067" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">把多个帧聚合进一次传输</text>
+<text x="770" y="2031" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b15:8</text>
+<text x="832" y="2031" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">AGG_TOUT</text>
+<text x="902" y="2031" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">聚合等待超时</text>
+<text x="770" y="2049" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b7:0</text>
+<text x="832" y="2049" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">AGG_LMT</text>
+<text x="902" y="2049" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">聚合上限</text>
+<text x="770" y="2067" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">结果</text>
+<text x="832" y="2067" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">一次传输</text>
+<text x="902" y="2067" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">可能含 1 个或多个 802.11 帧</text>
+<text x="170" y="2113" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 接收 qTD token（挂上时）= 0x40008d80</text>
+<text x="1312.03125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="2133" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="2139" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="197.96875" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DT</text>
+<rect x="215.9" y="2139" width="539.1" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="485.46875" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Total Bytes to Transfer</text>
+<rect x="755.0" y="2139" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="772.96875" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IOC</text>
+<rect x="790.9" y="2139" width="107.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="844.84375" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C_Page</text>
+<rect x="898.8" y="2139" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="934.6875" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CERR</text>
+<rect x="970.6" y="2139" width="71.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="1006.5625" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">PID</text>
+<rect x="1042.5" y="2139" width="287.5" height="30" fill="#fff1e5" stroke="#57606a"/>
+<text x="1186.25" y="2159" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Status</text>
+<text x="180" y="2187" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Bytes</text>
+<text x="242" y="2187" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x4000</text>
+<text x="312" y="2187" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">16384 B；完成后剩余字节 = 16384 − 实收</text>
+<text x="180" y="2205" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IOC</text>
+<text x="242" y="2205" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">1</text>
+<text x="312" y="2205" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">完成时置 USBSTS.USBINT</text>
+<text x="180" y="2223" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">CERR</text>
+<text x="242" y="2223" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">3</text>
+<text x="312" y="2223" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">连续 3 次事务错误才 Halted</text>
+<text x="770" y="2187" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">PID</text>
+<text x="832" y="2187" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">01</text>
+<text x="902" y="2187" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">IN</text>
+<text x="770" y="2205" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Status</text>
+<text x="832" y="2205" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x80</text>
+<text x="902" y="2205" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">Active</text>
+<text x="770" y="2223" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">buf[ ]</text>
+<text x="832" y="2223" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">页指针</text>
+<text x="902" y="2223" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">16 KB 跨 4–5 页，qTD 最多 5 页</text>
+<rect x="94" y="2255" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="2271" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="2289" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-config: probe phase=rx-ring EP4 requests=4 bytes-each=16384</text>
+<text x="104" y="2305" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u: EP4 receive uses USB host IRQ with 4 buffers</text>
+<rect x="40" y="2353" width="1320" height="383" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="2377" r="15" fill="#0969da"/>
+<text x="68" y="2382" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">1</text>
+<text x="94" y="2375" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">HC 执行接收 qTD：一个 qTD = 一次 bulk 传输 = 多个 512 B 事务</text>
+<text x="94" y="2395" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">EHCI 异步调度 → Hub 口 4（高速直通）→ MT7601U EP4 IN（全在硬件里）</text>
+<text x="1345" y="2375" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：无（硬件）</text>
+<text x="94" y="2415" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 每转到 EP4 IN QH，就对 overlay 里的队首 qTD 发 IN 令牌。芯片有数据就回一个最多 512 B 的 DATA 包，HC DMA 进缓冲，再发下一个 IN；</text>
+<text x="94" y="2433" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">没数据回 NAK，NAK 计数用完（RL=8）就先去转环上的下一个 QH，下一圈再来。这一轮里 qTD 一直是 Active，CPU 完全不参与。</text>
+<text x="94" y="2451" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">传输在两种情况下结束：收满 16384 B，或收到一个短包（&lt; 512 B）。芯片用短包表示“这次聚合的数据发完了”，所以多数传输只用到缓冲的一部分。</text>
+<text x="94" y="2477" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="2477" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">（HC）读 EP4 IN QH overlay</text>
+<path d="M353.9,2473 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2477" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">qTD #1 Active</text>
+<path d="M190,2481 V2490 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2494" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IN(地址 3, EP4) → DATA 512 B</text>
+<path d="M401.8,2490 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2494" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">写 buf，剩余字节减 512</text>
+<path d="M190,2498 V2507 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2511" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IN → DATA 512 B → … → DATA 300 B（短包）</text>
+<path d="M474.8,2507 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2511" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">传输结束</text>
+<path d="M190,2515 V2524 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2528" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">写回 token：Active=0，剩余 = 16384 − 实收</text>
+<path d="M452.9,2524 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2528" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">IOC → USBINT</text>
+<path d="M190,2532 V2541 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2545" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">overlay 前进到 qTD #2</text>
+<path d="M343.4,2541 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2545" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">下一次传输接着用它</text>
+<text x="180" y="2562" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">芯片没数据时：IN → NAK</text>
+<path d="M295.5,2558 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2562" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">qTD 保持 Active</text>
+<text x="94" y="2589" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="2589" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">高速 bulk IN：IN 令牌 → DATA0/1（≤ 512 B）→ ACK；或 IN → NAK。不需要 SSPLIT/CSPLIT</text>
+<text x="94" y="2616" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="2634" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 一次接收传输在 16 KB 缓冲里的样子（聚合了 3 个帧 + 一个短包结尾）</text>
+<rect x="180" y="2644" width="287.5" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="323.75" y="2659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">段 1：帧 A</text>
+<rect x="467.5" y="2644" width="239.58333333333331" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="587.2916666666666" y="2659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">段 2：帧 B</text>
+<rect x="707.0833333333333" y="2644" width="191.66666666666666" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="802.9166666666666" y="2659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">段 3：帧 C</text>
+<rect x="898.7499999999999" y="2644" width="431.25" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1114.375" y="2659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">未用（剩余字节）</text>
+<text x="180" y="2694" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">实收</text>
+<text x="242" y="2694" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">len</text>
+<text x="312" y="2694" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">qTD 长度 − token 剩余字节</text>
+<text x="770" y="2694" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">段</text>
+<text x="832" y="2694" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">segment</text>
+<text x="902" y="2694" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每段 = DMA 头 + RXWI + MPDU + 填充 + FCE 信息，格式见消息 5</text>
+<rect x="40" y="2752" width="1320" height="335" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="2776" r="15" fill="#0969da"/>
+<text x="68" y="2781" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="94" y="2774" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">IRQ 55：USBINT → mt7601u_rx_irq → napi_schedule，中断里不解析</text>
+<text x="94" y="2794" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">GIC IRQ 55 → ehci_irq → ehci_intr_reap（HID）→ mt7601u_rx_irq → napi_schedule → queue_work</text>
+<text x="1345" y="2774" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 napi-&gt;lock · 🔒 wq-&gt;lock</text>
+<text x="94" y="2814" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">和键盘不同，批量接收的 qTD 不在 intrs[] 里，中断处理也不摘它：只调用 mt7601u_rx_irq 通知驱动“可能有接收完成了”。</text>
+<text x="94" y="2832" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">napi_schedule 若还没排过就设 scheduled=1 并 queue_work；如果 poll 正在跑，就设 missed=1，让它结束前再排一次，保证不丢通知。</text>
+<text x="94" y="2850" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">IRQ 55 是 EHCI 共用的，键盘报告完成也会走到这里；那次 poll 会发现队首仍 Active，空跑一次就结束。</text>
+<text x="94" y="2876" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="2876" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_irq(55)</text>
+<path d="M273.6,2872 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2876" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">中断上下文</text>
+<path d="M190,2880 V2889 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2893" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">st = USBSTS &amp; 0x3f; wr(USBSTS, st)</text>
+<path d="M460.2,2889 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2893" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">W1C</text>
+<path d="M190,2897 V2906 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2910" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_intr_reap()</text>
+<path d="M328.8,2906 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2910" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">只处理中断 URB（键盘/鼠标）</text>
+<path d="M190,2914 V2923 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2927" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_rx_irq()</text>
+<path d="M328.8,2923 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2927" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">ready 之后才生效</text>
+<path d="M216,2931 V2940 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="2944" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">napi_schedule(&amp;mt7601u.napi)</text>
+<path d="M442.4,2940 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2944" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">🔒 napi-&gt;lock</text>
+<path d="M242,2948 V2957 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="2961" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">!scheduled → scheduled = 1; queue_work</text>
+<path d="M541.4,2957 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2961" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 进程 2</text>
+<path d="M242,2965 V2974 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="2978" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">scheduled → missed = 1</text>
+<path d="M424.6,2974 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2978" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">poll 结束前补排</text>
+<rect x="94" y="3005" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="3021" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="3039" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: EHCI IRQ -&gt; napi_schedule (#1)</text>
+<text x="104" y="3055" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: EHCI IRQ -&gt; napi_schedule (#256)</text>
+<rect x="40" y="3103" width="1320" height="544" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="3127" r="15" fill="#0969da"/>
+<text x="68" y="3132" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">3</text>
+<text x="94" y="3125" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">NAPI poll：按 q-&gt;head 顺序摘已完成的 qTD</text>
+<text x="94" y="3145" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">mt7601u_wq worker → napi_workfn → mt7601u_napi_poll → mt7601u_service(1, 0) → bulk_rx_complete</text>
+<text x="1345" y="3125" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 dev-&gt;lock（整个 service）· 🔒 ehci_lock（摘 q-&gt;head）</text>
+<text x="94" y="3165" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">poll 的预算是 4（等于缓冲数）：最多连续处理 4 个完成的传输。每轮 bulk_rx_complete 看 q-&gt;head：仍是 Active 就返回 −2，循环结束；</text>
+<text x="94" y="3183" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">否则摘下它，q-&gt;head 前进到下一个，返回实收字节和缓冲指针。摘的顺序就是 HC 填的顺序，所以帧不会乱序。</text>
+<text x="94" y="3201" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">整个 service 持有 dev-&gt;lock（自旋锁，关中断）：处理期间新的 IRQ 55 会推迟到放锁后才进来，靠 missed 标志补上。</text>
+<text x="94" y="3227" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="3227" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">napi_workfn → mt7601u_napi_poll(napi, 4)</text>
+<path d="M478.0,3223 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3227" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">mt7601u_wq</text>
+<path d="M190,3231 V3240 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3244" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">while(done &lt; 4): mt7601u_service(1, 0)</text>
+<path d="M216,3248 V3257 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3261" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">acquire(&amp;dev-&gt;lock)</text>
+<path d="M376.7,3257 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3261" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">关中断</text>
+<path d="M216,3265 V3274 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3278" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">got = bulk_rx_complete(udev, 4, &amp;rx_data)</text>
+<path d="M242,3282 V3291 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="3295" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">t = q-&gt;head; t-&gt;token &amp; ACTIVE ? return −2</text>
+<path d="M570.6,3291 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3295" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">🔒 ehci_lock</text>
+<path d="M242,3299 V3308 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="3312" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;head = t-&gt;snext; len = t-&gt;length − TOK_LEFT(tok)</text>
+<path d="M242,3316 V3325 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="3329" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_free(t); *data = t-&gt;data</text>
+<path d="M216,3333 V3342 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3346" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">got &gt; 0 → mt7601u_rx_parse(dev, rx_data, got)</text>
+<path d="M566.5,3342 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3346" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 消息 4</text>
+<path d="M216,3350 V3359 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3363" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bulk_rx_arm(udev, 4, rx_data, 16384)</text>
+<path d="M500.8,3359 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3363" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 消息 6</text>
+<path d="M190,3367 V3376 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3380" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">done &lt; 4 → napi_complete_done</text>
+<path d="M423.7,3376 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3380" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">missed ? 再排一次</text>
+<text x="94" y="3407" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="3425" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 完成后的 token：实收 3 × 512 + 300 = 1836 B → 剩余 14548 = 0x38d4</text>
+<text x="1312.03125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="3445" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="3451" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="197.96875" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DT</text>
+<rect x="215.9" y="3451" width="539.1" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="485.46875" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Total Bytes to Transfer</text>
+<rect x="755.0" y="3451" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="772.96875" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IOC</text>
+<rect x="790.9" y="3451" width="107.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="844.84375" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C_Page</text>
+<rect x="898.8" y="3451" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="934.6875" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CERR</text>
+<rect x="970.6" y="3451" width="71.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="1006.5625" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">PID</text>
+<rect x="1042.5" y="3451" width="287.5" height="30" fill="#fff1e5" stroke="#57606a"/>
+<text x="1186.25" y="3471" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Status</text>
+<text x="180" y="3499" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Bytes</text>
+<text x="242" y="3499" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x38d4</text>
+<text x="312" y="3499" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">16384 − 0x38d4 = 1836 B 实收</text>
+<text x="180" y="3517" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Active</text>
+<text x="242" y="3517" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0</text>
+<text x="312" y="3517" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">已完成</text>
+<text x="770" y="3499" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Halted</text>
+<text x="832" y="3499" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0</text>
+<text x="902" y="3499" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">有错误时为 1 → 停调度、qh_flush、重挂其余缓冲</text>
+<text x="770" y="3517" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DT</text>
+<text x="832" y="3517" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">翻转</text>
+<text x="902" y="3517" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">高速 bulk 由 QH overlay 记</text>
+<rect x="94" y="3549" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="3565" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="3583" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: NAPI poll begin budget=4</text>
+<text x="104" y="3599" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: rx-completion EP4 bytes=1836 buffer=… urb-count=57</text>
+<text x="104" y="3615" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: NAPI poll end done=1 completed=1</text>
+<rect x="40" y="3663" width="1320" height="634" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="3687" r="15" fill="#0969da"/>
+<text x="68" y="3692" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">4</text>
+<text x="94" y="3685" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">rx_parse：把一次传输按段切开，逐帧检查后分发</text>
+<text x="94" y="3705" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">mt7601u_rx_parse → rx_mgmt（beacon、auth/assoc、EAPOL）/ rx_data（数据帧 → 以太网）</text>
+<text x="1345" y="3685" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 dev-&gt;lock</text>
+<text x="94" y="3725" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每段开头 4 字节 DMA 头的低 16 位是 dma_len，段长 = dma_len + 8（前 4 B 头 + 后 4 B FCE 信息）。dma_len 为 0、不是 4 的倍数或超出剩余长度，就当坏数据停止。</text>
+<text x="94" y="3743" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">RXWI 第 0 个字（rxinfo）里有 CRC / ICV / MIC 错误位，任一为 1 丢弃；第 1 个字的 bit27:16 是 MPDU 长度。</text>
+<text x="94" y="3761" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">MPDU 从 RXWI 之后开始：类型为管理帧（FC bit3:2 = 0）交给 rx_mgmt 推动关联状态机；数据帧交给 rx_data，去掉 802.11 头和 LLC/SNAP，拼成以太网帧。</text>
+<text x="94" y="3787" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="3787" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_rx_parse(dev, data, length)</text>
+<path d="M190,3791 V3800 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3804" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">while(offset + 8 + 28 + 4 &lt;= length)</text>
+<path d="M216,3808 V3817 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3821" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">dma_len = get16(seg); segment_len = dma_len + 8</text>
+<path d="M216,3825 V3834 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3838" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rxinfo = get32(rxwi); mpdu_len = (get32(rxwi+4) &gt;&gt; 16) &amp; 0xfff</text>
+<path d="M216,3842 V3851 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3855" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rxinfo &amp; (CRCERR|ICVERR|MICERR) → rx_bad++</text>
+<path d="M544.6,3851 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3855" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">丢弃</text>
+<path d="M216,3859 V3868 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3872" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">管理帧 → mt7601u_rx_mgmt</text>
+<path d="M391.3,3868 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3872" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">beacon / 响应</text>
+<path d="M216,3876 V3885 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3889" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">数据帧 → mt7601u_rx_data → decapsulate</text>
+<path d="M493.5,3885 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3889" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">EAPOL 或 IP/ARP</text>
+<path d="M216,3893 V3902 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3906" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">offset += segment_len</text>
+<path d="M391.3,3902 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3906" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">下一段</text>
+<text x="94" y="3933" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="3951" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 一个段（segment）的格式</text>
+<rect x="180" y="3961" width="158.6206896551724" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="259.3103448275862" y="3976" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DMA 头 4 B</text>
+<rect x="338.62068965517244" y="3961" width="277.58620689655174" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="477.4137931034483" y="3976" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">RXWI 28 B</text>
+<rect x="616.2068965517242" y="3961" width="475.8620689655172" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="854.1379310344828" y="3976" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">802.11 MPDU（mpdu_len 字节）</text>
+<rect x="1092.0689655172414" y="3961" width="79.3103448275862" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1131.7241379310344" y="3976" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">填充到 4 B</text>
+<rect x="1171.3793103448277" y="3961" width="158.6206896551724" height="34" fill="#fff1e5" stroke="#57606a"/>
+<text x="1250.689655172414" y="3976" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">FCE 信息 4 B</text>
+<text x="180" y="4011" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DMA 头</text>
+<text x="242" y="4011" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">b15:0</text>
+<text x="312" y="4011" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">dma_len：RXWI + MPDU + 填充的长度</text>
+<text x="180" y="4029" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">RXWI</text>
+<text x="242" y="4029" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">rxinfo / ctl</text>
+<text x="338.40000000000003" y="4029" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接收状态、MPDU 长度、SNR、增益、速率</text>
+<text x="770" y="4011" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">MPDU</text>
+<text x="832" y="4011" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">802.11 帧</text>
+<text x="904.4" y="4011" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">从 FC 开始，不含 FCS</text>
+<text x="770" y="4029" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">FCE</text>
+<text x="832" y="4029" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">尾部</text>
+<text x="902" y="4029" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">芯片附加信息，驱动不用</text>
+<text x="170" y="4075" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ RXWI 字 0：rxinfo（节选）</text>
+<text x="1312.03125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="4095" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="4101" width="754.7" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="557.34375" y="4121" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="934.7" y="4101" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="952.65625" y="4121" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">MIC</text>
+<rect x="970.6" y="4101" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="988.59375" y="4121" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">ICV</text>
+<rect x="1006.6" y="4101" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="1024.53125" y="4121" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CRC</text>
+<rect x="1042.5" y="4101" width="287.5" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1186.25" y="4121" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<text x="180" y="4149" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b8</text>
+<text x="242" y="4149" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">CRCERR</text>
+<text x="312" y="4149" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">FCS 校验错</text>
+<text x="180" y="4167" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b9</text>
+<text x="242" y="4167" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ICVERR</text>
+<text x="312" y="4167" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">WEP/TKIP ICV 错</text>
+<text x="770" y="4149" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b10</text>
+<text x="832" y="4149" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">MICERR</text>
+<text x="902" y="4149" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">MIC 错</text>
+<text x="770" y="4167" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">其余</text>
+<text x="832" y="4167" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">—</text>
+<text x="902" y="4167" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">本驱动不用</text>
+<rect x="94" y="4199" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="4215" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="4233" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: rx-aggregate usb-bytes=1836</text>
+<text x="104" y="4249" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: rx-segment off=0 dma=… mpdu=… rxinfo=… available=…</text>
+<text x="104" y="4265" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: rx-frame #31 fc=88 from=…:…:… seq=1234 len=…</text>
+<rect x="40" y="4313" width="1320" height="463" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="4337" r="15" fill="#0969da"/>
+<text x="68" y="4342" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<text x="94" y="4335" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">数据帧解封装 → net_rx_dev → socket，唤醒用户进程</text>
+<text x="94" y="4355" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">mt7601u_rx_data → decapsulate → dev-&gt;net_rx → mt7601u_service 末尾 → net_rx_dev(wlan0)</text>
+<text x="1345" y="4335" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 dev-&gt;lock（拼帧）· 放锁后调用 net_rx_dev</text>
+<text x="94" y="4375" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">去掉 802.11 头（24 B，QoS 数据帧再加 2 B）和 8 B 的 LLC/SNAP，用 Addr1 做目的 MAC、发送方地址（FromDS 时为 Addr3）做源 MAC，再拼上 2 B 类型，得到以太网帧放进 dev-&gt;net_rx。</text>
+<text x="94" y="4393" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">service 结束前放掉 dev-&gt;lock，再调用 net_rx_dev：ARP 交给 arp_rx（可能当场回应答，走消息 8 的发送路径），IP 交给 UDP/TCP，放进 socket 队列并 wakeup。</text>
+<text x="94" y="4411" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">EAPOL（类型 0x888e）不进网络栈，由驱动自己做 WPA2 四次握手。</text>
+<text x="94" y="4437" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="4437" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_rx_data(dev, frame, len, rxinfo)</text>
+<path d="M190,4441 V4450 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4454" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">type == 0x888e → EAPOL 状态机</text>
+<path d="M401.8,4450 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4454" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">驱动内部</text>
+<path d="M190,4458 V4467 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4471" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">decapsulate → dev-&gt;net_rx[], net_rx_len</text>
+<path d="M496.7,4467 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4471" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">以太网帧</text>
+<text x="180" y="4488" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_service 末尾</text>
+<path d="M190,4492 V4501 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4505" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">deliver = net_rx_len; net_rx_len = 0; release(&amp;dev-&gt;lock)</text>
+<path d="M190,4509 V4518 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4522" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">net_rx_dev(&amp;dev-&gt;netdev, dev-&gt;net_rx, deliver)</text>
+<path d="M547.8,4518 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4522" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">网络栈</text>
+<path d="M216,4526 V4535 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="4539" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ARP → arp_rx / IP → udp/tcp → socket → wakeup</text>
+<path d="M566.5,4535 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4539" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 进程 4</text>
+<text x="94" y="4566" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="4584" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 802.11 数据帧（FromDS）→ 以太网帧</text>
+<rect x="180" y="4594" width="71.875" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="215.9375" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">FC 2</text>
+<rect x="251.875" y="4594" width="71.875" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="287.8125" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Dur 2</text>
+<rect x="323.75" y="4594" width="215.625" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="431.5625" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Addr1 目的 6</text>
+<rect x="539.375" y="4594" width="215.625" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="647.1875" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Addr2 BSSID 6</text>
+<rect x="755.0" y="4594" width="215.625" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="862.8125" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Addr3 源 6</text>
+<rect x="970.625" y="4594" width="71.875" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1006.5625" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Seq 2</text>
+<rect x="1042.5" y="4594" width="215.625" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="1150.3125" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">LLC/SNAP AA AA 03 00 00 00</text>
+<rect x="1258.125" y="4594" width="71.875" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="1294.0625" y="4609" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">类型 2</text>
+<text x="180" y="4644" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Addr1</text>
+<text x="242" y="4644" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">→ 目的 MAC</text>
+<text x="319.2" y="4644" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">以太网字节 0–5</text>
+<text x="180" y="4662" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Addr3</text>
+<text x="242" y="4662" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">→ 源 MAC</text>
+<text x="312" y="4662" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">以太网字节 6–11（FromDS 时）</text>
+<text x="770" y="4644" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">类型</text>
+<text x="832" y="4644" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">→ EtherType</text>
+<text x="921.2" y="4644" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">以太网字节 12–13：0x0800 IP / 0x0806 ARP</text>
+<text x="770" y="4662" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">载荷</text>
+<text x="832" y="4662" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">原样</text>
+<text x="902" y="4662" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接在后面</text>
+<rect x="94" y="4694" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="4710" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="4728" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: rx-decapsulate ethertype=800 ethernet-bytes=98 to-me=1</text>
+<text x="104" y="4744" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: deliver ethernet bytes=98 -&gt; net_rx_dev(wlan0)</text>
+<rect x="40" y="4792" width="1320" height="428" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="4816" r="15" fill="#0969da"/>
+<text x="68" y="4821" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">6</text>
+<text x="94" y="4814" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">同一块缓冲挂回队尾：接收环保持 4 个 qTD</text>
+<text x="94" y="4834" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">mt7601u_service → ehci_usb_bulk_rx_arm → qh_append（异步环上的 EP4 IN QH）</text>
+<text x="1345" y="4814" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 dev-&gt;lock · 🔒 ehci_lock</text>
+<text x="94" y="4854" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每处理完一个完成的传输，就把它的缓冲重新 bulk_rx_arm 一次，用 dummy 法挂到 EP4 IN QH 的队尾。任何时刻都有 3–4 个接收 qTD 挂着，</text>
+<text x="94" y="4872" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">所以 CPU 解析一块缓冲、或 work A 在做同步传输时，HC 仍能把新数据收进别的缓冲。只有 4 块都满了还没被摘，芯片才会因为一直被 NAK 而在内部 FIFO 里丢帧。</text>
+<text x="94" y="4890" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">出错（token 带错误位）的缓冲也照样挂回去；如果 QH Halted，bulk_rx_complete 会停异步调度、qh_flush，再把剩下的缓冲依次重挂。</text>
+<text x="94" y="4916" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="4916" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bulk_rx_arm(udev, 4, rx_data, 16384)</text>
+<path d="M190,4920 V4929 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4933" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_fill(t, rx_data, 16384, PID_IN | IOC)</text>
+<path d="M190,4937 V4946 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4950" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_append(q, t, t)</text>
+<path d="M343.4,4946 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4950" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">旧 dummy 变真 qTD，置 Active</text>
+<text x="180" y="4967" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">token &amp; HALTED（在 bulk_rx_complete 里）</text>
+<path d="M448.8,4963 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4967" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">少见</text>
+<path d="M190,4971 V4980 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4984" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">async_stop(); qh_flush(q, q-&gt;head); async_start()</text>
+<path d="M569.7,4980 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4984" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">保留 DT</text>
+<path d="M190,4988 V4997 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5001" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">其余缓冲 bulk_rx_arm 重挂</text>
+<path d="M350.7,4997 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5001" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">日志一次</text>
+<text x="94" y="5028" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="5046" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ EP4 IN QH 的 qTD 队列（处理 A 时）</text>
+<rect x="180" y="5056" width="276.0" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="318.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">A 已摘下，CPU 解析中</text>
+<rect x="456.0" y="5056" width="184.0" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="548.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">B Active</text>
+<rect x="640.0" y="5056" width="184.0" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="732.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C Active</text>
+<rect x="824.0" y="5056" width="184.0" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="916.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">D Active</text>
+<rect x="1008.0" y="5056" width="184.0" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1100.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">A 挂回</text>
+<rect x="1192.0" y="5056" width="138.0" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1261.0" y="5071" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">dummy</text>
+<text x="180" y="5106" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;head</text>
+<text x="242" y="5106" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">B</text>
+<text x="312" y="5106" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">下一个要摘的</text>
+<text x="770" y="5106" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">队尾</text>
+<text x="832" y="5106" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">A</text>
+<text x="902" y="5106" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">重挂后排在最后</text>
+<rect x="94" y="5138" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="5154" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="5172" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">（正常没有输出；QH Halted 时）</text>
+<text x="104" y="5188" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: bulk ep4 in halted token=…; 3 receive buffers re-queued</text>
+<rect x="40" y="5236" width="1320" height="651" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="5260" r="15" fill="#0969da"/>
+<text x="68" y="5265" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<text x="94" y="5258" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">发送：net_xmit → 802.11 封装 → tx_raw 组 TXINFO + TXWI</text>
+<text x="94" y="5278" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">调用者上下文（用户进程 send / net_wq 重传 / NAPI 里的 ARP、ACK）→ mt7601u_net_xmit → send_llc → tx_raw</text>
+<text x="1345" y="5258" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 dev-&gt;lock（整个发送，含 USB 传输）</text>
+<text x="94" y="5298" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">发送不是排队给 worker，而是在调用者自己的上下文里同步做完：net_xmit 拿 dev-&gt;lock，把以太网帧变成 802.11 数据帧（ToDS，Addr1 = BSSID）加 LLC/SNAP，</text>
+<text x="94" y="5316" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">握手完成后用硬件加密（WCID = AP）。tx_raw 在前面加 4 B TXINFO 和 20 B TXWI，补齐到 4 B，再加 4 B 全 0 结尾，然后在 EP4 OUT 上做一次同步 bulk。</text>
+<text x="94" y="5334" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">注意：bulk() 内部用 wait_qtd 忙等完成（最长 3 s），而此时持有 dev-&gt;lock（关中断），所以这段时间 IRQ 55 被推迟，NAPI 也跑不了。</text>
+<text x="94" y="5360" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="5360" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_net_xmit(netdev, packet, len)</text>
+<path d="M190,5364 V5373 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5377" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">acquire(&amp;dev-&gt;lock)</text>
+<path d="M350.7,5373 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5377" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">关中断</text>
+<path d="M190,5381 V5390 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5394" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_send_llc(dev, dst, type, payload, n, 1)</text>
+<path d="M555.1,5390 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5394" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">802.11 头 + AA AA 03 …</text>
+<path d="M216,5398 V5407 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="5411" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_tx_raw(dev, frame, n, WCID_AP, hw_iv)</text>
+<path d="M242,5415 V5424 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="5428" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">info = padded | 80211 | QSEL(EDCA)</text>
+<path d="M512.2,5424 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5428" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">TXINFO</text>
+<path d="M242,5432 V5441 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="5445" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">txwi: ack_ctl=1, wcid, len_ctl=n</text>
+<path d="M497.6,5441 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5445" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">TXWI</text>
+<path d="M242,5449 V5458 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="5462" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bulk(udev, EP4, OUT, mt_tx_buf, total)</text>
+<path d="M541.4,5458 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5462" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 消息 8</text>
+<path d="M242,5466 V5475 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="5479" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_tx_stat_drain(dev)</text>
+<path d="M453.8,5475 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5479" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 消息 9</text>
+<path d="M190,5483 V5492 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5496" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">release(&amp;dev-&gt;lock)</text>
+<text x="94" y="5523" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="5541" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ EP4 OUT 一次传输的格式（mt_tx_buf）</text>
+<rect x="180" y="5551" width="164.28571428571428" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="262.1428571428571" y="5566" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">TXINFO 4 B</text>
+<rect x="344.2857142857143" y="5551" width="246.42857142857142" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="467.5" y="5566" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">TXWI 20 B</text>
+<rect x="590.7142857142857" y="5551" width="492.85714285714283" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="837.1428571428571" y="5566" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">802.11 MPDU</text>
+<rect x="1083.5714285714284" y="5551" width="82.14285714285714" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1124.642857142857" y="5566" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">填充</text>
+<rect x="1165.7142857142856" y="5551" width="164.28571428571428" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1247.8571428571427" y="5566" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">0 × 4 B</text>
+<text x="180" y="5601" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">TXINFO</text>
+<text x="242" y="5601" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">包信息</text>
+<text x="312" y="5601" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">长度、802.11 包、队列选择</text>
+<text x="180" y="5619" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">TXWI</text>
+<text x="242" y="5619" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">发送描述</text>
+<text x="312" y="5619" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">速率、要不要 ACK、WCID、MPDU 长度</text>
+<text x="770" y="5601" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">结尾</text>
+<text x="832" y="5601" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">4 B 0</text>
+<text x="902" y="5601" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">芯片要求的结束字</text>
+<text x="770" y="5619" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">total</text>
+<text x="832" y="5619" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">长度</text>
+<text x="902" y="5619" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">4 + padded + 4</text>
+<text x="170" y="5665" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ TXINFO（字 0）</text>
+<text x="1312.03125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="5685" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="5691" width="179.7" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="269.84375" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="359.7" y="5691" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="395.625" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">QSEL</text>
+<rect x="431.6" y="5691" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="449.53125" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">WIV</text>
+<rect x="467.5" y="5691" width="143.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="539.375" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="611.2" y="5691" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="629.21875" y="5711" font-size="10.645833333333334" fill="#1f2328" font-weight="normal" text-anchor="middle">80211</text>
+<rect x="647.2" y="5691" width="107.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="701.09375" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">其他</text>
+<rect x="755.0" y="5691" width="575.0" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="1042.5" y="5711" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">包长度（padded）</text>
+<text x="180" y="5739" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b26:25</text>
+<text x="242" y="5739" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">QSEL</text>
+<text x="312" y="5739" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">2 = EDCA（EP4），0 = MGMT</text>
+<text x="180" y="5757" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b24</text>
+<text x="242" y="5757" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">WIV</text>
+<text x="312" y="5757" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = IV 已在帧里（软件加密/明文）</text>
+<text x="770" y="5739" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b19</text>
+<text x="832" y="5739" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">80211</text>
+<text x="902" y="5739" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">载荷是原始 802.11 帧</text>
+<text x="770" y="5757" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b15:0</text>
+<text x="832" y="5757" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">长度</text>
+<text x="902" y="5757" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">TXWI + MPDU 补齐后的字节数</text>
+<rect x="94" y="5789" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="5805" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="5823" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u: WLAN TX path EP4 qsel=EDCA</text>
+<text x="104" y="5839" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-frame: tx 802.11 fc=… mpdu=… wcid=1 hw-iv=1 usb=EP4 bytes=…</text>
+<text x="104" y="5855" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: net-xmit ethertype=800 len=98 dst=…:…:…:…:…:… result=0</text>
+<rect x="40" y="5903" width="1320" height="396" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="5927" r="15" fill="#0969da"/>
+<text x="68" y="5932" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="94" y="5925" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">EP4 OUT 同步 bulk：挂 qTD，CPU 忙等它完成</text>
+<text x="94" y="5945" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ehci_usb_bulk → bulk_qh → qh_append（EP4 OUT QH）→ wait_qtd → HC 发 OUT 包</text>
+<text x="1345" y="5925" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：💤 xfer_lock · 🔒 ehci_lock · （外层 🔒 dev-&gt;lock）</text>
+<text x="94" y="5965" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">bulk_qh 把缓冲按每个 qTD 最多 5 页切开，最后一个带 IOC，一次 qh_append 挂到 EP4 OUT QH 上；然后 wait_qtd 轮询最后一个 qTD 的 Active 位。</text>
+<text x="94" y="5983" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 在异步环上转到这个 QH 时发 OUT 事务（每包 ≤ 512 B），芯片忙时回 NAK 或 NYET，HC 用 PING 协议等它就绪再发；全部发完 qTD 完成。</text>
+<text x="94" y="6001" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">超时（3 s）或出错：打印 qh/qTD 状态，停异步调度 qh_flush，返回 −1，tx_raw 再读芯片寄存器打印 TX stall 信息。</text>
+<text x="94" y="6027" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="6027" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_usb_bulk(udev, 4, 0, buf, total)</text>
+<path d="M190,6031 V6040 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6044" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">acquiresleep(&amp;xfer_lock)</text>
+<path d="M387.2,6040 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6044" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">一次一个同步传输</text>
+<path d="M190,6048 V6057 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6061" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bulk_qh(q, 4, 0, buf, total)</text>
+<path d="M216,6065 V6074 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6078" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_fill × k（每个 ≤ 5 页）；最后一个 | IOC</text>
+<path d="M216,6082 V6091 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6095" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_append(q, first, last)</text>
+<path d="M216,6099 V6108 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6112" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wait_qtd(last, 3000000)</text>
+<path d="M405.9,6108 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6112" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">忙等 Active=0</text>
+<path d="M216,6116 V6125 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6129" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">成功：逐个 qtd_free，返回发出字节数</text>
+<path d="M216,6133 V6142 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6146" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">失败：async_stop; qh_flush; async_start</text>
+<path d="M500.8,6142 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6146" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">返回 −1</text>
+<path d="M190,6150 V6159 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6163" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">releasesleep(&amp;xfer_lock)</text>
+<text x="94" y="6190" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="6190" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">高速 bulk OUT：OUT 令牌 + DATA0/1（≤ 512 B）→ ACK / NYET / NAK；NAK 后用 PING 询问，芯片就绪再发</text>
+<rect x="94" y="6217" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="6233" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="6251" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: tx-complete EP4 usb-bytes=… mpdu=…</text>
+<text x="104" y="6267" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">（失败时）mt7601u: TX bulk failed result=-1 expected=… mpdu=… wcid=1 hwiv=1</text>
+<rect x="40" y="6315" width="1320" height="440" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="6339" r="15" fill="#0969da"/>
+<text x="68" y="6344" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">9</text>
+<text x="94" y="6337" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">读空 TX_STAT_FIFO：每发一帧就用 EP0 读结果</text>
+<text x="94" y="6357" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">mt7601u_tx_stat_drain → mt7601u_read32 × 2 × N（EP0 控制，异步环上的 EP0 QH）</text>
+<text x="1345" y="6337" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：💤 xfer_lock · （外层 🔒 dev-&gt;lock）</text>
+<text x="94" y="6377" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">芯片把每个发出帧的结果（AP 有没有回 ACK）放进 TX_STAT_FIFO。主机不读的话，FIFO 满了以后 MAC 就不再发新帧，EP4 OUT 会一直 NAK。</text>
+<text x="94" y="6395" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">所以每次 tx_raw 成功后都读：先读 TX_STAT_FIFO_EXT，再读 TX_STAT_FIFO（读这个寄存器会弹出一项），直到 bit0（valid）为 0，最多 64 项。</text>
+<text x="94" y="6413" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每次读都是一次 EP0 控制传输（SETUP C0 07 0000 reg 0004 + 4 B 数据 + STATUS），同样由 xfer_lock 串行。</text>
+<text x="94" y="6439" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="6439" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_tx_stat_drain(dev)</text>
+<path d="M190,6443 V6452 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6456" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for n &lt; 64:</text>
+<path d="M216,6460 V6469 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6473" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">read32(TX_STAT_FIFO_EXT 0x1798)</text>
+<path d="M464.3,6469 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6473" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">EP0</text>
+<path d="M216,6477 V6486 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6490" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">read32(TX_STAT_FIFO 0x1718)</text>
+<path d="M435.1,6486 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6490" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">EP0，弹出一项</text>
+<path d="M216,6494 V6503 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6507" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">!(stat &amp; 1) → break</text>
+<path d="M376.7,6503 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6507" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">FIFO 空了</text>
+<text x="94" y="6534" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="6534" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">EP0 控制读：SETUP（C0 07 0000 寄存器 0004）→ DATA IN 4 B（小端）→ STATUS OUT 0 B</text>
+<text x="94" y="6561" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="6579" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 读寄存器的 SETUP 包：C0 07 0000 1718 0004</text>
+<rect x="180" y="6589" width="115" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="237.5" y="6604" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bmRequestType</text>
+<text x="237.5" y="6618" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="295" y="6589" width="115" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="352.5" y="6604" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bRequest</text>
+<text x="352.5" y="6618" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="410" y="6589" width="230" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="525.0" y="6604" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wValue</text>
+<text x="525.0" y="6618" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="640" y="6589" width="230" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="755.0" y="6604" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wIndex</text>
+<text x="755.0" y="6618" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="870" y="6589" width="230" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="985.0" y="6604" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wLength</text>
+<text x="985.0" y="6618" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<text x="180" y="6639" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">C0</text>
+<text x="242" y="6639" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">类型</text>
+<text x="312" y="6639" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">设备→主机，厂商请求，设备</text>
+<text x="180" y="6657" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">07</text>
+<text x="242" y="6657" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">请求</text>
+<text x="312" y="6657" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">MULTI_READ</text>
+<text x="770" y="6639" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x1718</text>
+<text x="832" y="6639" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wIndex</text>
+<text x="902" y="6639" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">寄存器地址 TX_STAT_FIFO</text>
+<text x="770" y="6657" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">4</text>
+<text x="832" y="6657" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wLength</text>
+<text x="902" y="6657" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">读 4 字节</text>
+<rect x="94" y="6689" width="1250" height="50" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="6705" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="6723" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wifi-data: tx-status=… ext=… result=acked</text>
+<rect x="40" y="6771" width="1320" height="351" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="6795" r="15" fill="#0969da"/>
+<text x="68" y="6800" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">10</text>
+<text x="94" y="6793" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">出错与恢复：Halted 的 QH 要停调度、qh_flush，并保留数据翻转位</text>
+<text x="94" y="6813" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">bulk_rx_complete（接收 Halted）/ bulk_qh、control_qh 失败 → async_stop → qh_flush → async_start</text>
+<text x="1345" y="6793" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 ehci_lock · 停异步调度期间 HC 不碰 QH</text>
+<text x="94" y="6833" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接收 QH Halted 时整条队列卡住：bulk_rx_complete 先记下剩余缓冲，停异步调度（ASE=0，等 ASS=0），qh_flush 释放这些 qTD、让 overlay 停在 dummy 上，</text>
+<text x="94" y="6851" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">只清 Active/Halted、保留 DT（设备没复位翻转位，主机清了会被当成重传丢掉），再开调度，把剩余缓冲按原顺序重挂。</text>
+<text x="94" y="6869" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">发送或控制传输失败同理：驱动打印 TX stall 信息并读空 TX_STAT_FIFO，避免一次失败让后面每一帧都卡住。</text>
+<text x="94" y="6895" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="6895" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bulk_rx_complete：tok &amp; HALTED</text>
+<path d="M190,6899 V6908 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6912" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">记下 q-&gt;head 之后的 bufs[]、lens[]</text>
+<path d="M416.4,6908 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6912" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">最多 8 个</text>
+<path d="M190,6916 V6925 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6929" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">async_stop(); qh_flush(q, q-&gt;head); async_start()</text>
+<path d="M190,6933 V6942 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6946" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for each: bulk_rx_arm(udev, 4, bufs[i], lens[i])</text>
+<text x="180" y="6963" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">tx_raw 失败</text>
+<path d="M190,6967 V6976 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6980" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_tx_fail_dump → 读 WPDMA/PBF/USB_DMA/MAC 寄存器</text>
+<path d="M577.0,6976 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6980" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">最多 3 次</text>
+<path d="M190,6984 V6993 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6997" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_tx_stat_drain(dev)</text>
+<rect x="94" y="7024" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="7040" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出：wifi-config 需 MT7601U_CONFIG_TRACE=1，wifi-data/-frame 需 MT7601U_DATA_TRACE=1/2；数值为示例）</text>
+<text x="104" y="7058" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: bulk ep4 in halted token=…; 3 receive buffers re-queued</text>
+<text x="104" y="7074" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u: TX stall dump #1: EP4 txinfo=…</text>
+<text x="104" y="7090" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u:   USB_DMA_CFG(238)=…</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTo4ZjA1MDY0Yy03NjE0LTRmOGQtYTAzYS01ZDQzYzM1Mjc4YjIAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaJOGE3b4zRx9iFvTSetDs/0AAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo0NWEzYjI3OS1lODgzLTRjNWQtOGE3Zi1kN2E0NGE4ZTU3MWNscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoQ1NHZHAAYoMDUAlIWWsqNAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggvtkqIOhPlmX4Altbmqaz5PSaS36v+pJ/D6ccqGjgP92kZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaJi0inBgLob/3CKHLDcHQkUAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRKAAAAAAAAAAAAAGRoYXNoWCASpa6DOM2LmT4nXOPQ2I43iQENi3XsbfAULW3zKi05qmRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBoAAhvbZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjhmMDUwNjRjLTc2MTQtNGY4ZC1hMDNhLTVkNDNjMzUyNzhiMi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmU3NjhmM2UxLWMyNTAtNGNkZC04NGU4LTNlMWQyM2EyNThjYnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCC+2Sog6E+WZfgCW1uaprPk9JpLfq/6kn8PpxyoaOA/3aJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggvWQVsHSOknIPvSzPZYCKtKphoRd2Jf4973w53QFiCWmiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg0K+1eKsH2+TX60BU38vuG/GlveO7TRT4aZaIBn+DU0J0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQKiR0biYcDQsEEu66fKSLQjkW6z/0pQXRn43w3nJwX1OiKtBo4TbeEzc5MLn3A2K1kGSM0UZN+BVdhVOmfhbB+E=</c2pa:manifest></metadata></svg>

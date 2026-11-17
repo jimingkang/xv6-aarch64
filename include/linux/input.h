@@ -4,6 +4,7 @@
 /* Linux-compatible subset used by xv6's input core and evdev clients. */
 #define EV_SYN 0
 #define EV_KEY 1
+#define EV_REL 2
 
 #define SYN_REPORT  0
 #define SYN_DROPPED 3
@@ -92,7 +93,21 @@
 #define KEY_DELETE    111
 #define KEY_LEFTMETA  125
 #define KEY_RIGHTMETA 126
-#define KEY_MAX       255
+/* Buttons share the EV_KEY code space with keys (Linux BTN_MOUSE range). */
+#define BTN_MOUSE     0x110
+#define BTN_LEFT      0x110
+#define BTN_RIGHT     0x111
+#define BTN_MIDDLE    0x112
+#define BTN_SIDE      0x113
+#define BTN_EXTRA     0x114
+#define KEY_MAX       0x2ff
+
+/* EV_REL codes: relative axes. */
+#define REL_X         0x00
+#define REL_Y         0x01
+#define REL_HWHEEL    0x06
+#define REL_WHEEL     0x08
+#define REL_MAX       0x0f
 
 #define BUS_USB  0x03
 #define BUS_HOST 0x19

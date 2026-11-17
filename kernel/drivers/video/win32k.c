@@ -54,6 +54,48 @@ static uint rawhead, rawtail;
 
 void fbcon_pause(int pause) __attribute__((weak));
 
+/* ---- mouse cursor ------------------------------------------------------
+ * The cursor is never part of the shadow buffer: compose() draws it on the
+ * frame buffer last, and a move only restores the old 12x19 rectangle from
+ * the shadow and draws the arrow again, instead of composing the screen.
+ * Everything below is protected by the wm sleep lock. */
+#define CUR_W 12
+#define CUR_H 19
+static const char *const cursor_img[CUR_H] = {
+  "X", "XX", "X.X", "X..X", "X...X", "X....X", "X.....X", "X......X",
+  "X.......X", "X........X", "X.........X", "X......XXXXX", "X...X..X",
+  "X..XX..X", "X.X  X..X", "XX   X..X", "X     X..X", "      X..X",
+  "       XX",
+};
+static int curx = -1, cury;         // hot spot (screen pixels), -1 = unset
+static int cur_shown;
+static int mouse_dx, mouse_dy, mouse_wheel;   // motion of the current frame
+static int mouse_buttons;                     // W32MK_* state
+static int capture = -1;                      // window that got the press
+static int dragging = -1;                     // window moved by its caption
+static int move_pending;
+
+static void
+cursor_paint(int show)
+{
+  if(shadow == 0 || fb.pixels == 0 || curx < 0)
+    return;
+  for(int r = 0; r < CUR_H; r++){
+    int y = cury + r;
+    if(y >= fb.height)
+      break;
+    for(int c = 0; cursor_img[r][c]; c++){
+      int x = curx + c;
+      char k = cursor_img[r][c];
+      if(x >= fb.width || k == ' ')
+        continue;
+      fb.pixels[y*fb.stride + x] = !show ? shadow[y*fb.width + x] :
+                                   k == 'X' ? 0x000000 : 0xffffff;
+    }
+  }
+  cur_shown = show;
+}
+
 static void *
 win_alloc(uint bytes)
 {
@@ -184,6 +226,9 @@ compose(void)
   }
   for(int y = 0; y < fb.height; y++)
     memmove(fb.pixels + y*fb.stride, shadow + y*fb.width, fb.width*4);
+  cur_shown = 0;
+  if(nz > 0)
+    cursor_paint(1);
 }
 
 static void
@@ -211,6 +256,8 @@ destroy(int i)
   int owner = wins[i].owner;
   uint gen = wins[i].gen;
   zremove(i);
+  if(capture == i) capture = -1;
+  if(dragging == i) dragging = -1;
   win_free(wins[i].front);
   win_free(wins[i].back);
   memset(&wins[i], 0, sizeof(wins[i]));
@@ -273,25 +320,176 @@ keychar(int code)
   return 0;
 }
 
+/* ---- mouse ---------------------------------------------------------- */
+
+static int
+window_at(int x, int y)
+{
+  for(int n = nz - 1; n >= 0; n--){
+    struct kwnd *w = &wins[z[n]];
+    if(w->used && (w->style & W32S_VISIBLE) && !w->minimized && w->painted &&
+       x >= w->rc.left && x < w->rc.right && y >= w->rc.top && y < w->rc.bottom)
+      return z[n];
+  }
+  return -1;
+}
+
+static void
+post_mouse(int i, uint32 msg, uint64 wp)
+{
+  if(i < 0 || !wins[i].used)
+    return;
+  int x = curx - wins[i].rc.left, y = cury - wins[i].rc.top;
+  post(wins[i].owner, hwnd(i), msg, wp, ((long)(y & 0xffff) << 16) | (x & 0xffff));
+}
+
+// Caption windows come to the front on a click; borderless ones (the
+// desktop and taskbar of windemo) stay where they are in the z-order.
+static void
+click_activate(int i)
+{
+  int old = active;
+  if(!(wins[i].style & W32S_CAPTION) || i == old)
+    return;
+  raise(i);
+  invalidate(i);                    // repaint both captions (active colour)
+  if(old >= 0 && wins[old].used)
+    invalidate(old);
+}
+
+static void
+mouse_button(int bit, int down)
+{
+  static const uint32 downmsg[] = { [W32MK_LBUTTON] = W32M_LBUTTONDOWN,
+    [W32MK_RBUTTON] = W32M_RBUTTONDOWN, [W32MK_MBUTTON] = W32M_MBUTTONDOWN };
+  static const uint32 upmsg[] = { [W32MK_LBUTTON] = W32M_LBUTTONUP,
+    [W32MK_RBUTTON] = W32M_RBUTTONUP, [W32MK_MBUTTON] = W32M_MBUTTONUP };
+
+  if(down)
+    mouse_buttons |= bit;
+  else
+    mouse_buttons &= ~bit;
+  if(!down){
+    if(bit == W32MK_LBUTTON)
+      dragging = -1;
+    post_mouse(capture, upmsg[bit], mouse_buttons);
+    if(mouse_buttons == 0)
+      capture = -1;
+    return;
+  }
+  int i = window_at(curx, cury);
+  if(i < 0)
+    return;
+  if(capture < 0)
+    capture = i;
+  click_activate(i);
+  struct kwnd *w = &wins[i];
+  int x = curx - w->rc.left, y = cury - w->rc.top;
+  if(bit == W32MK_LBUTTON && (w->style & W32S_CAPTION) &&
+     y >= 2 && y < W32_CAPTION_H){
+    if(x >= w->width - 25 && x < w->width - 7 && y >= 5 && y < 21)
+      post(w->owner, hwnd(i), W32M_CLOSE, 0, 0);     // the red x box
+    else
+      dragging = i;                                  // move by the caption
+    return;
+  }
+  post_mouse(i, downmsg[bit], mouse_buttons);
+}
+
+// Apply one frame's motion.  Returns 1 when the screen must be composed.
+static int
+mouse_move(void)
+{
+  int dx = mouse_dx, dy = mouse_dy, recompose = 0;
+
+  mouse_dx = mouse_dy = 0;
+  if((dx == 0 && dy == 0) || fb.width == 0)
+    return 0;
+  if(cur_shown)
+    cursor_paint(0);
+  int nx = curx + dx, ny = cury + dy;
+  nx = nx < 0 ? 0 : nx >= fb.width ? fb.width - 1 : nx;
+  ny = ny < 0 ? 0 : ny >= fb.height ? fb.height - 1 : ny;
+  dx = nx - curx;
+  dy = ny - cury;
+  curx = nx;
+  cury = ny;
+  if(dragging >= 0 && wins[dragging].used){
+    wins[dragging].rc.left += dx;
+    wins[dragging].rc.right += dx;
+    wins[dragging].rc.top += dy;
+    wins[dragging].rc.bottom += dy;
+    recompose = 1;                  // compose() draws the cursor again
+  } else if(nz > 0){
+    cursor_paint(1);
+  }
+  move_pending = 1;
+  return recompose;
+}
+
 static void
 input_workfn(struct work_struct *work)
 {
+  int recompose = 0;
+
+  acquiresleep(&wm);
+  if(curx < 0 && fb.width > 0){
+    curx = fb.width / 2;
+    cury = fb.height / 2;
+  }
   for(;;){
     acquire(&rawlock);
-    if(rawhead == rawtail){ release(&rawlock); return; }
+    if(rawhead == rawtail){ release(&rawlock); break; }
     uint slot=rawhead++%RAWQ;
     uint16 type=raw[slot].type, code=raw[slot].code;
     int value=raw[slot].value;
     release(&rawlock);
-    if(type != EV_KEY || !value) continue;
-    acquiresleep(&wm);
+    if(nz == 0 || curx < 0){        // no windows: the console owns input
+      mouse_dx = mouse_dy = mouse_wheel = 0;
+      continue;
+    }
+    if(type == EV_REL){
+      if(code == REL_X) mouse_dx += value;
+      else if(code == REL_Y) mouse_dy += value;
+      else if(code == REL_WHEEL) mouse_wheel += value;
+      continue;
+    }
+    if(type == EV_SYN){
+      recompose |= mouse_move();
+      if(mouse_wheel){
+        int i = window_at(curx, cury);
+        post_mouse(i, W32M_MOUSEWHEEL,
+                   ((uint64)(uint16)(mouse_wheel * 120) << 16) | mouse_buttons);
+        mouse_wheel = 0;
+      }
+      continue;
+    }
+    if(type != EV_KEY)
+      continue;
+    if(code == BTN_LEFT || code == BTN_RIGHT || code == BTN_MIDDLE){
+      recompose |= mouse_move();    // press where the cursor is now
+      mouse_button(code == BTN_LEFT ? W32MK_LBUTTON :
+                   code == BTN_RIGHT ? W32MK_RBUTTON : W32MK_MBUTTON, value);
+      continue;
+    }
+    if(!value || code > KEY_MAX || code >= BTN_MOUSE)
+      continue;
     if(active >= 0 && wins[active].used){
       uint32 h=hwnd(active); int owner=wins[active].owner; int ch=keychar(code);
       post(owner,h,W32M_KEYDOWN,code,0);
       if(ch) post(owner,h,W32M_CHAR,ch,0);
     }
-    releasesleep(&wm);
   }
+  // One compose and one WM_MOUSEMOVE per batch, however many reports the
+  // mouse sent while this worker was busy.
+  if(recompose)
+    compose();
+  if(move_pending){
+    move_pending = 0;
+    post_mouse(capture >= 0 ? capture : window_at(curx, cury),
+               W32M_MOUSEMOVE, mouse_buttons);
+  }
+  releasesleep(&wm);
 }
 
 void
@@ -342,6 +540,7 @@ sys_win32k(void)
     wins[i].width=c.w; wins[i].height=c.h; wins[i].front=front; wins[i].back=back;
     safestrcpy(wins[i].title,c.title,sizeof(wins[i].title));
     if(nz == 0 && fbcon_pause) fbcon_pause(1);
+    if(curx < 0){ curx=fb.width/2; cury=fb.height/2; }
     z[nz++]=i; active=i;
     invalidate(i); compose(); uint32 h=hwnd(i); releasesleep(&wm); return h;
   }

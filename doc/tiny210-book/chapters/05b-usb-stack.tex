@@ -1,5 +1,5 @@
-\chapter{USB 主机栈：EHCI 数据传输与中断处理}\label{wa:ch-05b-usb-stack}
-\section{USB 各层架构}
+\section{USB 主机栈：EHCI 数据传输与中断处理}\label{wa:ch-05b-usb-stack}
+\subsection{USB 各层架构}
 
 \begin{figure}[H]
 \centering
@@ -21,7 +21,7 @@
 \caption{USB 软件分层}
 \end{figure}
 
-\subsection{平台层：PHY 与控制器启动}\label{wa:phy}
+\subsubsection{平台层：PHY 与控制器启动}\label{wa:phy}
 
 \fn{host\_phy\_init()}（参考 Linux \fn{phy-s5pv210-usb2.c}）：\fn{CLK\_GATE\_IP1}(0xE0100464) bit17 打开 USBHOST 时钟；
 \fn{USB\_PHY\_CONTROL}(0xE010E80C) bit1 解除 PHY1 隔离；PHY 寄存器块 0xEC100000 中 \fn{UPHYCLK} 选 24 MHz，
@@ -39,7 +39,7 @@ ehci: s5p-ehci at -13e00000, enumeration deferred to ehci-enum
 ehci: 1 port(s), running, async schedule on
 \end{lstlisting}
 
-\subsection{HCD 层：QH/qTD 与 dummy 追加法}
+\subsubsection{HCD 层：QH/qTD 与 dummy 追加法}
 
 EHCI 异步调度是一个 QH（每端点一个）组成的环，每个 QH 下挂一串 qTD，每个 qTD 最多描述 5 个 4 KiB 页。
 
@@ -52,7 +52,7 @@ EHCI 异步调度是一个 QH（每端点一个）组成的环，每个 QH 下�
 \item \fn{ehci\_irq}：USBSTS 的 USBINT/ERR 置位时调弱符号 \fn{mt7601u\_rx\_irq()}。
 \end{itemize}
 
-\subsection{总线上的包与事务}
+\subsubsection{总线上的包与事务}
 
 USB 总线上被调度的最小单位是\textbf{事务}：主机发 Token 包声明“对哪个设备的哪个端点做什么”，接着是可选的 Data 包，
 最后由接收方回 Handshake 包。主机发起一切，设备只能应答。
@@ -93,7 +93,7 @@ Handshake & STALL & 端点出错停住，要软件 \fn{CLEAR\_FEATURE(HALT)}；q
 四种传输类型里本驱动用了两种：\textbf{控制传输}（EP0，可靠、双向、有 SETUP 阶段）和 \textbf{bulk 传输}（EP4/5/8，可靠、无时限、只用剩余带宽）。
 中断传输只在 Hub 的状态端点上有（xv6 不轮询它，没做热插拔），等时传输没用。
 
-\subsection{EHCI 数据结构：QH 与 qTD}
+\subsubsection{EHCI 数据结构：QH 与 qTD}
 
 \begin{figure}[H]
 \centering
@@ -154,7 +154,7 @@ token 位 & 名称 & 含义 \\ \midrule \endhead
 
 每个 qTD 有 5 个页指针，覆盖最多 5 个 4 KiB 页；\fn{qtd\_fill} 按缓冲起始页内偏移算出能放下的长度（≥ 16 KiB），所以一个 16 KiB 的接收缓冲或一块 14 KiB 的固件都只要一个 qTD。
 
-\subsection{EHCI 怎样执行异步调度}
+\subsubsection{EHCI 怎样执行异步调度}
 
 \begin{enumerate}[leftmargin=2em,itemsep=0pt]
 \item \fn{USBCMD.ASE=1} 后，HC 从 \fn{ASYNCLIST} 指向的 head\_qh 开始，沿 \fn{horiz} 一圈圈地走 QH。
@@ -168,7 +168,7 @@ token 位 & 名称 & 含义 \\ \midrule \endhead
 在尾巴上接一个新 dummy，最后才把原 dummy 的 Active 置位。HC 下一次看这个 QH 时就会接着执行，软件不需要停异步调度，
 也就不用 Interrupt-on-Async-Advance 门铃。只有出错修复时才 \fn{async\_stop()} → \fn{qh\_flush()} → \fn{async\_start()}。
 
-\subsection{控制传输：MT7601U 的寄存器读写}
+\subsubsection{控制传输：MT7601U 的寄存器读写}
 
 控制传输由 3 个 qTD 组成（\fn{control\_qh}）：SETUP（8 字节，DATA0）→ 可选的 DATA（DATA1）→ 方向相反的 0 字节 STATUS（DATA1，IOC）。
 EP0 的 QH 置了 DTC，所以 toggle 来自每个 qTD 的 DT 位。读数据先落在对齐的 \fn{ctrl\_buf} 里再拷给调用者。
@@ -195,7 +195,7 @@ STATUS事务:  OUT(addr 2, EP0)   | DATA1 （0 字节）              | ACK
 BBP 和 RF 寄存器不能直接寻址：要把“寄存器号 + 值 + 写位 + 忙位/KICK”写进 \fn{BBP\_CSR\_CFG}(0x101c) 或 \fn{RF\_CSR\_CFG}(0x0500)，
 再轮询忙位清零（\fn{mt7601u\_bbp\_write}、\fn{mt7601u\_rf\_write}）。一个 RF 写要 4--6 次控制传输，RF 表 138 项就是七八百次。
 
-\subsection{Bulk OUT：一帧怎样从内存到网卡}
+\subsubsection{Bulk OUT：一帧怎样从内存到网卡}
 
 以 DHCP DISCOVER 为例（日志 \fn{data tx type=800 len=342}）：
 
@@ -211,7 +211,7 @@ qTD        = OUT, 388 B, IOC, CERR 3                            bulk_qh -> qh_ap
 网卡内部缓冲满时对 OUT 回 NAK/NYET，EHCI 自动 PING 等待；\fn{bulk\_qh} 对 OUT 最多等 3 s（IN 1 s），超时就打印 QH/qTD 现场，
 停异步调度、\fn{qh\_flush}、重启。
 
-\subsection{Bulk IN：EP4 的接收环}
+\subsubsection{Bulk IN：EP4 的接收环}
 
 \begin{enumerate}[leftmargin=2em,itemsep=0pt]
 \item probe 末尾 \fn{bulk\_rx\_arm(EP4)} ×4：每次 \fn{qtd\_fill} 一个 16 KiB、IN、IOC 的 qTD，\fn{qh\_append} 到 EP4 的 QH。之后不等待。
@@ -223,7 +223,7 @@ qTD        = OUT, 388 B, IOC, CERR 3                            bulk_qh -> qh_ap
 \end{enumerate}
 4 个缓冲轮转，HC 处理一个完成的缓冲时，后面 3 个仍在接收，EP4 不会因为 CPU 没来得及处理而停。
 
-\subsection{MCU 命令与 EP5}
+\subsubsection{MCU 命令与 EP5}
 
 MCU 命令和固件一样走 EP8，靠 TXINFO 区分（\fn{mt7601u\_mcu\_command}）：
 \begin{lstlisting}
@@ -233,7 +233,7 @@ TXINFO = bit30 命令 | (2 << 27) 端口 CPU_TX | (cmd << 20) | (seq << 16) | �
                           核对应答的 seq（bit16-19）和事件类型（bit20-23 = 0）
 \end{lstlisting}
 
-\subsection{枚举请求序列}
+\subsubsection{枚举请求序列}
 
 \begingroup\small\begin{longtable}{p{5mm}>{\raggedright\arraybackslash}p{65mm}>{\raggedright\arraybackslash}p{59mm}}
 \toprule
@@ -253,14 +253,14 @@ TXINFO = bit30 命令 | (2 << 27) 端口 CPU_TX | (cmd << 20) | (seq << 16) | �
 \bottomrule
 \end{longtable}\endgroup
 
-\subsection{出错处理与 data toggle}
+\subsubsection{出错处理与 data toggle}
 
 \fn{TOK\_ERRMASK}（0x7c）覆盖 Halted、Buffer、Babble、XactErr、Missed。出错或超时后：
 \fn{async\_stop()} 清 ASE 并等 ASS 归零（HC 不再访问 QH）；\fn{qh\_flush()} 把未完成的 qTD 全部丢弃、QH 重新指向 dummy；
 \fn{async\_start()} 再打开。\fn{qh\_flush} 只清 token 里的 Active/Halted/Ping，\textbf{保留 DT 位}：设备那边的 toggle 没有复位，
 主机若从 DATA0 重新开始，设备会把下一个新包当成重传的旧包，回 ACK 却丢掉——实板“握手后 EP8 永远 NAK”就是这样来的（f649f28）。
 
-\subsection{枚举与 Hub}
+\subsubsection{枚举与 Hub}
 
 \fn{ehci\_enum\_thread} → \fn{ehci\_start} → \fn{root\_ports()}：根端口连接 → 端口复位 → \fn{enumerate(HS, 0, 0)}：
 地址 0 读设备描述符前 8 字节 → \fn{SET\_ADDRESS} → 读设备/配置描述符 → \fn{parse\_config} 记录端点 → \fn{SET\_CONFIGURATION}。
@@ -275,7 +275,7 @@ ehci: high-speed device 148f:7601 class 255 at address 2 (hub 1 port 3)
 ehci:   bulk in 4,5/512 out 8/512 intr in 0
 \end{lstlisting}
 
-\subsection{USB core 与设备驱动接口}
+\subsubsection{USB core 与设备驱动接口}
 
 \begin{lstlisting}
 struct usb_host_ops {                       /* kernel/usb.h */
@@ -288,7 +288,7 @@ struct usb_host_ops {                       /* kernel/usb.h */
 \end{lstlisting}
 MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一份驱动也能挂在 DWC2（OTG）上。
 
-\section{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}\label{wa:irq}
+\subsection{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}\label{wa:irq}
 
 接收是唯一由中断驱动的方向。思路和 Linux 一样：上半部（硬中断）只确认中断、登记“有活要干”，
 真正的 USB 收取、802.11 解析和协议处理放到内核线程里做，因为这些步骤要拿睡眠锁、可能等待 USB 传输。
@@ -319,7 +319,7 @@ MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一�
 \caption{接收中断的上半部与下半部}
 \end{figure}
 
-\subsection{上半部为什么这么短}
+\subsubsection{上半部为什么这么短}
 
 \begin{itemize}[leftmargin=2em,itemsep=0pt]
 \item \fn{ehci\_irq} 只做 W1C 清 USBSTS 和 \fn{napi\_schedule}，不碰 qTD，不调 USB 传输。EHCI 中断不是电平保持型的“设备里还有数据”信号，
@@ -328,7 +328,7 @@ MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一�
 \item 中断返回前 \fn{t113\_irq} 检查 \fn{resched\_pending()}：被唤醒的 kworker 可以马上被调度，而不是等下一个时钟节拍。
 \end{itemize}
 
-\subsection{NAPI 的三个状态位}
+\subsubsection{NAPI 的三个状态位}
 
 \begingroup\small\begin{longtable}{p{22mm}p{112mm}}
 \toprule
@@ -341,7 +341,7 @@ MT7601U 驱动不知道 EHCI 的存在，只调用 \fn{udev->ops->...}；同一�
 
 工作队列本身也有防重入：work 正在跑时再 \fn{queue\_work}，只置 \fn{rerun}，跑完后再排一次，同一个 work 不会并发执行。
 
-\subsection{时钟中断：状态机和超时的动力}
+\subsubsection{时钟中断：状态机和超时的动力}
 
 \begin{lstlisting}
 PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
@@ -353,14 +353,14 @@ PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
 扫描换信道（0.5 s）、认证/关联超时（1 s）、M1 看门狗（5 s）都是 delayed work。0bd029e 之前 ARM32 的时钟中断没调
 \fn{workqueue\_timer\_tick()}，\fn{state\_work} 永不到期，所以扫描一直停在信道 1，握手 30 s 超时。
 
-\subsection{发送方向：没有中断}
+\subsubsection{发送方向：没有中断}
 
 发送在调用者自己的上下文里同步完成：\fn{dhcp}/\fn{ping} 的系统调用、或 TCP 重传 work →
 \fn{netdev\_xmit\_on} → \fn{mt7601u\_net\_xmit}（持 \fn{dev->lock}）→ \fn{mt7601u\_tx\_raw} → \fn{ehci\_usb\_bulk}（持 \fn{xfer\_lock}）
 → \fn{wait\_qtd} 轮询 Active 位直到 HC 完成。函数返回时帧已经进了网卡。OUT 的 qTD 也带 IOC，
 它触发的 USBINT 会顺便调度一次 NAPI，NAPI 发现 EP4 没有完成的缓冲就立即结束。
 
-\subsection{上下文与锁}
+\subsubsection{上下文与锁}
 
 \begingroup\small\begin{longtable}{p{27mm}p{36mm}p{70mm}}
 \toprule
@@ -373,7 +373,7 @@ PWM timer4 中断（100 Hz） -> VIC -> arm32_timer_tick()
 \bottomrule
 \end{longtable}\endgroup
 
-\section{用分层 Trace 对齐 USB 与 Wi-Fi 调用链}\label{wa:usb-wifi-trace}
+\subsection{用分层 Trace 对齐 USB 与 Wi-Fi 调用链}\label{wa:usb-wifi-trace}
 
 第~\ref{tiny210-wifi-trace} 节给出了完整开关表。对 USB 主机栈分析最有用的
 三个前缀是 \fn{usb-enum:}、\fn{usb-core:} 和 \fn{usb-xfer:}：前两项回答

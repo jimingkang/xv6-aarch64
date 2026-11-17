@@ -42,6 +42,13 @@ MT7601U_TX_EDCA_EP4 ?= 1
 # 0: skip the WCID/key table clear added in 3977211 (A/B test).
 MT7601U_WCID_CLEAR ?= 1
 MT7601U_SCAN_CHAN ?= 0
+# USB keyboard trace (usbkbd + console kbd handler).  Errors always print.
+# 1: probe steps, every HID report (raw bytes) and the key presses/releases
+#    decoded from it, Caps Lock LED; 2: also every URB completion/resubmit
+#    and each character the kbd handler hands to the console.
+USBKBD_TRACE ?= 0
+# usbkbd.c/usbmouse.c/keyboard.c now read USBHID_TRACE; USBKBD_TRACE still works.
+USBHID_TRACE ?= $(USBKBD_TRACE)
 # Root file system blocks (1 KiB).
 TINY210_FSBLOCKS ?= 4096
 ifeq ($(QEMU_TEST),1)
@@ -53,17 +60,23 @@ KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(TINY210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) -DS5PV210_LCD_VCLK_INVERT=$(LCD_VCLK_INVERT) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
-FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET -DXV6_HAVE_PTY -DXV6_HAVE_VFS $(if $(filter 1,$(QEMU_TEST)),,-DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) -DFBCON_FONT_BOLD=$(FBCON_BOLD) -DUSB_CORE_TRACE=$(USB_CORE_TRACE) -DUSB_ENUM_TRACE=$(USB_ENUM_TRACE) -DUSB_XFER_TRACE=$(USB_XFER_TRACE) -DMT7601U_CONFIG_TRACE=$(MT7601U_CONFIG_TRACE) -DMT7601U_DATA_TRACE=$(MT7601U_DATA_TRACE) -DMT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4) -DMT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR) -DMT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET -DXV6_HAVE_PTY -DXV6_HAVE_VFS $(if $(filter 1,$(QEMU_TEST)),,-DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) -DFBCON_FONT_BOLD=$(FBCON_BOLD) -DUSB_CORE_TRACE=$(USB_CORE_TRACE) -DUSB_ENUM_TRACE=$(USB_ENUM_TRACE) -DUSB_XFER_TRACE=$(USB_XFER_TRACE) -DMT7601U_CONFIG_TRACE=$(MT7601U_CONFIG_TRACE) -DMT7601U_DATA_TRACE=$(MT7601U_DATA_TRACE) -DMT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4) -DMT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR) -DMT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN) -DUSBKBD_TRACE=$(USBKBD_TRACE) -DUSBHID_TRACE=$(USBHID_TRACE) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe pty file sysfile sysproc device input console tty workqueue net epoll sysnet memstat fat32 vfs ext2
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
 ifeq ($(QEMU_TEST),1)
 DRIVERS = irqchip/irq-sun4i clocksource/timer-sun4i tty/serial/8250_sun4i block/ramdisk_embed \
   video/fbdev/fbmem video/fbdev/simplefb
+# QEMU_USB=1: the A10's EHCI0 (QEMU bus usb-bus.0) plus the USB core and HID
+# drivers, for debugging USB under QEMU (.vscode/launch.json).
+ifeq ($(QEMU_USB),1)
+DRIVERS += usb/core/usb usb/host/ehci-hcd hid/usbhid/usbkbd hid/usbhid/usbmouse tty/vt/keyboard
+PLAT_FLAGS += -DTINY210_QEMU_USB
+endif
 else
 DRIVERS = clk/clk-s5pv210 watchdog/s3c2410_wdt irqchip/irq-vic clocksource/samsung_pwm_timer \
   tty/serial/samsung video/fbdev/fbmem video/fbdev/s3c-fb video/fbdev/fbcon \
-  mmc/host/sdhci-s3c mmc/host/sdcore input/keyboard/s5pv210-keys tty/vt/keyboard usb/core/usb usb/host/ehci-hcd hid/usbhid/usbkbd usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
+  mmc/host/sdhci-s3c mmc/host/sdcore input/keyboard/s5pv210-keys tty/vt/keyboard usb/core/usb usb/host/ehci-hcd hid/usbhid/usbkbd hid/usbhid/usbmouse usb/dwc2/hcd net/usb/usbnet net/wireless/mt7601u net/wireless/wpa_crypto base/firmware
 FIRMWARE = mt7601u
 endif
 DRIVERS += video/win32k
@@ -187,11 +200,14 @@ $(TRACE_CONFIG): FORCE
 	  'MT7601U_DATA_TRACE=$(MT7601U_DATA_TRACE)' \
 	  'MT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4)' \
 	  'MT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR)' \
-	  'MT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN)' > $@.new
+	  'MT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN)' \
+	  'USBKBD_TRACE=$(USBKBD_TRACE)' 'USBHID_TRACE=$(USBHID_TRACE)' > $@.new
 	@cmp -s $@.new $@ && rm -f $@.new || mv $@.new $@
 $(BUILD)/drivers/usb/core/usb.o \
 $(BUILD)/drivers/usb/host/ehci-hcd.o \
-$(BUILD)/drivers/net/wireless/mt7601u.o: $(TRACE_CONFIG)
+$(BUILD)/drivers/net/wireless/mt7601u.o \
+$(BUILD)/drivers/hid/usbhid/usbkbd.o $(BUILD)/drivers/hid/usbhid/usbmouse.o \
+$(BUILD)/drivers/tty/vt/keyboard.o: $(TRACE_CONFIG)
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@

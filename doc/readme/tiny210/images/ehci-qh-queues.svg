@@ -1,0 +1,1216 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="6586" viewBox="0 0 1400 6586" font-family="WenQuanYi Zen Hei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+</defs>
+<rect width="1400" height="6586" fill="#fff"/>
+<text x="700" y="30" font-size="20" fill="#1f2328" font-weight="bold" text-anchor="middle">EHCI QH 队列收发图：无线接收器（键盘接口 0 + 鼠标接口 1）+ MT7601U，经 USB2514 Hub</text>
+<text x="700" y="52" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">绿 = 异步调度（控制/批量），蓝 = 周期调度（中断），黄 qTD = 已挂上、Active=1 等 HC 执行，虚线 qTD = dummy（Halted，队尾）；地址/口号按你板子的日志：Hub=1，接收器=2（口 3），WiFi=3（口 4）</text>
+<rect x="40" y="72" width="1320" height="62" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+<text x="56" y="94" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">EHCI 操作寄存器</text>
+<text x="200" y="94" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">USBCMD</text>
+<text x="254.4" y="94" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">ITC(1)|PSE|ASE|RUN</text>
+<text x="600" y="94" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ASYNCLIST</text>
+<text x="676.6" y="94" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ head_qh</text>
+<text x="1000" y="94" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">PERIODICLIST</text>
+<text x="1098.8" y="94" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">→ frame_list[1024]</text>
+<text x="200" y="116" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">FRINDEX</text>
+<text x="261.8" y="116" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每 125 µs +1；&gt;&gt;3 = 帧号</text>
+<text x="600" y="116" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">USBSTS</text>
+<text x="654.4" y="116" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">USBINT/ERR → IRQ 55，W1C</text>
+<text x="1000" y="116" font-size="12" fill="#57606a" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">USBINTR</text>
+<text x="1061.8" y="116" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">USBINT | ERR</text>
+<rect x="40" y="150" width="660" height="690" rx="8" fill="#f3fbf5" stroke="#1a7f37" stroke-width="2"/>
+<text x="370" y="174" font-size="14.5" fill="#1a7f37" font-weight="bold" text-anchor="middle">异步调度（ASYNCLIST）：所有控制和批量端点，一个 QH 环</text>
+<text x="370" y="194" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="middle">HC 沿 horiz 一圈圈转；qh_create 把新 QH 插在 head_qh 后面，所以越晚建的越靠前</text>
+<rect x="64" y="212" width="262" height="62" rx="6" fill="#eaeef2" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="230" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">head_qh（环头）</text>
+<text x="74" y="248" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">H=1，overlay Halted，从不执行</text>
+<text x="74" y="264" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">ASYNCLIST 指向它</text>
+<path d="M326,243.0 L346,243.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<text x="350" y="247.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">next = T（无 qTD）</text>
+<rect x="64" y="294" width="262" height="62" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="312" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP4 IN 批量（WiFi 收）</text>
+<text x="74" y="330" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">HS，mps 512，无 split</text>
+<text x="74" y="346" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">同时挂多块接收缓冲</text>
+<path d="M326,325.0 L346,325.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="304.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="386.0" y="321.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">rx 缓冲 A</text>
+<text x="386.0" y="337.0" font-size="10.0" fill="#57606a" font-weight="normal" text-anchor="middle">IN 2 KB，IOC</text>
+<path d="M424,325.0 L434,325.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="434" y="304.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="472.0" y="321.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">rx 缓冲 B</text>
+<text x="472.0" y="337.0" font-size="10.0" fill="#57606a" font-weight="normal" text-anchor="middle">IN 2 KB，IOC</text>
+<path d="M510,325.0 L520,325.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="520" y="304.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="558.0" y="321.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">rx 缓冲 C</text>
+<text x="558.0" y="337.0" font-size="10.0" fill="#57606a" font-weight="normal" text-anchor="middle">IN 2 KB，IOC</text>
+<path d="M596,325.0 L606,325.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="606" y="304.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="644.0" y="321.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="644.0" y="337.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<rect x="64" y="376" width="262" height="62" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="394" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP8 OUT 批量（WiFi 发）</text>
+<text x="74" y="412" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">bulk() 同步挂 qTD，等完成</text>
+<text x="74" y="428" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">发完 qTD 释放，只剩 dummy</text>
+<path d="M326,407.0 L346,407.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="386.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="386.0" y="403.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="386.0" y="419.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<rect x="64" y="458" width="262" height="46" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="476" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址3 EP0（WiFi 控制）</text>
+<text x="74" y="494" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">HS 控制端点，DTC=1</text>
+<path d="M326,481.0 L346,481.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="460.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="386.0" y="477.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="386.0" y="493.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<rect x="64" y="524" width="262" height="62" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="542" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址2 EP0（接收器，两个接口共用）</text>
+<text x="74" y="560" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">LS，C=1，split → Hub1 / 口3</text>
+<text x="74" y="576" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">Caps Lock 时发 SET_REPORT</text>
+<path d="M326,555.0 L346,555.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="534.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="386.0" y="551.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">SETUP 8 B</text>
+<text x="386.0" y="567.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">PID=2，DT=0</text>
+<path d="M424,555.0 L434,555.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="434" y="534.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="472.0" y="551.0" font-size="9.7" fill="#1f2328" font-weight="bold" text-anchor="middle">DATA OUT 1 B</text>
+<text x="472.0" y="567.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">LED 位，DT=1</text>
+<path d="M510,555.0 L520,555.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="520" y="534.0" width="76" height="42" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="558.0" y="551.0" font-size="9.0" fill="#1f2328" font-weight="bold" text-anchor="middle">STATUS IN 0 B</text>
+<text x="558.0" y="567.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">DT=1，IOC</text>
+<path d="M596,555.0 L606,555.0" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="606" y="534.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="644.0" y="551.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="644.0" y="567.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<rect x="64" y="606" width="262" height="46" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="624" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址1 EP0（Hub）</text>
+<text x="74" y="642" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">HS 控制端点</text>
+<path d="M326,629.0 L346,629.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="608.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="386.0" y="625.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="386.0" y="641.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<rect x="64" y="672" width="262" height="46" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="74" y="690" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址0 EP0 ×3（枚举用过）</text>
+<text x="74" y="708" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">SET_ADDRESS 前用，之后空闲</text>
+<path d="M326,695.0 L346,695.0" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="348" y="674.0" width="76" height="42" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="386.0" y="691.0" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="386.0" y="707.0" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted 队尾</text>
+<path d="M150,274 L150,294" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M150,356 L150,376" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M150,438 L150,458" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M150,504 L150,524" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M150,586 L150,606" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M150,652 L150,672" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<path d="M64,695.0 L50,695.0 L50,232 L62,232" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<text x="158" y="288" font-size="10.5" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">horiz</text>
+<text x="56" y="736" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">控制 / bulk()：调用者持 💤 xfer_lock，qh_append 后在 wait_qtd 里轮询最后一个 qTD 的 Active 位（同步）</text>
+<text x="56" y="754" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">WiFi 收：rx 缓冲一直挂着；IOC → IRQ 55 → mt7601u_rx_irq → bulk_rx_complete 从 q-&gt;head 摘</text>
+<text x="56" y="772" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">低速控制要 split：qTD 一样，只是 HC 发 SSPLIT/CSPLIT 给 Hub 的 TT（事务翻译器）</text>
+<rect x="720" y="150" width="640" height="690" rx="8" fill="#f2f8ff" stroke="#0969da" stroke-width="2"/>
+<text x="1040" y="174" font-size="14.5" fill="#0969da" font-weight="bold" text-anchor="middle">周期调度（PERIODICLIST）：中断 IN 端点，每帧走一遍</text>
+<text x="1040" y="194" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="middle">1024 项帧表全部指向同一个 anchor_qh → 每个中断 QH 每 1 ms 都被访问</text>
+<rect x="740" y="214" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="233" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<path d="M858,229 L900,262" fill="none" stroke="#0969da" stroke-width="1"/>
+<rect x="740" y="244" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="263" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[1]</text>
+<path d="M858,259 L900,262" fill="none" stroke="#0969da" stroke-width="1"/>
+<rect x="740" y="274" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="293" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[2]</text>
+<path d="M858,289 L900,262" fill="none" stroke="#0969da" stroke-width="1"/>
+<rect x="740" y="304" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="323" font-size="11" fill="#cf222e" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[n] 当前帧</text>
+<path d="M858,319 L900,262" fill="none" stroke="#0969da" stroke-width="1" marker-end="url(#ab)"/>
+<rect x="740" y="334" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="353" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">…</text>
+<rect x="740" y="364" width="118" height="30" rx="0" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="748" y="383" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[1023]</text>
+<path d="M858,379 L900,262" fill="none" stroke="#0969da" stroke-width="1"/>
+<text x="740" y="412" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">每项 = phys(anchor_qh)|Typ=QH</text>
+<text x="740" y="428" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">n = FRINDEX&gt;&gt;3</text>
+<rect x="902" y="230" width="250" height="64" rx="6" fill="#eaeef2" stroke="#0969da" stroke-width="1.6"/>
+<text x="912" y="248" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">anchor_qh（帧尾锚）</text>
+<text x="912" y="266" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">S-mask = 0：不执行，只跟 horiz</text>
+<text x="912" y="282" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">horiz → 后面的中断 QH</text>
+<path d="M1027,294 L1027,330" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<text x="1034" y="318" font-size="10.5" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">horiz</text>
+<rect x="902" y="332" width="250" height="82" rx="6" fill="#fff" stroke="#0969da" stroke-width="1.6"/>
+<text x="912" y="350" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址2 EP2 IN（鼠标，接口 1）</text>
+<text x="912" y="368" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">epchar 0x00081202</text>
+<text x="912" y="384" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">epcap 0x41811c01</text>
+<text x="912" y="400" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">S=0x01 C=0x1c，Hub1/口3</text>
+<path d="M1152,373 L1170,373" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<rect x="1172" y="334" width="90" height="40" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="1217.0" y="351" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">IN 8 B</text>
+<text x="1217.0" y="367" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">IOC·URB 缓冲</text>
+<path d="M1262,353 L1274,353" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="1276" y="334" width="70" height="40" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="1311.0" y="351" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="1311.0" y="367" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted</text>
+<text x="1172" y="388" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="start">1 个 URB = 1 个 qTD（鼠标报告）</text>
+<text x="1172" y="404" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="start">完成后由 IRQ 摘下，再挂新的</text>
+<rect x="902" y="452" width="250" height="82" rx="6" fill="#fff" stroke="#0969da" stroke-width="1.6"/>
+<text x="912" y="470" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">QH 地址2 EP1 IN（键盘，接口 0）</text>
+<text x="912" y="488" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">epchar 0x00081102</text>
+<text x="912" y="504" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">epcap 0x41811c01</text>
+<text x="912" y="520" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">S=0x01 C=0x1c，Hub1/口3</text>
+<path d="M1152,493 L1170,493" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<rect x="1172" y="454" width="90" height="40" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1.2"/>
+<text x="1217.0" y="471" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">IN 8 B</text>
+<text x="1217.0" y="487" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">IOC·URB 缓冲</text>
+<path d="M1262,473 L1274,473" fill="none" stroke="#9a6700" stroke-width="1.2" marker-end="url(#ay)"/>
+<rect x="1276" y="454" width="70" height="40" rx="4" fill="#eaeef2" stroke="#8c959f" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="1311.0" y="471" font-size="11.5" fill="#57606a" font-weight="bold" text-anchor="middle">dummy</text>
+<text x="1311.0" y="487" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">Halted</text>
+<text x="1172" y="508" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="start">1 个 URB = 1 个 qTD（键盘报告）</text>
+<text x="1172" y="524" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="start">完成后由 IRQ 摘下，再挂新的</text>
+<path d="M1027,414 L1027,452" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<path d="M1027,534 L1027,566" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<rect x="960" y="566" width="134" height="26" rx="4" fill="#fff" stroke="#0969da" stroke-width="1"/>
+<text x="1027" y="584" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">horiz = T（结束）</text>
+<text x="740" y="456" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">鼠标 probe 晚于键盘</text>
+<text x="740" y="472" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">→ 插在 anchor 后更靠前</text>
+<text x="740" y="504" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="start">bInterval=10 没用上：</text>
+<text x="740" y="520" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="start">S-mask 每帧命中</text>
+<text x="740" y="536" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="start">→ 每 1 ms 问一次</text>
+<text x="740" y="568" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">帧内剩下的时间</text>
+<text x="740" y="584" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">给异步调度</text>
+<text x="740" y="624" font-size="12.5" fill="#0969da" font-weight="bold" text-anchor="start">一帧（1 ms = 8 个微帧）内对一个低速中断 QH 的 split 事务：</text>
+<rect x="740" y="640" width="76" height="46" rx="0" fill="#dafbe1" stroke="#57606a" stroke-width="1"/>
+<text x="778" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">SSPLIT</text>
+<text x="778" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">IN</text>
+<text x="778" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ0</text>
+<rect x="816" y="640" width="76" height="46" rx="0" fill="#fff1e5" stroke="#57606a" stroke-width="1"/>
+<text x="854" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">TT 执行</text>
+<text x="854" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">LS IN</text>
+<text x="854" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ1</text>
+<rect x="892" y="640" width="76" height="46" rx="0" fill="#ddf4ff" stroke="#57606a" stroke-width="1"/>
+<text x="930" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">CSPLIT</text>
+<text x="930" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">问结果</text>
+<text x="930" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ2</text>
+<rect x="968" y="640" width="76" height="46" rx="0" fill="#ddf4ff" stroke="#57606a" stroke-width="1"/>
+<text x="1006" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">CSPLIT</text>
+<text x="1006" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle"></text>
+<text x="1006" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ3</text>
+<rect x="1044" y="640" width="76" height="46" rx="0" fill="#ddf4ff" stroke="#57606a" stroke-width="1"/>
+<text x="1082" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">CSPLIT</text>
+<text x="1082" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle"></text>
+<text x="1082" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ4</text>
+<rect x="1120" y="640" width="76" height="46" rx="0" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="1158" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle"></text>
+<text x="1158" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">异步</text>
+<text x="1158" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ5</text>
+<rect x="1196" y="640" width="76" height="46" rx="0" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="1234" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle"></text>
+<text x="1234" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">异步</text>
+<text x="1234" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ6</text>
+<rect x="1272" y="640" width="76" height="46" rx="0" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="1310" y="657" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle"></text>
+<text x="1310" y="676" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">异步</text>
+<text x="1310" y="700" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">µ7</text>
+<text x="740" y="722" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">S-mask bit0 → µ0 发 SSPLIT；C-mask bit2/3/4 → µ2–µ4 发 CSPLIT</text>
+<text x="740" y="742" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">· CSPLIT 回 NYET：TT 还没结果，下一个 C 位再问</text>
+<text x="740" y="760" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">· 回 DATA0/1：HC 把字节写进 qTD 缓冲，改 token（Active=0）</text>
+<text x="740" y="778" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">· 回 NAK（没按键/没移动）：qTD 保持 Active，下一帧重来</text>
+<text x="740" y="796" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">· 3 次传输错误（CERR 减到 0）或 STALL → Halted</text>
+<rect x="40" y="862" width="1320" height="190" rx="8" fill="#fffdf2" stroke="#9a6700" stroke-width="2"/>
+<text x="56" y="884" font-size="14" fill="#9a6700" font-weight="bold" text-anchor="start">完成路径：HC 写回 → 中断 → 摘 qTD → 回调 → 工作线程 → 重新挂（键盘和鼠标各一条，互不影响）</text>
+<rect x="60" y="902" width="160" height="66" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="140" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">HC 写回 qTD</text>
+<text x="140" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">Active=0</text>
+<text x="140" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">剩余字节 / DT</text>
+<path d="M220,935 L242,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="244" y="902" width="160" height="66" rx="6" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="324" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">USBSTS.USBINT</text>
+<text x="324" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">qTD 有 IOC</text>
+<text x="324" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">→ GIC IRQ 55</text>
+<path d="M404,935 L426,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="428" y="902" width="160" height="66" rx="6" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="508" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_irq</text>
+<text x="508" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">读 USBSTS</text>
+<text x="508" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">写回清零 W1C</text>
+<path d="M588,935 L610,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="612" y="902" width="160" height="66" rx="6" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="692" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_intr_reap</text>
+<text x="692" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">🔒 ehci_lock</text>
+<text x="692" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">扫 intrs[4]</text>
+<path d="M772,935 L794,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="796" y="902" width="160" height="66" rx="6" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="876" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">giveback_urb</text>
+<text x="876" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">→ usbkbd_irq</text>
+<text x="876" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">→ usbmouse_irq</text>
+<path d="M956,935 L978,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="980" y="902" width="160" height="66" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="1060" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">rx_work</text>
+<text x="1060" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">解析报告</text>
+<text x="1060" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">→ input core</text>
+<path d="M1140,935 L1162,935" fill="none" stroke="#9a6700" stroke-width="1.5" marker-end="url(#ay)"/>
+<rect x="1164" y="902" width="160" height="66" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="1244" y="922" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">usb_submit_urb</text>
+<text x="1244" y="940" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">qh_append</text>
+<text x="1244" y="956" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">再挂 1 个 qTD</text>
+<path d="M1300,968 L1300,990 L1110,990" fill="none" stroke="#0969da" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ab)"/>
+<text x="1104" y="994" font-size="11" fill="#0969da" font-weight="normal" text-anchor="end">回到周期 QH 的 dummy 位置（消息 4）</text>
+<text x="56" y="990" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">中断上下文（黄）只做摘 qTD + queue_work；进程上下文（蓝）解析和重挂。</text>
+<text x="56" y="1018" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">intrs[NINTR=4]：</text>
+<rect x="190" y="1004" width="280" height="24" rx="3" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="198" y="1021" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">slot 0</text>
+<text x="250" y="1021" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">键盘 URB → QH EP1 → qTD</text>
+<rect x="480" y="1004" width="280" height="24" rx="3" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="488" y="1021" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">slot 1</text>
+<text x="540" y="1021" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">鼠标 URB → QH EP2 → qTD</text>
+<rect x="770" y="1004" width="280" height="24" rx="3" fill="#f6f8fa" stroke="#8c959f" stroke-width="1"/>
+<text x="778" y="1021" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">slot 2</text>
+<text x="830" y="1021" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">空</text>
+<rect x="1060" y="1004" width="280" height="24" rx="3" fill="#f6f8fa" stroke="#8c959f" stroke-width="1"/>
+<text x="1068" y="1021" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">slot 3</text>
+<text x="1120" y="1021" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">空</text>
+<text x="56" y="1044" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">qtd = 0 表示 submit 还在挂（IRQ 先不收）；kill_urb 从这里摘掉后停周期调度再 qh_flush。</text>
+<rect x="40" y="1072" width="1320" height="120" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+<text x="56" y="1094" font-size="14" fill="#57606a" font-weight="bold" text-anchor="start">硬件链路（谁在哪根线上说话）</text>
+<rect x="70" y="1112" width="200" height="64" rx="6" fill="#fff" stroke="#57606a" stroke-width="1.4"/>
+<text x="170" y="1134" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">S5PV210 EHCI</text>
+<text x="170" y="1154" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">0xEC200000，根口 0</text>
+<path d="M270,1144 L380,1144" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="325" y="1136" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">480 Mb/s</text>
+<rect x="380" y="1108" width="260" height="72" rx="6" fill="#fff" stroke="#57606a" stroke-width="1.4"/>
+<text x="510" y="1128" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">USB2514 Hub（地址 1）</text>
+<text x="510" y="1146" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">TT：把 SSPLIT 翻译成低速事务</text>
+<text x="510" y="1164" font-size="11" fill="#57606a" font-weight="normal" text-anchor="middle">口 3 → 接收器，口 4 → WiFi</text>
+<path d="M640,1132 L760,1124" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="700" y="1118" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">1.5 Mb/s</text>
+<path d="M640,1158 L1100,1158" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="700" y="1174" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">480 Mb/s</text>
+<rect x="760" y="1104" width="300" height="46" rx="6" fill="#fff" stroke="#57606a" stroke-width="1.4"/>
+<text x="910" y="1122" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="middle">无线接收器 2a7a:8a47（地址 2，低速）</text>
+<text x="910" y="1140" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">EP0 · 接口0 键盘 EP1 IN · 接口1 鼠标 EP2 IN</text>
+<rect x="1100" y="1138" width="240" height="40" rx="6" fill="#fff" stroke="#57606a" stroke-width="1.4"/>
+<text x="1220" y="1156" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="middle">MT7601U 148f:7601（地址 3）</text>
+<text x="1220" y="1172" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle">EP0 · 批量 IN 4,5 · OUT 8…</text>
+<text x="40" y="1222" font-size="18" fill="#1f2328" font-weight="bold" text-anchor="start">0–8 步逐步说明（函数按调用链缩进，寄存器/描述符按位展开；日志为按代码推出的预期输出）</text>
+<rect x="40" y="1242" width="1320" height="602" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="1266" r="15" fill="#0969da"/>
+<text x="68" y="1271" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">0</text>
+<text x="94" y="1264" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">ehci_start：建两个调度的根——异步环头 head_qh、周期帧表 + anchor_qh</text>
+<text x="94" y="1284" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ehci-enum kthread → 写 ASYNCLIST / PERIODICLIST → USBCMD 打开 ASE + PSE</text>
+<text x="1345" y="1264" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：无（单线程初始化，HC 还没跑）</text>
+<text x="94" y="1304" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">异步调度是一个环：HC 从 ASYNCLIST 开始沿 QH 的 horiz 指针一直转，环里有 H=1 的 head_qh 作“回收头”，转完一圈没事干 HC 就歇一下。</text>
+<text x="94" y="1322" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">周期调度是一张表：每 1 ms HC 用 FRINDEX&gt;&gt;3 取 frame_list[n]，顺着链表走一遍这一帧要做的中断事务，然后剩余时间再去转异步环。</text>
+<text x="94" y="1340" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">xv6 让 1024 项都指向同一个 anchor_qh（S-mask=0，HC 只跟它的 horiz 不执行它），所以挂在 anchor 后面的中断 QH 每帧都会被访问到。</text>
+<text x="94" y="1366" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="1366" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_start</text>
+<path d="M190,1370 V1379 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1383" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">head_qh = &amp;qhs[0]; horiz = phys(head_qh)|QH</text>
+<path d="M525.9,1379 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1383" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">自己指自己；epchar H=1；token=Halted</text>
+<path d="M190,1387 V1396 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1400" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">anchor_qh = &amp;qhs[1]; horiz = T</text>
+<path d="M431.0,1396 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1400" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">S-mask 0，token=Halted</text>
+<path d="M190,1404 V1413 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1417" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">frame_list[0..1023] = phys(anchor_qh) | LINK_QH</text>
+<path d="M555.1,1413 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1417" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">4 KB 对齐</text>
+<path d="M190,1421 V1430 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1434" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wr(PERIODICLIST); wr(ASYNCLIST); wr(USBINTR, USBINT|ERR)</text>
+<path d="M190,1438 V1447 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="1451" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wr(USBCMD, ITC(1)|PSE|ASE|RUN); CONFIGFLAG=1</text>
+<path d="M533.2,1447 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1451" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">端口归 EHCI</text>
+<text x="94" y="1478" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="1496" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ frame_list[i] 与 QH.horiz：同一种链接指针（EHCI 3.1 / 3.6.1）</text>
+<text x="1312.03125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="1516" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="1522" width="970.3" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="665.15625" y="1542" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Link Pointer[31:5]（32 B 对齐的物理地址）</text>
+<rect x="1150.3" y="1522" width="71.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1186.25" y="1542" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">0</text>
+<rect x="1222.2" y="1522" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="1258.125" y="1542" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Typ</text>
+<rect x="1294.1" y="1522" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="1312.03125" y="1542" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">T</text>
+<text x="180" y="1570" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[31:5]</text>
+<text x="242" y="1570" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">地址</text>
+<text x="312" y="1570" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">下一个 QH/iTD 的物理地址（QH 32 B 对齐）</text>
+<text x="180" y="1588" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[2:1]</text>
+<text x="242" y="1588" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">Typ</text>
+<text x="312" y="1588" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">00 iTD · 01 QH · 10 siTD · 11 FSTN；这里总是 01</text>
+<text x="770" y="1570" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<text x="832" y="1570" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">T</text>
+<text x="902" y="1570" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = 链表到此为止（anchor 后面没有中断 QH 时）</text>
+<text x="770" y="1588" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">例</text>
+<text x="832" y="1588" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x…|2</text>
+<text x="902" y="1588" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">frame_list[i] = phys(anchor_qh) | 2</text>
+<text x="170" y="1634" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ struct qh 内存布局（每格 4 B 为 1 dword；前 12 dword 是 HC 读写的硬件部分）</text>
+<rect x="180" y="1644" width="57.5" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="208.75" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">horiz</text>
+<rect x="237.5" y="1644" width="57.5" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="266.25" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">epchar</text>
+<rect x="295.0" y="1644" width="57.5" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="323.75" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">epcap</text>
+<rect x="352.5" y="1644" width="57.5" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="381.25" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">cur qTD</text>
+<rect x="410.0" y="1644" width="57.5" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="438.75" y="1659" font-size="8.5" fill="#1f2328" font-weight="normal" text-anchor="middle">overlay: next</text>
+<rect x="467.5" y="1644" width="57.5" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="496.25" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">alt</text>
+<rect x="525.0" y="1644" width="57.5" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="553.75" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">token</text>
+<rect x="582.5" y="1644" width="287.5" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="726.25" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">buf[0..4]</text>
+<rect x="870.0" y="1644" width="287.5" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1013.75" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">buf_hi[5]</text>
+<rect x="1157.5" y="1644" width="172.5" height="34" fill="#fff1e5" stroke="#57606a"/>
+<text x="1243.75" y="1659" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">软件字段 dummy/head</text>
+<text x="180" y="1694" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DW0</text>
+<text x="242" y="1694" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">horiz</text>
+<text x="312" y="1694" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">下一个 QH</text>
+<text x="180" y="1712" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DW1-2</text>
+<text x="242" y="1712" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">epchar/epcap</text>
+<text x="338.40000000000003" y="1712" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">端点特性，格式见消息 3</text>
+<text x="180" y="1730" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DW3</text>
+<text x="242" y="1730" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">cur</text>
+<text x="312" y="1730" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 正在执行的 qTD</text>
+<text x="770" y="1694" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DW4-11</text>
+<text x="832" y="1694" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">overlay</text>
+<text x="902" y="1694" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 把当前 qTD 复制到这里执行，再写回 qTD</text>
+<text x="770" y="1712" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DW12-16</text>
+<text x="832" y="1712" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">buf_hi</text>
+<text x="902" y="1712" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">64 位扩展，HC 会写回，软件字段只能放后面</text>
+<text x="770" y="1730" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">软件</text>
+<text x="832" y="1730" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">dummy</text>
+<text x="902" y="1730" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">队尾 dummy qTD；head = 最老的 qTD</text>
+<rect x="94" y="1762" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="1778" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="1796" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: INSNREG01 thresholds 400040 -&gt; 800080</text>
+<text x="104" y="1812" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: 1 port(s), hccparams a010, running, async schedule on, periodic on</text>
+<rect x="40" y="1860" width="1320" height="574" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="1884" r="15" fill="#0969da"/>
+<text x="68" y="1889" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">1</text>
+<text x="94" y="1882" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">枚举：每个设备在异步环上得到一个 EP0 QH，控制传输 = SETUP/DATA/STATUS 三个 qTD</text>
+<text x="94" y="1902" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">enumerate → qh_create(addr, 0, …, control=1, hub, port) → control_qh → qh_append → wait_qtd</text>
+<text x="1345" y="1882" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：💤 xfer_lock（一次一个同步传输）· 🔒 ehci_lock（qTD 池 / 挂链）</text>
+<text x="94" y="1922" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接收器是低速设备，挂在高速 Hub 后面：它的 EP0 QH 在 epcap 里写 Hub 地址 1 和口 3，epchar 里 C=1（非高速控制端点），EPS=01（低速），</text>
+<text x="94" y="1940" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 看到这些就不直接发 IN/OUT，而是发 SSPLIT/CSPLIT 给 Hub 的 TT。控制端点 DTC=1：数据翻转位由每个 qTD 自己给（SETUP 0，DATA/STATUS 1）。</text>
+<text x="94" y="1958" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">控制传输是同步的：调用者在 wait_qtd 里忙等最后一个 qTD（STATUS）的 Active 位清零，超时 1 s；失败就停异步调度 qh_flush 再开。</text>
+<text x="94" y="1984" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="1984" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">enumerate(SPEED_LOW, tt_hub=1, tt_port=3)</text>
+<path d="M485.3,1980 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="1984" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">接收器</text>
+<path d="M190,1988 V1997 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2001" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_create(0, 0, LOW, 8, 1, 1, 3)</text>
+<path d="M445.6,1997 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2001" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">地址 0 的 EP0 QH，插到 head 后</text>
+<path d="M190,2005 V2014 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2018" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GET_DESCRIPTOR(DEVICE, 8); SET_ADDRESS(2)</text>
+<path d="M190,2022 V2031 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2035" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_create(2, 0, LOW, mps0=8, 1, 1, 3)</text>
+<path d="M482.1,2031 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2035" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">地址 2 的 EP0 QH；旧的留在环里空闲</text>
+<path d="M190,2039 V2048 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2052" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GET_DESCRIPTOR(CONFIG) → parse_config</text>
+<path d="M482.1,2048 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2052" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">接口 0 键盘 / 接口 1 鼠标</text>
+<path d="M190,2056 V2065 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2069" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_usb_control → control_qh(e-&gt;ep0, …)</text>
+<path d="M216,2073 V2082 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="2086" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_fill(SETUP 8 B) → (DATA) → STATUS|IOC</text>
+<path d="M537.3,2082 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2086" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">三个 qTD 用 next 串起来</text>
+<path d="M216,2090 V2099 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="2103" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_append(q, s, st)</text>
+<path d="M376.7,2099 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2103" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">换 dummy，见消息 4</text>
+<path d="M216,2107 V2116 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="2120" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wait_qtd(st, 1 s)</text>
+<path d="M362.1,2116 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2120" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">忙等 STATUS 完成</text>
+<text x="94" y="2147" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="2147" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">控制传输三个阶段（低速经 TT，每个阶段都是一对 SSPLIT/CSPLIT）：</text>
+<text x="180" y="2164" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">SETUP：SSPLIT SETUP + DATA0(8 B) → TT → 设备 ACK；CSPLIT 拿回 ACK</text>
+<text x="180" y="2181" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">DATA IN：SSPLIT IN → TT 发 IN，设备回 DATA1 → CSPLIT 拿到数据；STATUS：OUT 0 B，DATA1</text>
+<text x="94" y="2208" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="2226" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ SETUP 包（qTD 0 的缓冲 setup_buf）：GET_DESCRIPTOR(CONFIG) 为例 = 80 06 0002 0000 0900</text>
+<rect x="180" y="2236" width="115" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="237.5" y="2251" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bmRequestType</text>
+<text x="237.5" y="2265" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="295" y="2236" width="115" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="352.5" y="2251" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bRequest</text>
+<text x="352.5" y="2265" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="410" y="2236" width="230" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="525.0" y="2251" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wValue</text>
+<text x="525.0" y="2265" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="640" y="2236" width="230" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="755.0" y="2251" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wIndex</text>
+<text x="755.0" y="2265" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="870" y="2236" width="230" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="985.0" y="2251" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wLength</text>
+<text x="985.0" y="2265" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<text x="180" y="2286" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">80</text>
+<text x="242" y="2286" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">bmRequestType</text>
+<text x="345.6" y="2286" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">设备→主机，标准，设备</text>
+<text x="180" y="2304" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">06</text>
+<text x="242" y="2304" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">bRequest</text>
+<text x="312" y="2304" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">GET_DESCRIPTOR</text>
+<text x="770" y="2286" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x0200</text>
+<text x="832" y="2286" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wValue</text>
+<text x="902" y="2286" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">类型 2 = CONFIG，索引 0</text>
+<text x="770" y="2304" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">9→total</text>
+<text x="832" y="2304" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wLength</text>
+<text x="902" y="2304" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">先读 9 B 拿总长，再读全部</text>
+<rect x="94" y="2336" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="2352" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="2370" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: low-speed device 2a7a:8a47 class 3 at address 2 (hub 1 port 3)</text>
+<text x="104" y="2386" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci:   bulk in 0,0/0 out 0/0 (0 OUT endpoints) intr in 1</text>
+<text x="104" y="2402" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci:   interface 1 class 3/1/2 intr in 2 mps 8</text>
+<rect x="40" y="2450" width="1320" height="496" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="2474" r="15" fill="#0969da"/>
+<text x="68" y="2479" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="94" y="2472" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">一个设备、两个接口：两个 usb_device 共用地址 2 和同一个 EP0 QH，各自一个中断 QH</text>
+<text x="94" y="2492" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">parse_config → ifdevs[] → usb_device_register ×2 → usbkbd_probe / usbmouse_probe</text>
+<text x="1345" y="2472" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：无新增锁</text>
+<text x="94" y="2512" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">以前 parse_config 只看第一个接口，接收器的鼠标接口（接口 1）被丢掉，所以鼠标没输出。现在每个 HID 接口各建一个 usb_device，</text>
+<text x="94" y="2530" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">host_private 指向同一个 ehci_dev：ep0 共用（地址 2 的 EP0 QH），intr[16] 按端点号分开（EP1 给键盘，EP2 给鼠标），互不干扰。</text>
+<text x="94" y="2548" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">两个驱动发 SET_PROTOCOL / SET_IDLE 时 wIndex 写各自的接口号，都走同一个 EP0 QH，由 💤 xfer_lock 串行。</text>
+<text x="94" y="2574" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="2574" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">parse_config(u, desc, total)</text>
+<path d="M190,2578 V2587 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2591" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">接口 0（alt 0）→ u：class 3/1/1，interrupt_in_ep = 1</text>
+<path d="M190,2595 V2604 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2608" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">接口 1（alt 0，class 3）→ ifdevs[k]：class 3/1/2，ep 2</text>
+<path d="M555.1,2604 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2608" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">复制 ops/host_private/地址</text>
+<text x="180" y="2625" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb_device_register(u)</text>
+<path d="M346.6,2621 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2625" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ usbkbd_probe → /dev/input/event1</text>
+<text x="180" y="2642" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb_device_register(&amp;ifdevs[k])</text>
+<path d="M412.3,2638 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2642" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ usbmouse_probe → /dev/input/event2</text>
+<text x="180" y="2659" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">struct ehci_dev（地址 2）</text>
+<path d="M190,2663 V2672 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2676" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ep0 → QH 地址2 EP0</text>
+<path d="M328.8,2672 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2676" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">两个接口共用</text>
+<path d="M190,2680 V2689 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="2693" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">intr[1] → QH EP1（键盘），intr[2] → QH EP2（鼠标）</text>
+<path d="M511.3,2689 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="2693" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">第一次 submit 时才建</text>
+<text x="94" y="2720" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="2738" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 接收器的配置描述符（典型键鼠接收器）：一个配置，两个接口，每个接口一个中断 IN 端点</text>
+<rect x="180" y="2748" width="175.4237288135593" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="267.7118644067797" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CONFIG 9 B</text>
+<rect x="355.4237288135593" y="2748" width="175.4237288135593" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="443.13559322033893" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IF0 3/1/1</text>
+<rect x="530.8474576271186" y="2748" width="175.4237288135593" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="618.5593220338983" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">HID 9 B</text>
+<rect x="706.2711864406779" y="2748" width="136.4406779661017" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="774.4915254237287" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">EP 0x81 IN</text>
+<rect x="842.7118644067796" y="2748" width="175.4237288135593" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="930.4237288135593" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IF1 3/1/2</text>
+<rect x="1018.1355932203389" y="2748" width="175.4237288135593" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1105.8474576271185" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">HID 9 B</text>
+<rect x="1193.5593220338983" y="2748" width="136.4406779661017" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1261.7796610169491" y="2763" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">EP 0x82 IN</text>
+<text x="180" y="2798" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IF0</text>
+<text x="242" y="2798" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">键盘</text>
+<text x="312" y="2798" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接口 0，class 3/1/1 → usbkbd</text>
+<text x="180" y="2816" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IF1</text>
+<text x="242" y="2816" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">鼠标</text>
+<text x="312" y="2816" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">接口 1，class 3/1/2 → usbmouse</text>
+<text x="770" y="2798" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x81</text>
+<text x="832" y="2798" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">EP1 IN</text>
+<text x="902" y="2798" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">attr 3 中断，mps 8，bInterval 10</text>
+<text x="770" y="2816" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x82</text>
+<text x="832" y="2816" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">EP2 IN</text>
+<text x="902" y="2816" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">同上；如果是 3/0/0 就不是 boot 鼠标</text>
+<rect x="94" y="2848" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="2864" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="2882" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd: 2a7a:8a47 keyboard on ep1 in, mps 8, interval 10</text>
+<text x="104" y="2898" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">input: USB HID Boot Mouse registered as /dev/input/event2</text>
+<text x="104" y="2914" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbmouse: 2a7a:8a47 mouse on ep2 in, mps 8, interval 10</text>
+<rect x="40" y="2962" width="1320" height="669" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="2986" r="15" fill="#0969da"/>
+<text x="68" y="2991" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">3</text>
+<text x="94" y="2984" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">第一次 usb_submit_urb：qh_create_intr 建中断 QH，插到 anchor_qh 后面</text>
+<text x="94" y="3004" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">usbkbd/usbmouse probe → usb_submit_urb → ehci_submit_urb → qh_create_intr</text>
+<text x="1345" y="2984" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 ehci_lock（intrs[] 表）</text>
+<text x="94" y="3024" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">中断 QH 和异步 QH 的区别都在 epchar/epcap：RL=0（周期 QH 必须为 0），DTC=0（翻转位由 HC 记在 overlay 里，跨 qTD 延续），</text>
+<text x="94" y="3042" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">S-mask=0x01 表示每帧 µ0 发 SSPLIT，C-mask=0x1c 表示 µ2/µ3/µ4 发 CSPLIT；Hub/Port 告诉 HC 这个 split 发给哪个 TT。</text>
+<text x="94" y="3060" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">插入只需两个对齐的 32 位写：先让新 QH 指向 anchor 原来的下一个，再让 anchor 指向新 QH，HC 任何时刻看到的都是完整链表。</text>
+<text x="94" y="3086" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="3086" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_submit_urb(urb)</text>
+<path d="M190,3090 V3099 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3103" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">e-&gt;intr[ep] == 0 → qh_create_intr(2, ep, LOW, 8, 1, 3)</text>
+<path d="M216,3107 V3116 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3120" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;dummy = qtd_alloc()</text>
+<path d="M398.6,3116 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3120" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">Halted 的空 qTD</text>
+<path d="M216,3124 V3133 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3137" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;epchar = addr | ep&lt;&lt;8 | LOW&lt;&lt;12 | 8&lt;&lt;16</text>
+<path d="M544.6,3133 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3137" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">RL=0，DTC=0</text>
+<path d="M216,3141 V3150 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3154" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;epcap = 1&lt;&lt;30 | 0x01 | 0x1c&lt;&lt;8 | 1&lt;&lt;16 | 3&lt;&lt;23</text>
+<path d="M216,3158 V3167 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3171" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;next = phys(dummy); q-&gt;horiz = anchor-&gt;horiz</text>
+<path d="M216,3175 V3184 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="3188" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">dsb(); anchor_qh-&gt;horiz = phys(q) | QH</text>
+<path d="M515.4,3184 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3188" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">发布给 HC</text>
+<text x="94" y="3215" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="3233" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ epchar（DW1），键盘 EP1 = 0x00081102，鼠标 EP2 = 0x00081202，接收器 EP0 = 0x88085002</text>
+<text x="1312.03125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="3253" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="3259" width="143.8" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="251.875" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">RL</text>
+<rect x="323.8" y="3259" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="341.71875" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C</text>
+<rect x="359.7" y="3259" width="395.3" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="557.34375" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Max Packet Length</text>
+<rect x="755.0" y="3259" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="772.96875" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">H</text>
+<rect x="790.9" y="3259" width="35.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="808.90625" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DTC</text>
+<rect x="826.9" y="3259" width="71.9" height="30" fill="#fff1e5" stroke="#57606a"/>
+<text x="862.8125" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">EPS</text>
+<rect x="898.8" y="3259" width="143.8" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="970.625" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">EndPt</text>
+<rect x="1042.5" y="3259" width="35.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1060.46875" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">I</text>
+<rect x="1078.4" y="3259" width="251.6" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="1204.21875" y="3279" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Device Address</text>
+<text x="180" y="3307" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">RL</text>
+<text x="242" y="3307" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">NAK 重载</text>
+<text x="312" y="3307" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">异步 QH 用 8；周期 QH 必须 0</text>
+<text x="180" y="3325" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">C</text>
+<text x="242" y="3325" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">控制端点</text>
+<text x="312" y="3325" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">非高速控制端点 = 1（EP0 QH）</text>
+<text x="180" y="3343" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">MPL</text>
+<text x="242" y="3343" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">最大包长</text>
+<text x="312" y="3343" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">8（低速）/ 512（WiFi 批量）</text>
+<text x="180" y="3361" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">H</text>
+<text x="242" y="3361" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">回收头</text>
+<text x="312" y="3361" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">只有 head_qh = 1</text>
+<text x="770" y="3307" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DTC</text>
+<text x="832" y="3307" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">翻转来源</text>
+<text x="902" y="3307" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = 用 qTD 的 DT（控制）；0 = HC 自己记</text>
+<text x="770" y="3325" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">EPS</text>
+<text x="832" y="3325" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">速度</text>
+<text x="902" y="3325" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">00 全速 · 01 低速 · 10 高速</text>
+<text x="770" y="3343" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">EndPt</text>
+<text x="832" y="3343" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">端点号</text>
+<text x="902" y="3343" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = 键盘，2 = 鼠标</text>
+<text x="770" y="3361" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Addr</text>
+<text x="832" y="3361" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">设备地址</text>
+<text x="902" y="3361" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">2 = 接收器</text>
+<text x="170" y="3407" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ epcap（DW2），两个中断 QH 都是 0x41811c01</text>
+<text x="1312.03125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="3427" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="3433" width="71.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="215.9375" y="3453" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Mult</text>
+<rect x="251.9" y="3433" width="251.6" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="377.65625" y="3453" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Port Number</text>
+<rect x="503.4" y="3433" width="251.6" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="629.21875" y="3453" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Hub Addr</text>
+<rect x="755.0" y="3433" width="287.5" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="898.75" y="3453" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">µFrame C-mask</text>
+<rect x="1042.5" y="3433" width="287.5" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="1186.25" y="3453" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">µFrame S-mask</text>
+<text x="180" y="3481" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Mult</text>
+<text x="242" y="3481" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">1</text>
+<text x="312" y="3481" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每微帧 1 个事务</text>
+<text x="180" y="3499" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Port</text>
+<text x="242" y="3499" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">3</text>
+<text x="312" y="3499" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">Hub 上的口号（接收器插在口 3）</text>
+<text x="180" y="3517" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Hub</text>
+<text x="242" y="3517" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">1</text>
+<text x="312" y="3517" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">TT 所在 Hub 的地址</text>
+<text x="770" y="3481" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">C-mask</text>
+<text x="832" y="3481" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x1c</text>
+<text x="902" y="3481" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">µ2 µ3 µ4 发 CSPLIT</text>
+<text x="770" y="3499" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">S-mask</text>
+<text x="832" y="3499" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x01</text>
+<text x="902" y="3499" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">µ0 发 SSPLIT；anchor 的 S-mask=0 → 不执行</text>
+<text x="770" y="3517" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">高速</text>
+<text x="832" y="3517" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">只用 S</text>
+<text x="902" y="3517" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">高速中断端点不需要 C-mask/Hub/Port</text>
+<rect x="94" y="3549" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="3565" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="3583" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: qh-intr qh=2fe1c0 addr=2 ep=1 speed=1 mps=8 tt=1/3</text>
+<text x="104" y="3599" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: qh-intr qh=2fe240 addr=2 ep=2 speed=1 mps=8 tt=1/3</text>
+<rect x="40" y="3647" width="1320" height="791" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="3671" r="15" fill="#0969da"/>
+<text x="68" y="3676" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">4</text>
+<text x="94" y="3669" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">qh_append：dummy qTD 法挂一个 qTD——HC 从不看到半成品</text>
+<text x="94" y="3689" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ehci_submit_urb → qtd_fill → qh_append(q, t, t) → 登记 intrs[slot]</text>
+<text x="1345" y="3669" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 ehci_lock（换 dummy 时）</text>
+<text x="94" y="3709" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">QH 的 overlay 永远停在队尾的 dummy 上（Halted、非 Active，HC 读到就跳过）。挂新传输时不去改 QH，而是：</text>
+<text x="94" y="3727" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">① 申请一个新 dummy；② 把新 qTD 的内容复制进旧 dummy（除 token），旧 dummy-&gt;next = 新 dummy；③ 最后才把旧 dummy 的 token 写成 Active。</text>
+<text x="94" y="3745" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">最后这一次 32 位写就是“发布”：HC 下次访问这个 QH 时发现当前 qTD 变成 Active，就开始执行。新 dummy 成为队尾，下次照做。</text>
+<text x="94" y="3771" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="3771" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_fill(t, urb-&gt;transfer_buffer, 8, PID_IN | IOC)</text>
+<path d="M551.0,3767 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3771" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">token 还没有 ACTIVE</text>
+<text x="180" y="3788" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">intrs[slot] = {urb, q, qtd=0}</text>
+<path d="M397.7,3784 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3788" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">🔒 ehci_lock</text>
+<text x="180" y="3805" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_append(q, t, t)</text>
+<path d="M190,3809 V3818 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3822" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">nd = qtd_alloc()</text>
+<path d="M328.8,3818 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3822" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">新 dummy</text>
+<path d="M190,3826 V3835 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3839" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">d = q-&gt;dummy; d-&gt;buf[] = t-&gt;buf[]; d-&gt;next = phys(nd)</text>
+<path d="M598.9,3835 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3839" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">旧 dummy 变成真 qTD</text>
+<path d="M190,3843 V3852 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3856" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">q-&gt;dummy = nd; dsb()</text>
+<path d="M190,3860 V3869 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3873" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">d-&gt;token = tok | ACTIVE; dsb()</text>
+<path d="M431.0,3869 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3873" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">← 发布</text>
+<path d="M190,3877 V3886 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="3890" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qtd_free(t)</text>
+<path d="M292.3,3886 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3890" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">原 qTD 只是模板</text>
+<text x="180" y="3907" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">intrs[slot].qtd = d; ehci_intr_reap()</text>
+<path d="M456.1,3903 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="3907" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">可能已经完成了</text>
+<text x="94" y="3934" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="3952" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ qTD token（DW2）：键盘 IN 8 B 挂上时 = 0x00088d80</text>
+<text x="1312.03125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="3972" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="3978" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="197.96875" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DT</text>
+<rect x="215.9" y="3978" width="539.1" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="485.46875" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Total Bytes to Transfer</text>
+<rect x="755.0" y="3978" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="772.96875" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IOC</text>
+<rect x="790.9" y="3978" width="107.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="844.84375" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C_Page</text>
+<rect x="898.8" y="3978" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="934.6875" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CERR</text>
+<rect x="970.6" y="3978" width="71.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="1006.5625" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">PID</text>
+<rect x="1042.5" y="3978" width="287.5" height="30" fill="#fff1e5" stroke="#57606a"/>
+<text x="1186.25" y="3998" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Status</text>
+<text x="180" y="4026" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DT</text>
+<text x="242" y="4026" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">翻转位</text>
+<text x="312" y="4026" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">DTC=0 时 HC 忽略它</text>
+<text x="180" y="4044" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Bytes</text>
+<text x="242" y="4044" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">剩余字节</text>
+<text x="312" y="4044" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">挂时 = 8；完成后剩 0 → 实收 8</text>
+<text x="180" y="4062" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IOC</text>
+<text x="242" y="4062" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">完成中断</text>
+<text x="312" y="4062" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = 完成时置 USBSTS.USBINT</text>
+<text x="770" y="4026" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">CERR</text>
+<text x="832" y="4026" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">错误计数</text>
+<text x="902" y="4026" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">3；每次传输错误减 1，到 0 就 Halted</text>
+<text x="770" y="4044" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">PID</text>
+<text x="832" y="4044" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">包类型</text>
+<text x="902" y="4044" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">0 OUT · 1 IN · 2 SETUP</text>
+<text x="770" y="4062" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Status</text>
+<text x="832" y="4062" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">状态</text>
+<text x="902" y="4062" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">见下</text>
+<text x="170" y="4108" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ token[7:0] 状态位</text>
+<text x="630.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="570.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="510.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="450.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="390.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="330.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="270.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="210.0" y="4128" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<rect x="180.0" y="4134" width="60.0" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="210.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Active</text>
+<rect x="240.0" y="4134" width="60.0" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="270.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Halted</text>
+<rect x="300.0" y="4134" width="60.0" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="330.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">BufErr</text>
+<rect x="360.0" y="4134" width="60.0" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="390.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Babble</text>
+<rect x="420.0" y="4134" width="60.0" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="450.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">XactErr</text>
+<rect x="480.0" y="4134" width="60.0" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="510.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Missed</text>
+<rect x="540.0" y="4134" width="60.0" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="570.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">SplitX</text>
+<rect x="600.0" y="4134" width="60.0" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="630.0" y="4154" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">P/ERR</text>
+<text x="180" y="4182" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bit7</text>
+<text x="242" y="4182" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">Active</text>
+<text x="312" y="4182" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">1 = 等 HC 执行；HC 完成后清 0</text>
+<text x="180" y="4200" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bit6</text>
+<text x="242" y="4200" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">Halted</text>
+<text x="312" y="4200" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">STALL 或 CERR 用完</text>
+<text x="770" y="4182" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bit5-2</text>
+<text x="832" y="4182" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">错误</text>
+<text x="902" y="4182" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">缓冲 / Babble / 事务错误 / 错过微帧</text>
+<text x="770" y="4200" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bit1</text>
+<text x="832" y="4200" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">SplitX</text>
+<text x="902" y="4200" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 记录走到 SSPLIT 还是 CSPLIT</text>
+<text x="170" y="4246" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ struct qtd 内存布局（32 B 对齐）</text>
+<rect x="180" y="4256" width="67.6470588235294" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="213.8235294117647" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">next</text>
+<rect x="247.6470588235294" y="4256" width="67.6470588235294" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="281.4705882352941" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">alt</text>
+<rect x="315.2941176470588" y="4256" width="67.6470588235294" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="349.1176470588235" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">token</text>
+<rect x="382.9411764705882" y="4256" width="338.235294117647" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="552.0588235294117" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">buf[0..4] 页指针</text>
+<rect x="721.1764705882351" y="4256" width="338.235294117647" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="890.2941176470587" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">buf_hi[5]</text>
+<rect x="1059.4117647058822" y="4256" width="270.5882352941176" height="34" fill="#fff1e5" stroke="#57606a"/>
+<text x="1194.705882352941" y="4271" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">snext/data/len/inuse</text>
+<text x="180" y="4306" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">next</text>
+<text x="242" y="4306" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">下一个 qTD</text>
+<text x="316.8" y="4306" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">最后一个指向 dummy</text>
+<text x="180" y="4324" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">buf[0]</text>
+<text x="242" y="4324" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">缓冲</text>
+<text x="312" y="4324" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">URB 的 report[64]（物理地址）</text>
+<text x="770" y="4306" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">buf1-4</text>
+<text x="832" y="4306" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">后续页</text>
+<text x="902" y="4306" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">跨页时使用；8 B 用不到</text>
+<text x="770" y="4324" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">软件</text>
+<text x="832" y="4324" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">snext</text>
+<text x="902" y="4324" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">软件链表，摘 qTD 用</text>
+<rect x="94" y="4356" width="1250" height="66" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="4372" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="4390" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: intr-submit addr=2 ep=1 len=8</text>
+<text x="104" y="4406" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: intr-submit addr=2 ep=2 len=8</text>
+<rect x="40" y="4454" width="1320" height="613" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="4478" r="15" fill="#0969da"/>
+<text x="68" y="4483" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<text x="94" y="4476" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">每 1 ms：HC 走一遍周期链表，对鼠标、键盘 QH 各做一次 split IN</text>
+<text x="94" y="4496" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">HC：FRINDEX → frame_list[n] → anchor_qh → QH EP2 → QH EP1 → T；之后去异步环</text>
+<text x="1345" y="4476" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：无（纯硬件，CPU 不参与）</text>
+<text x="94" y="4516" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 读 QH 时，若 overlay 指向的 qTD 是 Active 且 S-mask 命中当前微帧，就发 SSPLIT IN 给 Hub 1 的 TT；TT 在 1.5 Mb/s 低速总线上向设备发 IN。</text>
+<text x="94" y="4534" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">µ2–µ4 里 HC 发 CSPLIT 取结果：设备没新数据回 NAK → qTD 保持 Active，下一帧再来；有数据回 DATA0/1 → HC 把字节 DMA 进缓冲。</text>
+<text x="94" y="4552" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">所以 CPU 平时完全不参与轮询：不按键、不动鼠标时，只有 HC 每毫秒向 TT 问两次，CPU 一个中断都收不到。</text>
+<text x="94" y="4578" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="4578" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">µ0：HC 读 QH EP2 overlay</text>
+<path d="M346.6,4574 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4578" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">Active，S-mask bit0 命中</text>
+<path d="M190,4582 V4591 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4595" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">SSPLIT(Hub1, 口3) + IN(地址2, EP2)</text>
+<path d="M438.3,4591 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4595" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">高速总线</text>
+<path d="M190,4599 V4608 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4612" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">TT：LS IN → 鼠标 DATA0 4 B → TT 回 ACK</text>
+<path d="M460.2,4608 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4612" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">低速总线</text>
+<text x="180" y="4629" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">µ2：CSPLIT</text>
+<path d="M251.7,4625 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4629" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">可能 NYET（TT 还在等）</text>
+<text x="180" y="4646" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">µ3：CSPLIT → DATA0 4 B</text>
+<path d="M339.3,4642 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4646" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">HC 写 report[0..3]</text>
+<path d="M190,4650 V4659 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4663" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">overlay: Bytes 8→4，DT 翻转，Active=0</text>
+<path d="M452.9,4659 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4663" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">短包也算完成</text>
+<path d="M190,4667 V4676 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="4680" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">写回 qTD token；IOC=1 → 微帧末置 USBSTS.USBINT</text>
+<path d="M496.7,4676 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4680" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 消息 6</text>
+<text x="180" y="4697" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">QH EP1（键盘）：同样流程</text>
+<path d="M295.5,4693 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="4697" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">多半 NAK，qTD 保持 Active</text>
+<text x="94" y="4724" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="4724" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">高速总线：SSPLIT 令牌（Hub 地址 / 口号 / 速度）+ IN 令牌 → Hub 的 TT 记下这个事务</text>
+<text x="180" y="4741" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">低速总线（TT ↔ 设备）：IN → DATA0/1 或 NAK → ACK</text>
+<text x="180" y="4758" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">高速总线：CSPLIT → NYET / DATA0/1 / NAK / STALL</text>
+<text x="94" y="4785" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="4803" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 鼠标 boot 报告（DMA 进 usbmouse.report[]）</text>
+<rect x="180" y="4813" width="115" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="237.5" y="4828" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">buttons</text>
+<text x="237.5" y="4842" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="295" y="4813" width="115" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="352.5" y="4828" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">dX int8</text>
+<text x="352.5" y="4842" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="410" y="4813" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="467.5" y="4828" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">dY int8</text>
+<text x="467.5" y="4842" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="525" y="4813" width="115" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="582.5" y="4828" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wheel</text>
+<text x="582.5" y="4842" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<text x="180" y="4863" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">b0</text>
+<text x="242" y="4863" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">左/右/中</text>
+<text x="312" y="4863" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">bit0 左 · bit1 右 · bit2 中 · bit3/4 侧键</text>
+<text x="770" y="4863" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">dX/dY</text>
+<text x="832" y="4863" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">有符号</text>
+<text x="902" y="4863" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">+X 右，+Y 下</text>
+<text x="170" y="4909" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 键盘 boot 报告（DMA 进 usbkbd.report[]）</text>
+<rect x="180" y="4919" width="115" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="237.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">modifier</text>
+<text x="237.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="295" y="4919" width="115" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="352.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">reserved</text>
+<text x="352.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="410" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="467.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key1</text>
+<text x="467.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="525" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="582.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key2</text>
+<text x="582.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="640" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="697.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key3</text>
+<text x="697.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="755" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="812.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key4</text>
+<text x="812.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="870" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="927.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key5</text>
+<text x="927.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="985" y="4919" width="115" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1042.5" y="4934" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">key6</text>
+<text x="1042.5" y="4948" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<text x="180" y="4969" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mod</text>
+<text x="242" y="4969" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">修饰键</text>
+<text x="312" y="4969" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">bit0 LCtrl · bit1 LShift … bit7 RGUI</text>
+<text x="770" y="4969" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">key</text>
+<text x="832" y="4969" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">HID usage</text>
+<text x="906.8" y="4969" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">例：0x28 = Enter（你日志里的 keys=28）</text>
+<rect x="94" y="5001" width="1250" height="50" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="5017" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="5035" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">（HC 自己轮询，没有日志；USBHID_TRACE=2 时下一步才有 urb done）</text>
+<rect x="40" y="5083" width="1320" height="527" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="5107" r="15" fill="#0969da"/>
+<text x="68" y="5112" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">6</text>
+<text x="94" y="5105" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">IRQ 55：ehci_intr_reap 找到 Active=0 的 qTD，摘下来把 URB 交还驱动</text>
+<text x="94" y="5125" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">GIC IRQ 55 → ehci_irq → ehci_intr_reap → usb_hcd_giveback_urb → usbkbd_irq / usbmouse_irq → queue_work</text>
+<text x="1345" y="5105" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 ehci_lock（扫 intrs[]）· 🔒 urb-&gt;lock · 🔒 kbd-&gt;lock / m-&gt;lock</text>
+<text x="94" y="5145" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">中断只告诉 CPU“有 qTD 完成了”，不说是哪个；所以 reap 扫 intrs[4] 的每个槽，看它的 qtd-&gt;token 是不是 Active=0。</text>
+<text x="94" y="5163" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">摘下后 QH 的 overlay 已经自动前进到 dummy（qTD 的 next），队列又是“只剩 dummy”的空闲状态，等下一次 submit。</text>
+<text x="94" y="5181" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">实收字节 = 挂时长度 − token 剩余字节；token 有错误位就把 status 记为 -1、长度 0。中断里只排工作，几微秒退出。</text>
+<text x="94" y="5207" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="5207" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_irq(55)</text>
+<path d="M273.6,5203 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5207" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">中断上下文</text>
+<path d="M190,5211 V5220 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5224" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">st = USBSTS &amp; 0x3f; wr(USBSTS, st)</text>
+<path d="M460.2,5220 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5224" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">W1C 清 USBINT</text>
+<path d="M190,5228 V5237 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5241" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_intr_reap()</text>
+<path d="M216,5245 V5254 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="5258" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for i in 0..3: intrs[i].qtd &amp;&amp; !(token &amp; ACTIVE)</text>
+<path d="M588.4,5254 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5258" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">🔒 ehci_lock</text>
+<path d="M216,5262 V5271 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="5275" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">len = d-&gt;length − TOK_LEFT(tok); qtd_free(d)</text>
+<path d="M216,5279 V5288 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="5292" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb_hcd_giveback_urb(urb, status, len)</text>
+<path d="M242,5296 V5305 H254" fill="none" stroke="#8c959f"/>
+<text x="258" y="5309" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">urb-&gt;complete(urb) = usbmouse_irq</text>
+<path d="M268,5313 V5322 H280" fill="none" stroke="#8c959f"/>
+<text x="284" y="5326" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">queue_work(&amp;usbmouse_wq, &amp;m-&gt;rx_work)</text>
+<path d="M560.1,5322 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5326" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ 进程上下文</text>
+<path d="M190,5330 V5339 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5343" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mt7601u_rx_irq()</text>
+<path d="M328.8,5339 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5343" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">WiFi 批量收也在同一个中断里</text>
+<text x="94" y="5370" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="5388" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ 完成后的 token：鼠标收 4 B = 0x80048d00（DT=1，剩 4，IOC，CERR 3，IN，Active=0）</text>
+<text x="1312.03125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1276.09375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1</text>
+<text x="1240.15625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2</text>
+<text x="1204.21875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">3</text>
+<text x="1168.28125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">4</text>
+<text x="1132.34375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">5</text>
+<text x="1096.40625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">6</text>
+<text x="1060.46875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1024.53125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="988.59375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="952.65625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">10</text>
+<text x="916.71875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">11</text>
+<text x="880.78125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">12</text>
+<text x="844.84375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">13</text>
+<text x="808.90625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="772.96875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="737.03125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="701.09375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">17</text>
+<text x="665.15625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">18</text>
+<text x="629.21875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">19</text>
+<text x="593.28125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">20</text>
+<text x="557.34375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">21</text>
+<text x="521.40625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">22</text>
+<text x="485.46875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">23</text>
+<text x="449.53125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">24</text>
+<text x="413.59375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="377.65625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="341.71875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="305.78125" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="269.84375" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">29</text>
+<text x="233.90625" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="197.96875" y="5408" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="180.0" y="5414" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="197.96875" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">DT</text>
+<rect x="215.9" y="5414" width="539.1" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="485.46875" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Total Bytes to Transfer</text>
+<rect x="755.0" y="5414" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="772.96875" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">IOC</text>
+<rect x="790.9" y="5414" width="107.8" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="844.84375" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">C_Page</text>
+<rect x="898.8" y="5414" width="71.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="934.6875" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">CERR</text>
+<rect x="970.6" y="5414" width="71.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="1006.5625" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">PID</text>
+<rect x="1042.5" y="5414" width="287.5" height="30" fill="#fff1e5" stroke="#57606a"/>
+<text x="1186.25" y="5434" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">Status</text>
+<text x="180" y="5462" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">剩余</text>
+<text x="242" y="5462" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">4</text>
+<text x="312" y="5462" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">8 − 4 = 实收 4 B（短包正常结束）</text>
+<text x="180" y="5480" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Status</text>
+<text x="242" y="5480" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x00</text>
+<text x="312" y="5480" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">无错误 → urb-&gt;status = 0</text>
+<text x="770" y="5462" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">出错</text>
+<text x="832" y="5462" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">0x40|…</text>
+<text x="902" y="5462" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">Halted 等 → status = -1，驱动计数，32 次停</text>
+<text x="770" y="5480" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">DT</text>
+<text x="832" y="5480" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">翻转</text>
+<text x="902" y="5480" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">HC 记在 overlay，下个 qTD 接着用</text>
+<rect x="94" y="5512" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="5528" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="5546" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: irq=55 status=1 usbcmd=10031</text>
+<text x="104" y="5562" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb-xfer: intr-complete addr=2 ep=2 token=80048d00 len=4</text>
+<text x="104" y="5578" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbmouse: first report len=4 buttons=0 dx=3 dy=-1</text>
+<rect x="40" y="5626" width="1320" height="523" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="5650" r="15" fill="#0969da"/>
+<text x="68" y="5655" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<text x="94" y="5648" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">工作线程处理报告，再 usb_submit_urb：同一个 QH 上又挂一个 qTD</text>
+<text x="94" y="5668" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">usbmouse_rx_work / usbkbd_rx_work → input core → usb_submit_urb → qh_append</text>
+<text x="1345" y="5648" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 m-&gt;lock · 🔒 input_dev.lock · 🔒 ehci_lock</text>
+<text x="94" y="5688" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">每个 URB 永远只有一个 qTD 在 QH 上：处理完上一份报告才重新挂，所以报告不会乱序，也不会两个 qTD 抢同一块缓冲。</text>
+<text x="94" y="5706" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">代价是“处理时间”内设备的新数据会被 NAK 着等一下（设备自己缓存），对键盘鼠标完全够用；WiFi 批量收则提前挂多块缓冲来避免这个空档。</text>
+<text x="94" y="5724" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">键盘按 Caps Lock 时，rx_work 还会在 EP0 QH 上做一次 SET_REPORT（OUT 1 B），这是这条链里唯一的“发”。</text>
+<text x="94" y="5750" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="5750" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbmouse_rx_work</text>
+<path d="M302.8,5746 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5750" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">usbmouse_wq 线程</text>
+<path d="M190,5754 V5763 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5767" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbmouse_report → input_report_key/rel … input_sync</text>
+<path d="M584.3,5763 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5767" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ evdev / win32k</text>
+<path d="M190,5771 V5780 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5784" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb_submit_urb(urb)</text>
+<path d="M350.7,5780 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5784" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">回到消息 4</text>
+<text x="180" y="5801" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd_rx_work</text>
+<path d="M288.2,5797 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5801" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">usbkbd_wq 线程</text>
+<path d="M190,5805 V5814 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5818" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd_report → input_report_key … input_sync</text>
+<path d="M540.5,5814 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5818" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ kbd handler → consoleintr</text>
+<path d="M190,5822 V5831 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5835" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Caps Lock：usbkbd_set_leds</text>
+<path d="M216,5839 V5848 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="5852" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">control(0x21, SET_REPORT, 0x0200, iface 0, &amp;leds, 1)</text>
+<path d="M617.6,5848 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="5852" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">EP0 QH：SETUP + DATA OUT + STATUS IN</text>
+<path d="M190,5856 V5865 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="5869" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usb_submit_urb(urb)</text>
+<text x="94" y="5896" font-size="12" fill="#0969da" font-weight="bold" text-anchor="start">USB 传输</text>
+<text x="180" y="5896" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">SET_REPORT（主机→设备，发 LED）：SETUP 21 09 0002 0000 0100 → DATA1 OUT 1 B（bit1 = Caps Lock 灯）→ STATUS IN 0 B</text>
+<text x="94" y="5923" font-size="12" fill="#bc4c00" font-weight="bold" text-anchor="start">数据格式</text>
+<text x="170" y="5941" font-size="12.5" fill="#bc4c00" font-weight="normal" text-anchor="start">▸ SET_REPORT 的 SETUP 包 = 21 09 0002 0000 0100</text>
+<rect x="180" y="5951" width="115" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="237.5" y="5966" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bmRequestType</text>
+<text x="237.5" y="5980" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="295" y="5951" width="115" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="352.5" y="5966" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">bRequest</text>
+<text x="352.5" y="5980" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">1 B</text>
+<rect x="410" y="5951" width="230" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="525.0" y="5966" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wValue</text>
+<text x="525.0" y="5980" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="640" y="5951" width="230" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="755.0" y="5966" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wIndex</text>
+<text x="755.0" y="5980" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<rect x="870" y="5951" width="230" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="985.0" y="5966" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">wLength</text>
+<text x="985.0" y="5980" font-size="10" fill="#57606a" font-weight="normal" text-anchor="middle">2 B</text>
+<text x="180" y="6001" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">21</text>
+<text x="242" y="6001" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">类型</text>
+<text x="312" y="6001" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">主机→设备，类请求，接口</text>
+<text x="180" y="6019" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">09</text>
+<text x="242" y="6019" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">请求</text>
+<text x="312" y="6019" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">SET_REPORT</text>
+<text x="770" y="6001" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x0200</text>
+<text x="832" y="6001" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wValue</text>
+<text x="902" y="6001" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">报告类型 2 = Output，ID 0</text>
+<text x="770" y="6019" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">1</text>
+<text x="832" y="6019" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">wLength</text>
+<text x="902" y="6019" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">LED 1 字节</text>
+<rect x="94" y="6051" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="6067" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="6085" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd: report #19 mod=0 keys=28,0,0,0,0,0</text>
+<text x="104" y="6101" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd:   usage 0x28 -&gt; KEY 28 down</text>
+<text x="104" y="6117" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd: SET_REPORT(output) leds=2 (caps=1)</text>
+<rect x="40" y="6165" width="1320" height="385" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<circle cx="68" cy="6189" r="15" fill="#0969da"/>
+<text x="68" y="6194" font-size="15" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="94" y="6187" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">出错和撤销：Halted 的 QH 要先停调度再 qh_flush，并保留数据翻转位</text>
+<text x="94" y="6207" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">ehci_submit_urb（发现 Halted）/ ehci_kill_urb / control_qh、bulk_qh 超时 → periodic_stop 或 async_stop → qh_flush</text>
+<text x="1345" y="6187" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="end">锁：🔒 ehci_lock · 停调度期间 HC 不碰 QH</text>
+<text x="94" y="6227" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">QH 一旦 Halted（STALL 或连续 3 次事务错误），HC 就不再执行它，整条队列卡住。修的方法是：关掉对应的调度（PSE 或 ASE）并等状态位确认，</text>
+<text x="94" y="6245" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">释放未完成的 qTD，把 overlay 重新指向 dummy、清 Active/Halted，但保留 DT：设备那边没有复位翻转位，主机清了就会对不上，后面每个包都被当成重传丢掉。</text>
+<text x="94" y="6263" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">中断 QH 在下一次 submit 时修（进程上下文）；kill_urb（拔出/remove）也是同样的“停调度 → qh_flush → 开调度”。</text>
+<text x="94" y="6289" font-size="12" fill="#6639ba" font-weight="bold" text-anchor="start">函数</text>
+<text x="180" y="6289" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_submit_urb</text>
+<path d="M190,6293 V6302 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6306" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">if(q-&gt;token &amp; TOK_HALTED)</text>
+<path d="M216,6310 V6319 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6323" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">periodic_stop()</text>
+<path d="M347.5,6319 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6323" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">USBCMD.PSE=0，等 USBSTS.PSS=0</text>
+<path d="M216,6327 V6336 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6340" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">qh_flush(q, q-&gt;dummy)</text>
+<path d="M391.3,6336 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6340" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">next=dummy，token &amp;= DT</text>
+<path d="M216,6344 V6353 H228" fill="none" stroke="#8c959f"/>
+<text x="232" y="6357" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">periodic_start()</text>
+<text x="180" y="6374" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci_kill_urb(urb)</text>
+<path d="M317.4,6370 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6374" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">usbkbd_remove / usbmouse_remove</text>
+<path d="M190,6378 V6387 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6391" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">从 intrs[] 摘掉 → periodic_stop; qh_flush(q, d); periodic_start</text>
+<text x="180" y="6408" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">control_qh / bulk_qh 失败</text>
+<path d="M190,6412 V6421 H202" fill="none" stroke="#8c959f"/>
+<text x="206" y="6425" font-size="12" fill="#6639ba" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">async_stop; qh_flush(q, first); async_start</text>
+<path d="M525.9,6421 H835" stroke="#d0d7de" stroke-dasharray="2 3"/>
+<text x="840" y="6425" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">异步环同理</text>
+<rect x="94" y="6452" width="1250" height="82" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+<text x="104" y="6468" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">预期日志（按代码里的 printf 推出；需要 USB_XFER_TRACE=1 才有 usb-xfer 行，qh 物理地址只是示例）</text>
+<text x="104" y="6486" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbmouse: interrupt transfer error; resubmitting</text>
+<text x="104" y="6502" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">usbkbd: 32 transfer errors in a row; keyboard stopped</text>
+<text x="104" y="6518" font-size="12" fill="#116329" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ehci: control 21/9 val=200 failed token=…</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpiZWE1ZTJiOC02NTJhLTRkMjAtOTc3Ni03Mjk4ZDdiNzgyMmMAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaGzHsxhLtyM186NcjC2ujtQAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpkZGI5MDg1Ny0wMDg0LTRkNmQtYjM3MS02NzE4OTJjOGZjZjFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo7RWvZ2yWqcgdI3WILPlzOwAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggzLD/CnbvzLGCO0Xlwlblsff+RzEzoHdkugNYoKRQyjKkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaKXh+676iAYSzd5D9q1acnYAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRKAAAAAAAAAAAAAGRoYXNoWCApmHTXng+XMahrN4eWmrQ+na0uEp3a62UqFvhBluJQRWRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBoAAlLuZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmJlYTVlMmI4LTY1MmEtNGQyMC05Nzc2LTcyOThkN2I3ODIyYy9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjZiMGRiNzQxLWQwMmEtNGY3NS1hZmY0LTE4YTI2YjJmMmJlMnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDMsP8Kdu/MsYI7ReXCVuWx9/5HMTOgd2S6A1igpFDKMqJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggXQqmr6z1oJzCW2/AVU4NUmuWZ+NCYXtsskQL+upH9PqiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggPIb6wXpGUHQvrok0bZjOKU7WG8LJl+BldSUbCJmUO6p0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQLa/n0c5yVU5EBR8l96Re+6uwkcPLmuKJ15Hy7yWjnA8cZY+WjIaqpUofRBvn8trguVUcGvVFC3Y+F9O6GvZGSs=</c2pa:manifest></metadata></svg>

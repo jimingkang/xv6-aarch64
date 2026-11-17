@@ -34,6 +34,20 @@
 #define W32M_QUIT     0x0012
 #define W32M_KEYDOWN  0x0100
 #define W32M_CHAR     0x0102
+/* Mouse: wparam = MK_* button state, lparam = (y << 16) | x, client
+   coordinates of the window under the cursor (or the one holding capture). */
+#define W32M_MOUSEMOVE   0x0200
+#define W32M_LBUTTONDOWN 0x0201
+#define W32M_LBUTTONUP   0x0202
+#define W32M_RBUTTONDOWN 0x0204
+#define W32M_RBUTTONUP   0x0205
+#define W32M_MBUTTONDOWN 0x0207
+#define W32M_MBUTTONUP   0x0208
+#define W32M_MOUSEWHEEL  0x020a     /* wparam high 16 bits: signed delta */
+#define W32MK_LBUTTON 0x01
+#define W32MK_RBUTTON 0x02
+#define W32MK_MBUTTON 0x10
+#define W32_CAPTION_H 25            /* user32 draws the caption in rows 2..24 */
 
 struct w32_rect { int left, top, right, bottom; };
 struct w32_msg { uint32 hwnd, message; uint64 wparam; long lparam; };

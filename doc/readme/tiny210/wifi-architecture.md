@@ -1547,3 +1547,11 @@ EP4 IN 一段: [DMA 头 4: dma_len][RXWI 28: RXINFO4 ctl4(MPDU 长 b16-27) ... S
 RXINFO: bit8 CRC  bit9 ICV  bit10 MIC  bit14 L2PAD  bit16 DECRYPT
 EP0 Setup: [bmRequestType C0读/40写][bRequest 7读/2写/0x42 FCE][wValue 写值 16 位][wIndex 寄存器][wLength 4/0]
 ```
+
+## 通信图：EP4 接收环、NAPI 与 EP4 OUT 发送
+
+和 USB 键盘通信图同样的画法：上半部是参与者与 0–10 号消息、每条路径上的锁，下半部逐条展开函数调用链、按位数据格式和预期日志。
+
+![MT7601U 收发通信图](images/wifi-comm.svg)
+
+分页 SVG（与书中各图对应）：`images/wifi-comm/wifi-comm-*.svg`

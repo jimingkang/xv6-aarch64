@@ -30,6 +30,23 @@
 #include "kernel/usb.h"
 #include "kernel/workqueue.h"
 
+/* USBHID_TRACE (make USBHID_TRACE=1|2, one switch shared with usbmouse and
+ * the kbd handler): 1 = probe, reports, key changes, LEDs; 2 = also every
+ * URB completion and resubmit.  Errors always print. */
+#ifndef USBHID_TRACE
+#define USBHID_TRACE 0
+#endif
+#if USBHID_TRACE >= 1
+#define KBD_LOG(...) printf("usbkbd: " __VA_ARGS__)
+#else
+#define KBD_LOG(...) do { } while(0)
+#endif
+#if USBHID_TRACE >= 2
+#define KBD_LOG2(...) printf("usbkbd: " __VA_ARGS__)
+#else
+#define KBD_LOG2(...) do { } while(0)
+#endif
+
 #define HID_REQ_SET_REPORT   0x09
 #define HID_REQ_SET_IDLE     0x0a
 #define HID_REQ_SET_PROTOCOL 0x0b
@@ -98,6 +115,7 @@ static void
 usbkbd_set_leds(struct usbkbd *kbd)
 {
   uchar leds = kbd->leds;
+  KBD_LOG("SET_REPORT(output) leds=%x (caps=%d)\n", leds, (leds & LED_CAPSLOCK) != 0);
   kbd->udev->ops->control(kbd->udev, 0x21, HID_REQ_SET_REPORT,
                           HID_OUTPUT_REPORT << 8,
                           kbd->udev->interface_number, &leds, 1);
@@ -112,23 +130,35 @@ usbkbd_report(struct usbkbd *kbd)
   if(kbd->report_count++ == 0)
     printf("usbkbd: first report mod=%x keys=%x,%x,%x,%x,%x,%x\n",
            r[0], r[2], r[3], r[4], r[5], r[6], r[7]);
+  else
+    KBD_LOG("report #%d mod=%x keys=%x,%x,%x,%x,%x,%x\n", kbd->report_count,
+            r[0], r[2], r[3], r[4], r[5], r[6], r[7]);
   // On phantom/rollover the keyboard fills every key slot with an error
   // usage.  It says nothing about which keys are down, so keep the previous
   // state rather than report every key released and pressed again.
-  if(r[2] >= HID_ERR_ROLLOVER && r[2] <= HID_ERR_LAST)
+  if(r[2] >= HID_ERR_ROLLOVER && r[2] <= HID_ERR_LAST){
+    KBD_LOG("rollover/error report (usage 0x%x); state kept\n", r[2]);
     return;
+  }
   // Modifier bits are usages 0xe0..0xe7, independent of the six key slots.
   for(int i = 0; i < 8; i++)
-    if(((old[0] ^ r[0]) >> i) & 1)
+    if(((old[0] ^ r[0]) >> i) & 1){
+      KBD_LOG("  modifier usage 0x%x -> KEY %d %s\n", 0xe0 + i,
+              hid_to_key[224 + i], ((r[0] >> i) & 1) ? "down" : "up");
       input_report_key(kbd->input, hid_to_key[224 + i], (r[0] >> i) & 1);
+    }
   // Releases first, then presses, like Linux usb_kbd_irq().
   for(int i = 2; i < HID_REPORT_SIZE; i++)
-    if(old[i] > HID_ERR_LAST && !in_report(r, old[i]) && hid_to_key[old[i]])
+    if(old[i] > HID_ERR_LAST && !in_report(r, old[i]) && hid_to_key[old[i]]){
+      KBD_LOG("  usage 0x%x -> KEY %d up\n", old[i], hid_to_key[old[i]]);
       input_report_key(kbd->input, hid_to_key[old[i]], 0);
+    }
   for(int i = 2; i < HID_REPORT_SIZE; i++)
     if(r[i] > HID_ERR_LAST && !in_report(old, r[i])){
-      if(hid_to_key[r[i]])
+      if(hid_to_key[r[i]]){
+        KBD_LOG("  usage 0x%x -> KEY %d down\n", r[i], hid_to_key[r[i]]);
         input_report_key(kbd->input, hid_to_key[r[i]], 1);
+      }
       else
         printf("usbkbd: unmapped HID usage %d\n", r[i]);
       if(r[i] == HID_USAGE_CAPSLOCK){
@@ -156,6 +186,7 @@ usbkbd_rx_work(struct work_struct *work)
   }
   release(&kbd->lock);
 
+  KBD_LOG2("urb done status=%d len=%d\n", urb->status, urb->actual_length);
   if(urb->status == 0 && urb->actual_length >= HID_REPORT_SIZE){
     kbd->errors = 0;
     usbkbd_report(kbd);
@@ -174,6 +205,9 @@ usbkbd_rx_work(struct work_struct *work)
   release(&kbd->lock);
   if(rearm && usb_submit_urb(urb) < 0)
     printf("usbkbd: cannot resubmit interrupt URB\n");
+  else if(rearm)
+    KBD_LOG2("urb resubmitted ep%d len %d\n", urb->endpoint,
+             urb->transfer_buffer_length);
 }
 
 // URB completion, in interrupt context: the host has given the request
@@ -194,9 +228,16 @@ usbkbd_probe(struct usb_device *udev)
 {
   struct usbkbd *kbd;
 
+  KBD_LOG("probe %x:%x addr %d iface %d class %d/%d/%d intr-in ep%d mps %d interval %d\n",
+          udev->vendor, udev->product, udev->address, udev->interface_number,
+          udev->class, udev->subclass, udev->protocol, udev->interrupt_in_ep,
+          udev->interrupt_in_max_packet, udev->interrupt_in_interval);
   if(udev->ops == 0 || udev->ops->submit_urb == 0 ||
-     udev->ops->kill_urb == 0 || udev->interrupt_in_ep == 0)
+     udev->ops->kill_urb == 0 || udev->interrupt_in_ep == 0){
+    printf("usbkbd: %x:%x has no interrupt-IN endpoint or URB support\n",
+           udev->vendor, udev->product);
     return -1;
+  }
   _Static_assert(sizeof(struct usbkbd) <= PGSIZE, "usbkbd too large");
   kbd = kalloc();
   if(kbd == 0)
@@ -215,9 +256,13 @@ usbkbd_probe(struct usb_device *udev)
   if(udev->ops->control(udev, 0x21, HID_REQ_SET_PROTOCOL, HID_BOOT_PROTOCOL,
                         udev->interface_number, 0, 0) < 0)
     printf("usbkbd: SET_PROTOCOL(boot) failed; assuming boot reports\n");
+  else
+    KBD_LOG("SET_PROTOCOL(boot) ok\n");
   // Idle rate 0: report only when something changes (may STALL; harmless).
-  udev->ops->control(udev, 0x21, HID_REQ_SET_IDLE, 0,
-                     udev->interface_number, 0, 0);
+  int idle = udev->ops->control(udev, 0x21, HID_REQ_SET_IDLE, 0,
+                                udev->interface_number, 0, 0);
+  KBD_LOG("SET_IDLE(0) %s\n", idle < 0 ? "stalled (ignored)" : "ok");
+  (void)idle;
   usbkbd_set_leds(kbd);                    // all LEDs off
 
   kbd->input->name = "USB HID Boot Keyboard";

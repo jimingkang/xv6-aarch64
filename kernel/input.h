@@ -52,13 +52,14 @@ struct input_dev {
   void *private;
   uint32 keybit[INPUT_KEY_WORDS];
   uint32 keystate[INPUT_KEY_WORDS];
+  uint32 relbit;                  // EV_REL axes the device reports
   struct evdev_client *clients;
   struct input_handler *handlers[INPUT_MAX_HANDLERS];   // connected handlers
   int refs;
   int registered;
   int disconnected;
   int event_number;               // N of /dev/input/eventN, -1 when gone
-  int sync_pending;               // EV_KEY queued since the last SYN_REPORT
+  int sync_pending;               // events queued since the last SYN_REPORT
 };
 
 void input_init(void);
@@ -68,6 +69,7 @@ void input_set_capability(struct input_dev *dev, int type, int code);
 int input_register_device(struct input_dev *dev);
 void input_unregister_device(struct input_dev *dev);
 void input_report_key(struct input_dev *dev, int code, int value);
+void input_report_rel(struct input_dev *dev, int code, int value);
 void input_sync(struct input_dev *dev);
 int input_register_handler(struct input_handler *handler);
 int input_has_key(struct input_dev *dev, int code);
