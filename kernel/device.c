@@ -8,6 +8,29 @@
 #include "device.h"
 #include "defs.h"
 
+/* Driver-model trace (make DRIVER_CORE_TRACE=1|2).  Errors always print.
+ *   1: bus/device/driver registration, every successful match (and which
+ *      side triggered it), probe begin/end with its result, unbind/remove,
+ *      character-device registration.
+ *   2: also every match attempt that failed (one line per device/driver
+ *      pair on the same bus) and every chrdev open.
+ * The USB bus adds its own lines with USB_CORE_TRACE, the input core
+ * (handler connections) shares this switch. */
+#ifndef DRIVER_CORE_TRACE
+#define DRIVER_CORE_TRACE 0
+#endif
+#if DRIVER_CORE_TRACE >= 1
+#define DM_LOG(...) printf("dm: " __VA_ARGS__)
+#else
+#define DM_LOG(...) do { } while(0)
+#endif
+#if DRIVER_CORE_TRACE >= 2
+#define DM_LOG2(...) printf("dm: " __VA_ARGS__)
+#else
+#define DM_LOG2(...) do { } while(0)
+#endif
+#define DM_NAME(s) ((s) ? (s) : "<unnamed>")
+
 struct chrdev {
   int used;
   char *name;
@@ -53,19 +76,49 @@ struct bus_type platform_bus = {
   .remove = bus_remove,
 };
 
+// Try one (device, driver) pair: same bus, bus->match() says yes, then
+// bus->probe() (which calls the driver's probe).  `why` names the side that
+// triggered the attempt, device_register() or driver_register().
 static int
-bind(struct device *dev, struct device_driver *drv)
+bind(struct device *dev, struct device_driver *drv, const char *why)
 {
   int r = 0;
   if(dev->driver || dev->bus == 0 || drv->bus != dev->bus ||
-     dev->bus->match == 0 || !dev->bus->match(dev, drv))
+     dev->bus->match == 0)
     return 0;
+  if(!dev->bus->match(dev, drv)){
+    DM_LOG2("  try bus=%s dev=%s drv=%s: no match\n", dev->bus->name,
+            DM_NAME(dev->name), DM_NAME(drv->name));
+    return 0;
+  }
+  DM_LOG("match bus=%s dev=%s.%d drv=%s (from %s)\n", dev->bus->name,
+         DM_NAME(dev->name), dev->id, DM_NAME(drv->name), why);
   dev->driver = drv;
+  DM_LOG("probe begin drv=%s dev=%s nres=%d\n", DM_NAME(drv->name),
+         DM_NAME(dev->name), dev->nresource);
   if(dev->bus->probe && (r = dev->bus->probe(dev)) < 0){
+    printf("dm: probe drv=%s dev=%s failed (%d), unbound\n",
+           DM_NAME(drv->name), DM_NAME(dev->name), r);
     dev->driver = 0;
     return r;
   }
+  DM_LOG("probe end drv=%s dev=%s result=%d -> bound\n", DM_NAME(drv->name),
+         DM_NAME(dev->name), r);
   return 1;
+}
+
+// device_init() runs before the console, so platform_bus is announced
+// by the first platform registration instead.
+static void
+dm_announce_platform(void)
+{
+#if DRIVER_CORE_TRACE >= 1
+  static int done;
+  if(!done){
+    done = 1;
+    DM_LOG("bus=platform registered by device_init() (match = name)\n");
+  }
+#endif
 }
 
 void
@@ -94,6 +147,8 @@ bus_register(struct bus_type *bus)
   }
   device_core.buses[device_core.nbus++] = bus;
   release(&device_core.lock);
+  if(bus != &platform_bus)
+    DM_LOG("register bus=%s\n", bus->name);
   return 0;
 }
 
@@ -139,9 +194,17 @@ device_register(struct device *dev)
   }
   device_core.devices[device_core.ndevice++] = dev;
   release(&device_core.lock);
+  DM_LOG("register device=%s.%d bus=%s nres=%d; scan %d driver(s)\n",
+         DM_NAME(dev->name), dev->id, dev->bus ? dev->bus->name : "(none)",
+         dev->nresource, device_core.ndriver);
   for(int i = 0; i < device_core.ndriver; i++)
-    if(bind(dev, device_core.drivers[i]) != 0)
+    if(bind(dev, device_core.drivers[i], "device_register") != 0)
       break;
+  if(dev->driver == 0 && dev->bus && dev->bus->match)
+    DM_LOG("  device=%s waits unbound for its driver\n", DM_NAME(dev->name));
+  else if(dev->driver == 0)
+    DM_LOG("  bus=%s has no match(): class device, never bound\n",
+           dev->bus ? dev->bus->name : "(none)");
   return 0;
 }
 
@@ -165,6 +228,8 @@ device_unregister(struct device *dev)
     device_core.devices[i] = device_core.devices[i + 1];
   device_core.devices[--device_core.ndevice] = 0;
   release(&device_core.lock);
+  DM_LOG("unregister device=%s drv=%s\n", DM_NAME(dev->name),
+         dev->driver ? DM_NAME(dev->driver->name) : "(unbound)");
   if(dev->driver && dev->bus && dev->bus->remove)
     dev->bus->remove(dev);
   dev->driver = 0;
@@ -184,8 +249,15 @@ driver_register(struct device_driver *drv)
   }
   device_core.drivers[device_core.ndriver++] = drv;
   release(&device_core.lock);
+  DM_LOG("register driver=%s bus=%s; scan %d device(s)\n", DM_NAME(drv->name),
+         drv->bus ? drv->bus->name : "(none)", device_core.ndevice);
+  int bound = 0;
   for(int i = 0; i < device_core.ndevice; i++)
-    bind(device_core.devices[i], drv);
+    if(bind(device_core.devices[i], drv, "driver_register") > 0)
+      bound++;
+  if(bound == 0)
+    DM_LOG("  driver=%s: no device yet, waits for device_register()\n",
+           DM_NAME(drv->name));
   return 0;
 }
 
@@ -213,6 +285,8 @@ driver_unregister(struct device_driver *drv)
     struct device *dev = device_core.devices[i];
     if(dev->driver != drv)
       continue;
+    DM_LOG("unbind device=%s from driver=%s\n", DM_NAME(dev->name),
+           DM_NAME(drv->name));
     if(dev->bus && dev->bus->remove)
       dev->bus->remove(dev);
     dev->driver = 0;
@@ -225,6 +299,7 @@ int
 platform_device_register(struct device *dev)
 {
   dev->bus = &platform_bus;
+  dm_announce_platform();
   return device_register(dev);
 }
 
@@ -232,6 +307,7 @@ int
 platform_driver_register(struct device_driver *drv)
 {
   drv->bus = &platform_bus;
+  dm_announce_platform();
   return driver_register(drv);
 }
 
@@ -249,6 +325,9 @@ register_chrdev(int major, char *name, struct file_operations *fops)
   device_core.chrdevs[major].name = name;
   device_core.chrdevs[major].fops = fops;
   release(&device_core.lock);
+  DM_LOG("register chrdev major=%d name=%s%s%s%s\n", major, DM_NAME(name),
+         fops->open ? " open" : "", fops->ioctl ? " ioctl" : "",
+         fops->mmap ? " mmap" : "");
   return 0;
 }
 
@@ -267,6 +346,8 @@ chrdev_open(struct file *f)
   struct file_operations *fops = chrdev_fops(f->major);
   if(fops == 0)
     return -1;
+  DM_LOG2("chrdev open major=%d -> %s\n", f->major,
+          DM_NAME(device_core.chrdevs[f->major].name));
   return fops->open ? fops->open(f) : 0;
 }
 

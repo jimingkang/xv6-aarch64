@@ -1,5 +1,8 @@
 # Tiny210 设备模型与驱动开发
 
+> 总线初始化、match/probe 全流程和数据路径的图解、`DRIVER_CORE_TRACE` 日志与 manim 动画见
+> [driver-model.md](driver-model.md)。
+
 ## 1. 分层
 
 当前代码借鉴 Linux 的 bus/device/driver 和 initcall 思想，但保持 xv6 的小型实现：

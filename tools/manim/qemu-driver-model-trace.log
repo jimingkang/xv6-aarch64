@@ -1,0 +1,178 @@
+
+dm: bus=platform registered by device_init() (match = name)
+dm: register device=console.0 bus=platform nres=0; scan 0 driver(s)
+dm:   device=console waits unbound for its driver
+dm: register driver=console bus=platform; scan 1 device(s)
+dm: match bus=platform dev=console.0 drv=console (from driver_register)
+dm: probe begin drv=console dev=console nres=0
+dm: register chrdev major=1 name=console
+dm: probe end drv=console dev=console result=0 -> bound
+dm: register chrdev major=3 name=ttyS0
+dm: register chrdev major=2 name=tty
+
+xv6 ARM32 / QEMU cubieboard (Cortex-A8 stand-in for S5PV210)
+xv6: built 2026-11-18 02:59:42 (git unknown)
+boot: r0=0 machid=4104 r2=40000100
+atags: at 40000100
+atags: memory 40000000 + 512 MiB
+atags: cmdline "console=ttySAC0,115200"
+kernel 40008000-408ce000, DRAM 40000000-47000000
+single CPU, ARMv7 MMU, embedded RAM disk
+workqueue: system_wq worker=0 pid=1
+workqueue: net_wq worker=0 pid=2
+dm: register bus=net
+dm: register device=sun4i-intc.0 bus=platform nres=1; scan 1 driver(s)
+dm:   try bus=platform dev=sun4i-intc drv=console: no match
+dm:   device=sun4i-intc waits unbound for its driver
+dm: register device=sun4i-timer.0 bus=platform nres=2; scan 1 driver(s)
+dm:   try bus=platform dev=sun4i-timer drv=console: no match
+dm:   device=sun4i-timer waits unbound for its driver
+dm: register device=sun4i-uart.0 bus=platform nres=1; scan 1 driver(s)
+dm:   try bus=platform dev=sun4i-uart drv=console: no match
+dm:   device=sun4i-uart waits unbound for its driver
+dm: register device=s5p-ehci.0 bus=platform nres=2; scan 1 driver(s)
+dm:   try bus=platform dev=s5p-ehci drv=console: no match
+dm:   device=s5p-ehci waits unbound for its driver
+dm: register device=simple-framebuffer.0 bus=platform nres=1; scan 1 driver(s)
+dm:   try bus=platform dev=simple-framebuffer drv=console: no match
+dm:   device=simple-framebuffer waits unbound for its driver
+initcall: irq-sun4i (level 3)
+dm: register driver=sun4i-intc bus=platform; scan 6 device(s)
+dm: match bus=platform dev=sun4i-intc.0 drv=sun4i-intc (from driver_register)
+dm: probe begin drv=sun4i-intc dev=sun4i-intc nres=1
+irqchip: sun4i-intc at 1c20400
+dm: probe end drv=sun4i-intc dev=sun4i-intc result=0 -> bound
+dm:   try bus=platform dev=sun4i-timer drv=sun4i-intc: no match
+dm:   try bus=platform dev=sun4i-uart drv=sun4i-intc: no match
+dm:   try bus=platform dev=s5p-ehci drv=sun4i-intc: no match
+dm:   try bus=platform dev=simple-framebuffer drv=sun4i-intc: no match
+initcall: input (level 4)
+dm: register chrdev major=4 name=input/event open
+initcall: timer-sun4i (level 4)
+dm: register driver=sun4i-timer bus=platform; scan 6 device(s)
+dm: match bus=platform dev=sun4i-timer.0 drv=sun4i-timer (from driver_register)
+dm: probe begin drv=sun4i-timer dev=sun4i-timer nres=2
+clocksource: sun4i-timer0 at 24000000 Hz
+dm: probe end drv=sun4i-timer dev=sun4i-timer result=0 -> bound
+dm:   try bus=platform dev=sun4i-uart drv=sun4i-timer: no match
+dm:   try bus=platform dev=s5p-ehci drv=sun4i-timer: no match
+dm:   try bus=platform dev=simple-framebuffer drv=sun4i-timer: no match
+initcall: usbcore (level 4)
+usb-core: register bus
+dm: register bus=usb
+initcall: win32k (level 4)
+workqueue: win32k worker=0 pid=3
+win32k: Tiny210 compositor, 16 MiB cached surface arena
+initcall: kbd (level 5)
+input: handler kbd registered
+initcall: serial-8250-sun4i (level 6)
+dm: register driver=sun4i-uart bus=platform; scan 6 device(s)
+dm: match bus=platform dev=sun4i-uart.0 drv=sun4i-uart (from driver_register)
+dm: probe begin drv=sun4i-uart dev=sun4i-uart nres=1
+serial: 8250 (sun4i) at 1c28000 (console)
+dm: probe end drv=sun4i-uart dev=sun4i-uart result=0 -> bound
+dm:   try bus=platform dev=s5p-ehci drv=sun4i-uart: no match
+dm:   try bus=platform dev=simple-framebuffer drv=sun4i-uart: no match
+initcall: simplefb (level 6)
+dm: register driver=simple-framebuffer bus=platform; scan 6 device(s)
+dm:   try bus=platform dev=s5p-ehci drv=simple-framebuffer: no match
+dm: match bus=platform dev=simple-framebuffer.0 drv=simple-framebuffer (from driver_register)
+dm: probe begin drv=simple-framebuffer dev=simple-framebuffer nres=1
+dm: register chrdev major=5 name=fb0 open ioctl mmap
+fb0: simplefb 640x480 32 bpp, 1228800 bytes at 48000000
+dm: probe end drv=simple-framebuffer dev=simple-framebuffer result=0 -> bound
+initcall: usbkbd (level 6)
+workqueue: usbkbd_wq worker=0 pid=4
+usb-core: register driver=usbkbd
+dm: register driver=usbkbd bus=usb; scan 6 device(s)
+dm:   driver=usbkbd: no device yet, waits for device_register()
+initcall: usbmouse (level 6)
+workqueue: usbmouse_wq worker=0 pid=5
+usb-core: register driver=usbmouse
+dm: register driver=usbmouse bus=usb; scan 6 device(s)
+dm:   driver=usbmouse: no device yet, waits for device_register()
+initcall: ehci-s5p (level 6)
+dm: register driver=s5p-ehci bus=platform; scan 6 device(s)
+dm: match bus=platform dev=s5p-ehci.0 drv=s5p-ehci (from driver_register)
+dm: probe begin drv=s5p-ehci dev=s5p-ehci nres=2
+usb-enum: platform probe mmio=1c14000 irq=39
+ehci: s5p-ehci at 1c14000, enumeration deferred to ehci-enum
+dm: probe end drv=s5p-ehci dev=s5p-ehci result=0 -> bound
+xv6fs: fat32: cannot read SD sector 0; using the built-in RAM disk
+vfs: native root rw; waiting for /etc/fstab mounts
+usb-enum: ehci-enum kthread entered
+usb-enum: controller start cap=1c14000
+usb-enum: caplength=32 op=1c14020 hcsparams=1306 hccparams=80 ports=6
+ehci: INSNREG01 thresholds 0 -> 0
+usb-enum: async-head=408c1800 USBINTR=3 USBCMD=10031 CONFIGFLAG=1
+vfs: mounted procfs at /proc read-only
+dm: chrdev open major=3 -> ttyS0
+init: starting sh
+ehci: 6 port(s), hccparams 80, running, async schedule on, periodic on
+usb-enum: root-port=0 PORTSC=1003 connected=1 enabled=0 line=0
+ehci: port 0: high-speed device connected
+usb-enum: enumerate begin addr=0 speed=high parent-hub=0 port=0 depth=0
+usb-enum: device descriptor[0:8] mps0=64; assigning address=1
+usb-enum: device addr=1 vid:pid=627:1 device-class=0/0/0
+usb-enum: configuration addr=1 value=1 total=34
+usb-enum: interface=0 class=3/1/1 endpoints=1
+usb-enum: endpoint addr=81 ep=1 dir=IN type=3 mps=8 interval=7
+ehci: high-speed device 627:1 class 3 at address 1 (hub 0 port 0)
+ehci:   bulk in 0,0/0 out 0/0 (0 OUT endpoints) intr in 1
+usb-enum: register non-hub addr=1 vid:pid=627:1 on usb bus
+usb-core: register device=627:1 addr=1 class=3/1/1
+dm: register device=usb-device.0 bus=usb nres=0; scan 8 driver(s)
+usb-core: match device=627:1 class=3/1/1 driver=usbkbd
+dm: match bus=usb dev=usb-device.0 drv=usbkbd (from device_register)
+dm: probe begin drv=usbkbd dev=usb-device nres=0
+usb-core: probe begin driver=usbkbd device=627:1 addr=1
+usbkbd: probe 627:1 addr 1 iface 0 class 3/1/1 intr-in ep1 mps 8 interval 7
+usbkbd: SET_PROTOCOL(boot) ok
+usbkbd: SET_IDLE(0) ok
+usbkbd: SET_REPORT(output) leds=0 (caps=0)
+dm: input: connect device=USB HID Boot Keyboard -> handler=kbd
+input: USB HID Boot Keyboard registered as /dev/input/event0
+usbkbd: 627:1 keyboard on ep1 in, mps 8, interval 7
+usb-core: probe end driver=usbkbd device=627:1 result=0
+dm: probe end drv=usbkbd dev=usb-device result=0 -> bound
+usb-enum: root-port=1 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=2 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=3 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=4 PORTSC=1000 connected=0 enabled=0 line=0
+usb-enum: root-port=5 PORTSC=1000 connected=0 enabled=0 line=0
+dm: chrdev open major=1 -> console
+$ usbkbd: urb done status=0 len=8
+usbkbd: first report mod=0 keys=f,0,0,0,0,0
+usbkbd:   usage 0xf -> KEY 38 down
+kbd: KEY 38 -> console 6c mods=0 caps=0
+lusbkbd: urb resubmitted ep1 len 8
+usbkbd: urb done status=0 len=8
+usbkbd: report #2 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0xf -> KEY 38 up
+usbkbd: urb resubmitted ep1 len 8
+usbkbd: urb done status=0 len=8
+usbkbd: report #3 mod=0 keys=16,0,0,0,0,0
+usbkbd:   usage 0x16 -> KEY 31 down
+kbd: KEY 31 -> console 73 mods=0 caps=0
+susbkbd: urb resubmitted ep1 len 8
+usbkbd: urb done status=0 len=8
+usbkbd: report #4 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x16 -> KEY 31 up
+usbkbd: urb resubmitted ep1 len 8
+usbkbd: urb done status=0 len=8
+usbkbd: report #5 mod=0 keys=28,0,0,0,0,0
+usbkbd:   usage 0x28 -> KEY 28 down
+kbd: KEY 28 -> console a mods=0 caps=0
+
+usbkbd: urb resubmitted ep1 len 8
+.                              1 1 1024
+..                             1 1 1024
+bin                            1 2 1024
+init                           2 3 20552
+dev                            1 25 192
+boot                           1 34 64
+proc                           1 35 64
+$ usbkbd: urb done status=0 len=8
+usbkbd: report #6 mod=0 keys=0,0,0,0,0,0
+usbkbd:   usage 0x28 -> KEY 28 up
+usbkbd: urb resubmitted ep1 len 8

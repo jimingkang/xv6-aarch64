@@ -28,6 +28,16 @@
 
 void win32k_input_event(uint16, uint16, int) __attribute__((weak));
 
+// Handler connections share the driver-model switch (kernel/device.c).
+#ifndef DRIVER_CORE_TRACE
+#define DRIVER_CORE_TRACE 0
+#endif
+#if DRIVER_CORE_TRACE >= 1
+#define IN_LOG(...) printf("dm: input: " __VA_ARGS__)
+#else
+#define IN_LOG(...) do { } while(0)
+#endif
+
 // Both live in a single kalloc() page.
 _Static_assert(sizeof(struct input_dev) <= PGSIZE, "input_dev too large");
 _Static_assert(sizeof(struct evdev_client) <= PGSIZE, "evdev_client too large");
@@ -115,8 +125,10 @@ input_connect_locked(struct input_dev *dev, struct input_handler *h)
     if(dev->handlers[i] == 0 && free < 0)
       free = i;
   }
-  if(free >= 0)
+  if(free >= 0){
     dev->handlers[free] = h;
+    IN_LOG("connect device=%s -> handler=%s\n", dev->name, h->name);
+  }
 }
 
 // Already-open files stay attached to their device and see EOF/-1 once they

@@ -53,6 +53,10 @@ USBHID_TRACE ?= $(USBKBD_TRACE)
 # map, MMU registers, /proc/iomem; 2 also userinit/fork/exec summaries;
 # 3 also every kalloc'd page, L2 table and ELF chunk of a fork/exec.
 MMU_TRACE ?= 1
+# Driver-model trace (kernel/device.c, input core handler connections):
+# 0 off; 1 bus/device/driver registration, matches, probe begin/end,
+# chrdev registration; 2 also every failed match attempt and chrdev open.
+DRIVER_CORE_TRACE ?= 0
 # Root file system blocks (1 KiB).
 TINY210_FSBLOCKS ?= 4096
 ifeq ($(QEMU_TEST),1)
@@ -64,7 +68,7 @@ KERNEL_LOAD = $(shell printf '0x%08x' $$(( $(TINY210_DRAM_BASE) + 0x8000 )))
 EARLY_UART = $(BOARD_UART)
 PLAT_FLAGS = $(BOARD_DEF) -DS5PV210_LCD_INDEX=$(LCD_INDEX) -DS5PV210_LCD_VCLK_INVERT=$(LCD_VCLK_INVERT) $(if $(filter 1,$(S5PV210_USB_OTG)),-DS5PV210_USB_OTG)
 endif
-FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET -DXV6_HAVE_PTY -DXV6_HAVE_VFS $(if $(filter 1,$(QEMU_TEST)),,-DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) -DFBCON_FONT_BOLD=$(FBCON_BOLD) -DUSB_CORE_TRACE=$(USB_CORE_TRACE) -DUSB_ENUM_TRACE=$(USB_ENUM_TRACE) -DUSB_XFER_TRACE=$(USB_XFER_TRACE) -DMT7601U_CONFIG_TRACE=$(MT7601U_CONFIG_TRACE) -DMT7601U_DATA_TRACE=$(MT7601U_DATA_TRACE) -DMT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4) -DMT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR) -DMT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN) -DUSBKBD_TRACE=$(USBKBD_TRACE) -DUSBHID_TRACE=$(USBHID_TRACE) -DMMU_TRACE=$(MMU_TRACE) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+FLAGS = $(TARGET_FLAGS) -mcpu=cortex-a8 -marm -mfloat-abi=soft -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -Os -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -DXV6_ARM32 -DXV6_TINY210 -DXV6_HAVE_NET -DXV6_HAVE_PTY -DXV6_HAVE_VFS $(if $(filter 1,$(QEMU_TEST)),,-DXV6_NO_EMBEDDED_ROOT) -DFSSIZE_T113=$(TINY210_FSBLOCKS) -DEARLY_UART=$(EARLY_UART) -DFBCON_FONT_BOLD=$(FBCON_BOLD) -DUSB_CORE_TRACE=$(USB_CORE_TRACE) -DUSB_ENUM_TRACE=$(USB_ENUM_TRACE) -DUSB_XFER_TRACE=$(USB_XFER_TRACE) -DMT7601U_CONFIG_TRACE=$(MT7601U_CONFIG_TRACE) -DMT7601U_DATA_TRACE=$(MT7601U_DATA_TRACE) -DMT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4) -DMT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR) -DMT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN) -DUSBKBD_TRACE=$(USBKBD_TRACE) -DUSBHID_TRACE=$(USBHID_TRACE) -DMMU_TRACE=$(MMU_TRACE) -DDRIVER_CORE_TRACE=$(DRIVER_CORE_TRACE) $(PLAT_FLAGS) -I. -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
 CORE = string kalloc spinlock sleeplock proc exec bio fs log pipe pty file sysfile sysproc device input console tty workqueue net epoll sysnet memstat fat32 vfs ext2
 SHARED = vm syscall stubs runtime fdt initcall irq time
 OWN = setup atag devices
@@ -205,7 +209,7 @@ $(TRACE_CONFIG): FORCE
 	  'MT7601U_TX_EDCA_EP4=$(MT7601U_TX_EDCA_EP4)' \
 	  'MT7601U_WCID_CLEAR=$(MT7601U_WCID_CLEAR)' \
 	  'MT7601U_SCAN_CHAN=$(MT7601U_SCAN_CHAN)' \
-	  'MMU_TRACE=$(MMU_TRACE)' \
+	  'MMU_TRACE=$(MMU_TRACE)' 'DRIVER_CORE_TRACE=$(DRIVER_CORE_TRACE)' \
 	  'USBKBD_TRACE=$(USBKBD_TRACE)' 'USBHID_TRACE=$(USBHID_TRACE)' > $@.new
 	@cmp -s $@.new $@ && rm -f $@.new || mv $@.new $@
 $(BUILD)/drivers/usb/core/usb.o \
@@ -215,6 +219,7 @@ $(BUILD)/drivers/hid/usbhid/usbkbd.o $(BUILD)/drivers/hid/usbhid/usbmouse.o \
 $(BUILD)/drivers/tty/vt/keyboard.o: $(TRACE_CONFIG)
 $(BUILD)/kernel/exec.o $(BUILD)/kernel/proc.o $(BUILD)/kernel/memstat.o \
 $(BUILD)/shared/vm.o $(BUILD)/port/setup.o: $(TRACE_CONFIG)
+$(BUILD)/kernel/device.o $(BUILD)/kernel/input.o: $(TRACE_CONFIG)
 $(BUILD)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
 	$(ARM_CC) $(FLAGS) -MMD -MP -c $< -o $@

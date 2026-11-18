@@ -19,6 +19,8 @@ xv6 的人员。默认目标是 Tiny210；同一端口也可通过 `S5PV210_BOAR
 5. [文件系统](filesystem.md)：内嵌 xv6fs、bcache、redo log 和 `/init`。
 6. [驱动模型与板载按键](drivers.md)：platform device/driver、resource、initcall、
    K1--K8 输入子系统和 `event0`。
+   [驱动总线架构图解](driver-model.md)：platform/usb/input 总线的初始化、match、probe、
+   URB 数据路径，`DRIVER_CORE_TRACE` 日志和 manim 动画。
 7. [上板调试记录](bringup-notes.md)：串口乱码、EHCI 欠载、iROM 读第 0 扇区卡死、BL1 入口偏移与对齐错误等问题的现象、原因和解决办法。
 
 ## 2. 代码地图
