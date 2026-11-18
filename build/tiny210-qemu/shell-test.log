@@ -1,0 +1,1767 @@
+
+
+xv6 ARM32 / QEMU cubieboard (Cortex-A8 stand-in for S5PV210)
+xv6: built 2026-11-17 19:10:14 (git cdf129d-dirty)
+boot: r0=0 machid=4104 r2=40000100
+atags: at 40000100
+atags: memory 40000000 + 512 MiB
+atags: cmdline "console=ttySAC0,115200 xv6test"
+kernel 40008000-408c0000, DRAM 40000000-47000000
+single CPU, ARMv7 MMU, embedded RAM disk
+mm: region 40000000-5fffffff System RAM
+mm: region 40000000-40007fff Reserved (ATAGs, below kernel)
+mm: region 47000000-47ffffff win32k surface arena
+mm: region 48400000-5fffffff Unused (outside page allocator)
+mm: kernel code 40008000-40020fff (100 KiB)
+mm: kernel data 40021000-400237af (9 KiB)
+mm: kernel ramdisk 40024000-40423fff (4096 KiB, embedded root fs)
+mm: kernel bss  40424000-408bffff (4720 KiB)
+mm: kinit: freerange 408c0000-46ffffff -> 26432 pages (105728 KiB) on the kalloc freelist, PHYSTOP=47000000
+mmu: TTBR0=404b4000 (kernel L1 root, 16 KiB aligned) TTBCR=0 DACR=1
+mmu: SCTLR=c51879: M(MMU)=1 C(D-cache)=0 Z(branch pred)=1 I(I-cache)=1
+mmu: kernel L1 (short descriptors, 1 MiB sections, VA = PA):
+mmu:   L1[1c..1c] VA 1c00000-1cfffff -> PA 1c00000  1 MiB  Strongly-ordered XN AP=1(priv RW) entry=1c00412
+mmu:   L1[400..47f] VA 40000000-47ffffff -> PA 40000000  128 MiB  Normal non-cacheable AP=1(priv RW) entry=40001402
+mmu:   L1[480..483] VA 48000000-483fffff -> PA 48000000  4 MiB  Normal non-cacheable XN AP=1(priv RW) entry=48001412
+mmu: 133 of 4096 L1 entries are sections; the rest fault. User VA 0-1fffffff uses L2 tables per process.
+workqueue: system_wq worker=0 pid=1
+workqueue: net_wq worker=0 pid=2
+initcall: irq-sun4i (level 3)
+irqchip: sun4i-intc at 1c20400
+initcall: input (level 4)
+initcall: timer-sun4i (level 4)
+clocksource: sun4i-timer0 at 24000000 Hz
+initcall: win32k (level 4)
+workqueue: win32k worker=0 pid=3
+win32k: Tiny210 compositor, 16 MiB cached surface arena
+initcall: serial-8250-sun4i (level 6)
+serial: 8250 (sun4i) at 1c28000 (console)
+initcall: simplefb (level 6)
+fb0: simplefb 640x480 32 bpp, 1228800 bytes at 48000000
+mm: iomem 01c20400-01c207ff : sun4i-intc intc
+mm: iomem 01c20c00-01c20fff : sun4i-timer timer
+mm: iomem 01c28000-01c283ff : sun4i-uart uart0
+mm: iomem 40000000-5fffffff : System RAM
+mm: iomem   40000000-40007fff : Reserved (ATAGs, below kernel)
+mm: iomem   40008000-40020fff : Kernel code
+mm: iomem   40021000-400237af : Kernel data
+mm: iomem   40024000-40423fff : Kernel ramdisk (root fs)
+mm: iomem   40424000-408bffff : Kernel bss
+mm: iomem   408c0000-46ffffff : Page allocator (kalloc)
+mm: iomem   47000000-47ffffff : win32k surface arena
+mm: iomem   48000000-483fffff : simple-framebuffer framebuffer
+mm: iomem   48400000-5fffffff : Unused (outside page allocator)
+xv6fs: fat32: cannot read SD sector 0; using the built-in RAM disk
+vfs: native root rw; waiting for /etc/fstab mounts
+mm: userinit: pid 4 kstack pa 46ff4000, L1 root 404c4000, initcode 48 bytes -> VA 0 (pa 46ff3000)
+exec: /init pid 4: inode 3, 21032 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[5] at 404c8000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz dc8 filesz dc8 file off 98 flags 7
+mm:   L2 table: kalloc pa 46fef000 -> L1[0] = 46fef001 (VA 0-fffff)
+mm:   page: kalloc pa 46ff0000 -> VA 0 (PTE 46ff0072)
+exec:   readi inode 3 off 98 -> VA 0 (pa 46ff0000) 3528 bytes
+mm:   page: kalloc pa 46fee000 -> VA 1000 (PTE 46fee072)
+mm:   page: kalloc pa 46fed000 -> VA 2000 (PTE 46fed072)
+mm:   page: kalloc pa 46fec000 -> VA 3000 (PTE 46fec072)
+mm:   page: kalloc pa 46feb000 -> VA 4000 (PTE 46feb072)
+mm:   page: kalloc pa 46fea000 -> VA 5000 (PTE 46fea072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /init pid 4: sz 6000 sp 5fe0 entry 0, 7 kalloc pages, new L1 root 404c8000
+vfs: mounted procfs at /proc read-only
+init: starting sh
+mm: fork: init pid 4 -> pid 5: kstack pa 46ff2000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46ff0000 -> kalloc pa 46fe9000
+mm:   L2 table: kalloc pa 46fe8000 -> L1[0] = 46fe8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fee000 -> kalloc pa 46fe7000
+mm:   copy: VA 2000 pa 46fed000 -> kalloc pa 46fe6000
+mm:   copy: VA 3000 pa 46fec000 -> kalloc pa 46fe5000
+mm:   copy: VA 4000 pa 46feb000 -> kalloc pa 46fe4000
+mm:   copy: VA 5000 pa 46fea000 -> kalloc pa 46fe3000
+exec: /bin/sh pid 5: inode 5, 45356 bytes, ELF entry 37c, 3 program headers
+mm:   L1 root roots[6] at 404cc000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 2254 filesz 21de file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe0000 -> L1[0] = 46fe0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe1000 -> VA 0 (PTE 46fe1072)
+mm:   page: kalloc pa 46fdf000 -> VA 1000 (PTE 46fdf072)
+mm:   page: kalloc pa 46fde000 -> VA 2000 (PTE 46fde072)
+exec:   readi inode 5 off 94 -> VA 0 (pa 46fe1000) 4096 bytes
+exec:   readi inode 5 off 1094 -> VA 1000 (pa 46fdf000) 4096 bytes
+exec:   readi inode 5 off 2094 -> VA 2000 (pa 46fde000) 478 bytes
+mm:   page: kalloc pa 46fdd000 -> VA 3000 (PTE 46fdd072)
+mm:   page: kalloc pa 46fdc000 -> VA 4000 (PTE 46fdc072)
+mm:   page: kalloc pa 46fdb000 -> VA 5000 (PTE 46fdb072)
+mm:   page: kalloc pa 46fda000 -> VA 6000 (PTE 46fda072)
+mm:   page: kalloc pa 46fd9000 -> VA 7000 (PTE 46fd9072)
+exec:   stack: guard page VA 3000 (PTE_U cleared), stack VA 4000-7fff
+exec: /bin/sh pid 5: sz 8000 sp 7fe0 entry 37c, 9 kalloc pages, new L1 root 404cc000
+$ echo ARM32_OK
+mm: fork: sh pid 5 -> pid 6: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fe4000
+mm:   L2 table: kalloc pa 46fe5000 -> L1[0] = 46fe5001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fe6000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fe7000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fe9000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd8000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fd7000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fd6000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fd5000
+exec: /bin/echo pid 6: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fc9000 -> L1[0] = 46fc9001 (VA 0-fffff)
+mm:   page: kalloc pa 46fca000 -> VA 0 (PTE 46fca072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fca000) 1504 bytes
+mm:   page: kalloc pa 46fc8000 -> VA 1000 (PTE 46fc8072)
+mm:   page: kalloc pa 46fc7000 -> VA 2000 (PTE 46fc7072)
+mm:   page: kalloc pa 46fc6000 -> VA 3000 (PTE 46fc6072)
+mm:   page: kalloc pa 46fc5000 -> VA 4000 (PTE 46fc5072)
+mm:   page: kalloc pa 46fc4000 -> VA 5000 (PTE 46fc4072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 6: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+ARM32_OK
+$ echo PIPE_OK | cat
+mm: fork: sh pid 5 -> pid 7: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fc9000
+mm:   L2 table: kalloc pa 46fc4000 -> L1[0] = 46fc4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fc5000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fc6000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fc7000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fc8000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fca000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fcb000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fcc000
+mm: fork: sh pid 7 -> pid 8: kstack pa 46fd6000, L1 root 404d0000, copying 16 user pages
+mm:   copy: VA 0 pa 46fc9000 -> kalloc pa 46fd8000
+mm:   L2 table: kalloc pa 46fe9000 -> L1[0] = 46fe9001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fc5000 -> kalloc pa 46fe7000
+mm:   copy: VA 2000 pa 46fc6000 -> kalloc pa 46fe6000
+mm:   copy: VA 3000 pa 46fc7000 -> kalloc pa 46fe4000
+mm:   copy: VA 4000 pa 46fc8000 -> kalloc pa 46fc3000
+mm:   copy: VA 5000 pa 46fca000 -> kalloc pa 46fc2000
+mm:   copy: VA 6000 pa 46fcb000 -> kalloc pa 46fc1000
+mm:   copy: VA 7000 pa 46fcc000 -> kalloc pa 46fc0000
+mm:   copy: VA 8000 pa 46fe5000 -> kalloc pa 46fbf000
+mm:   copy: VA 9000 pa 46fcd000 -> kalloc pa 46fbe000
+mm:   copy: VA a000 pa 46fce000 -> kalloc pa 46fbd000
+mm:   copy: VA b000 pa 46fcf000 -> kalloc pa 46fbc000
+mm:   copy: VA c000 pa 46fd0000 -> kalloc pa 46fbb000
+mm:   copy: VA d000 pa 46fd1000 -> kalloc pa 46fba000
+mm:   copy: VA e000 pa 46fd2000 -> kalloc pa 46fb9000
+mm:   copy: VA f000 pa 46fd3000 -> kalloc pa 46fb8000
+mm: fork: sh pid 7 -> pid 9: kstack pa 46fb6000, L1 root 404d4000, copying 16 user pages
+mm:   copy: VA 0 pa 46fc9000 -> kalloc pa 46fb4000
+mm:   L2 table: kalloc pa 46fb3000 -> L1[0] = 46fb3001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fc5000 -> kalloc pa 46fb2000
+mm:   copy: VA 2000 pa 46fc6000 -> kalloc pa 46fb1000
+mm:   copy: VA 3000 pa 46fc7000 -> kalloc pa 46fb0000
+mm:   copy: VA 4000 pa 46fc8000 -> kalloc pa 46faf000
+mm:   copy: VA 5000 pa 46fca000 -> kalloc pa 46fae000
+mm:   copy: VA 6000 pa 46fcb000 -> kalloc pa 46fad000
+mm:   copy: VA 7000 pa 46fcc000 -> kalloc pa 46fac000
+mm:   copy: VA 8000 pa 46fe5000 -> kalloc pa 46fab000
+mm:   copy: VA 9000 pa 46fcd000 -> kalloc pa 46faa000
+mm:   copy: VA a000 pa 46fce000 -> kalloc pa 46fa9000
+mm:   copy: VA b000 pa 46fcf000 -> kalloc pa 46fa8000
+mm:   copy: VA c000 pa 46fd0000 -> kalloc pa 46fa7000
+mm:   copy: VA d000 pa 46fd1000 -> kalloc pa 46fa6000
+mm:   copy: VA e000 pa 46fd2000 -> kalloc pa 46fa5000
+mm:   copy: VA f000 pa 46fd3000 -> kalloc pa 46fa4000
+exec: /bin/echo pid 8: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[9] at 404d8000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fa0000 -> L1[0] = 46fa0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa1000 -> VA 0 (PTE 46fa1072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fa1000) 1504 bytes
+mm:   page: kalloc pa 46f9f000 -> VA 1000 (PTE 46f9f072)
+mm:   page: kalloc pa 46f9e000 -> VA 2000 (PTE 46f9e072)
+mm:   page: kalloc pa 46f9d000 -> VA 3000 (PTE 46f9d072)
+mm:   page: kalloc pa 46f9c000 -> VA 4000 (PTE 46f9c072)
+mm:   page: kalloc pa 46f9b000 -> VA 5000 (PTE 46f9b072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 8: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d8000
+exec: /bin/cat pid 9: inode 7, 19268 bytes, ELF entry 78, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz cf4 filesz af4 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe9000 -> L1[0] = 46fe9001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa3000 -> VA 0 (PTE 46fa3072)
+exec:   readi inode 7 off 94 -> VA 0 (pa 46fa3000) 2804 bytes
+mm:   page: kalloc pa 46fb8000 -> VA 1000 (PTE 46fb8072)
+mm:   page: kalloc pa 46fb9000 -> VA 2000 (PTE 46fb9072)
+mm:   page: kalloc pa 46fba000 -> VA 3000 (PTE 46fba072)
+mm:   page: kalloc pa 46fbb000 -> VA 4000 (PTE 46fbb072)
+mm:   page: kalloc pa 46fbc000 -> VA 5000 (PTE 46fbc072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/cat pid 9: sz 6000 sp 5fe0 entry 78, 7 kalloc pages, new L1 root 404d0000
+PIPE_OK
+$ echo FILE_OK > /test
+mm: fork: sh pid 5 -> pid 10: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fc4000
+mm:   L2 table: kalloc pa 46fd3000 -> L1[0] = 46fd3001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fd2000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fd1000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fcf000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fce000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fcd000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fe5000
+exec: /bin/echo pid 10: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46f9b000 -> L1[0] = 46f9b001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa0000 -> VA 0 (PTE 46fa0072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fa0000) 1504 bytes
+mm:   page: kalloc pa 46f9c000 -> VA 1000 (PTE 46f9c072)
+mm:   page: kalloc pa 46f9d000 -> VA 2000 (PTE 46f9d072)
+mm:   page: kalloc pa 46f9e000 -> VA 3000 (PTE 46f9e072)
+mm:   page: kalloc pa 46f9f000 -> VA 4000 (PTE 46f9f072)
+mm:   page: kalloc pa 46fa1000 -> VA 5000 (PTE 46fa1072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 10: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+$ cat /test
+mm: fork: sh pid 5 -> pid 11: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46f9b000
+mm:   L2 table: kalloc pa 46fa1000 -> L1[0] = 46fa1001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46f9f000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46f9e000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46f9c000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fa0000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fd7000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fd6000
+exec: /bin/cat pid 11: inode 7, 19268 bytes, ELF entry 78, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz cf4 filesz af4 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fce000 -> L1[0] = 46fce001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcd000 -> VA 0 (PTE 46fcd072)
+exec:   readi inode 7 off 94 -> VA 0 (pa 46fcd000) 2804 bytes
+mm:   page: kalloc pa 46fcf000 -> VA 1000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fd1000 -> VA 3000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd2000 -> VA 4000 (PTE 46fd2072)
+mm:   page: kalloc pa 46fc4000 -> VA 5000 (PTE 46fc4072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/cat pid 11: sz 6000 sp 5fd0 entry 78, 7 kalloc pages, new L1 root 404d0000
+FILE_OK
+$ mkdir /scratch
+mm: fork: sh pid 5 -> pid 12: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fce000
+mm:   L2 table: kalloc pa 46fc4000 -> L1[0] = 46fc4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fd2000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fd1000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fcf000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcd000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fe5000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fcc000
+exec: /bin/mkdir pid 12: inode 9, 18428 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz a6c filesz a6c file off 94 flags 7
+mm:   L2 table: kalloc pa 46fa0000 -> L1[0] = 46fa0001 (VA 0-fffff)
+mm:   page: kalloc pa 46fd7000 -> VA 0 (PTE 46fd7072)
+exec:   readi inode 9 off 94 -> VA 0 (pa 46fd7000) 2668 bytes
+mm:   page: kalloc pa 46f9c000 -> VA 1000 (PTE 46f9c072)
+mm:   page: kalloc pa 46f9d000 -> VA 2000 (PTE 46f9d072)
+mm:   page: kalloc pa 46f9e000 -> VA 3000 (PTE 46f9e072)
+mm:   page: kalloc pa 46f9f000 -> VA 4000 (PTE 46f9f072)
+mm:   page: kalloc pa 46f9b000 -> VA 5000 (PTE 46f9b072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/mkdir pid 12: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+$ cd /scratch
+$ echo RELATIVE_OK > relative
+mm: fork: sh pid 5 -> pid 13: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fa0000
+mm:   L2 table: kalloc pa 46f9b000 -> L1[0] = 46f9b001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46f9f000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46f9e000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46f9c000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fd7000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fd6000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fd3000
+exec: /bin/echo pid 13: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fcd000 -> L1[0] = 46fcd001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe5000 -> VA 0 (PTE 46fe5072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fe5000) 1504 bytes
+mm:   page: kalloc pa 46fcf000 -> VA 1000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fd1000 -> VA 3000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd2000 -> VA 4000 (PTE 46fd2072)
+mm:   page: kalloc pa 46fce000 -> VA 5000 (PTE 46fce072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 13: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+$ cat relative
+mm: fork: sh pid 5 -> pid 14: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fcd000
+mm:   L2 table: kalloc pa 46fce000 -> L1[0] = 46fce001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fd2000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fd1000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fcf000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fe5000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fcc000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fa1000
+exec: /bin/cat pid 14: inode 7, 19268 bytes, ELF entry 78, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz cf4 filesz af4 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fd7000 -> L1[0] = 46fd7001 (VA 0-fffff)
+mm:   page: kalloc pa 46fd6000 -> VA 0 (PTE 46fd6072)
+exec:   readi inode 7 off 94 -> VA 0 (pa 46fd6000) 2804 bytes
+mm:   page: kalloc pa 46f9c000 -> VA 1000 (PTE 46f9c072)
+mm:   page: kalloc pa 46f9d000 -> VA 2000 (PTE 46f9d072)
+mm:   page: kalloc pa 46f9e000 -> VA 3000 (PTE 46f9e072)
+mm:   page: kalloc pa 46f9f000 -> VA 4000 (PTE 46f9f072)
+mm:   page: kalloc pa 46fa0000 -> VA 5000 (PTE 46fa0072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/cat pid 14: sz 6000 sp 5fd0 entry 78, 7 kalloc pages, new L1 root 404d0000
+RELATIVE_OK
+$ cd /
+$ ls /bin
+mm: fork: sh pid 5 -> pid 15: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fd7000
+mm:   L2 table: kalloc pa 46fa0000 -> L1[0] = 46fa0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46f9f000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46f9e000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46f9c000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fd6000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fd3000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fc4000
+exec: /bin/ls pid 15: inode 8, 26064 bytes, ELF entry 27c, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz e58 filesz e38 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe5000 -> L1[0] = 46fe5001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcc000 -> VA 0 (PTE 46fcc072)
+exec:   readi inode 8 off 94 -> VA 0 (pa 46fcc000) 3640 bytes
+mm:   page: kalloc pa 46fcf000 -> VA 1000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fd1000 -> VA 3000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd2000 -> VA 4000 (PTE 46fd2072)
+mm:   page: kalloc pa 46fcd000 -> VA 5000 (PTE 46fcd072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/ls pid 15: sz 6000 sp 5fd0 entry 27c, 7 kalloc pages, new L1 root 404d0000
+.                              1 2 1024
+..                             1 1 1024
+init                           2 3 21032
+armcheck                       2 4 20260
+sh                             2 5 45356
+echo                           2 6 13344
+cat                            2 7 19268
+ls                             2 8 26064
+mkdir                          2 9 18428
+rm                             2 10 18416
+wc                             2 11 24260
+grep                           2 12 25920
+kill                           2 13 22800
+ln                             2 14 18376
+stressfs                       2 15 23712
+forktest                       2 16 14532
+fbtest                         2 17 29452
+evtest                         2 18 20084
+wifi                           2 19 24812
+dhcp                           2 20 18368
+ping                           2 21 27652
+tftpclient                     2 22 43120
+reboot                         2 23 19212
+windemo                        2 24 61672
+$ armcheck
+mm: fork: sh pid 5 -> pid 16: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fe5000
+mm:   L2 table: kalloc pa 46fcd000 -> L1[0] = 46fcd001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fd2000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fd1000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fcf000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcc000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fa1000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46f9b000
+exec: /bin/armcheck pid 16: inode 4, 20260 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz c60 filesz c60 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fd3000 -> L1[0] = 46fd3001 (VA 0-fffff)
+mm:   page: kalloc pa 46fc4000 -> VA 0 (PTE 46fc4072)
+exec:   readi inode 4 off 94 -> VA 0 (pa 46fc4000) 3168 bytes
+mm:   page: kalloc pa 46fd6000 -> VA 1000 (PTE 46fd6072)
+mm:   page: kalloc pa 46f9c000 -> VA 2000 (PTE 46f9c072)
+mm:   page: kalloc pa 46f9d000 -> VA 3000 (PTE 46f9d072)
+mm:   page: kalloc pa 46f9e000 -> VA 4000 (PTE 46f9e072)
+mm:   page: kalloc pa 46f9f000 -> VA 5000 (PTE 46f9f072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/armcheck pid 16: sz 6000 sp 5fe0 entry 0, 7 kalloc pages, new L1 root 404d0000
+mm: fork: armcheck pid 16 -> pid 17: kstack pa 46fce000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fc4000 -> kalloc pa 46fc9000
+mm:   L2 table: kalloc pa 46fc5000 -> L1[0] = 46fc5001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fd6000 -> kalloc pa 46fc6000
+mm:   copy: VA 2000 pa 46f9c000 -> kalloc pa 46fc7000
+mm:   copy: VA 3000 pa 46f9d000 -> kalloc pa 46fc8000
+mm:   copy: VA 4000 pa 46f9e000 -> kalloc pa 46fca000
+mm:   copy: VA 5000 pa 46f9f000 -> kalloc pa 46fcb000
+mm: fork: armcheck pid 16 -> pid 18: kstack pa 46fce000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fc4000 -> kalloc pa 46fc5000
+mm:   L2 table: kalloc pa 46fcb000 -> L1[0] = 46fcb001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fd6000 -> kalloc pa 46fca000
+mm:   copy: VA 2000 pa 46f9c000 -> kalloc pa 46fc8000
+mm:   copy: VA 3000 pa 46f9d000 -> kalloc pa 46fc7000
+mm:   copy: VA 4000 pa 46f9e000 -> kalloc pa 46fc6000
+mm:   copy: VA 5000 pa 46f9f000 -> kalloc pa 46fc9000
+ARM fault kind=3 lr=11c cpsr=60000150 far=40200000 dfsr=80d
+mm: fork: armcheck pid 16 -> pid 19: kstack pa 46fce000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fc4000 -> kalloc pa 46fcb000
+mm:   L2 table: kalloc pa 46fc9000 -> L1[0] = 46fc9001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fd6000 -> kalloc pa 46fc6000
+mm:   copy: VA 2000 pa 46f9c000 -> kalloc pa 46fc7000
+mm:   copy: VA 3000 pa 46f9d000 -> kalloc pa 46fc8000
+mm:   copy: VA 4000 pa 46f9e000 -> kalloc pa 46fca000
+mm:   copy: VA 5000 pa 46f9f000 -> kalloc pa 46fc5000
+ARM fault kind=1 lr=184 cpsr=60000150 far=40200000 dfsr=80d
+armcheck: OK
+$ forktest
+mm: fork: sh pid 5 -> pid 20: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fd3000
+mm:   L2 table: kalloc pa 46f9f000 -> L1[0] = 46f9f001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46f9e000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46f9d000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46f9c000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd6000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fc4000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fce000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fcd000
+exec: /bin/forktest pid 20: inode 16, 14532 bytes, ELF entry 128, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 710 filesz 710 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fcc000 -> L1[0] = 46fcc001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa1000 -> VA 0 (PTE 46fa1072)
+exec:   readi inode 16 off 94 -> VA 0 (pa 46fa1000) 1808 bytes
+mm:   page: kalloc pa 46fcf000 -> VA 1000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fd1000 -> VA 3000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd2000 -> VA 4000 (PTE 46fd2072)
+mm:   page: kalloc pa 46fe5000 -> VA 5000 (PTE 46fe5072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/forktest pid 20: sz 6000 sp 5fe0 entry 128, 7 kalloc pages, new L1 root 404d0000
+fork test
+mm: fork: forktest pid 20 -> pid 21: kstack pa 46f9b000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fa0000
+mm:   L2 table: kalloc pa 46fcb000 -> L1[0] = 46fcb001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fc6000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fc7000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fc8000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fca000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46fc5000
+mm: fork: forktest pid 20 -> pid 22: kstack pa 46fc9000, L1 root 404d4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fce000
+mm:   L2 table: kalloc pa 46fc4000 -> L1[0] = 46fc4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fd6000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f9c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f9e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46fd3000
+mm: fork: forktest pid 20 -> pid 23: kstack pa 46fb6000, L1 root 404d8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fe9000
+mm:   L2 table: kalloc pa 46fbc000 -> L1[0] = 46fbc001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fbb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fba000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fb9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fb8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46fa3000
+mm: fork: forktest pid 20 -> pid 24: kstack pa 46fa2000, L1 root 404dc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fa4000
+mm:   L2 table: kalloc pa 46fa5000 -> L1[0] = 46fa5001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fa6000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fa7000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fa8000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fa9000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46faa000
+mm: fork: forktest pid 20 -> pid 25: kstack pa 46fac000, L1 root 404e0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fae000
+mm:   L2 table: kalloc pa 46faf000 -> L1[0] = 46faf001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fb0000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fb1000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fb2000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fb4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46fbd000
+mm: fork: forktest pid 20 -> pid 26: kstack pa 46fbf000, L1 root 404e4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46fc1000
+mm:   L2 table: kalloc pa 46fc2000 -> L1[0] = 46fc2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fc3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fe4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fe6000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fe7000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46fd8000
+mm: fork: forktest pid 20 -> pid 27: kstack pa 46f99000, L1 root 404e8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f97000
+mm:   L2 table: kalloc pa 46f96000 -> L1[0] = 46f96001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f95000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f94000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f93000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f92000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f91000
+mm: fork: forktest pid 20 -> pid 28: kstack pa 46f8f000, L1 root 404ec000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f8d000
+mm:   L2 table: kalloc pa 46f8c000 -> L1[0] = 46f8c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f8b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f8a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f89000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f88000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f87000
+mm: fork: forktest pid 20 -> pid 29: kstack pa 46f85000, L1 root 404f0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f83000
+mm:   L2 table: kalloc pa 46f82000 -> L1[0] = 46f82001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f81000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f80000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f7f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f7e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f7d000
+mm: fork: forktest pid 20 -> pid 30: kstack pa 46f7b000, L1 root 404f4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f79000
+mm:   L2 table: kalloc pa 46f78000 -> L1[0] = 46f78001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f77000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f76000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f75000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f74000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f73000
+mm: fork: forktest pid 20 -> pid 31: kstack pa 46f71000, L1 root 404f8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f6f000
+mm:   L2 table: kalloc pa 46f6e000 -> L1[0] = 46f6e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f6d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f6c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f6b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f6a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f69000
+mm: fork: forktest pid 20 -> pid 32: kstack pa 46f67000, L1 root 404fc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f65000
+mm:   L2 table: kalloc pa 46f64000 -> L1[0] = 46f64001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f63000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f62000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f61000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f60000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f5f000
+mm: fork: forktest pid 20 -> pid 33: kstack pa 46f5d000, L1 root 40500000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f5b000
+mm:   L2 table: kalloc pa 46f5a000 -> L1[0] = 46f5a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f59000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f58000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f57000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f56000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f55000
+mm: fork: forktest pid 20 -> pid 34: kstack pa 46f53000, L1 root 40504000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f51000
+mm:   L2 table: kalloc pa 46f50000 -> L1[0] = 46f50001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f4f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f4e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f4d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f4c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f4b000
+mm: fork: forktest pid 20 -> pid 35: kstack pa 46f49000, L1 root 40508000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f47000
+mm:   L2 table: kalloc pa 46f46000 -> L1[0] = 46f46001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f45000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f44000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f43000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f42000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f41000
+mm: fork: forktest pid 20 -> pid 36: kstack pa 46f3f000, L1 root 4050c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f3d000
+mm:   L2 table: kalloc pa 46f3c000 -> L1[0] = 46f3c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f3b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f3a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f39000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f38000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f37000
+mm: fork: forktest pid 20 -> pid 37: kstack pa 46f35000, L1 root 40510000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f33000
+mm:   L2 table: kalloc pa 46f32000 -> L1[0] = 46f32001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f31000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f30000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f2f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f2e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f2d000
+mm: fork: forktest pid 20 -> pid 38: kstack pa 46f2b000, L1 root 40514000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f29000
+mm:   L2 table: kalloc pa 46f28000 -> L1[0] = 46f28001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f27000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f26000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f25000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f24000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f23000
+mm: fork: forktest pid 20 -> pid 39: kstack pa 46f21000, L1 root 40518000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f1f000
+mm:   L2 table: kalloc pa 46f1e000 -> L1[0] = 46f1e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f1d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f1c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f1b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f1a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f19000
+mm: fork: forktest pid 20 -> pid 40: kstack pa 46f17000, L1 root 4051c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f15000
+mm:   L2 table: kalloc pa 46f14000 -> L1[0] = 46f14001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f13000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f12000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f11000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f10000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f0f000
+mm: fork: forktest pid 20 -> pid 41: kstack pa 46f0d000, L1 root 40520000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f0b000
+mm:   L2 table: kalloc pa 46f0a000 -> L1[0] = 46f0a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46f09000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46f08000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46f07000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46f06000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46f05000
+mm: fork: forktest pid 20 -> pid 42: kstack pa 46f03000, L1 root 40524000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46f01000
+mm:   L2 table: kalloc pa 46f00000 -> L1[0] = 46f00001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46eff000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46efe000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46efd000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46efc000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46efb000
+mm: fork: forktest pid 20 -> pid 43: kstack pa 46ef9000, L1 root 40528000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ef7000
+mm:   L2 table: kalloc pa 46ef6000 -> L1[0] = 46ef6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ef5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ef4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ef3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ef2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ef1000
+mm: fork: forktest pid 20 -> pid 44: kstack pa 46eef000, L1 root 4052c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46eed000
+mm:   L2 table: kalloc pa 46eec000 -> L1[0] = 46eec001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46eeb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46eea000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ee9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ee8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ee7000
+mm: fork: forktest pid 20 -> pid 45: kstack pa 46ee5000, L1 root 40530000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ee3000
+mm:   L2 table: kalloc pa 46ee2000 -> L1[0] = 46ee2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ee1000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ee0000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46edf000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ede000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46edd000
+mm: fork: forktest pid 20 -> pid 46: kstack pa 46edb000, L1 root 40534000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ed9000
+mm:   L2 table: kalloc pa 46ed8000 -> L1[0] = 46ed8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ed7000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ed6000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ed5000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ed4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ed3000
+mm: fork: forktest pid 20 -> pid 47: kstack pa 46ed1000, L1 root 40538000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ecf000
+mm:   L2 table: kalloc pa 46ece000 -> L1[0] = 46ece001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ecd000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ecc000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ecb000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46eca000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ec9000
+mm: fork: forktest pid 20 -> pid 48: kstack pa 46ec7000, L1 root 4053c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ec5000
+mm:   L2 table: kalloc pa 46ec4000 -> L1[0] = 46ec4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ec3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ec2000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ec1000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ec0000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ebf000
+mm: fork: forktest pid 20 -> pid 49: kstack pa 46ebd000, L1 root 40540000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ebb000
+mm:   L2 table: kalloc pa 46eba000 -> L1[0] = 46eba001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46eb9000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46eb8000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46eb7000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46eb6000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46eb5000
+mm: fork: forktest pid 20 -> pid 50: kstack pa 46eb3000, L1 root 40544000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46eb1000
+mm:   L2 table: kalloc pa 46eb0000 -> L1[0] = 46eb0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46eaf000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46eae000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ead000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46eac000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46eab000
+mm: fork: forktest pid 20 -> pid 51: kstack pa 46ea9000, L1 root 40548000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ea7000
+mm:   L2 table: kalloc pa 46ea6000 -> L1[0] = 46ea6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ea5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ea4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ea3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ea2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ea1000
+mm: fork: forktest pid 20 -> pid 52: kstack pa 46e9f000, L1 root 4054c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e9d000
+mm:   L2 table: kalloc pa 46e9c000 -> L1[0] = 46e9c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e9b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e9a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e99000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e98000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e97000
+mm: fork: forktest pid 20 -> pid 53: kstack pa 46e95000, L1 root 40550000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e93000
+mm:   L2 table: kalloc pa 46e92000 -> L1[0] = 46e92001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e91000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e90000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e8f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e8e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e8d000
+mm: fork: forktest pid 20 -> pid 54: kstack pa 46e8b000, L1 root 40554000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e89000
+mm:   L2 table: kalloc pa 46e88000 -> L1[0] = 46e88001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e87000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e86000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e85000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e84000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e83000
+mm: fork: forktest pid 20 -> pid 55: kstack pa 46e81000, L1 root 40558000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e7f000
+mm:   L2 table: kalloc pa 46e7e000 -> L1[0] = 46e7e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e7d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e7c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e7b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e7a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e79000
+mm: fork: forktest pid 20 -> pid 56: kstack pa 46e77000, L1 root 4055c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e75000
+mm:   L2 table: kalloc pa 46e74000 -> L1[0] = 46e74001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e73000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e72000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e71000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e70000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e6f000
+mm: fork: forktest pid 20 -> pid 57: kstack pa 46e6d000, L1 root 40560000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e6b000
+mm:   L2 table: kalloc pa 46e6a000 -> L1[0] = 46e6a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e69000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e68000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e67000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e66000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e65000
+mm: fork: forktest pid 20 -> pid 58: kstack pa 46e63000, L1 root 40564000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e61000
+mm:   L2 table: kalloc pa 46e60000 -> L1[0] = 46e60001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e5f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e5e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e5d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e5c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e5b000
+mm: fork: forktest pid 20 -> pid 59: kstack pa 46e59000, L1 root 40568000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e57000
+mm:   L2 table: kalloc pa 46e56000 -> L1[0] = 46e56001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e55000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e54000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e53000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e52000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e51000
+mm: fork: forktest pid 20 -> pid 60: kstack pa 46e4f000, L1 root 4056c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e4d000
+mm:   L2 table: kalloc pa 46e4c000 -> L1[0] = 46e4c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e4b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e4a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e49000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e48000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e47000
+mm: fork: forktest pid 20 -> pid 61: kstack pa 46e45000, L1 root 40570000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e43000
+mm:   L2 table: kalloc pa 46e42000 -> L1[0] = 46e42001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e41000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e40000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e3f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e3e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e3d000
+mm: fork: forktest pid 20 -> pid 62: kstack pa 46e3b000, L1 root 40574000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e39000
+mm:   L2 table: kalloc pa 46e38000 -> L1[0] = 46e38001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e37000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e36000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e35000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e34000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e33000
+mm: fork: forktest pid 20 -> pid 63: kstack pa 46e31000, L1 root 40578000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e2f000
+mm:   L2 table: kalloc pa 46e2e000 -> L1[0] = 46e2e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e2d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e2c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e2b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e2a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e29000
+mm: fork: forktest pid 20 -> pid 64: kstack pa 46e27000, L1 root 4057c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e25000
+mm:   L2 table: kalloc pa 46e24000 -> L1[0] = 46e24001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e23000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e22000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e21000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e20000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e1f000
+mm: fork: forktest pid 20 -> pid 65: kstack pa 46e1d000, L1 root 40580000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e1b000
+mm:   L2 table: kalloc pa 46e1a000 -> L1[0] = 46e1a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e19000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e18000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e17000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e16000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e15000
+mm: fork: forktest pid 20 -> pid 66: kstack pa 46e13000, L1 root 40584000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e11000
+mm:   L2 table: kalloc pa 46e10000 -> L1[0] = 46e10001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e0f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e0e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e0d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e0c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e0b000
+mm: fork: forktest pid 20 -> pid 67: kstack pa 46e09000, L1 root 40588000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46e07000
+mm:   L2 table: kalloc pa 46e06000 -> L1[0] = 46e06001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46e05000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46e04000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46e03000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46e02000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46e01000
+mm: fork: forktest pid 20 -> pid 68: kstack pa 46dff000, L1 root 4058c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46dfd000
+mm:   L2 table: kalloc pa 46dfc000 -> L1[0] = 46dfc001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46dfb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46dfa000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46df9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46df8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46df7000
+mm: fork: forktest pid 20 -> pid 69: kstack pa 46df5000, L1 root 40590000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46df3000
+mm:   L2 table: kalloc pa 46df2000 -> L1[0] = 46df2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46df1000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46df0000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46def000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46dee000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ded000
+mm: fork: forktest pid 20 -> pid 70: kstack pa 46deb000, L1 root 40594000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46de9000
+mm:   L2 table: kalloc pa 46de8000 -> L1[0] = 46de8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46de7000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46de6000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46de5000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46de4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46de3000
+mm: fork: forktest pid 20 -> pid 71: kstack pa 46de1000, L1 root 40598000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ddf000
+mm:   L2 table: kalloc pa 46dde000 -> L1[0] = 46dde001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ddd000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ddc000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ddb000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46dda000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46dd9000
+mm: fork: forktest pid 20 -> pid 72: kstack pa 46dd7000, L1 root 4059c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46dd5000
+mm:   L2 table: kalloc pa 46dd4000 -> L1[0] = 46dd4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46dd3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46dd2000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46dd1000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46dd0000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46dcf000
+mm: fork: forktest pid 20 -> pid 73: kstack pa 46dcd000, L1 root 405a0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46dcb000
+mm:   L2 table: kalloc pa 46dca000 -> L1[0] = 46dca001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46dc9000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46dc8000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46dc7000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46dc6000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46dc5000
+mm: fork: forktest pid 20 -> pid 74: kstack pa 46dc3000, L1 root 405a4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46dc1000
+mm:   L2 table: kalloc pa 46dc0000 -> L1[0] = 46dc0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46dbf000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46dbe000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46dbd000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46dbc000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46dbb000
+mm: fork: forktest pid 20 -> pid 75: kstack pa 46db9000, L1 root 405a8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46db7000
+mm:   L2 table: kalloc pa 46db6000 -> L1[0] = 46db6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46db5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46db4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46db3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46db2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46db1000
+mm: fork: forktest pid 20 -> pid 76: kstack pa 46daf000, L1 root 405ac000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46dad000
+mm:   L2 table: kalloc pa 46dac000 -> L1[0] = 46dac001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46dab000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46daa000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46da9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46da8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46da7000
+mm: fork: forktest pid 20 -> pid 77: kstack pa 46da5000, L1 root 405b0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46da3000
+mm:   L2 table: kalloc pa 46da2000 -> L1[0] = 46da2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46da1000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46da0000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d9f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d9e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d9d000
+mm: fork: forktest pid 20 -> pid 78: kstack pa 46d9b000, L1 root 405b4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d99000
+mm:   L2 table: kalloc pa 46d98000 -> L1[0] = 46d98001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d97000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d96000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d95000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d94000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d93000
+mm: fork: forktest pid 20 -> pid 79: kstack pa 46d91000, L1 root 405b8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d8f000
+mm:   L2 table: kalloc pa 46d8e000 -> L1[0] = 46d8e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d8d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d8c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d8b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d8a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d89000
+mm: fork: forktest pid 20 -> pid 80: kstack pa 46d87000, L1 root 405bc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d85000
+mm:   L2 table: kalloc pa 46d84000 -> L1[0] = 46d84001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d83000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d82000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d81000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d80000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d7f000
+mm: fork: forktest pid 20 -> pid 81: kstack pa 46d7d000, L1 root 405c0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d7b000
+mm:   L2 table: kalloc pa 46d7a000 -> L1[0] = 46d7a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d79000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d78000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d77000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d76000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d75000
+mm: fork: forktest pid 20 -> pid 82: kstack pa 46d73000, L1 root 405c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d71000
+mm:   L2 table: kalloc pa 46d70000 -> L1[0] = 46d70001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d6f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d6e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d6d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d6c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d6b000
+mm: fork: forktest pid 20 -> pid 83: kstack pa 46d69000, L1 root 405c8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d67000
+mm:   L2 table: kalloc pa 46d66000 -> L1[0] = 46d66001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d65000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d64000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d63000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d62000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d61000
+mm: fork: forktest pid 20 -> pid 84: kstack pa 46d5f000, L1 root 405cc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d5d000
+mm:   L2 table: kalloc pa 46d5c000 -> L1[0] = 46d5c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d5b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d5a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d59000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d58000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d57000
+mm: fork: forktest pid 20 -> pid 85: kstack pa 46d55000, L1 root 405d0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d53000
+mm:   L2 table: kalloc pa 46d52000 -> L1[0] = 46d52001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d51000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d50000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d4f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d4e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d4d000
+mm: fork: forktest pid 20 -> pid 86: kstack pa 46d4b000, L1 root 405d4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d49000
+mm:   L2 table: kalloc pa 46d48000 -> L1[0] = 46d48001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d47000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d46000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d45000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d44000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d43000
+mm: fork: forktest pid 20 -> pid 87: kstack pa 46d41000, L1 root 405d8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d3f000
+mm:   L2 table: kalloc pa 46d3e000 -> L1[0] = 46d3e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d3d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d3c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d3b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d3a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d39000
+mm: fork: forktest pid 20 -> pid 88: kstack pa 46d37000, L1 root 405dc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d35000
+mm:   L2 table: kalloc pa 46d34000 -> L1[0] = 46d34001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d33000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d32000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d31000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d30000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d2f000
+mm: fork: forktest pid 20 -> pid 89: kstack pa 46d2d000, L1 root 405e0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d2b000
+mm:   L2 table: kalloc pa 46d2a000 -> L1[0] = 46d2a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d29000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d28000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d27000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d26000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d25000
+mm: fork: forktest pid 20 -> pid 90: kstack pa 46d23000, L1 root 405e4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d21000
+mm:   L2 table: kalloc pa 46d20000 -> L1[0] = 46d20001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d1f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d1e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d1d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d1c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d1b000
+mm: fork: forktest pid 20 -> pid 91: kstack pa 46d19000, L1 root 405e8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d17000
+mm:   L2 table: kalloc pa 46d16000 -> L1[0] = 46d16001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d15000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d14000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d13000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d12000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d11000
+mm: fork: forktest pid 20 -> pid 92: kstack pa 46d0f000, L1 root 405ec000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d0d000
+mm:   L2 table: kalloc pa 46d0c000 -> L1[0] = 46d0c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d0b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d0a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46d09000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46d08000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46d07000
+mm: fork: forktest pid 20 -> pid 93: kstack pa 46d05000, L1 root 405f0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46d03000
+mm:   L2 table: kalloc pa 46d02000 -> L1[0] = 46d02001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46d01000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46d00000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46cff000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cfe000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cfd000
+mm: fork: forktest pid 20 -> pid 94: kstack pa 46cfb000, L1 root 405f4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cf9000
+mm:   L2 table: kalloc pa 46cf8000 -> L1[0] = 46cf8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46cf7000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cf6000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46cf5000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cf4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cf3000
+mm: fork: forktest pid 20 -> pid 95: kstack pa 46cf1000, L1 root 405f8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cef000
+mm:   L2 table: kalloc pa 46cee000 -> L1[0] = 46cee001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ced000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cec000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ceb000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cea000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ce9000
+mm: fork: forktest pid 20 -> pid 96: kstack pa 46ce7000, L1 root 405fc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ce5000
+mm:   L2 table: kalloc pa 46ce4000 -> L1[0] = 46ce4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ce3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ce2000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ce1000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ce0000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cdf000
+mm: fork: forktest pid 20 -> pid 97: kstack pa 46cdd000, L1 root 40600000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cdb000
+mm:   L2 table: kalloc pa 46cda000 -> L1[0] = 46cda001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46cd9000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cd8000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46cd7000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cd6000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cd5000
+mm: fork: forktest pid 20 -> pid 98: kstack pa 46cd3000, L1 root 40604000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cd1000
+mm:   L2 table: kalloc pa 46cd0000 -> L1[0] = 46cd0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ccf000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cce000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ccd000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ccc000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ccb000
+mm: fork: forktest pid 20 -> pid 99: kstack pa 46cc9000, L1 root 40608000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cc7000
+mm:   L2 table: kalloc pa 46cc6000 -> L1[0] = 46cc6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46cc5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cc4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46cc3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cc2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cc1000
+mm: fork: forktest pid 20 -> pid 100: kstack pa 46cbf000, L1 root 4060c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cbd000
+mm:   L2 table: kalloc pa 46cbc000 -> L1[0] = 46cbc001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46cbb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cba000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46cb9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cb8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cb7000
+mm: fork: forktest pid 20 -> pid 101: kstack pa 46cb5000, L1 root 40610000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46cb3000
+mm:   L2 table: kalloc pa 46cb2000 -> L1[0] = 46cb2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46cb1000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46cb0000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46caf000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46cae000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46cad000
+mm: fork: forktest pid 20 -> pid 102: kstack pa 46cab000, L1 root 40614000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ca9000
+mm:   L2 table: kalloc pa 46ca8000 -> L1[0] = 46ca8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ca7000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ca6000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ca5000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ca4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ca3000
+mm: fork: forktest pid 20 -> pid 103: kstack pa 46ca1000, L1 root 40618000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c9f000
+mm:   L2 table: kalloc pa 46c9e000 -> L1[0] = 46c9e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c9d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c9c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c9b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c9a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c99000
+mm: fork: forktest pid 20 -> pid 104: kstack pa 46c97000, L1 root 4061c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c95000
+mm:   L2 table: kalloc pa 46c94000 -> L1[0] = 46c94001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c93000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c92000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c91000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c90000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c8f000
+mm: fork: forktest pid 20 -> pid 105: kstack pa 46c8d000, L1 root 40620000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c8b000
+mm:   L2 table: kalloc pa 46c8a000 -> L1[0] = 46c8a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c89000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c88000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c87000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c86000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c85000
+mm: fork: forktest pid 20 -> pid 106: kstack pa 46c83000, L1 root 40624000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c81000
+mm:   L2 table: kalloc pa 46c80000 -> L1[0] = 46c80001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c7f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c7e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c7d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c7c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c7b000
+mm: fork: forktest pid 20 -> pid 107: kstack pa 46c79000, L1 root 40628000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c77000
+mm:   L2 table: kalloc pa 46c76000 -> L1[0] = 46c76001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c75000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c74000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c73000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c72000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c71000
+mm: fork: forktest pid 20 -> pid 108: kstack pa 46c6f000, L1 root 4062c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c6d000
+mm:   L2 table: kalloc pa 46c6c000 -> L1[0] = 46c6c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c6b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c6a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c69000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c68000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c67000
+mm: fork: forktest pid 20 -> pid 109: kstack pa 46c65000, L1 root 40630000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c63000
+mm:   L2 table: kalloc pa 46c62000 -> L1[0] = 46c62001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c61000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c60000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c5f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c5e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c5d000
+mm: fork: forktest pid 20 -> pid 110: kstack pa 46c5b000, L1 root 40634000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c59000
+mm:   L2 table: kalloc pa 46c58000 -> L1[0] = 46c58001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c57000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c56000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c55000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c54000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c53000
+mm: fork: forktest pid 20 -> pid 111: kstack pa 46c51000, L1 root 40638000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c4f000
+mm:   L2 table: kalloc pa 46c4e000 -> L1[0] = 46c4e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c4d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c4c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c4b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c4a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c49000
+mm: fork: forktest pid 20 -> pid 112: kstack pa 46c47000, L1 root 4063c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c45000
+mm:   L2 table: kalloc pa 46c44000 -> L1[0] = 46c44001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c43000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c42000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c41000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c40000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c3f000
+mm: fork: forktest pid 20 -> pid 113: kstack pa 46c3d000, L1 root 40640000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c3b000
+mm:   L2 table: kalloc pa 46c3a000 -> L1[0] = 46c3a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c39000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c38000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c37000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c36000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c35000
+mm: fork: forktest pid 20 -> pid 114: kstack pa 46c33000, L1 root 40644000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c31000
+mm:   L2 table: kalloc pa 46c30000 -> L1[0] = 46c30001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c2f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c2e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c2d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c2c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c2b000
+mm: fork: forktest pid 20 -> pid 115: kstack pa 46c29000, L1 root 40648000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c27000
+mm:   L2 table: kalloc pa 46c26000 -> L1[0] = 46c26001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c25000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c24000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c23000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c22000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c21000
+mm: fork: forktest pid 20 -> pid 116: kstack pa 46c1f000, L1 root 4064c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c1d000
+mm:   L2 table: kalloc pa 46c1c000 -> L1[0] = 46c1c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c1b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c1a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c19000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c18000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c17000
+mm: fork: forktest pid 20 -> pid 117: kstack pa 46c15000, L1 root 40650000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c13000
+mm:   L2 table: kalloc pa 46c12000 -> L1[0] = 46c12001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c11000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c10000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c0f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c0e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c0d000
+mm: fork: forktest pid 20 -> pid 118: kstack pa 46c0b000, L1 root 40654000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46c09000
+mm:   L2 table: kalloc pa 46c08000 -> L1[0] = 46c08001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46c07000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46c06000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46c05000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46c04000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46c03000
+mm: fork: forktest pid 20 -> pid 119: kstack pa 46c01000, L1 root 40658000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bff000
+mm:   L2 table: kalloc pa 46bfe000 -> L1[0] = 46bfe001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bfd000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bfc000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bfb000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bfa000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bf9000
+mm: fork: forktest pid 20 -> pid 120: kstack pa 46bf7000, L1 root 4065c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bf5000
+mm:   L2 table: kalloc pa 46bf4000 -> L1[0] = 46bf4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bf3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bf2000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bf1000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bf0000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bef000
+mm: fork: forktest pid 20 -> pid 121: kstack pa 46bed000, L1 root 40660000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46beb000
+mm:   L2 table: kalloc pa 46bea000 -> L1[0] = 46bea001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46be9000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46be8000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46be7000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46be6000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46be5000
+mm: fork: forktest pid 20 -> pid 122: kstack pa 46be3000, L1 root 40664000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46be1000
+mm:   L2 table: kalloc pa 46be0000 -> L1[0] = 46be0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bdf000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bde000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bdd000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bdc000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bdb000
+mm: fork: forktest pid 20 -> pid 123: kstack pa 46bd9000, L1 root 40668000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bd7000
+mm:   L2 table: kalloc pa 46bd6000 -> L1[0] = 46bd6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bd5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bd4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bd3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bd2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bd1000
+mm: fork: forktest pid 20 -> pid 124: kstack pa 46bcf000, L1 root 4066c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bcd000
+mm:   L2 table: kalloc pa 46bcc000 -> L1[0] = 46bcc001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bcb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bca000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bc9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bc8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bc7000
+mm: fork: forktest pid 20 -> pid 125: kstack pa 46bc5000, L1 root 40670000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bc3000
+mm:   L2 table: kalloc pa 46bc2000 -> L1[0] = 46bc2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bc1000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bc0000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bbf000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bbe000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bbd000
+mm: fork: forktest pid 20 -> pid 126: kstack pa 46bbb000, L1 root 40674000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46bb9000
+mm:   L2 table: kalloc pa 46bb8000 -> L1[0] = 46bb8001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bb7000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bb6000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bb5000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46bb4000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46bb3000
+mm: fork: forktest pid 20 -> pid 127: kstack pa 46bb1000, L1 root 40678000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46baf000
+mm:   L2 table: kalloc pa 46bae000 -> L1[0] = 46bae001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46bad000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46bac000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46bab000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46baa000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ba9000
+mm: fork: forktest pid 20 -> pid 128: kstack pa 46ba7000, L1 root 4067c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ba5000
+mm:   L2 table: kalloc pa 46ba4000 -> L1[0] = 46ba4001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ba3000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ba2000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ba1000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ba0000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b9f000
+mm: fork: forktest pid 20 -> pid 129: kstack pa 46b9d000, L1 root 40680000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b9b000
+mm:   L2 table: kalloc pa 46b9a000 -> L1[0] = 46b9a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b99000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b98000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b97000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b96000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b95000
+mm: fork: forktest pid 20 -> pid 130: kstack pa 46b93000, L1 root 40684000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b91000
+mm:   L2 table: kalloc pa 46b90000 -> L1[0] = 46b90001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b8f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b8e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b8d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b8c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b8b000
+mm: fork: forktest pid 20 -> pid 131: kstack pa 46b89000, L1 root 40688000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b87000
+mm:   L2 table: kalloc pa 46b86000 -> L1[0] = 46b86001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b85000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b84000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b83000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b82000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b81000
+mm: fork: forktest pid 20 -> pid 132: kstack pa 46b7f000, L1 root 4068c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b7d000
+mm:   L2 table: kalloc pa 46b7c000 -> L1[0] = 46b7c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b7b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b7a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b79000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b78000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b77000
+mm: fork: forktest pid 20 -> pid 133: kstack pa 46b75000, L1 root 40690000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b73000
+mm:   L2 table: kalloc pa 46b72000 -> L1[0] = 46b72001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b71000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b70000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b6f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b6e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b6d000
+mm: fork: forktest pid 20 -> pid 134: kstack pa 46b6b000, L1 root 40694000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b69000
+mm:   L2 table: kalloc pa 46b68000 -> L1[0] = 46b68001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b67000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b66000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b65000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b64000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b63000
+mm: fork: forktest pid 20 -> pid 135: kstack pa 46b61000, L1 root 40698000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b5f000
+mm:   L2 table: kalloc pa 46b5e000 -> L1[0] = 46b5e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b5d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b5c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b5b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b5a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b59000
+mm: fork: forktest pid 20 -> pid 136: kstack pa 46b57000, L1 root 4069c000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b55000
+mm:   L2 table: kalloc pa 46b54000 -> L1[0] = 46b54001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b53000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b52000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b51000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b50000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b4f000
+mm: fork: forktest pid 20 -> pid 137: kstack pa 46b4d000, L1 root 406a0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b4b000
+mm:   L2 table: kalloc pa 46b4a000 -> L1[0] = 46b4a001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b49000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b48000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b47000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b46000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b45000
+mm: fork: forktest pid 20 -> pid 138: kstack pa 46b43000, L1 root 406a4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b41000
+mm:   L2 table: kalloc pa 46b40000 -> L1[0] = 46b40001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b3f000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b3e000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b3d000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b3c000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b3b000
+mm: fork: forktest pid 20 -> pid 139: kstack pa 46b39000, L1 root 406a8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b37000
+mm:   L2 table: kalloc pa 46b36000 -> L1[0] = 46b36001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b35000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b34000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b33000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b32000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b31000
+mm: fork: forktest pid 20 -> pid 140: kstack pa 46b2f000, L1 root 406ac000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b2d000
+mm:   L2 table: kalloc pa 46b2c000 -> L1[0] = 46b2c001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b2b000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b2a000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b29000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b28000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b27000
+mm: fork: forktest pid 20 -> pid 141: kstack pa 46b25000, L1 root 406b0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b23000
+mm:   L2 table: kalloc pa 46b22000 -> L1[0] = 46b22001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b21000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b20000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b1f000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b1e000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b1d000
+mm: fork: forktest pid 20 -> pid 142: kstack pa 46b1b000, L1 root 406b4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b19000
+mm:   L2 table: kalloc pa 46b18000 -> L1[0] = 46b18001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b17000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b16000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b15000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b14000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b13000
+mm: fork: forktest pid 20 -> pid 143: kstack pa 46b11000, L1 root 406b8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b0f000
+mm:   L2 table: kalloc pa 46b0e000 -> L1[0] = 46b0e001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b0d000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b0c000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b0b000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b0a000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46b09000
+mm: fork: forktest pid 20 -> pid 144: kstack pa 46b07000, L1 root 406bc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46b05000
+mm:   L2 table: kalloc pa 46b04000 -> L1[0] = 46b04001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46b03000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46b02000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46b01000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46b00000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46aff000
+mm: fork: forktest pid 20 -> pid 145: kstack pa 46afd000, L1 root 406c0000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46afb000
+mm:   L2 table: kalloc pa 46afa000 -> L1[0] = 46afa001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46af9000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46af8000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46af7000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46af6000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46af5000
+mm: fork: forktest pid 20 -> pid 146: kstack pa 46af3000, L1 root 406c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46af1000
+mm:   L2 table: kalloc pa 46af0000 -> L1[0] = 46af0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46aef000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46aee000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46aed000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46aec000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46aeb000
+mm: fork: forktest pid 20 -> pid 147: kstack pa 46ae9000, L1 root 406c8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46ae7000
+mm:   L2 table: kalloc pa 46ae6000 -> L1[0] = 46ae6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46ae5000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ae4000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ae3000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ae2000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ae1000
+mm: fork: forktest pid 20 -> pid 148: kstack pa 46adf000, L1 root 406cc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fa1000 -> kalloc pa 46add000
+mm:   L2 table: kalloc pa 46adc000 -> L1[0] = 46adc001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46adb000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46ada000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46ad9000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46ad8000
+mm:   copy: VA 5000 pa 46fe5000 -> kalloc pa 46ad7000
+dynamic fork test OK
+$ stressfs
+mm: fork: sh pid 5 -> pid 149: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fcc000
+mm:   L2 table: kalloc pa 46fe5000 -> L1[0] = 46fe5001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fd2000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fd1000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fcf000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fa1000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fc9000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fcd000
+exec: /bin/stressfs pid 149: inode 15, 23712 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz b38 filesz b38 file off 98 flags 7
+mm:   L2 table: kalloc pa 46fc5000 -> L1[0] = 46fc5001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcb000 -> VA 0 (PTE 46fcb072)
+exec:   readi inode 15 off 98 -> VA 0 (pa 46fcb000) 2872 bytes
+mm:   page: kalloc pa 46fca000 -> VA 1000 (PTE 46fca072)
+mm:   page: kalloc pa 46fc8000 -> VA 2000 (PTE 46fc8072)
+mm:   page: kalloc pa 46fc7000 -> VA 3000 (PTE 46fc7072)
+mm:   page: kalloc pa 46fc6000 -> VA 4000 (PTE 46fc6072)
+mm:   page: kalloc pa 46fa0000 -> VA 5000 (PTE 46fa0072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/stressfs pid 149: sz 6000 sp 5fe0 entry 0, 7 kalloc pages, new L1 root 404d0000
+stressfs starting
+mm: fork: stressfs pid 149 -> pid 150: kstack pa 46f9f000, L1 root 404c4000, copying 6 user pages
+mm:   copy: VA 0 pa 46fcb000 -> kalloc pa 46f9b000
+mm:   L2 table: kalloc pa 46fce000 -> L1[0] = 46fce001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fca000 -> kalloc pa 46fd6000
+mm:   copy: VA 2000 pa 46fc8000 -> kalloc pa 46f9c000
+mm:   copy: VA 3000 pa 46fc7000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fc6000 -> kalloc pa 46f9e000
+mm:   copy: VA 5000 pa 46fa0000 -> kalloc pa 46fd3000
+write 0
+read
+mm: fork: stressfs pid 150 -> pid 151: kstack pa 46fc4000, L1 root 404d4000, copying 6 user pages
+mm:   copy: VA 0 pa 46f9b000 -> kalloc pa 46fc9000
+mm:   L2 table: kalloc pa 46fa1000 -> L1[0] = 46fa1001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fd6000 -> kalloc pa 46fcf000
+mm:   copy: VA 2000 pa 46f9c000 -> kalloc pa 46fd0000
+mm:   copy: VA 3000 pa 46f9d000 -> kalloc pa 46fd1000
+mm:   copy: VA 4000 pa 46f9e000 -> kalloc pa 46fd2000
+mm:   copy: VA 5000 pa 46fd3000 -> kalloc pa 46fcc000
+write 1
+read
+mm: fork: stressfs pid 151 -> pid 152: kstack pa 46fb6000, L1 root 404d8000, copying 6 user pages
+mm:   copy: VA 0 pa 46fc9000 -> kalloc pa 46fbc000
+mm:   L2 table: kalloc pa 46fa3000 -> L1[0] = 46fa3001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcf000 -> kalloc pa 46fb8000
+mm:   copy: VA 2000 pa 46fd0000 -> kalloc pa 46fb9000
+mm:   copy: VA 3000 pa 46fd1000 -> kalloc pa 46fba000
+mm:   copy: VA 4000 pa 46fd2000 -> kalloc pa 46fbb000
+mm:   copy: VA 5000 pa 46fcc000 -> kalloc pa 46fe9000
+write 2
+read
+mm: fork: stressfs pid 152 -> pid 153: kstack pa 46fa2000, L1 root 404dc000, copying 6 user pages
+mm:   copy: VA 0 pa 46fbc000 -> kalloc pa 46fa5000
+mm:   L2 table: kalloc pa 46faa000 -> L1[0] = 46faa001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fb8000 -> kalloc pa 46fa9000
+mm:   copy: VA 2000 pa 46fb9000 -> kalloc pa 46fa8000
+mm:   copy: VA 3000 pa 46fba000 -> kalloc pa 46fa7000
+mm:   copy: VA 4000 pa 46fbb000 -> kalloc pa 46fa6000
+mm:   copy: VA 5000 pa 46fe9000 -> kalloc pa 46fa4000
+write 3
+read
+write 4
+read
+$ echo AFTER_STRESS
+mm: fork: sh pid 5 -> pid 154: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fc5000
+mm:   L2 table: kalloc pa 46fa0000 -> L1[0] = 46fa0001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fc6000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fc7000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fc8000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fca000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcb000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46f9f000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fe5000
+exec: /bin/echo pid 154: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fd2000 -> L1[0] = 46fd2001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcc000 -> VA 0 (PTE 46fcc072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fcc000) 1504 bytes
+mm:   page: kalloc pa 46fd1000 -> VA 1000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fcf000 -> VA 3000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fc9000 -> VA 4000 (PTE 46fc9072)
+mm:   page: kalloc pa 46fb6000 -> VA 5000 (PTE 46fb6072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 154: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+AFTER_STRESS
+$ echo one; echo two
+mm: fork: sh pid 5 -> pid 155: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fd2000
+mm:   L2 table: kalloc pa 46fb6000 -> L1[0] = 46fb6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fc9000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fcf000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd1000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcc000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fa1000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fcd000
+mm: fork: sh pid 155 -> pid 156: kstack pa 46fce000, L1 root 404d0000, copying 16 user pages
+mm:   copy: VA 0 pa 46fd2000 -> kalloc pa 46f9f000
+mm:   L2 table: kalloc pa 46fcb000 -> L1[0] = 46fcb001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fc9000 -> kalloc pa 46fca000
+mm:   copy: VA 2000 pa 46fcf000 -> kalloc pa 46fc8000
+mm:   copy: VA 3000 pa 46fd0000 -> kalloc pa 46fc7000
+mm:   copy: VA 4000 pa 46fd1000 -> kalloc pa 46fc6000
+mm:   copy: VA 5000 pa 46fcc000 -> kalloc pa 46fc5000
+mm:   copy: VA 6000 pa 46fa1000 -> kalloc pa 46fb5000
+mm:   copy: VA 7000 pa 46fcd000 -> kalloc pa 46fa3000
+mm:   copy: VA 8000 pa 46fa0000 -> kalloc pa 46fe9000
+mm:   copy: VA 9000 pa 46fc4000 -> kalloc pa 46fbb000
+mm:   copy: VA a000 pa 46f9b000 -> kalloc pa 46fba000
+mm:   copy: VA b000 pa 46fd6000 -> kalloc pa 46fb9000
+mm:   copy: VA c000 pa 46f9c000 -> kalloc pa 46fb8000
+mm:   copy: VA d000 pa 46f9d000 -> kalloc pa 46fbc000
+mm:   copy: VA e000 pa 46f9e000 -> kalloc pa 46fa2000
+mm:   copy: VA f000 pa 46fd3000 -> kalloc pa 46fb3000
+exec: /bin/echo pid 156: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[8] at 404d4000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fa7000 -> L1[0] = 46fa7001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa6000 -> VA 0 (PTE 46fa6072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fa6000) 1504 bytes
+mm:   page: kalloc pa 46fa8000 -> VA 1000 (PTE 46fa8072)
+mm:   page: kalloc pa 46fa9000 -> VA 2000 (PTE 46fa9072)
+mm:   page: kalloc pa 46fa5000 -> VA 3000 (PTE 46fa5072)
+mm:   page: kalloc pa 46fac000 -> VA 4000 (PTE 46fac072)
+mm:   page: kalloc pa 46fad000 -> VA 5000 (PTE 46fad072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 156: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d4000
+one
+exec: /bin/echo pid 155: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fad000 -> L1[0] = 46fad001 (VA 0-fffff)
+mm:   page: kalloc pa 46fa7000 -> VA 0 (PTE 46fa7072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fa7000) 1504 bytes
+mm:   page: kalloc pa 46fac000 -> VA 1000 (PTE 46fac072)
+mm:   page: kalloc pa 46fa5000 -> VA 2000 (PTE 46fa5072)
+mm:   page: kalloc pa 46fa9000 -> VA 3000 (PTE 46fa9072)
+mm:   page: kalloc pa 46fa8000 -> VA 4000 (PTE 46fa8072)
+mm:   page: kalloc pa 46fa6000 -> VA 5000 (PTE 46fa6072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 155: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+two
+$ fbtest
+mm: fork: sh pid 5 -> pid 157: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fad000
+mm:   L2 table: kalloc pa 46fa6000 -> L1[0] = 46fa6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fa8000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fa9000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fa5000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fac000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fa7000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fe5000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fce000
+exec: /bin/fbtest pid 157: inode 17, 29452 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 139c filesz 139c file off 94 flags 7
+mm:   L2 table: kalloc pa 46fa1000 -> L1[0] = 46fa1001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcd000 -> VA 0 (PTE 46fcd072)
+mm:   page: kalloc pa 46fcc000 -> VA 1000 (PTE 46fcc072)
+exec:   readi inode 17 off 94 -> VA 0 (pa 46fcd000) 4096 bytes
+exec:   readi inode 17 off 1094 -> VA 1000 (pa 46fcc000) 924 bytes
+mm:   page: kalloc pa 46fd1000 -> VA 2000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd0000 -> VA 3000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fcf000 -> VA 4000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fc9000 -> VA 5000 (PTE 46fc9072)
+mm:   page: kalloc pa 46fd2000 -> VA 6000 (PTE 46fd2072)
+exec:   stack: guard page VA 2000 (PTE_U cleared), stack VA 3000-6fff
+exec: /bin/fbtest pid 157: sz 7000 sp 6fe0 entry 0, 8 kalloc pages, new L1 root 404d0000
+fbtest: simplefb 640x480 32 bpp, line 2560, 4194304 bytes, rgb offsets 16/8/0
+mm: fork: fbtest pid 157 -> pid 158: kstack pa 46fa0000, L1 root 404c4000, copying 7 user pages
+mm:   copy: VA 0 pa 46fcd000 -> kalloc pa 46fc4000
+mm:   L2 table: kalloc pa 46f9b000 -> L1[0] = 46f9b001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcc000 -> kalloc pa 46fd6000
+mm:   copy: VA 2000 pa 46fd1000 -> kalloc pa 46f9c000
+mm:   copy: VA 3000 pa 46fd0000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fcf000 -> kalloc pa 46f9e000
+mm:   copy: VA 5000 pa 46fc9000 -> kalloc pa 46fd3000
+mm:   copy: VA 6000 pa 46fd2000 -> kalloc pa 46fb6000
+mm: fork: fbtest pid 157 -> pid 159: kstack pa 46fa0000, L1 root 404c4000, copying 7 user pages
+mm:   copy: VA 0 pa 46fcd000 -> kalloc pa 46f9b000
+mm:   L2 table: kalloc pa 46fb6000 -> L1[0] = 46fb6001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fcc000 -> kalloc pa 46fd3000
+mm:   copy: VA 2000 pa 46fd1000 -> kalloc pa 46f9e000
+mm:   copy: VA 3000 pa 46fd0000 -> kalloc pa 46f9d000
+mm:   copy: VA 4000 pa 46fcf000 -> kalloc pa 46f9c000
+mm:   copy: VA 5000 pa 46fc9000 -> kalloc pa 46fd6000
+mm:   copy: VA 6000 pa 46fd2000 -> kalloc pa 46fc4000
+ARM fault kind=3 lr=690 cpsr=60000150 far=10000000 dfsr=5
+fbtest: OK (mapped at 10000000, 4194304 bytes)
+$ echo AFTER_FB
+mm: fork: sh pid 5 -> pid 160: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fa1000
+mm:   L2 table: kalloc pa 46fd2000 -> L1[0] = 46fd2001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fc9000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fcf000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd1000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcc000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fcd000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fa0000
+exec: /bin/echo pid 160: inode 6, 13344 bytes, ELF entry 0, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz 5e0 filesz 5e0 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fa7000 -> L1[0] = 46fa7001 (VA 0-fffff)
+mm:   page: kalloc pa 46fe5000 -> VA 0 (PTE 46fe5072)
+exec:   readi inode 6 off 94 -> VA 0 (pa 46fe5000) 1504 bytes
+mm:   page: kalloc pa 46fac000 -> VA 1000 (PTE 46fac072)
+mm:   page: kalloc pa 46fa5000 -> VA 2000 (PTE 46fa5072)
+mm:   page: kalloc pa 46fa9000 -> VA 3000 (PTE 46fa9072)
+mm:   page: kalloc pa 46fa8000 -> VA 4000 (PTE 46fa8072)
+mm:   page: kalloc pa 46fad000 -> VA 5000 (PTE 46fad072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/echo pid 160: sz 6000 sp 5fd0 entry 0, 7 kalloc pages, new L1 root 404d0000
+AFTER_FB
+$ cat /proc/meminfo
+mm: fork: sh pid 5 -> pid 161: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fa7000
+mm:   L2 table: kalloc pa 46fad000 -> L1[0] = 46fad001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fa8000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fa9000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fa5000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fac000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fe5000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fce000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46f9b000
+exec: /bin/cat pid 161: inode 7, 19268 bytes, ELF entry 78, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz cf4 filesz af4 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fcc000 -> L1[0] = 46fcc001 (VA 0-fffff)
+mm:   page: kalloc pa 46fcd000 -> VA 0 (PTE 46fcd072)
+exec:   readi inode 7 off 94 -> VA 0 (pa 46fcd000) 2804 bytes
+mm:   page: kalloc pa 46fd1000 -> VA 1000 (PTE 46fd1072)
+mm:   page: kalloc pa 46fd0000 -> VA 2000 (PTE 46fd0072)
+mm:   page: kalloc pa 46fcf000 -> VA 3000 (PTE 46fcf072)
+mm:   page: kalloc pa 46fc9000 -> VA 4000 (PTE 46fc9072)
+mm:   page: kalloc pa 46fa1000 -> VA 5000 (PTE 46fa1072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/cat pid 161: sz 6000 sp 5fd0 entry 78, 7 kalloc pages, new L1 root 404d0000
+MemTotal:         105728 kB
+MemFree:          105044 kB
+MemAvailable:     105044 kB
+Buffers:              30 kB
+Cached:                0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+AnonPages:            80 kB
+KernelStack:          24 kB
+PageTables:          124 kB
+KernelText:          100 kB
+KernelData:           12 kB
+KernelBss:          4720 kB
+RamdiskRoot:        4096 kB
+KallocRange:    408c0000-46ffffff
+Processes:             6
+$ cat /proc/iomem
+mm: fork: sh pid 5 -> pid 162: kstack pa 46fe8000, L1 root 404c4000, copying 8 user pages
+mm:   copy: VA 0 pa 46fe1000 -> kalloc pa 46fcc000
+mm:   L2 table: kalloc pa 46fa1000 -> L1[0] = 46fa1001 (VA 0-fffff)
+mm:   copy: VA 1000 pa 46fdf000 -> kalloc pa 46fc9000
+mm:   copy: VA 2000 pa 46fde000 -> kalloc pa 46fcf000
+mm:   copy: VA 3000 pa 46fdd000 -> kalloc pa 46fd0000
+mm:   copy: VA 4000 pa 46fdc000 -> kalloc pa 46fd1000
+mm:   copy: VA 5000 pa 46fdb000 -> kalloc pa 46fcd000
+mm:   copy: VA 6000 pa 46fda000 -> kalloc pa 46fa0000
+mm:   copy: VA 7000 pa 46fd9000 -> kalloc pa 46fa6000
+exec: /bin/cat pid 162: inode 7, 19268 bytes, ELF entry 78, 3 program headers
+mm:   L1 root roots[7] at 404d0000: copy of the kernel L1 (16 KiB, 4096 entries)
+exec:   LOAD VA 0 memsz cf4 filesz af4 file off 94 flags 7
+mm:   L2 table: kalloc pa 46fe5000 -> L1[0] = 46fe5001 (VA 0-fffff)
+mm:   page: kalloc pa 46fce000 -> VA 0 (PTE 46fce072)
+exec:   readi inode 7 off 94 -> VA 0 (pa 46fce000) 2804 bytes
+mm:   page: kalloc pa 46fac000 -> VA 1000 (PTE 46fac072)
+mm:   page: kalloc pa 46fa5000 -> VA 2000 (PTE 46fa5072)
+mm:   page: kalloc pa 46fa9000 -> VA 3000 (PTE 46fa9072)
+mm:   page: kalloc pa 46fa8000 -> VA 4000 (PTE 46fa8072)
+mm:   page: kalloc pa 46fa7000 -> VA 5000 (PTE 46fa7072)
+exec:   stack: guard page VA 1000 (PTE_U cleared), stack VA 2000-5fff
+exec: /bin/cat pid 162: sz 6000 sp 5fd0 entry 78, 7 kalloc pages, new L1 root 404d0000
+01c20400-01c207ff : sun4i-intc intc
+01c20c00-01c20fff : sun4i-timer timer
+01c28000-01c283ff : sun4i-uart uart0
+40000000-5fffffff : System RAM
+  40000000-40007fff : Reserved (ATAGs, below kernel)
+  40008000-40020fff : Kernel code
+  40021000-400237af : Kernel data
+  40024000-40423fff : Kernel ramdisk (root fs)
+  40424000-408bffff : Kernel bss
+  408c0000-46ffffff : Page allocator (kalloc)
+  47000000-47ffffff : win32k surface arena
+  48000000-483fffff : simple-framebuffer framebuffer
+  48400000-5fffffff : Unused (outside page allocator)
+$ 

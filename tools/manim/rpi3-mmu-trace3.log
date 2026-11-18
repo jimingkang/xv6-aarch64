@@ -1,0 +1,526 @@
+E
+BPH0abcmini-uart: initialized
+
+xv6 kernel is booting
+build: bcm43430-sdio-v2
+kernel image built: 2026-11-18 17:35:58 UTC (rpi3-lock 9157fac+dirty)
+
+memblock: memory map from DTB at pa 0x0000000008000000 (89494 bytes), model "Raspberry Pi 3 Model B"
+  memory.cnt = 1, total = 983040 KiB
+    [0] 0x0000000000000000-0x000000003bffffff 983040 KiB
+  reserved.cnt = 5, total = 17667 KiB
+    [0] 0x0000000000000000-0x00000000001b9fff 1768 KiB
+    [1] 0x00000000003ef000-0x00000000003fffff 68 KiB
+    [2] 0x0000000007000000-0x00000000075fffff 6144 KiB
+    [3] 0x0000000008000000-0x0000000008015d95 87 KiB
+    [4] 0x000000003b6a0000-0x000000003bffffff 9600 KiB
+mmu: ---- MMU_TRACE=3: memory layout and page tables ----
+mmu: kernel image PA 80000-1b9c2f, linked at VA ffffff8000080000 (KERNBASE ffffff8000000000 + PA)
+mmu:   text          PA 80000-bcfff 244 KiB
+mmu:   rodata+data   PA bd000-c8fff 48 KiB
+mmu:   bss           PA c9000-1b9c2f 964 KiB (stack0 cd000, boot tables l1entrypgt cc000 l2entrypgt cb000 l1kpgt ca000 l2kpgt c9000)
+mmu: stage 1 (entry.S, MMU off): entrypgtinit() fills 4 static tables, DTB at pa 8000000
+mmu:   TTBR0 identity L1[0] = cb003 -> L2 at pa cb000 (VA 0..)
+mmu:      L2[0..1] VA 0-3fffff -> PA 0  4 MiB block Normal-WB RW EL1 ISH
+mmu:   TTBR1 high L1[0] = c9003 -> L2 at pa c9000 (VA ffffff8000000000..)
+mmu:      L2[0..1] VA ffffff8000000000-ffffff80003fffff -> PA 0  4 MiB block Normal-WB RW EL1 ISH
+mmu:      L2[64..65] VA ffffff8008000000-ffffff80083fffff -> PA 8000000  4 MiB block Normal-WB RW EL1 ISH
+mmu:      L2[505..505] VA ffffff803f200000-ffffff803f3fffff -> PA 3f200000  2 MiB block Device-nGnRnE RW EL1
+mmu:   then TTBR0=l1entrypgt TTBR1=l1kpgt, TCR, MAIR, SCTLR.M=1, br to VA _start
+mmu: stage 2 (kvminit, MMU on, bootstrap map): kvmmake() regions, table pages from memblock below 400000:
+mmu:   map BCM2837 peripherals VA ffffff803f000000-ffffff803fffffff -> PA 3f000000 16 MiB Device-nGnRnE RW EL1 PXN UXN
+mmu:     L1 root: memblock pa 3ff000
+mmu:     L2 table: memblock pa 3fe000 -> L1[0] (VA ffffff8000000000..)
+mmu:     L3 table: memblock pa 3fd000 -> L2[504] (VA ffffff803f000000..)
+mmu:     L3 table: memblock pa 3fc000 -> L2[505] (VA ffffff803f200000..)
+mmu:     L3 table: memblock pa 3fb000 -> L2[506] (VA ffffff803f400000..)
+mmu:     L3 table: memblock pa 3fa000 -> L2[507] (VA ffffff803f600000..)
+mmu:     L3 table: memblock pa 3f9000 -> L2[508] (VA ffffff803f800000..)
+mmu:     L3 table: memblock pa 3f8000 -> L2[509] (VA ffffff803fa00000..)
+mmu:     L3 table: memblock pa 3f7000 -> L2[510] (VA ffffff803fc00000..)
+mmu:     L3 table: memblock pa 3f6000 -> L2[511] (VA ffffff803fe00000..)
+mmu:   map ARM local (mailbox, timer) VA ffffff8040000000-ffffff8040000fff -> PA 40000000 4 KiB Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2 table: memblock pa 3f5000 -> L1[1] (VA ffffff8040000000..)
+mmu:     L3 table: memblock pa 3f4000 -> L2[0] (VA ffffff8040000000..)
+mmu:   map ramdisk VA ffffff8007000000-ffffff80070fffff -> PA 7000000 1 MiB Normal-WB RW EL1 PXN UXN ISH
+mmu:     L3 table: memblock pa 3f3000 -> L2[56] (VA ffffff8007000000..)
+mmu:   map camera DMA VA ffffff8007200000-ffffff80073fffff -> PA 7200000 2 MiB Normal-NC RW EL1 PXN UXN
+mmu:     L3 table: memblock pa 3f2000 -> L2[57] (VA ffffff8007200000..)
+mmu:   map module arena VA ffffff8007400000-ffffff80074fffff -> PA 7400000 1 MiB Normal-WB RW EL1 ISH
+mmu:     L3 table: memblock pa 3f1000 -> L2[58] (VA ffffff8007400000..)
+mmu:   map page 0 (spin table) VA ffffff8000000000-ffffff8000000fff -> PA 0 4 KiB Normal-WB RW EL1 PXN UXN ISH
+mmu:     L3 table: memblock pa 3f0000 -> L2[0] (VA ffffff8000000000..)
+mmu:   map kernel text VA ffffff8000080000-ffffff80000bcfff -> PA 80000 244 KiB Normal-WB RO EL1 ISH
+mmu:   map kernel data+bss+early RAM VA ffffff80000bd000-ffffff80003fffff -> PA bd000 3340 KiB Normal-WB RW EL1 PXN UXN ISH
+mmu:     L3 table: memblock pa 3ef000 -> L2[1] (VA ffffff8000200000..)
+mmu:   map linear map of RAM VA ffffff8000400000-ffffff803bffffff -> PA 400000 956 MiB Normal-WB RW EL1 PXN UXN ISH
+mmu:   kvminithart: TTBR1=3ff000, TTBR0=0, tlbi vmalle1 -> bootstrap tables retired
+mmu: TTBR0_EL1=0 (user root; 0 while no process runs)  TTBR1_EL1=3ff000 (kernel root)
+mmu: TCR_EL1=b5193519: T0SZ=25 -> user VA 0-7fffffffff (39 bits), T1SZ=25 -> kernel VA ffffff8000000000-ffffffffffffffff
+mmu:   TG0=4K TG1=4K granule, walk = L1 -> L2 -> L3 (9+9+9+12 bits, no L0), IPS=32-bit PA
+mmu:   table walks: IRGN0=WB-WA ORGN0=WB-WA SH0=3, IRGN1=WB-WA ORGN1=WB-WA SH1=3 (3 = inner shareable)
+mmu: MAIR_EL1=ff4400: Attr0=0 Device-nGnRnE, Attr1=44 Normal non-cacheable, Attr2=ff Normal write-back
+mmu: SCTLR_EL1=30d01805: M(MMU)=1 C(D-cache)=1 I(I-cache)=1 A(align check)=0 WXN=0
+mmu: ID_AA64MMFR0_EL1=1122: CPU supports 40-bit PA, 4K granule yes
+mmu: final kernel table (TTBR1) root pa 3ff000:
+mmu:   L1[0] VA ffffff8000000000-ffffff803fffffff -> L2 table pa 3fe000
+mmu:      L2[2..55] VA ffffff8000400000-ffffff8006ffffff -> PA 400000  108 MiB block Normal-WB RW EL1 PXN UXN ISH
+mmu:      L2[59..479] VA ffffff8007600000-ffffff803bffffff -> PA 7600000  842 MiB block Normal-WB RW EL1 PXN UXN ISH
+mmu:     L2[0] VA ffffff8000000000-ffffff80001fffff -> L3 table pa 3f0000 (385 of 512 pages)
+mmu:        L3[0..0] VA ffffff8000000000-ffffff8000000fff -> PA 0  4 KiB pages Normal-WB RW EL1 PXN UXN ISH
+mmu:        L3[128..188] VA ffffff8000080000-ffffff80000bcfff -> PA 80000  244 KiB pages Normal-WB RO EL1 ISH
+mmu:        L3[189..511] VA ffffff80000bd000-ffffff80001fffff -> PA bd000  1292 KiB pages Normal-WB RW EL1 PXN UXN ISH
+mmu:     L2[1] VA ffffff8000200000-ffffff80003fffff -> L3 table pa 3ef000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff8000200000-ffffff80003fffff -> PA 200000  2 MiB pages Normal-WB RW EL1 PXN UXN ISH
+mmu:     L2[56] VA ffffff8007000000-ffffff80071fffff -> L3 table pa 3f3000 (256 of 512 pages)
+mmu:        L3[0..255] VA ffffff8007000000-ffffff80070fffff -> PA 7000000  1 MiB pages Normal-WB RW EL1 PXN UXN ISH
+mmu:     L2[57] VA ffffff8007200000-ffffff80073fffff -> L3 table pa 3f2000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff8007200000-ffffff80073fffff -> PA 7200000  2 MiB pages Normal-NC RW EL1 PXN UXN
+mmu:     L2[58] VA ffffff8007400000-ffffff80075fffff -> L3 table pa 3f1000 (256 of 512 pages)
+mmu:        L3[0..255] VA ffffff8007400000-ffffff80074fffff -> PA 7400000  1 MiB pages Normal-WB RW EL1 ISH
+mmu:     L2[504] VA ffffff803f000000-ffffff803f1fffff -> L3 table pa 3fd000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803f000000-ffffff803f1fffff -> PA 3f000000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[505] VA ffffff803f200000-ffffff803f3fffff -> L3 table pa 3fc000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803f200000-ffffff803f3fffff -> PA 3f200000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[506] VA ffffff803f400000-ffffff803f5fffff -> L3 table pa 3fb000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803f400000-ffffff803f5fffff -> PA 3f400000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[507] VA ffffff803f600000-ffffff803f7fffff -> L3 table pa 3fa000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803f600000-ffffff803f7fffff -> PA 3f600000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[508] VA ffffff803f800000-ffffff803f9fffff -> L3 table pa 3f9000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803f800000-ffffff803f9fffff -> PA 3f800000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[509] VA ffffff803fa00000-ffffff803fbfffff -> L3 table pa 3f8000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803fa00000-ffffff803fbfffff -> PA 3fa00000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[510] VA ffffff803fc00000-ffffff803fdfffff -> L3 table pa 3f7000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803fc00000-ffffff803fdfffff -> PA 3fc00000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:     L2[511] VA ffffff803fe00000-ffffff803fffffff -> L3 table pa 3f6000 (512 of 512 pages)
+mmu:        L3[0..511] VA ffffff803fe00000-ffffff803fffffff -> PA 3fe00000  2 MiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu:   L1[1] VA ffffff8040000000-ffffff807fffffff -> L2 table pa 3f5000
+mmu:     L2[0] VA ffffff8040000000-ffffff80401fffff -> L3 table pa 3f4000 (1 of 512 pages)
+mmu:        L3[0..0] VA ffffff8040000000-ffffff8040000fff -> PA 40000000  4 KiB pages Device-nGnRnE RW EL1 PXN UXN
+mmu: kernel table uses 17 table pages (68 KiB): 475 x 2 MiB blocks, 6018 x 4 KiB pages
+mmu: linear map of RAM: 1921 x 4 KiB + 475 x 2 MiB (DirectMap4k 7684 KiB, DirectMap2M 950 MiB)
+mmu: page_alloc_init: mem_map pa 3b6a0000, 245760 struct page x 40 bytes = 9600 KiB, max_pfn 3c000
+mmu:   buddy gets PA 1ba000-3eefff (2260 KiB, 565 pages)
+mmu:   buddy gets PA 400000-6ffffff (108 MiB, 27648 pages)
+mmu:   buddy gets PA 7600000-7ffffff (10 MiB, 2560 pages)
+mmu:   buddy gets PA 8015d96-3b69ffff (842281 KiB, 210570 pages)
+mmu: user VA (TTBR0): 0..sz ELF image + interp, guard + 4 stack pages, brk heap, mmap below 3ff0000000; kernel stacks at KSTACK(slot) below ffffffc000000000
+mmu: ---- end of boot layout ----
+buddy: 241343 pages managed, 241343 free, mem_map 9600 KiB at pa 0x000000003b6a0000
+slab: 7 kmalloc caches (32..2048 B), self-test ok, 1 page(s) kept by kmalloc-64
+workqueue: system_wq worker=0 pid=1
+workqueue: system_wq worker=1 pid=2
+workqueue: system_wq worker=2 pid=3
+workqueue: system_wq worker=3 pid=4
+workqueue: net_wq worker=0 pid=5
+workqueue: kmod worker=0 pid=6
+driver modules: 17 entries in the initcall table
+initcall level 4 (subsys)
+  input
+  block
+  i2c-core
+initcall level 5 (fs)
+  fat32
+initcall level 6 (device)
+  sdhost
+sdhost: card initialized (SDSC, 1-bit bus, 1048576 sectors = 512 MiB)
+mmcblk0: p1 p2 p3
+  mem
+  bcm2708_fb
+  arasan-sdio
+arasan-sdio: host base-clock=50000000 Hz, probing GPIO34-39
+arasan-sdio: request CMD5 failed status=1fa0000 irq=18001 c1=e8007
+arasan-sdio: no SDIO device found
+  usbhid-kbd
+workqueue: usbkbd_wq worker=0 pid=7
+  dwc2
+workqueue: dwc2_periodic_wq worker=0 pid=8
+workqueue: dwc2_hub_wq worker=0 pid=9
+dwc2: firmware USB HCD power on
+dwc2: host-channel IRQ enabled
+dwc2: DWC2 root port has no connection hprt=1000 gintsts=4000021
+  ov5647
+initcall level 7 (late)
+  rootdev
+rootdev: partitions of mmcblk0
+rootdev:   mmcblk0p1 type=0xc (FAT32-LBA) start=2048 sectors=131072 size=64 MiB partuuid=58563633-01
+rootdev:   mmcblk0p2 type=0x7f (xv6 raw filesystem) start=133120 sectors=131072 size=64 MiB partuuid=58563633-02
+rootdev:   mmcblk0p3 type=0x83 (Linux) start=264192 sectors=784384 size=383 MiB partuuid=58563633-03
+fat32: BPB lba=2048 bytes/sector=512 sectors/cluster=1
+fat32: reserved=32 FATs=2 sectors/FAT=1024 root-cluster=2
+fat32: FAT lba=2080 data lba=4128
+fat32: allocator next-free hint=2672
+rootdev: bootfs mmcblk0p1 lba=2048 mounted as FAT32
+Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
+rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
+rootdev: xv6 filesystem on mmcblk0p2 start=133120 sectors=131072 size=64 MiB
+rootdev: ROOT_DEV = 5 (mmcblk0p3)
+  brcmfmac
+workqueue: brcmf0_wq worker=0 pid=10
+workqueue: brcmf1_wq worker=0 pid=11
+  mt7601u
+workqueue: mt7601u_wq worker=0 pid=12
+  unicam
+workqueue: camera_wq worker=0 pid=13
+camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap
+ov5647: firmware GPIO 133 (camera power) failed, firmware rev 346337
+ov5647:   SET_GPIO_CONFIG: firmware reported an error (status 0x0000000080000000, tag response 0x0000000080000000 = done 1 len 0, first word 133, stale replies 0)
+ov5647:   SET_GPIO_STATE: firmware reported an error (status 0x0000000080000000, tag response 0x0000000080000000 = done 1 len 0, first word 133, stale replies 0)
+i2c0: GPIO44/45 ALT1, 100000 Hz (core 350000000), BCM2837 two-stage abort
+ov5647: probing with 25 kHz GPIO SCCB; BSC0 bypassed
+ov5647: software SCCB ID read retry 1/5 (probe=NACK)
+ov5647: software SCCB ID read retry 2/5 (probe=NACK)
+ov5647: software SCCB ID read retry 3/5 (probe=NACK)
+ov5647: software SCCB ID read retry 4/5 (probe=NACK)
+ov5647: software SCCB ID read retry 5/5 (probe=NACK)
+camera: BSC probe summary 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: GPIO bitbang probe 0x36=BUS-STUCK 0x10=BUS-STUCK 0x1a=BUS-STUCK
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=0 flags=0 now=50 div=3500 fsel=55 levels=0
+camera: no sensor found (1 driver tried); /dev/video0 inactive
+  ext2
+  vfs
+vfs: one mount table for all filesystems; xv6fs ext2 procfs sysfs fat32 netfs
+mmu: userinit: initcode 72 bytes -> VA 0 (page pa 3c7000), user root pa 3c6000
+PPPH0H0H0hart 3 starting
+hart 1 starting
+hart 2 starting
+rootfs: ram0 is /, with /dev/console and /root
+devtmpfs: initialized on ram1, 13 nodes
+ext2: p3 ready rw start=264192 sectors=784384 block=4096 groups=1
+xjournal: ready on mmcblk0p2+65536 (lba=198656) capacity=1024 sectors
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
+exec: /init pid 14: inode 87, 13928 bytes, ET_DYN ELF, entry 710, 5 program headers
+mmu:   L1 root: kalloc pa 1d0000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 1d2000 -> user L1[0] = 1d2003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 1d3000 -> user L2[0] = 1d3003 (VA 0-1fffff)
+mmu:   page: kalloc pa 1d1000 -> VA 0 (L3[0] = 1d174b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1d4000 -> VA 1000 (L3[1] = 1d474b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz e22 filesz e22 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 1d1000) 3618 bytes
+exec:   LOAD VA 1000 memsz 200 filesz 200 file off 1000 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 1000 -> VA 1000 (pa 1d4000) 512 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 1d5000 -> VA 2000 (L3[2] = 1d574b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1d6000 -> VA 3000 (L3[3] = 1d674b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 1d5000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 1d6cc8) 224 bytes
+exec: /init -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 1d7000 -> VA 4000 (L3[4] = 1d774b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1d8000 -> VA 5000 (L3[5] = 1d874b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1d9000 -> VA 6000 (L3[6] = 1d974b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1da000 -> VA 7000 (L3[7] = 1da74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1db000 -> VA 8000 (L3[8] = 1db74b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 1 strings + argv[]/envp/auxv 17 words copied to VA 8f60-8fff
+exec: /init pid 14: sz 9000 sp 8f60 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 1d0000, old image freed
+ext2: write session active; run e2fsck after unclean power loss
+vfs: mounted procfs at /proc read-only
+vfs: mounted sysfs at /sys read-write
+vfs: mounted fat32 at /boot read-write
+netfs: configured server 192.168.0.195:5640 read-only
+vfs: mounted netfs at /mnt/net read-only
+init: connecting Wi-Fi from /etc/wifi.conf
+mmu:   L1 root: kalloc pa 1e7000 (user TTBR0 table, 512 x 8-byte entries, empty)
+mmu:   L2 table: kalloc pa 1e8000 -> user L1[0] = 1e8003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 1e9000 -> user L2[0] = 1e9003 (VA 0-1fffff)
+mmu:   cow: VA 0 pa 1d1000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 1000 pa 1d4000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 2000 pa 1d5000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 3000 pa 1d6000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 4000 pa 1d7000 now mapped by parent and child (refcount 2), stack guard (no PTE_U), shared as is
+mmu:   cow: VA 5000 pa 1d8000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 6000 pa 1d9000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 7000 pa 1da000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 8000 pa 1db000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu: fork: init pid 14 -> pid 15: kstack VA ffffffbffffe2000 pa 1e6000, child root pa 1e7000, sz 9000: 9 user pages shared COW, 3 table pages
+exec: /bin/wifi pid 15: inode 52, 8248 bytes, ET_DYN ELF, entry 440, 5 program headers
+mmu:   L1 root: kalloc pa 3cc000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 3ce000 -> user L1[0] = 3ce003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3cf000 -> user L2[0] = 3cf003 (VA 0-1fffff)
+mmu:   page: kalloc pa 3cd000 -> VA 0 (L3[0] = 3cd74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3d0000 -> VA 1000 (L3[1] = 3d074b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 6c0 filesz 6c0 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 3cd000) 1728 bytes
+exec:   LOAD VA 16c0 memsz 180 filesz 180 file off 6c0 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 6c0 -> VA 16c0 (pa 3d06c0) 384 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 3d1000 -> VA 2000 (L3[2] = 3d174b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3d2000 -> VA 3000 (L3[3] = 3d274b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 3d1000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 3d2cc8) 224 bytes
+exec: /bin/wifi -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 3b603000 -> VA 4000 (L3[4] = 3b60374b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b604000 -> VA 5000 (L3[5] = 3b60474b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b605000 -> VA 6000 (L3[6] = 3b60574b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b606000 -> VA 7000 (L3[7] = 3b60674b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b607000 -> VA 8000 (L3[8] = 3b60774b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 1 strings + argv[]/envp/auxv 17 words copied to VA 8f60-8fff
+exec: /bin/wifi pid 15: sz 9000 sp 8f60 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 3cc000, old image freed
+ld.so: relocated libc.so in user space
+wifi: connecting to TP-Link_B114
+wifi: association failed
+init: starting local login on /dev/ttyS0
+mmu:   L1 root: kalloc pa 3cc000 (user TTBR0 table, 512 x 8-byte entries, empty)
+mmu:   L2 table: kalloc pa 1e7000 -> user L1[0] = 1e7003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 1ea000 -> user L2[0] = 1ea003 (VA 0-1fffff)
+mmu:   cow: VA 0 pa 1d1000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 1000 pa 1d4000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 2000 pa 1d5000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 3000 pa 1d6000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 4000 pa 1d7000 now mapped by parent and child (refcount 2), stack guard (no PTE_U), shared as is
+mmu:   cow: VA 5000 pa 1d8000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 6000 pa 1d9000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 7000 pa 1da000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 8000 pa 1f3000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu: fork: init pid 14 -> pid 16: kstack VA ffffffbffffe2000 pa 1e6000, child root pa 3cc000, sz 9000: 9 user pages shared COW, 3 table pages
+exec: /bin/login pid 16: inode 33, 10528 bytes, ET_DYN ELF, entry 600, 5 program headers
+mmu:   L1 root: kalloc pa 1ed000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 1ef000 -> user L1[0] = 1ef003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 1f0000 -> user L2[0] = 1f0003 (VA 0-1fffff)
+mmu:   page: kalloc pa 1ee000 -> VA 0 (L3[0] = 1ee74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f1000 -> VA 1000 (L3[1] = 1f174b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 8ef filesz 8ef file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 1ee000) 2287 bytes
+exec:   LOAD VA 18f0 memsz 1b0 filesz 1b0 file off 8f0 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 8f0 -> VA 18f0 (pa 1f18f0) 432 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 1f2000 -> VA 2000 (L3[2] = 1f274b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b613000 -> VA 3000 (L3[3] = 3b61374b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 1f2000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 3b613cc8) 224 bytes
+exec: /bin/login -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 3b614000 -> VA 4000 (L3[4] = 3b61474b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b615000 -> VA 5000 (L3[5] = 3b61574b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b616000 -> VA 6000 (L3[6] = 3b61674b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b617000 -> VA 7000 (L3[7] = 3b61774b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b618000 -> VA 8000 (L3[8] = 3b61874b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 1 strings + argv[]/envp/auxv 17 words copied to VA 8f60-8fff
+exec: /bin/login pid 16: sz 9000 sp 8f60 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 1ed000, old image freed
+ld.so: relocated libc.so in user space
+
+xv6-rpi3 login: root
+Password: xv6
+Welcome root
+exec: /bin/sh pid 16: inode 64, 30192 bytes, ET_DYN ELF, entry 8d0, 5 program headers
+mmu:   L1 root: kalloc pa 3b604000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-2fff (3 pages, zero-filled)
+mmu:   L2 table: kalloc pa 3d2000 -> user L1[0] = 3d2003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3d1000 -> user L2[0] = 3d1003 (VA 0-1fffff)
+mmu:   page: kalloc pa 3b603000 -> VA 0 (L3[0] = 3b60374b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3d0000 -> VA 1000 (L3[1] = 3d074b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3cd000 -> VA 2000 (L3[2] = 3cd74b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 1ab9 filesz 1ab9 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 3b603000) 4096 bytes
+exec:   read file off 1000 -> VA 1000 (pa 3d0000) 2745 bytes
+exec:   LOAD VA 2ac0 memsz 350 filesz 2ea file off 1ac0 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 1ac0 -> VA 2ac0 (pa 3cdac0) 746 bytes
+exec:   image at base 3000: 2 PT_LOAD, uvmalloc VA 3000-4fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 1db000 -> VA 3000 (L3[3] = 1db74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f4000 -> VA 4000 (L3[4] = 1f474b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 3000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 3000 (pa 1db000) 3266 bytes
+exec:   LOAD VA 4cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 4cc8 (pa 1f4cc8) 224 bytes
+exec: /bin/sh -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 1f5000 -> VA 5000 (L3[5] = 1f574b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f6000 -> VA 6000 (L3[6] = 1f674b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f7000 -> VA 7000 (L3[7] = 1f774b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f8000 -> VA 8000 (L3[8] = 1f874b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1f9000 -> VA 9000 (L3[9] = 1f974b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 5000 (PTE_U cleared), stack VA 6000-9fff
+exec:   argv: 2 strings + argv[]/envp/auxv 18 words copied to VA 9f50-9fff
+exec: /bin/sh pid 16: sz a000 sp 9f50 entry 3784, 3 table pages + 10 user pages, TTBR0 = root 3b604000, old image freed
+ld.so: relocated libc.so in user space
+$ cat /proc/meminfo
+mmu:   L1 root: kalloc pa 3b620000 (user TTBR0 table, 512 x 8-byte entries, empty)
+mmu:   L2 table: kalloc pa 3b621000 -> user L1[0] = 3b621003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3b622000 -> user L2[0] = 3b622003 (VA 0-1fffff)
+mmu:   cow: VA 0 pa 3b603000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 1000 pa 3d0000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 2000 pa 3cd000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 3000 pa 1db000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 4000 pa 1f4000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 5000 pa 1f5000 now mapped by parent and child (refcount 2), stack guard (no PTE_U), shared as is
+mmu:   cow: VA 6000 pa 1f6000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 7000 pa 1f7000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 8000 pa 1f8000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 9000 pa 1f9000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu: fork: sh pid 16 -> pid 17: kstack VA ffffffbffffe0000 pa 3b61f000, child root pa 3b620000, sz a000: 10 user pages shared COW, 3 table pages
+exec: /bin/cat pid 17: inode 26, 7216 bytes, ET_DYN ELF, entry 3a8, 5 program headers
+mmu:   L1 root: kalloc pa 1e9000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 1eb000 -> user L1[0] = 1eb003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3cb000 -> user L2[0] = 3cb003 (VA 0-1fffff)
+mmu:   page: kalloc pa 1e8000 -> VA 0 (L3[0] = 1e874b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b60e000 -> VA 1000 (L3[1] = 3b60e74b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 4e8 filesz 4e8 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 1e8000) 1256 bytes
+exec:   LOAD VA 14e8 memsz 370 filesz 170 file off 4e8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 4e8 -> VA 14e8 (pa 3b60e4e8) 368 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 3b60f000 -> VA 2000 (L3[2] = 3b60f74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b610000 -> VA 3000 (L3[3] = 3b61074b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 3b60f000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 3b610cc8) 224 bytes
+exec: /bin/cat -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 3b611000 -> VA 4000 (L3[4] = 3b61174b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b612000 -> VA 5000 (L3[5] = 3b61274b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b633000 -> VA 6000 (L3[6] = 3b63374b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b634000 -> VA 7000 (L3[7] = 3b63474b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b635000 -> VA 8000 (L3[8] = 3b63574b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 2 strings + argv[]/envp/auxv 18 words copied to VA 8f50-8fff
+exec: /bin/cat pid 17: sz 9000 sp 8f50 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 1e9000, old image freed
+ld.so: relocated libc.so in user space
+MemTotal:       965372 kB
+MemFree:        964016 kB
+MemAvailable:   964016 kB
+Slab:           40 kB
+PerCPUPages:    188 kB
+Reserved:       17667 kB
+DirectMap4k:    7684 kB
+DirectMap2M:    972800 kB
+CowShared:      61 pages
+CowCopied:      8 pages
+CowReused:      0 pages
+MemorySource:   DTB
+See /proc/iomem for the physical layout, /proc/buddyinfo and /proc/slabinfo for the allocators.
+$ cat /proc/iomem
+mmu:   L1 root: kalloc pa 1f1000 (user TTBR0 table, 512 x 8-byte entries, empty)
+mmu:   L2 table: kalloc pa 1ee000 -> user L1[0] = 1ee003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3b61e000 -> user L2[0] = 3b61e003 (VA 0-1fffff)
+mmu:   cow: VA 0 pa 3b603000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 1000 pa 3d0000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 2000 pa 3cd000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 3000 pa 1db000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 4000 pa 1f4000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 5000 pa 1f5000 now mapped by parent and child (refcount 2), stack guard (no PTE_U), shared as is
+mmu:   cow: VA 6000 pa 1f6000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 7000 pa 1f7000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 8000 pa 1f8000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 9000 pa 3b625000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu: fork: sh pid 16 -> pid 18: kstack VA ffffffbffffe0000 pa 1f2000, child root pa 1f1000, sz a000: 10 user pages shared COW, 3 table pages
+exec: /bin/cat pid 18: inode 26, 7216 bytes, ET_DYN ELF, entry 3a8, 5 program headers
+mmu:   L1 root: kalloc pa 1e7000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 1f3000 -> user L1[0] = 1f3003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 1fa000 -> user L2[0] = 1fa003 (VA 0-1fffff)
+mmu:   page: kalloc pa 3cf000 -> VA 0 (L3[0] = 3cf74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1fb000 -> VA 1000 (L3[1] = 1fb74b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 4e8 filesz 4e8 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 3cf000) 1256 bytes
+exec:   LOAD VA 14e8 memsz 370 filesz 170 file off 4e8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 4e8 -> VA 14e8 (pa 1fb4e8) 368 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 1fc000 -> VA 2000 (L3[2] = 1fc74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1fd000 -> VA 3000 (L3[3] = 1fd74b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 1fc000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 1fdcc8) 224 bytes
+exec: /bin/cat -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 1fe000 -> VA 4000 (L3[4] = 1fe74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 1ff000 -> VA 5000 (L3[5] = 1ff74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b600000 -> VA 6000 (L3[6] = 3b60074b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b601000 -> VA 7000 (L3[7] = 3b60174b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b602000 -> VA 8000 (L3[8] = 3b60274b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 2 strings + argv[]/envp/auxv 18 words copied to VA 8f50-8fff
+exec: /bin/cat pid 18: sz 9000 sp 8f50 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 1e7000, old image freed
+ld.so: relocated libc.so in user space
+0x0000000000000000-0x000000003bffffff : System RAM
+  0x0000000000000000-0x000000000007ffff : Reserved (spin-table, armstub)
+  0x0000000000080000-0x00000000000bcfff : Kernel code
+  0x00000000000bd000-0x00000000001b9c2f : Kernel data/bss
+  0x00000000003ef000-0x00000000003fffff : Kernel page tables
+  0x0000000007000000-0x00000000075fffff : Reserved (carve-out window)
+    0x0000000007000000-0x00000000070fffff : QEMU xv6 ramdisk
+    0x0000000007200000-0x00000000073fffff : camera DMA buffer (non-cacheable)
+    0x0000000007400000-0x00000000074fffff : loadable-module arena (RWX)
+  0x0000000008000000-0x0000000008015d95 : Flattened Device Tree
+  0x000000003b6a0000-0x000000003bffffff : mem_map (struct page[])
+0x000000003c000000-0x000000003effffff : Reserved (VideoCore / GPU memory, not System RAM)
+0x000000003f000000-0x000000003fffffff : BCM2837 peripheral MMIO window
+  0x000000003f003000-0x000000003f003fff : BCM system timer
+  0x000000003f00b000-0x000000003f00b3ff : legacy interrupt controller
+  0x000000003f00b880-0x000000003f00b8bf : property mailbox
+  0x000000003f200000-0x000000003f2000ff : GPIO controller
+  0x000000003f201000-0x000000003f201fff : PL011 UART0 (unused)
+  0x000000003f215000-0x000000003f215fff : AUX block / Mini UART
+  0x000000003f300000-0x000000003f3000ff : Arasan EMMC/SD
+  0x000000003f980000-0x000000003f9fffff : DWC2 USB host
+0x0000000040000000-0x0000000040000fff : BCM2836/7 ARM-local interrupt/timer MMIO
+$ ls /
+mmu:   L1 root: kalloc pa 3b654000 (user TTBR0 table, 512 x 8-byte entries, empty)
+mmu:   L2 table: kalloc pa 3b655000 -> user L1[0] = 3b655003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3b656000 -> user L2[0] = 3b656003 (VA 0-1fffff)
+mmu:   cow: VA 0 pa 3b603000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 1000 pa 3d0000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 2000 pa 3cd000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 3000 pa 1db000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 4000 pa 1f4000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 5000 pa 1f5000 now mapped by parent and child (refcount 2), stack guard (no PTE_U), shared as is
+mmu:   cow: VA 6000 pa 1f6000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 7000 pa 1f7000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 8000 pa 1f8000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu:   cow: VA 9000 pa 3b61b000 now mapped by parent and child (refcount 2), both PTEs RO+COW
+mmu: fork: sh pid 16 -> pid 19: kstack VA ffffffbffffe0000 pa 3b653000, child root pa 3b654000, sz a000: 10 user pages shared COW, 3 table pages
+exec: /bin/ls pid 19: inode 34, 10304 bytes, ET_DYN ELF, entry 5a8, 5 program headers
+mmu:   L1 root: kalloc pa 3b60a000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 3b621000 -> user L1[0] = 3b621003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3b624000 -> user L2[0] = 3b624003 (VA 0-1fffff)
+mmu:   page: kalloc pa 3b622000 -> VA 0 (L3[0] = 3b62274b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b623000 -> VA 1000 (L3[1] = 3b62374b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 8f9 filesz 8f9 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 3b622000) 2297 bytes
+exec:   LOAD VA 1900 memsz 1c8 filesz 1a8 file off 900 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 900 -> VA 1900 (pa 3b623900) 424 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+mmu:   page: kalloc pa 3ca000 -> VA 2000 (L3[2] = 3ca74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b637000 -> VA 3000 (L3[3] = 3b63774b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 2000 memsz cc2 filesz cc2 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 2000 (pa 3ca000) 3266 bytes
+exec:   LOAD VA 3cc8 memsz e0 filesz e0 file off cc8 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off cc8 -> VA 3cc8 (pa 3b637cc8) 224 bytes
+exec: /bin/ls -> interpreter /lib/ld-xv6.so
+mmu:   page: kalloc pa 3b638000 -> VA 4000 (L3[4] = 3b63874b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b639000 -> VA 5000 (L3[5] = 3b63974b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b63a000 -> VA 6000 (L3[6] = 3b63a74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b63b000 -> VA 7000 (L3[7] = 3b63b74b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b63c000 -> VA 8000 (L3[8] = 3b63c74b Normal-WB RW EL0+EL1 ISH)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 2 strings + argv[]/envp/auxv 18 words copied to VA 8f50-8fff
+exec: /bin/ls pid 19: sz 9000 sp 8f50 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 3b60a000, old image freed
+ld.so: relocated libc.so in user space
+.                              1 2 4096
+..                             1 2 4096
+lost+found                     1 11 16384
+bin                            1 12 4096
+dev                            1 1 480
+proc                           1 705468254 0
+sys                            1 705468254 0
+boot                           1 705468254 0
+mnt                            1 17 4096
+etc                            1 21 4096
+root                           1 22 4096
+usr                            1 23 4096
+lib                            1 25 4096
+init                           2 87 13928
+$ 

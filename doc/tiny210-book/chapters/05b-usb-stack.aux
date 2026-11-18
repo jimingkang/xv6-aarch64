@@ -1,0 +1,89 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {第七章\hspace  {.3em}}USB 主机栈：EHCI 数据传输与中断处理}{35}{chapter.7}\protected@file@percent }
+\@writefile{lof}{\addvspace {10.0pt}}
+\@writefile{lot}{\addvspace {10.0pt}}
+\newlabel{wa:ch-05b-usb-stack}{{七}{35}{USB 主机栈：EHCI 数据传输与中断处理}{chapter.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7.1}USB 各层架构}{35}{section.7.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.1}{\ignorespaces USB 软件分层\relax }}{35}{figure.caption.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.1}平台层：PHY 与控制器启动}{35}{subsection.7.1.1}\protected@file@percent }
+\newlabel{wa:phy}{{7.1.1}{35}{平台层：PHY 与控制器启动}{subsection.7.1.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.2}HCD 层：QH/qTD 与 dummy 追加法}{36}{subsection.7.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.3}总线上的包与事务}{36}{subsection.7.1.3}\protected@file@percent }
+\gdef \LT@xv {\LT@entry 
+    {1}{59.21495pt}\LT@entry 
+    {1}{70.59605pt}\LT@entry 
+    {1}{264.0748pt}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.2}{\ignorespaces USB 三种包（PID 本身带反码，所以不需要另加 CRC）\relax }}{37}{figure.caption.19}\protected@file@percent }
+\gdef \LT@xvi {\LT@entry 
+    {1}{44.98857pt}\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{275.4559pt}}
+\gdef \LT@xvii {\LT@entry 
+    {1}{44.98857pt}\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{275.4559pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.4}EHCI 数据结构：QH 与 qTD}{38}{subsection.7.1.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7.3}{\ignorespaces 异步调度环：每个端点一个 QH，传输是挂在 QH 下的 qTD 链（图中为一次寄存器读和 EP4 的 4 个接收缓冲）\relax }}{38}{figure.caption.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.5}EHCI 怎样执行异步调度}{39}{subsection.7.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.6}控制传输：MT7601U 的寄存器读写}{40}{subsection.7.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.7}Bulk OUT：一帧怎样从内存到网卡}{40}{subsection.7.1.7}\protected@file@percent }
+\gdef \LT@xviii {\LT@entry 
+    {1}{22.22636pt}\LT@entry 
+    {1}{192.9429pt}\LT@entry 
+    {1}{175.87125pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.8}Bulk IN：EP4 的接收环}{41}{subsection.7.1.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.9}MCU 命令与 EP5}{41}{subsection.7.1.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.10}枚举请求序列}{41}{subsection.7.1.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.11}出错处理与 data toggle}{42}{subsection.7.1.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.12}枚举与 Hub}{42}{subsection.7.1.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1.13}USB core 与设备驱动接口}{43}{subsection.7.1.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.2}中断与下半部：一帧怎样从 IRQ 55 走到协议栈}{43}{section.7.2}\protected@file@percent }
+\newlabel{wa:irq}{{7.2}{43}{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}{section.7.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7.4}{\ignorespaces 接收中断的上半部与下半部\relax }}{44}{figure.caption.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.1}上半部为什么这么短}{44}{subsection.7.2.1}\protected@file@percent }
+\gdef \LT@xix {\LT@entry 
+    {1}{70.59605pt}\LT@entry 
+    {1}{326.67085pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.2}NAPI 的三个状态位}{45}{subsection.7.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.3}时钟中断：状态机和超时的动力}{45}{subsection.7.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.4}发送方向：没有中断}{45}{subsection.7.2.4}\protected@file@percent }
+\gdef \LT@xx {\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{110.42992pt}\LT@entry 
+    {1}{207.16928pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2.5}上下文与锁}{46}{subsection.7.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7.3}用分层 Trace 对齐 USB 与 Wi-Fi 调用链}{46}{section.7.3}\protected@file@percent }
+\newlabel{wa:usb-wifi-trace}{{7.3}{46}{用分层 Trace 对齐 USB 与 Wi-Fi 调用链}{section.7.3}{}}
+\@setckpt{chapters/05b-usb-stack}{
+\setcounter{page}{47}
+\setcounter{equation}{0}
+\setcounter{enumi}{5}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{0}
+\setcounter{chapter}{7}
+\setcounter{section}{3}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{4}
+\setcounter{table}{6}
+\setcounter{LT@tables}{20}
+\setcounter{LT@chunks}{2}
+\setcounter{lstnumber}{13}
+\setcounter{float@type}{8}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{Item}{53}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{83}
+\setcounter{none}{10}
+\setcounter{lstlisting}{0}
+\setcounter{section@level}{0}
+}

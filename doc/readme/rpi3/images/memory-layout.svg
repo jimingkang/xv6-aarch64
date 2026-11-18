@@ -1,0 +1,465 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2310" height="1597.6" viewBox="0 0 2310 1597.6" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+<marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f5fae"/></marker>
+<marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker>
+<marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker>
+<marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e8449"/></marker>
+<marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6c3fb5"/></marker>
+</defs>
+<rect width="2310" height="1597.6" fill="#ffffff"/>
+<text x="1155.0" y="36" font-size="21" text-anchor="middle" font-weight="600" fill="#222">xv6 rpi3-lock（Raspberry Pi 3 / BCM2837, AArch64）内存布局：用户半边（TTBR0）← 物理地址 → 内核半边（TTBR1）</text>
+<text x="1155.0" y="60" font-size="13" text-anchor="middle" font-weight="normal" fill="#555">QEMU raspi3b，DTB 报告 RAM 0x0–0x3BFFFFFF（960 MiB）；数值取自 make MMU_TRACE=3 启动日志和 /proc/iomem、/proc/meminfo。各列内高地址在上，不按比例。</text>
+<rect x="28" y="92" width="906" height="937.6" rx="8" fill="#f3f7ff" stroke="#b9cbe8" stroke-width="1"/>
+<text x="40" y="116" font-size="15" text-anchor="start" font-weight="600" fill="#1f5fae">用户半边：TTBR0_EL1 = 当前进程（例 pid 19 exec /bin/ls 后：L1 根 0x3B60A000）</text>
+<text x="205.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#1f5fae">64 位虚拟地址（全部）</text>
+<text x="205.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">低半边 0 – 0x7F_FFFFFFFF 归 TTBR0</text>
+<text x="442.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#1f5fae">L1 0x3B60A000</text>
+<text x="442.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[38:30]</text>
+<text x="589.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#1f5fae">L2 0x3B621000</text>
+<text x="589.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[29:21]</text>
+<text x="797.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#1f5fae">L3 0x3B624000</text>
+<text x="797.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[20:12]</text>
+<line x1="370" y1="599.6134831460673" x2="381" y2="599.6134831460673" stroke="#999" stroke-width="0.8"/>
+<line x1="503" y1="599.6134831460673" x2="517" y2="599.6134831460673" stroke="#999" stroke-width="0.8"/>
+<line x1="661" y1="599.6134831460673" x2="675" y2="599.6134831460673" stroke="#999" stroke-width="0.8"/>
+<line x1="370" y1="771.0951310861423" x2="381" y2="771.0951310861423" stroke="#999" stroke-width="0.8"/>
+<line x1="503" y1="771.0951310861423" x2="517" y2="771.0951310861423" stroke="#999" stroke-width="0.8"/>
+<line x1="661" y1="771.0951310861423" x2="675" y2="771.0951310861423" stroke="#999" stroke-width="0.8"/>
+<line x1="370" y1="836.9318352059926" x2="381" y2="836.9318352059926" stroke="#999" stroke-width="0.8"/>
+<line x1="503" y1="836.9318352059926" x2="517" y2="836.9318352059926" stroke="#999" stroke-width="0.8"/>
+<line x1="661" y1="836.9318352059926" x2="675" y2="836.9318352059926" stroke="#999" stroke-width="0.8"/>
+<line x1="370" y1="902.7685393258427" x2="381" y2="902.7685393258427" stroke="#999" stroke-width="0.8"/>
+<line x1="503" y1="902.7685393258427" x2="517" y2="902.7685393258427" stroke="#999" stroke-width="0.8"/>
+<line x1="661" y1="902.7685393258427" x2="675" y2="902.7685393258427" stroke="#999" stroke-width="0.8"/>
+<line x1="370" y1="979.3228464419476" x2="381" y2="979.3228464419476" stroke="#999" stroke-width="0.8"/>
+<line x1="503" y1="979.3228464419476" x2="517" y2="979.3228464419476" stroke="#999" stroke-width="0.8"/>
+<line x1="661" y1="979.3228464419476" x2="675" y2="979.3228464419476" stroke="#999" stroke-width="0.8"/>
+<rect x="40" y="200.0" width="330" height="82.67865168539326" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="48" y="231.83932584269664" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0000_0000 –</text>
+<text x="48" y="245.33932584269664" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FFFF_FFFF_FFFF</text>
+<text x="48" y="258.83932584269667" font-size="11" text-anchor="start" font-weight="normal" fill="#222">VA[63:39] 全 1 → TTBR1：内核半边，见右侧</text>
+<rect x="40" y="282.6786516853933" width="330" height="101.05168539325842" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="48" y="316.9544943820225" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0080_0000_0000 –</text>
+<text x="48" y="330.4544943820225" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF7F_FFFF_FFFF</text>
+<text x="48" y="343.9544943820225" font-size="11" text-anchor="start" font-weight="normal" fill="#222">非规范地址：VA[63:39] 不全 0 也不全 1</text>
+<text x="48" y="357.4544943820225" font-size="11" text-anchor="start" font-weight="normal" fill="#222">两个 TTBR 都不查，访问即 Translation fault</text>
+<rect x="40" y="383.7303370786517" width="330" height="82.67865168539326" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="48" y="415.5696629213483" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0040_0000_0000 –</text>
+<text x="48" y="429.0696629213483" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_007F_FFFF_FFFF</text>
+<text x="48" y="442.5696629213483" font-size="11" text-anchor="start" font-weight="normal" fill="#222">TTBR0 可达（T0SZ=25），xv6 不用（MAXUVA=256G）</text>
+<rect x="40" y="466.4089887640449" width="330" height="82.67865168539326" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="48" y="498.24831460674153" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_003F_F000_0000 –</text>
+<text x="48" y="511.74831460674153" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_003F_FFFF_FFFF</text>
+<text x="48" y="525.2483146067416" font-size="11" text-anchor="start" font-weight="normal" fill="#222">MMAP_TOP 以上 256 MiB：留空（旧摄像头窗口）</text>
+<rect x="40" y="549.0876404494381" width="330" height="101.05168539325842" rx="3" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.2"/>
+<text x="48" y="583.3634831460673" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0010_0000_0000 –</text>
+<text x="48" y="596.8634831460673" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_003F_EFFF_FFFF</text>
+<text x="48" y="610.3634831460673" font-size="11" text-anchor="start" font-weight="normal" fill="#222">mmap 窗口（64 GiB 起，自顶向下）：</text>
+<text x="48" y="623.8634831460673" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ld.so 映射 libc.so、/dev/video0、匿名 mmap</text>
+<rect x="40" y="650.1393258426966" width="330" height="82.67865168539326" rx="3" fill="#fdf2e2" stroke="#d35400" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="48" y="681.9786516853933" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_9000 –</text>
+<text x="48" y="695.4786516853933" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_000F_FFFF_FFFF</text>
+<text x="48" y="708.9786516853933" font-size="11" text-anchor="start" font-weight="normal" fill="#222">brk 堆：从 sz 向上，最多到最低的 VMA</text>
+<rect x="40" y="732.8179775280898" width="330" height="76.55430711610487" rx="3" fill="#fcd9c0" stroke="#c0582b" stroke-width="1.2"/>
+<text x="48" y="761.5951310861423" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_5000 –</text>
+<text x="48" y="775.0951310861423" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_8FFF</text>
+<text x="48" y="788.5951310861423" font-size="11" text-anchor="start" font-weight="normal" fill="#222">用户栈 4 页，sp = 0x8F50</text>
+<rect x="40" y="809.3722846441948" width="330" height="55.119101123595506" rx="3" fill="#eeeeee" stroke="#888888" stroke-width="1.2"/>
+<text x="48" y="834.1818352059926" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_4000</text>
+<text x="48" y="847.6818352059926" font-size="11" text-anchor="start" font-weight="normal" fill="#222">保护页（PTE_U 清零）</text>
+<rect x="40" y="864.4913857677902" width="330" height="76.55430711610487" rx="3" fill="#fbe3c4" stroke="#b9770e" stroke-width="1.2"/>
+<text x="48" y="893.2685393258427" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_2000 –</text>
+<text x="48" y="906.7685393258427" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_3FFF</text>
+<text x="48" y="920.2685393258427" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ld-xv6.so，入口 0x2784 = elr</text>
+<rect x="40" y="941.0456928838952" width="330" height="76.55430711610487" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="48" y="969.8228464419476" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_0000 –</text>
+<text x="48" y="983.3228464419476" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x0000_0000_0000_1FFF</text>
+<text x="48" y="996.8228464419476" font-size="11" text-anchor="start" font-weight="normal" fill="#222">/bin/ls .text @0 + .data @0x1900</text>
+<rect x="381" y="202.0" width="122" height="78.67865168539328" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="442.0" y="238.83932584269664" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">TTBR1</text>
+<text x="442.0" y="251.83932584269664" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（右侧）</text>
+<rect x="381" y="284.6786516853933" width="122" height="97.05168539325842" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="442.0" y="337.2044943820225" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">不查表</text>
+<rect x="381" y="385.7303370786517" width="122" height="78.67865168539328" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="442.0" y="422.56966292134837" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[256..511]</text>
+<text x="442.0" y="435.56966292134837" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">无效</text>
+<rect x="381" y="468.4089887640449" width="122" height="179.7303370786516" rx="3" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.2"/>
+<text x="442.0" y="549.2741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[64..255]</text>
+<text x="442.0" y="562.2741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">→ L2</text>
+<text x="442.0" y="575.2741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（mmap 时建）</text>
+<rect x="381" y="652.1393258426966" width="122" height="363.4606741573034" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="442.0" y="805.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0]</text>
+<text x="442.0" y="818.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">→ L2</text>
+<text x="442.0" y="831.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3B621000</text>
+<text x="442.0" y="844.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222"></text>
+<text x="442.0" y="857.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（堆可延伸到</text>
+<text x="442.0" y="870.3696629213483" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1..63]）</text>
+<rect x="517" y="202.0" width="144" height="262.408988764045" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="589.0" y="337.2044943820225" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">—</text>
+<rect x="517" y="468.4089887640449" width="144" height="179.7303370786516" rx="3" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.2"/>
+<text x="589.0" y="562.2741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">按需 → L3</text>
+<rect x="517" y="652.1393258426966" width="144" height="78.67865168539322" rx="3" fill="#fdf2e2" stroke="#d35400" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="589.0" y="688.9786516853933" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] 同一张 L3</text>
+<text x="589.0" y="701.9786516853933" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">其余按需</text>
+<rect x="517" y="734.8179775280898" width="144" height="280.7820224719102" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="589.0" y="859.708988764045" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] → L3</text>
+<text x="589.0" y="872.708988764045" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3B624000</text>
+<text x="589.0" y="885.708988764045" font-size="11" text-anchor="middle" font-weight="normal" fill="#222"></text>
+<text x="589.0" y="898.708988764045" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（VA 0–2 MiB）</text>
+<rect x="675" y="468.4089887640449" width="244" height="179.7303370786516" rx="3" fill="#f6e0f0" stroke="#a93d8c" stroke-width="1.2"/>
+<text x="797.0" y="555.7741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">libc 文本页 PTE_SHARED</text>
+<text x="797.0" y="568.7741573033707" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（多进程共用物理页）</text>
+<rect x="675" y="652.1393258426966" width="244" height="78.67865168539322" rx="3" fill="#fdf2e2" stroke="#d35400" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="797.0" y="688.9786516853933" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[9..] 尚未映射</text>
+<text x="797.0" y="701.9786516853933" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（缺页时才分配）</text>
+<rect x="675" y="734.8179775280898" width="244" height="72.55430711610484" rx="3" fill="#fcd9c0" stroke="#c0582b" stroke-width="1.2"/>
+<text x="797.0" y="768.5951310861423" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[5..8] → 0x3B639000–</text>
+<text x="797.0" y="781.5951310861423" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3B63C000</text>
+<rect x="675" y="811.3722846441948" width="244" height="51.119101123595556" rx="3" fill="#eeeeee" stroke="#888888" stroke-width="1.2"/>
+<text x="797.0" y="840.9318352059926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[4] 0x…70B（无 PTE_U）</text>
+<rect x="675" y="866.4913857677902" width="244" height="72.55430711610484" rx="3" fill="#fbe3c4" stroke="#b9770e" stroke-width="1.2"/>
+<text x="797.0" y="900.2685393258427" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[2] → 0x3CA000</text>
+<text x="797.0" y="913.2685393258427" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[3] → 0x3B637000</text>
+<rect x="675" y="943.0456928838952" width="244" height="72.55430711610484" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="797.0" y="976.8228464419476" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] → 0x3B622000</text>
+<text x="797.0" y="989.8228464419476" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1] → 0x3B623000</text>
+<rect x="1368" y="92" width="906" height="937.6" rx="8" fill="#fff8ef" stroke="#e7c9a3" stroke-width="1"/>
+<text x="1380" y="116" font-size="15" text-anchor="start" font-weight="600" fill="#c86400">内核半边：TTBR1_EL1 = 0x3FF000（全系统共用一张；17 个表页在 PA 0x3EF000–0x3FFFFF）</text>
+<text x="1505.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#c86400">L3 表 / 2 MiB 块</text>
+<text x="1505.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[20:12]</text>
+<text x="1713.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#c86400">L2</text>
+<text x="1713.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[29:21]</text>
+<text x="1860.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#c86400">L1 0x3FF000</text>
+<text x="1860.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">VA[38:30]</text>
+<text x="2097.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#c86400">内核虚拟地址</text>
+<text x="2097.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">KERNBASE 0xFFFFFF80_00000000 + PA</text>
+<line x1="1627" y1="303.3569811320755" x2="1641" y2="303.3569811320755" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="303.3569811320755" x2="1799" y2="303.3569811320755" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="303.3569811320755" x2="1932" y2="303.3569811320755" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="437.5667924528302" x2="1641" y2="437.5667924528302" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="437.5667924528302" x2="1799" y2="437.5667924528302" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="437.5667924528302" x2="1932" y2="437.5667924528302" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="499.2724528301887" x2="1641" y2="499.2724528301887" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="499.2724528301887" x2="1799" y2="499.2724528301887" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="499.2724528301887" x2="1932" y2="499.2724528301887" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="647.3660377358491" x2="1641" y2="647.3660377358491" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="647.3660377358491" x2="1799" y2="647.3660377358491" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="647.3660377358491" x2="1932" y2="647.3660377358491" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="739.9245283018868" x2="1641" y2="739.9245283018868" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="739.9245283018868" x2="1799" y2="739.9245283018868" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="739.9245283018868" x2="1932" y2="739.9245283018868" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="801.6301886792453" x2="1641" y2="801.6301886792453" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="801.6301886792453" x2="1799" y2="801.6301886792453" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="801.6301886792453" x2="1932" y2="801.6301886792453" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="863.3358490566038" x2="1641" y2="863.3358490566038" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="863.3358490566038" x2="1799" y2="863.3358490566038" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="863.3358490566038" x2="1932" y2="863.3358490566038" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="925.0415094339622" x2="1641" y2="925.0415094339622" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="925.0415094339622" x2="1799" y2="925.0415094339622" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="925.0415094339622" x2="1932" y2="925.0415094339622" stroke="#999" stroke-width="0.8"/>
+<line x1="1627" y1="986.7471698113208" x2="1641" y2="986.7471698113208" stroke="#999" stroke-width="0.8"/>
+<line x1="1785" y1="986.7471698113208" x2="1799" y2="986.7471698113208" stroke="#999" stroke-width="0.8"/>
+<line x1="1921" y1="986.7471698113208" x2="1932" y2="986.7471698113208" stroke="#999" stroke-width="0.8"/>
+<rect x="1932" y="200.0" width="330" height="61.70566037735849" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1940" y="228.10283018867923" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FFC0_0000_0000 –</text>
+<text x="1940" y="241.60283018867923" font-size="11" text-anchor="start" font-weight="normal" fill="#222">MAXVA 以上：未用</text>
+<rect x="1932" y="261.70566037735847" width="330" height="83.30264150943397" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2"/>
+<text x="1940" y="293.8569811320755" font-size="11" text-anchor="start" font-weight="normal" fill="#222">KSTACK(slot) = MAXVA − (slot+1)·8K</text>
+<text x="1940" y="307.3569811320755" font-size="11" text-anchor="start" font-weight="normal" fill="#222">4K 内核栈 + 4K 保护页</text>
+<text x="1940" y="320.8569811320755" font-size="11" text-anchor="start" font-weight="normal" fill="#222">pid 19：0xFFFF_FFBF_FFFE_0000</text>
+<rect x="1932" y="345.0083018867924" width="330" height="61.70566037735849" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1940" y="373.1111320754717" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_4000_1000 –</text>
+<text x="1940" y="386.6111320754717" font-size="11" text-anchor="start" font-weight="normal" fill="#222">未映射空洞</text>
+<rect x="1932" y="406.71396226415095" width="330" height="61.70566037735849" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="1940" y="434.8167924528302" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_4000_0000</text>
+<text x="1940" y="448.3167924528302" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ARM local 4 KiB</text>
+<rect x="1932" y="468.4196226415094" width="330" height="61.70566037735849" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="1940" y="496.5224528301887" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_3F00_0000</text>
+<text x="1940" y="510.0224528301887" font-size="11" text-anchor="start" font-weight="normal" fill="#222">BCM2837 外设 16 MiB</text>
+<rect x="1932" y="530.125283018868" width="330" height="55.535094339622646" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1940" y="555.1428301886793" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_3C00_0000</text>
+<text x="1940" y="568.6428301886793" font-size="11" text-anchor="start" font-weight="normal" fill="#222">VideoCore：不映射</text>
+<rect x="1932" y="585.6603773584906" width="330" height="123.41132075471698" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="1940" y="637.8660377358491" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0040_0000 –</text>
+<text x="1940" y="651.3660377358491" font-size="11" text-anchor="start" font-weight="normal" fill="#222">RAM 线性映射（除 carve-out）</text>
+<text x="1940" y="664.8660377358491" font-size="11" text-anchor="start" font-weight="normal" fill="#222">mem_map / 伙伴 / DTB</text>
+<rect x="1932" y="709.0716981132075" width="330" height="61.70566037735849" rx="3" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="1.2"/>
+<text x="1940" y="737.1745283018868" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0700_0000</text>
+<text x="1940" y="750.6745283018868" font-size="11" text-anchor="start" font-weight="normal" fill="#222">carve-out：ramdisk/DMA/模块区</text>
+<rect x="1932" y="770.777358490566" width="330" height="61.70566037735849" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1940" y="798.8801886792453" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0020_0000 –</text>
+<text x="1940" y="812.3801886792453" font-size="11" text-anchor="start" font-weight="normal" fill="#222">伙伴低端页 + 内核页表</text>
+<rect x="1932" y="832.4830188679246" width="330" height="61.70566037735849" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="1940" y="860.5858490566038" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_000B_D000</text>
+<text x="1940" y="874.0858490566038" font-size="11" text-anchor="start" font-weight="normal" fill="#222">.rodata/.data/.bss（RW, XN）</text>
+<rect x="1932" y="894.188679245283" width="330" height="61.70566037735849" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="1940" y="922.2915094339622" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0008_0000</text>
+<text x="1940" y="935.7915094339622" font-size="11" text-anchor="start" font-weight="normal" fill="#222">.text（RO, 可执行）</text>
+<rect x="1932" y="955.8943396226415" width="330" height="61.70566037735849" rx="3" fill="#fff3cd" stroke="#b7950b" stroke-width="1.2"/>
+<text x="1940" y="983.9971698113208" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0xFFFF_FF80_0000_0000</text>
+<text x="1940" y="997.4971698113208" font-size="11" text-anchor="start" font-weight="normal" fill="#222">第 0 页 spin-table</text>
+<rect x="1799" y="202.0" width="122" height="57.70566037735847" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1860.0" y="228.35283018867923" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[256..511]</text>
+<text x="1860.0" y="241.35283018867923" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">超出 MAXVA</text>
+<rect x="1799" y="263.70566037735847" width="122" height="79.30264150943395" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2"/>
+<text x="1860.0" y="300.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[255]</text>
+<text x="1860.0" y="313.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">→ L2（运行时）</text>
+<rect x="1799" y="347.0083018867924" width="122" height="57.70566037735847" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1860.0" y="379.8611320754717" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[2..254] 无效</text>
+<rect x="1799" y="408.71396226415095" width="122" height="57.70566037735847" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1860.0" y="435.0667924528302" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1] → L2</text>
+<text x="1860.0" y="448.0667924528302" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3F5000</text>
+<rect x="1799" y="470.4196226415094" width="122" height="545.1803773584907" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1860.0" y="714.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0]</text>
+<text x="1860.0" y="727.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">→ L2</text>
+<text x="1860.0" y="740.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3FE000</text>
+<text x="1860.0" y="753.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222"></text>
+<text x="1860.0" y="766.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（KERNBASE</text>
+<text x="1860.0" y="779.5098113207548" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">+ 0–1 GiB）</text>
+<rect x="1641" y="202.0" width="144" height="57.70566037735847" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1713.0" y="234.85283018867923" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">—</text>
+<rect x="1641" y="263.70566037735847" width="144" height="79.30264150943395" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2"/>
+<text x="1713.0" y="300.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[511] → L3</text>
+<text x="1713.0" y="313.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（allocproc 时建）</text>
+<rect x="1641" y="347.0083018867924" width="144" height="57.70566037735847" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1713.0" y="379.8611320754717" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">—</text>
+<rect x="1641" y="408.71396226415095" width="144" height="57.70566037735847" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1713.0" y="441.5667924528302" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] → L3 0x3F4000</text>
+<rect x="1641" y="470.4196226415094" width="144" height="57.70566037735847" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1713.0" y="503.2724528301886" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[504..511] → 8 张 L3</text>
+<rect x="1641" y="532.125283018868" width="144" height="51.535094339622674" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="1713.0" y="561.8928301886793" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[480..503] 无效</text>
+<rect x="1641" y="587.6603773584906" width="144" height="119.41132075471694" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="1713.0" y="638.366037735849" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[2..55] [59..479]</text>
+<text x="1713.0" y="651.366037735849" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">2 MiB 块描述符</text>
+<text x="1713.0" y="664.366037735849" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">（低两位 01，无 L3）</text>
+<rect x="1641" y="711.0716981132075" width="144" height="57.70566037735853" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1713.0" y="743.9245283018868" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[56..58] → 3 张 L3</text>
+<rect x="1641" y="772.777358490566" width="144" height="57.70566037735853" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1713.0" y="805.6301886792453" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1] → L3 0x3EF000</text>
+<rect x="1641" y="834.4830188679246" width="144" height="181.11698113207547" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1713.0" y="929.0415094339623" font-size="11" text-anchor="middle" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] → L3 0x3F0000</text>
+<rect x="1383" y="263.70566037735847" width="244" height="79.30264150943395" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2"/>
+<text x="1505.0" y="300.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">栈页（kalloc）</text>
+<text x="1505.0" y="313.8569811320755" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">槽间空项作保护页</text>
+<rect x="1383" y="408.71396226415095" width="244" height="57.70566037735847" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="1505.0" y="441.5667924528302" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3F4000 [0] Device</text>
+<rect x="1383" y="470.4196226415094" width="244" height="57.70566037735847" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="1505.0" y="496.7724528301886" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3FD000…0x3F6000</text>
+<text x="1505.0" y="509.7724528301886" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">4096 页 Device, XN</text>
+<rect x="1383" y="587.6603773584906" width="244" height="119.41132075471694" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="1505.0" y="644.866037735849" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">475 个 2 MiB 块 = 950 MiB</text>
+<text x="1505.0" y="657.866037735849" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">Normal-WB, RW, XN</text>
+<rect x="1383" y="711.0716981132075" width="244" height="57.70566037735853" rx="3" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="1.2"/>
+<text x="1505.0" y="737.4245283018868" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3F3000/3F2000/3F1000</text>
+<text x="1505.0" y="750.4245283018868" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">WB · Normal-NC · RWX</text>
+<rect x="1383" y="772.777358490566" width="244" height="57.70566037735853" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="1505.0" y="805.6301886792453" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3EF000 [0..511] RW XN</text>
+<rect x="1383" y="834.4830188679246" width="244" height="57.70566037735853" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="1505.0" y="867.3358490566038" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3F0000 [189..511] RW XN</text>
+<rect x="1383" y="896.188679245283" width="244" height="57.70566037735853" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="1505.0" y="929.0415094339622" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3F0000 [128..188] RO</text>
+<rect x="1383" y="957.8943396226415" width="244" height="57.70566037735853" rx="3" fill="#fff3cd" stroke="#b7950b" stroke-width="1.2"/>
+<text x="1505.0" y="990.7471698113208" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">L3 0x3F0000 [0] RW XN</text>
+<text x="1155.0" y="160" font-size="13.5" text-anchor="middle" font-weight="600" fill="#222">物理地址</text>
+<text x="1155.0" y="176" font-size="11" text-anchor="middle" font-weight="normal" fill="#666">DTB /memory + 外设；IPS = 32 位</text>
+<rect x="990" y="200" width="330" height="38.080000000000005" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="998" y="214.0" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x40000000 – 0x40000FFF  4 KiB</text>
+<text x="998" y="227.5" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ARM local</text>
+<rect x="990" y="238.08" width="330" height="49.28" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="998" y="252.08" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3F000000 – 0x3FFFFFFF  16 MiB</text>
+<text x="998" y="265.58000000000004" font-size="11" text-anchor="start" font-weight="normal" fill="#222">BCM2837 外设（UART 0x3F215000…）</text>
+<text x="998" y="279.08000000000004" font-size="10.5" text-anchor="start" font-weight="normal" fill="#666">iomem: BCM2837 peripheral MMIO window</text>
+<rect x="990" y="287.36" width="330" height="42.56" rx="3" fill="#ececec" stroke="#8a8a8a" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="998" y="301.36" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3C000000 – 0x3EFFFFFF  48 MiB</text>
+<text x="998" y="314.86" font-size="11" text-anchor="start" font-weight="normal" fill="#222">VideoCore（DTB 不报为 RAM）</text>
+<rect x="990" y="329.92" width="330" height="42.56" rx="3" fill="#d6eef0" stroke="#16808a" stroke-width="1.2"/>
+<text x="998" y="343.92" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x3B6A0000 – 0x3BFFFFFF  9600 KiB</text>
+<text x="998" y="357.42" font-size="11" text-anchor="start" font-weight="normal" fill="#222">mem_map：245760 × struct page</text>
+<rect x="990" y="372.48" width="330" height="212.8" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="998" y="386.48" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x08016000 – 0x3B69FFFF  ≈822 MiB</text>
+<text x="998" y="399.98" font-size="11" text-anchor="start" font-weight="normal" fill="#222">伙伴系统（最大一段）</text>
+<text x="998" y="413.48" font-size="11" text-anchor="start" font-weight="normal" fill="#222">用户页、用户页表页、内核栈页</text>
+<text x="998" y="426.98" font-size="11" text-anchor="start" font-weight="normal" fill="#222">大多来自这里（0x3B6xxxxx）</text>
+<text x="998" y="440.48" font-size="10.5" text-anchor="start" font-weight="normal" fill="#666">MemTotal 965372 kB</text>
+<rect x="990" y="585.28" width="330" height="42.56" rx="3" fill="#fff3cd" stroke="#b7950b" stroke-width="1.2"/>
+<text x="998" y="599.28" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x08000000 – 0x08015D95  87 KiB</text>
+<text x="998" y="612.78" font-size="11" text-anchor="start" font-weight="normal" fill="#222">设备树 DTB</text>
+<rect x="990" y="627.8399999999999" width="330" height="38.080000000000005" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="998" y="641.8399999999999" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x07600000 – 0x07FFFFFF  10 MiB</text>
+<text x="998" y="655.3399999999999" font-size="11" text-anchor="start" font-weight="normal" fill="#222">伙伴系统</text>
+<rect x="990" y="665.92" width="330" height="56.0" rx="3" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="1.2"/>
+<text x="998" y="679.92" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x07000000 – 0x075FFFFF  6 MiB</text>
+<text x="998" y="693.42" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ramdisk · 摄像头 DMA · 模块区</text>
+<text x="998" y="706.92" font-size="10.5" text-anchor="start" font-weight="normal" fill="#666">iomem: Reserved (carve-out window)</text>
+<rect x="990" y="721.92" width="330" height="67.2" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="998" y="735.92" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x00400000 – 0x06FFFFFF  108 MiB</text>
+<text x="998" y="749.42" font-size="11" text-anchor="start" font-weight="normal" fill="#222">伙伴系统</text>
+<rect x="990" y="789.12" width="330" height="49.28" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="998" y="803.12" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x003EF000 – 0x003FFFFF  68 KiB</text>
+<text x="998" y="816.62" font-size="11" text-anchor="start" font-weight="normal" fill="#222">内核页表 17 页（见下方放大 ②）</text>
+<text x="998" y="830.12" font-size="10.5" text-anchor="start" font-weight="normal" fill="#666">iomem: Kernel page tables</text>
+<rect x="990" y="838.4" width="330" height="44.8" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="998" y="852.4" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x001BA000 – 0x003EEFFF  2260 KiB</text>
+<text x="998" y="865.9" font-size="11" text-anchor="start" font-weight="normal" fill="#222">伙伴低端（ld.so .text 0x3CA000）</text>
+<rect x="990" y="883.1999999999999" width="330" height="49.28" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="998" y="897.1999999999999" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x000BD000 – 0x001B9C2F  1012 KiB</text>
+<text x="998" y="910.6999999999999" font-size="11" text-anchor="start" font-weight="normal" fill="#222">.rodata/.data/.bss（启动表 0xC9000–）</text>
+<text x="998" y="924.1999999999999" font-size="10.5" text-anchor="start" font-weight="normal" fill="#666">iomem: Kernel data/bss</text>
+<rect x="990" y="932.4799999999999" width="330" height="42.56" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="998" y="946.4799999999999" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x00080000 – 0x000BCFFF  244 KiB</text>
+<text x="998" y="959.9799999999999" font-size="11" text-anchor="start" font-weight="normal" fill="#222">.text（_entry 在最前）</text>
+<rect x="990" y="975.04" width="330" height="42.56" rx="3" fill="#fff3cd" stroke="#b7950b" stroke-width="1.2"/>
+<text x="998" y="989.04" font-size="11.5" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">0x00000000 – 0x0007FFFF  512 KiB</text>
+<text x="998" y="1002.54" font-size="11" text-anchor="start" font-weight="normal" fill="#222">spin-table / armstub</text>
+<path d="M 919 507.74831460674153 C 959 507.74831460674153, 946 446.96000000000004, 986 446.96000000000004" fill="none" stroke="#d35400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<path d="M 919 771.0951310861423 C 959 771.0951310861423, 946 504.41600000000005, 986 504.41600000000005" fill="none" stroke="#d35400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<path d="M 919 897.7685393258427 C 959 897.7685393258427, 946 517.184, 986 517.184" fill="none" stroke="#d35400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<path d="M 919 907.7685393258427 C 959 907.7685393258427, 946 863.04, 986 863.04" fill="none" stroke="#d35400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<path d="M 919 979.3228464419476 C 959 979.3228464419476, 946 529.952, 986 529.952" fill="none" stroke="#d35400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<path d="M 1383 303.3569811320755 C 1343 303.3569811320755, 1364 553.36, 1324 553.36" fill="none" stroke="#c0582b" stroke-width="1.3" opacity="1" stroke-dasharray="5,3" marker-end="url(#arO)"/>
+<path d="M 1383 437.5667924528302 C 1343 437.5667924528302, 1364 219.04, 1324 219.04" fill="none" stroke="#c0392b" stroke-width="1.3" opacity="1" marker-end="url(#arR)"/>
+<path d="M 1383 499.2724528301887 C 1343 499.2724528301887, 1364 262.72, 1324 262.72" fill="none" stroke="#c0392b" stroke-width="1.3" opacity="1" marker-end="url(#arR)"/>
+<path d="M 1383 647.3660377358491 C 1343 647.3660377358491, 1364 351.20000000000005, 1324 351.20000000000005" fill="none" stroke="#1e8449" stroke-width="1.0" opacity="1" marker-end="url(#arG)"/>
+<path d="M 1383 647.3660377358491 C 1343 647.3660377358491, 1364 415.04, 1324 415.04" fill="none" stroke="#1e8449" stroke-width="1.0" opacity="1" marker-end="url(#arG)"/>
+<path d="M 1383 647.3660377358491 C 1343 647.3660377358491, 1364 606.56, 1324 606.56" fill="none" stroke="#1e8449" stroke-width="1.0" opacity="1" marker-end="url(#arG)"/>
+<path d="M 1383 647.3660377358491 C 1343 647.3660377358491, 1364 646.8799999999999, 1324 646.8799999999999" fill="none" stroke="#1e8449" stroke-width="1.0" opacity="1" marker-end="url(#arG)"/>
+<path d="M 1383 647.3660377358491 C 1343 647.3660377358491, 1364 755.52, 1324 755.52" fill="none" stroke="#1e8449" stroke-width="1.0" opacity="1" marker-end="url(#arG)"/>
+<path d="M 1383 739.9245283018868 C 1343 739.9245283018868, 1364 693.92, 1324 693.92" fill="none" stroke="#6c3fb5" stroke-width="1.3" opacity="1" marker-end="url(#arP)"/>
+<path d="M 1383 797.6301886792453 C 1343 797.6301886792453, 1364 860.8, 1324 860.8" fill="none" stroke="#1f5fae" stroke-width="1.3" opacity="1" marker-end="url(#arB)"/>
+<path d="M 1383 805.6301886792453 C 1343 805.6301886792453, 1364 813.76, 1324 813.76" fill="none" stroke="#1f5fae" stroke-width="1.3" opacity="1" marker-end="url(#arB)"/>
+<path d="M 1383 863.3358490566038 C 1343 863.3358490566038, 1364 907.8399999999999, 1324 907.8399999999999" fill="none" stroke="#1f5fae" stroke-width="1.3" opacity="1" marker-end="url(#arB)"/>
+<path d="M 1383 925.0415094339622 C 1343 925.0415094339622, 1364 953.7599999999999, 1324 953.7599999999999" fill="none" stroke="#1f5fae" stroke-width="1.3" opacity="1" marker-end="url(#arB)"/>
+<path d="M 1383 986.7471698113208 C 1343 986.7471698113208, 1364 996.3199999999999, 1324 996.3199999999999" fill="none" stroke="#1f5fae" stroke-width="1.3" opacity="1" marker-end="url(#arB)"/>
+<text x="514" y="1115.6" font-size="13.5" text-anchor="start" font-weight="600" fill="#1f5fae">放大 ①：用户页表与数据页（伙伴系统，pid 19）</text>
+<rect x="514" y="1127.6" width="360" height="18" rx="2" fill="#fcd9c0" stroke="#c0582b" stroke-width="1"/>
+<text x="520" y="1141.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b63c000</text>
+<text x="590" y="1141.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">栈 ×4 → VA 5000–8FFF</text>
+<rect x="514" y="1148.6" width="360" height="18" rx="2" fill="#eeeeee" stroke="#888888" stroke-width="1"/>
+<text x="520" y="1162.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b638000</text>
+<text x="590" y="1162.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">保护页 → VA 0x4000</text>
+<rect x="514" y="1169.6" width="360" height="18" rx="2" fill="#fbe3c4" stroke="#b9770e" stroke-width="1"/>
+<text x="520" y="1183.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b637000</text>
+<text x="590" y="1183.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ld.so .data → VA 0x3000</text>
+<rect x="514" y="1190.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="520" y="1204.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b624000</text>
+<text x="590" y="1204.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 表（VA 0–2 MiB）</text>
+<rect x="514" y="1211.6" width="360" height="18" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1"/>
+<text x="520" y="1225.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b623000</text>
+<text x="590" y="1225.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ls .data → VA 0x1000</text>
+<rect x="514" y="1232.6" width="360" height="18" rx="2" fill="#fde9cf" stroke="#d35400" stroke-width="1"/>
+<text x="520" y="1246.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b622000</text>
+<text x="590" y="1246.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ls .text → VA 0x0</text>
+<rect x="514" y="1253.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="520" y="1267.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b621000</text>
+<text x="590" y="1267.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L2 表（VA 0–1 GiB）</text>
+<rect x="514" y="1274.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="520" y="1288.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">3b60a000</text>
+<text x="590" y="1288.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L1 根表（TTBR0）</text>
+<text x="694.0" y="1308.6" font-size="11" text-anchor="middle" font-weight="normal" fill="#888">≈ 低端伙伴段 0x001BA000–0x003EEFFF ≈</text>
+<rect x="514" y="1316.6" width="360" height="18" rx="2" fill="#fbe3c4" stroke="#b9770e" stroke-width="1"/>
+<text x="520" y="1330.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003ca000</text>
+<text x="590" y="1330.1" font-size="11" text-anchor="start" font-weight="normal" fill="#222">ld.so .text → VA 0x2000</text>
+<path d="M 990 564.0 C 790 604.0, 974 1007.5999999999999, 694.0 1097.6" fill="none" stroke="#7a9cc6" stroke-width="1.0" opacity="1" stroke-dasharray="5,3" marker-end="url(#arB)"/>
+<path d="M 874 1283.6 C 920 1283.6, 920 1262.6, 876 1262.6" fill="none" stroke="#1f5fae" stroke-width="1.8" opacity="1" marker-end="url(#arB)"/>
+<text x="869" y="1266.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#1f5fae" font-family="Menlo,'SF Mono',Consolas,monospace">← L1[0]</text>
+<path d="M 874 1262.6 C 944 1262.6, 944 1199.6, 876 1199.6" fill="none" stroke="#1f5fae" stroke-width="1.8" opacity="1" marker-end="url(#arB)"/>
+<text x="869" y="1203.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#1f5fae" font-family="Menlo,'SF Mono',Consolas,monospace">← L2[0]</text>
+<path d="M 874 1199.6 C 904 1199.6, 904 1241.6, 876 1241.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1245.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [0]</text>
+<path d="M 874 1199.6 C 894 1199.6, 894 1220.6, 876 1220.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1224.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [1]</text>
+<path d="M 874 1199.6 C 994 1199.6, 994 1325.6, 876 1325.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1329.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [2]</text>
+<path d="M 874 1199.6 C 896 1199.6, 896 1178.6, 876 1178.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1182.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [3]</text>
+<path d="M 874 1199.6 C 914 1199.6, 914 1157.6, 876 1157.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1161.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [4]</text>
+<path d="M 874 1199.6 C 934 1199.6, 934 1136.6, 876 1136.6" fill="none" stroke="#d35400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="869" y="1140.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#d35400" font-family="Menlo,'SF Mono',Consolas,monospace">← [5..8]</text>
+<text x="514" y="1347.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">粗线框 = 页表页，细线框 = 数据页：两者在物理上混在一起，</text>
+<text x="514" y="1361.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">都是 kalloc 按需取的任意空闲页。TTBR0 指向最下面的 L1。</text>
+<text x="1638" y="1115.6" font-size="13.5" text-anchor="start" font-weight="600" fill="#c86400">放大 ②：内核页表 17 页（memblock，PA 0x3EF000–0x3FFFFF）</text>
+<rect x="1638" y="1127.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="1644" y="1141.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003ff000</text>
+<text x="1714" y="1141.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L1 根表（TTBR1）</text>
+<rect x="1638" y="1148.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="1644" y="1162.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003fe000</text>
+<text x="1714" y="1162.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L2 表（0–1 GiB）</text>
+<rect x="1638" y="1169.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1183.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003fd000</text>
+<text x="1714" y="1183.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3F000000</text>
+<rect x="1638" y="1190.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1204.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003fc000</text>
+<text x="1714" y="1204.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3F200000</text>
+<rect x="1638" y="1211.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1225.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003fb000</text>
+<text x="1714" y="1225.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3F400000</text>
+<rect x="1638" y="1232.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1246.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003fa000</text>
+<text x="1714" y="1246.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3F600000</text>
+<rect x="1638" y="1253.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1267.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f9000</text>
+<text x="1714" y="1267.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3F800000</text>
+<rect x="1638" y="1274.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1288.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f8000</text>
+<text x="1714" y="1288.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3FA00000</text>
+<rect x="1638" y="1295.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1309.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f7000</text>
+<text x="1714" y="1309.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3FC00000</text>
+<rect x="1638" y="1316.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1330.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f6000</text>
+<text x="1714" y="1330.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 外设 3FE00000</text>
+<rect x="1638" y="1337.6" width="360" height="18" rx="2" fill="#ffe0b8" stroke="#c86400" stroke-width="2.2"/>
+<text x="1644" y="1351.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f5000</text>
+<text x="1714" y="1351.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L2 表（1–2 GiB）</text>
+<rect x="1638" y="1358.6" width="360" height="18" rx="2" fill="#fde2e1" stroke="#c0392b" stroke-width="2.2"/>
+<text x="1644" y="1372.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f4000</text>
+<text x="1714" y="1372.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 ARM local</text>
+<rect x="1638" y="1379.6" width="360" height="18" rx="2" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="2.2"/>
+<text x="1644" y="1393.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f3000</text>
+<text x="1714" y="1393.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 ramdisk</text>
+<rect x="1638" y="1400.6" width="360" height="18" rx="2" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="2.2"/>
+<text x="1644" y="1414.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f2000</text>
+<text x="1714" y="1414.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 摄像头 DMA</text>
+<rect x="1638" y="1421.6" width="360" height="18" rx="2" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="2.2"/>
+<text x="1644" y="1435.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f1000</text>
+<text x="1714" y="1435.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 模块区</text>
+<rect x="1638" y="1442.6" width="360" height="18" rx="2" fill="#dbe8fb" stroke="#1f5fae" stroke-width="2.2"/>
+<text x="1644" y="1456.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003f0000</text>
+<text x="1714" y="1456.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 PA 0–2 MiB</text>
+<rect x="1638" y="1463.6" width="360" height="18" rx="2" fill="#dbe8fb" stroke="#1f5fae" stroke-width="2.2"/>
+<text x="1644" y="1477.1" font-size="11" text-anchor="start" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">003ef000</text>
+<text x="1714" y="1477.1" font-size="11" text-anchor="start" font-weight="600" fill="#222">L3 PA 2–4 MiB</text>
+<path d="M 1320 813.76 C 1480 853.76, 1558 1007.5999999999999, 1818.0 1097.6" fill="none" stroke="#e0a060" stroke-width="1.0" opacity="1" stroke-dasharray="5,3" marker-end="url(#arO)"/>
+<path d="M 1998 1136.6 C 2028 1136.6, 2028 1157.6, 2000 1157.6" fill="none" stroke="#c86400" stroke-width="1.8" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1161.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← L1[0]</text>
+<path d="M 1998 1136.6 C 2148 1136.6, 2148 1346.6, 2000 1346.6" fill="none" stroke="#c86400" stroke-width="1.8" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1350.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← L1[1]</text>
+<path d="M 1998 1157.6 C 2048 1157.6, 2048 1178.6, 2000 1178.6" fill="none" stroke="#c0392b" stroke-width="1.2" opacity="1" marker-end="url(#arR)"/>
+<text x="1993" y="1182.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c0392b" font-family="Menlo,'SF Mono',Consolas,monospace">← [504..511]</text>
+<path d="M 2002 1170.6 h 6 V 1333.6 h -6" fill="none" stroke="#c0392b" stroke-width="1.2"/>
+<path d="M 1998 1157.6 C 2098 1157.6, 2098 1388.6, 2000 1388.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1392.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← [56]</text>
+<path d="M 1998 1157.6 C 2113 1157.6, 2113 1409.6, 2000 1409.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1413.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← [57]</text>
+<path d="M 1998 1157.6 C 2128 1157.6, 2128 1430.6, 2000 1430.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1434.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← [58]</text>
+<path d="M 1998 1157.6 C 2173 1157.6, 2173 1451.6, 2000 1451.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1455.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← [0]</text>
+<path d="M 1998 1157.6 C 2198 1157.6, 2198 1472.6, 2000 1472.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1476.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← [1]</text>
+<path d="M 1998 1346.6 C 2024 1346.6, 2024 1367.6, 2000 1367.6" fill="none" stroke="#c86400" stroke-width="1.2" opacity="1" marker-end="url(#arO)"/>
+<text x="1993" y="1371.6" font-size="10.5" text-anchor="end" font-weight="600" fill="#c86400" font-family="Menlo,'SF Mono',Consolas,monospace">← L2[0]</text>
+<text x="1378" y="1147.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#1e8449">L2 0x3FE000 的 [2..55]、[59..479]</text>
+<text x="1378" y="1161.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#1e8449">是 2 MiB 块，直接指向 RAM，没有 L3</text>
+<text x="1378" y="1181.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">KSTACK 区 L1[255] 的 L2/L3 运行时</text>
+<text x="1378" y="1195.6" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">从伙伴系统取，不在这 17 页里</text>
+<text x="40" y="1397.6" font-size="14" text-anchor="start" font-weight="600" fill="#222">要点</text>
+<text x="40" y="1421.6" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">1. 64 位 VA 只有两头有效：VA[63:39] 全 0 走 TTBR0（左，当前进程），全 1 走 TTBR1（右，内核）；</text>
+<text x="40" y="1441.6" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">    中间 0x0000_0080_… – 0xFFFF_FF7F_… 是非规范空洞。切换进程只换 TTBR0（switchuvm）。</text>
+<text x="40" y="1461.6" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">2. 两半都是 L1 → L2 → L3 三级（4 KiB 粒度、39 位 VA、无 L0）；内核线性映射在 L2 就用 2 MiB 块结束。</text>
+<text x="40" y="1481.6" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">3. 内核 17 个表页来自 memblock（4 MiB 以下自顶向下，永不释放）；用户 3 个表页和 9 个数据页来自伙伴系统。</text>
+<text x="40" y="1501.6" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">4. 用户 PTE = 0x…74B：Normal-WB、AP=01（EL0 RW）、AF、ISH，没有 UXN/PXN；fork 时可写页改成 RO + COW。</text>
+</svg>

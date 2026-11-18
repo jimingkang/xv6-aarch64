@@ -11,6 +11,7 @@
 #include <kernel/sched.h>
 #include <kernel/camera.h>
 #include <kernel/defs.h>
+#include <kernel/mmu_trace.h>
 #include <kernel/mm.h>
 #include <kernel/slab.h>
 #include <uapi/sched.h>
@@ -1207,7 +1208,12 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
   // sleepable lock must be taken before allocproc() returns np->lock held.
   if(!(flags & CLONE_VM))
     down_read(&vm->mmap_lock);
+  if(MMUTRACE(2) && !(flags & CLONE_VM)){
+    p->mmutrace = MMUTRACE(3);
+    p->mmu_tables = p->mmu_pages = 0;
+  }
   if((np = allocproc()) == 0){
+    p->mmutrace = 0;
     if(!(flags & CLONE_VM))
       up_read(&vm->mmap_lock);
     goto bad;
@@ -1238,12 +1244,19 @@ do_clone(uint64 flags, uint64 stack, uint64 ptid, uint64 ctid,
     // fork: retain allocproc's private vmspace and populate it from parent.
     acquire(&vm->lock);
     if(uvmcopy(vm->pagetable, np->vm->pagetable, vm->sz) < 0){
+      p->mmutrace = 0;
       flush_tlb();
       release(&vm->lock);
       up_read(&vm->mmap_lock);
       freeproc(np);
       release(&np->lock);
       goto bad;
+    }
+    if(MMUTRACE(2)){
+      printf("mmu: fork: %s pid %d -> pid %d: kstack VA %s pa %s, child root pa %s, sz %s: %d user pages shared COW, %d table pages\n",
+             p->name, p->pid, np->pid, mmu_hx(np->kstack), mmu_hx(np->kstack_pa),
+             mmu_hx(V2P(np->vm->pagetable)), mmu_hx(vm->sz), p->mmu_pages, p->mmu_tables);
+      p->mmutrace = 0;
     }
     np->vm->sz = vm->sz;
     np->vm->start_brk = vm->start_brk;

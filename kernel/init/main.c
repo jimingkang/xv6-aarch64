@@ -10,6 +10,7 @@
 #include <kernel/memblock.h>
 #include <kernel/slab.h>
 #include <kernel/mm_trace.h>
+#include <kernel/mmu_trace.h>
 
 volatile static int started = 0;
 extern char end[];  // first address after kernel loaded from ELF file
@@ -75,6 +76,8 @@ main()
     printf("kernel image built: %s (%s)\n", kernel_build_time, kernel_build_rev);
     printf("\n");
     memblock_dump();  // the boot memory map, like Linux's memblock=debug
+    if(MMUTRACE(1))
+      mmu_trace_boot(); // MMU_TRACE: sections, boot tables, registers, final map
     mm_trace_enabled = 1;  // printf works from here on (MM_TRACE builds)
     if(MM_TRACE)
       printf("mm: MM_TRACE on, pid filter %d, limit %d\n", MM_TRACE_PID, MM_TRACE_LIMIT);

@@ -1,0 +1,243 @@
+
+Merging object attributes
+
+
+Discarded input sections
+
+ .text          0x00000000        0x0 build/tiny210-qemu/bl1/start.o
+ .note.GNU-stack
+                0x00000000        0x0 build/tiny210-qemu/bl1/start.o
+ .text          0x00000000        0x0 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.bl1_exception
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.uputs
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.puthex
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.bl1_main
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.putdec
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.uart_baud
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.ddr_init
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.ddr_size
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.ddr_test
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.load_kernel
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .ARM.exidx.text.die
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1.o
+ .comment       0x00000000       0x31 build/tiny210-qemu/bl1/bl1.o
+ .note.GNU-stack
+                0x00000000        0x0 build/tiny210-qemu/bl1/bl1.o
+ .llvm_addrsig  0x00000000        0x0 build/tiny210-qemu/bl1/bl1.o
+ .text          0x00000000        0x0 build/tiny210-qemu/bl1/bl1lib.o
+ .ARM.exidx.text.crc32
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1lib.o
+ .ARM.exidx.text.uimage_check
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1lib.o
+ .ARM.exidx.text.atag_build
+                0x00000000        0x8 build/tiny210-qemu/bl1/bl1lib.o
+ .comment       0x00000000       0x31 build/tiny210-qemu/bl1/bl1lib.o
+ .note.GNU-stack
+                0x00000000        0x0 build/tiny210-qemu/bl1/bl1lib.o
+ .llvm_addrsig  0x00000000        0x0 build/tiny210-qemu/bl1/bl1lib.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0xd0036000                        BL1_STACK_TOP = 0xd0036000
+                0xd0020010                        . = 0xd0020010
+                0xd0020010                        bl1_start = .
+
+.text           0xd0020010     0x1394
+ *(.text.start)
+ .text.start    0xd0020010       0x98 build/tiny210-qemu/bl1/start.o
+                0xd0020010                _start
+                0xd0020058                bl1_boot
+ *(.text .text.*)
+ .text.bl1_exception
+                0xd00200a8       0x98 build/tiny210-qemu/bl1/bl1.o
+                0xd00200a8                bl1_exception
+ .text.uputs    0xd0020140       0xc0 build/tiny210-qemu/bl1/bl1.o
+ .text.puthex   0xd0020200       0x9c build/tiny210-qemu/bl1/bl1.o
+ .text.bl1_main
+                0xd002029c      0x420 build/tiny210-qemu/bl1/bl1.o
+                0xd002029c                bl1_main
+ .text.putdec   0xd00206bc       0x50 build/tiny210-qemu/bl1/bl1.o
+ .text.uart_baud
+                0xd002070c      0x234 build/tiny210-qemu/bl1/bl1.o
+ .text.ddr_init
+                0xd0020940      0x164 build/tiny210-qemu/bl1/bl1.o
+ .text.ddr_size
+                0xd0020aa4       0x6c build/tiny210-qemu/bl1/bl1.o
+ .text.ddr_test
+                0xd0020b10      0x160 build/tiny210-qemu/bl1/bl1.o
+ .text.load_kernel
+                0xd0020c70      0x388 build/tiny210-qemu/bl1/bl1.o
+ .text.die      0xd0020ff8       0xbc build/tiny210-qemu/bl1/bl1.o
+ .text.crc32    0xd00210b4       0x84 build/tiny210-qemu/bl1/bl1lib.o
+                0xd00210b4                crc32
+ .text.uimage_check
+                0xd0021138      0x1c4 build/tiny210-qemu/bl1/bl1lib.o
+                0xd0021138                uimage_check
+ .text.atag_build
+                0xd00212fc       0xa8 build/tiny210-qemu/bl1/bl1lib.o
+                0xd00212fc                atag_build
+
+.glue_7         0xd00213a4        0x0
+ .glue_7        0xd00213a4        0x0 linker stubs
+
+.glue_7t        0xd00213a4        0x0
+ .glue_7t       0xd00213a4        0x0 linker stubs
+
+.vfp11_veneer   0xd00213a4        0x0
+ .vfp11_veneer  0xd00213a4        0x0 linker stubs
+
+.v4_bx          0xd00213a4        0x0
+ .v4_bx         0xd00213a4        0x0 linker stubs
+
+.iplt           0xd00213a4        0x0
+ .iplt          0xd00213a4        0x0 build/tiny210-qemu/bl1/start.o
+
+.vectors        0xd00213c0       0x60
+ *(.bl1vectors)
+ .bl1vectors    0xd00213c0       0x60 build/tiny210-qemu/bl1/start.o
+
+.rodata         0xd0021420      0x434
+ *(.rodata .rodata.*)
+ .rodata.bl1_exception.names
+                0xd0021420       0x20 build/tiny210-qemu/bl1/bl1.o
+ .rodata.str1.1
+                0xd0021440      0x3f3 build/tiny210-qemu/bl1/bl1.o
+                                0x3ad (size before relaxing)
+ *fill*         0xd0021833        0x1 
+ .rodata.cst32  0xd0021834       0x20 build/tiny210-qemu/bl1/bl1.o
+ .rodata.str1.1
+                0xd0021854        0x0 build/tiny210-qemu/bl1/bl1lib.o
+                                 0x4d (size before relaxing)
+
+.rel.dyn        0xd0021854        0x0
+ .rel.iplt      0xd0021854        0x0 build/tiny210-qemu/bl1/start.o
+
+.data           0xd0021854        0x4
+ *(.data .data.*)
+ .data.dram_size
+                0xd0021854        0x4 build/tiny210-qemu/bl1/bl1.o
+                0xd0021858                        bl1_end = .
+
+.igot.plt       0xd0021858        0x0
+ .igot.plt      0xd0021858        0x0 build/tiny210-qemu/bl1/start.o
+                0xd0021858                        . = ALIGN (0x4)
+                0xd0021858                        bl1_bss_start = .
+
+.bss            0xd0021858      0x418
+ *(.bss .bss.* COMMON)
+ .bss.uart_pclk
+                0xd0021858        0x4 build/tiny210-qemu/bl1/bl1.o
+ .bss.uart_dead
+                0xd002185c        0x1 build/tiny210-qemu/bl1/bl1.o
+ *fill*         0xd002185d        0x3 
+ .bss.pll_locked
+                0xd0021860        0x4 build/tiny210-qemu/bl1/bl1.o
+ .bss.stage     0xd0021864        0x4 build/tiny210-qemu/bl1/bl1.o
+ .bss.sd_copy   0xd0021868        0x4 build/tiny210-qemu/bl1/bl1.o
+ .bss.sd_ch     0xd002186c        0x4 build/tiny210-qemu/bl1/bl1.o
+ .bss.crctab    0xd0021870      0x400 build/tiny210-qemu/bl1/bl1lib.o
+                0xd0021c70                        . = ALIGN (0x4)
+                0xd0021c70                        bl1_bss_end = .
+
+/DISCARD/
+ *(.ARM.exidx* .ARM.extab* .comment .note*)
+                0x00000001                        ASSERT ((ADDR (.text) == 0xd0020010), BL1 entry must be at 0xD0020010 (iROM jumps there))
+                0x00000001                        ASSERT (((bl1_end - bl1_start) <= 0x3ff0), BL1 larger than 16 KiB - 16 byte header)
+                0x00000001                        ASSERT ((bl1_bss_end < (BL1_STACK_TOP - 0x1000)), BL1 BSS runs into its stack)
+LOAD build/tiny210-qemu/bl1/start.o
+LOAD build/tiny210-qemu/bl1/bl1.o
+LOAD build/tiny210-qemu/bl1/bl1lib.o
+OUTPUT(build/tiny210-qemu/bl1/bl1.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x00000000       0x33
+ .ARM.attributes
+                0x00000000       0x27 build/tiny210-qemu/bl1/start.o
+ .ARM.attributes
+                0x00000027       0x43 build/tiny210-qemu/bl1/bl1.o
+ .ARM.attributes
+                0x0000006a       0x43 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_info     0x00000000     0x16c1
+ .debug_info    0x00000000       0xf3 build/tiny210-qemu/bl1/start.o
+ .debug_info    0x000000f3     0x12fb build/tiny210-qemu/bl1/bl1.o
+ .debug_info    0x000013ee      0x2d3 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_abbrev   0x00000000      0x49c
+ .debug_abbrev  0x00000000       0x1f build/tiny210-qemu/bl1/start.o
+ .debug_abbrev  0x0000001f      0x312 build/tiny210-qemu/bl1/bl1.o
+ .debug_abbrev  0x00000331      0x16b build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_aranges  0x00000000       0x28
+ .debug_aranges
+                0x00000000       0x28 build/tiny210-qemu/bl1/start.o
+
+.debug_rnglists
+                0x00000000      0x196
+ .debug_rnglists
+                0x00000000       0x1a build/tiny210-qemu/bl1/start.o
+ .debug_rnglists
+                0x0000001a      0x12c build/tiny210-qemu/bl1/bl1.o
+ .debug_rnglists
+                0x00000146       0x50 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_line     0x00000000      0xceb
+ .debug_line    0x00000000       0x8c build/tiny210-qemu/bl1/start.o
+ .debug_line    0x0000008c      0x9c8 build/tiny210-qemu/bl1/bl1.o
+ .debug_line    0x00000a54      0x297 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_line_str
+                0x00000000       0xdd
+ .debug_line_str
+                0x00000000       0xdd build/tiny210-qemu/bl1/start.o
+                                 0x51 (size before relaxing)
+ .debug_line_str
+                0x000000dd        0x0 build/tiny210-qemu/bl1/bl1.o
+                                 0x8a (size before relaxing)
+ .debug_line_str
+                0x000000dd        0x0 build/tiny210-qemu/bl1/bl1lib.o
+                                 0x8d (size before relaxing)
+
+.debug_loclists
+                0x00000000      0x8c3
+ .debug_loclists
+                0x00000000      0x773 build/tiny210-qemu/bl1/bl1.o
+ .debug_loclists
+                0x00000773      0x150 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_str_offsets
+                0x00000000      0x240
+ .debug_str_offsets
+                0x00000000      0x1a4 build/tiny210-qemu/bl1/bl1.o
+ .debug_str_offsets
+                0x000001a4       0x9c build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_str      0x00000000      0x34a
+ .debug_str     0x00000000      0x34a build/tiny210-qemu/bl1/bl1.o
+                                0x328 (size before relaxing)
+ .debug_str     0x0000034a        0x0 build/tiny210-qemu/bl1/bl1lib.o
+                                0x155 (size before relaxing)
+
+.debug_addr     0x00000000      0x3c0
+ .debug_addr    0x00000000      0x37c build/tiny210-qemu/bl1/bl1.o
+ .debug_addr    0x0000037c       0x44 build/tiny210-qemu/bl1/bl1lib.o
+
+.debug_frame    0x00000000      0x1a8
+ .debug_frame   0x00000000      0x13c build/tiny210-qemu/bl1/bl1.o
+ .debug_frame   0x0000013c       0x6c build/tiny210-qemu/bl1/bl1lib.o

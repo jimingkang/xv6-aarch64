@@ -13,6 +13,7 @@
 #include <kernel/fs.h>
 #include <kernel/file.h>
 #include <kernel/vfs.h>
+#include <kernel/mmu_trace.h>
 
 // The executable is a locked inode of any mounted filesystem, read through
 // its default file operations, inside a log transaction.
@@ -141,6 +142,10 @@ loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
   if(base + minstart < PGROUNDUP(*psz))
     return -1;
   end = base + maxend;
+  if(MMUTRACE(2))
+    printf("exec:   image at base %s: %d PT_LOAD, uvmalloc VA %s-%s (%d pages, zero-filled)\n",
+           mmu_hx(base), loads, mmu_hx(PGROUNDUP(*psz)), mmu_hx(PGROUNDUP(end) - 1),
+           (int)((PGROUNDUP(end) - PGROUNDUP(*psz)) / PGSIZE));
   if((newsz = uvmalloc(pagetable, *psz, end)) == 0)
     return -1;
   *psz = newsz;
@@ -154,6 +159,10 @@ loadimage(pagetable_t pagetable, uint64 *psz, struct execsrc *src,
       return -1;
     if(ph.type != ELF_PROG_LOAD || ph.filesz == 0)
       continue;
+    if(MMUTRACE(2))
+      printf("exec:   LOAD VA %s memsz %s filesz %s file off %s flags %s%s%s (mapped RWX: no per-segment permissions)\n",
+             mmu_hx(base + ph.vaddr), mmu_hx(ph.memsz), mmu_hx(ph.filesz), mmu_hx(ph.off),
+             (ph.flags & 4) ? "R" : "-", (ph.flags & 2) ? "W" : "-", (ph.flags & 1) ? "X" : "-");
     if(loadseg(pagetable, base + ph.vaddr, src, ph.off, ph.filesz) < 0)
       return -1;
   }
@@ -213,6 +222,13 @@ exec(char *path, char **argv)
      (elf.type != ET_EXEC && elf.type != ET_DYN))
     goto bad;
   dynamic = elf.type == ET_DYN;
+  if(MMUTRACE(2)){
+    printf("exec: %s pid %d: inode %d, %d bytes, %s ELF, entry %s, %d program headers\n",
+           path, p->pid, (int)src.ip->inum, (int)src.ip->size, dynamic ? "ET_DYN" : "ET_EXEC",
+           mmu_hx(elf.entry), elf.phnum);
+    p->mmutrace = MMUTRACE(3);
+    p->mmu_tables = p->mmu_pages = 0;
+  }
   interp[0] = 0;
   if(dynamic && readinterp(&src, &elf, interp, sizeof(interp)) < 0){
     printf("exec: dynamic %s has no valid PT_INTERP\n", path);
@@ -272,6 +288,9 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-(USTACKPAGES + 1)*PGSIZE);
   sp = sz;
   stackbase = sp - USTACKPAGES*PGSIZE;
+  if(MMUTRACE(2))
+    printf("exec:   stack: guard page VA %s (PTE_U cleared), stack VA %s-%s\n",
+           mmu_hx(sz-(USTACKPAGES + 1)*PGSIZE), mmu_hx(stackbase), mmu_hx(sz - 1));
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -314,6 +333,9 @@ exec(char *path, char **argv)
   // argc is returned via the system call return
   // value, which goes in x0.
   p->trapframe->x1 = sp;
+  if(MMUTRACE(3))
+    printf("exec:   argv: %d strings + argv[]/envp/auxv %d words copied to VA %s-%s\n",
+           (int)argc, (int)words, mmu_hx(sp), mmu_hx(sz - 1));
 
   // Last steps that can fail: the private vmspace for a CLONE_VM caller and,
   // as Linux unshare_files(), a private descriptor table.
@@ -363,6 +385,12 @@ exec(char *path, char **argv)
   //        path, elf.entry, sz, sp);
   uvmsync_icache(pagetable, sz);
   switchuvm(p);
+  if(MMUTRACE(2)){
+    printf("exec: %s pid %d: sz %s sp %s entry %s, %d table pages + %d user pages, TTBR0 = root %s%s\n",
+           path, p->pid, mmu_hx(sz), mmu_hx(sp), mmu_hx(initial_entry), p->mmu_tables,
+           p->mmu_pages, mmu_hx(V2P(pagetable)), oldpagetable ? ", old image freed" : "");
+    p->mmutrace = 0;
+  }
 #if VM_TRACE
   // A fork child still contains its parent's image.  Delay the process's one
   // creation snapshot until its first successful exec has installed the
@@ -384,6 +412,7 @@ exec(char *path, char **argv)
   return argc; // this ends up in x0, the first argument to main(argc, argv)
 
  bad:
+  p->mmutrace = 0;
   if(!shared){
     acquire(&vm->lock);
     vm->execing = 0;
@@ -417,6 +446,9 @@ loadseg(pagetable_t pagetable, uint64 va, struct execsrc *src,
     if(offset + i > 0xffffffffULL || n > 0xffffffffULL ||
        srcread(src, kva + pageoff, offset+i, n) != n)
       return -1;
+    if(MMUTRACE_PAGES())
+      printf("exec:   read file off %s -> VA %s (pa %s) %d bytes\n", mmu_hx(offset + i),
+             mmu_hx(va + i), mmu_hx(V2P(kva) + pageoff), (int)n);
   }
   
   return 0;

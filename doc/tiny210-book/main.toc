@@ -1,0 +1,181 @@
+\contentsline {chapter}{关于本书}{i}{chapter*.1}%
+\contentsline {chapter}{\numberline {第一章\hspace {.3em}}Tiny210 开发者指南}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}阅读顺序}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}代码地图}{1}{section.1.2}%
+\contentsline {section}{\numberline {1.3}快速构建}{2}{section.1.3}%
+\contentsline {section}{\numberline {1.4}默认硬件参数}{3}{section.1.4}%
+\contentsline {section}{\numberline {1.5}启动全景}{4}{section.1.5}%
+\contentsline {section}{\numberline {1.6}当前实现边界}{4}{section.1.6}%
+\contentsline {section}{\numberline {1.7}实板调试入口}{4}{section.1.7}%
+\contentsline {chapter}{\numberline {第二章\hspace {.3em}}Tiny210 启动与内存初始化}{5}{chapter.2}%
+\contentsline {section}{\numberline {2.1}SD 启动布局}{5}{section.2.1}%
+\contentsline {section}{\numberline {2.2}BL0 → BL1 → 内核}{5}{section.2.2}%
+\contentsline {section}{\numberline {2.3}\texttt {\_entry} 做什么}{7}{section.2.3}%
+\contentsline {section}{\numberline {2.4}\texttt {x210\_main()} 内核初始化顺序}{7}{section.2.4}%
+\contentsline {section}{\numberline {2.5}内存布局与 MMU}{8}{section.2.5}%
+\contentsline {section}{\numberline {2.6}第一个用户进程}{8}{section.2.6}%
+\contentsline {section}{\numberline {2.7}启动故障定位}{9}{section.2.7}%
+\contentsline {chapter}{\numberline {第三章\hspace {.3em}}Tiny210 异常、中断与系统时钟}{10}{chapter.3}%
+\contentsline {section}{\numberline {3.1}硬件结构}{10}{section.3.1}%
+\contentsline {section}{\numberline {3.2}从硬件到驱动 handler 的调用链}{10}{section.3.2}%
+\contentsline {section}{\numberline {3.3}异常向量与 trapframe}{10}{section.3.3}%
+\contentsline {section}{\numberline {3.4}VIC 初始化}{11}{section.3.4}%
+\contentsline {section}{\numberline {3.5}PWM Timer 4}{11}{section.3.5}%
+\contentsline {section}{\numberline {3.6}中断启用时机与锁}{12}{section.3.6}%
+\contentsline {section}{\numberline {3.7}新增 IRQ 驱动的最小步骤}{12}{section.3.7}%
+\contentsline {section}{\numberline {3.8}调试建议}{12}{section.3.8}%
+\contentsline {chapter}{\numberline {第四章\hspace {.3em}}内存布局与 \texttt {/proc} 内存信息}{14}{chapter.4}%
+\contentsline {section}{\numberline {4.1}物理内存}{14}{section.4.1}%
+\contentsline {section}{\numberline {4.2}内核镜像}{16}{section.4.2}%
+\contentsline {section}{\numberline {4.3}页分配器}{16}{section.4.3}%
+\contentsline {section}{\numberline {4.4}MMIO 外设区}{17}{section.4.4}%
+\contentsline {section}{\numberline {4.5}虚拟地址空间}{17}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}kvminit() 图解：两级页表}{18}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}页表本身放在物理内存哪里}{18}{subsection.4.5.2}%
+\contentsline {section}{\numberline {4.6}/proc/meminfo 与 /proc/iomem}{20}{section.4.6}%
+\contentsline {section}{\numberline {4.7}MMU / 内存日志与动画}{21}{section.4.7}%
+\contentsline {section}{\numberline {4.8}可改进点}{23}{section.4.8}%
+\contentsline {chapter}{\numberline {第五章\hspace {.3em}}Tiny210 LCD、FIMD 与 framebuffer}{24}{chapter.5}%
+\contentsline {section}{\numberline {5.1}数据通路}{24}{section.5.1}%
+\contentsline {section}{\numberline {5.2}资源和内存}{24}{section.5.2}%
+\contentsline {section}{\numberline {5.3}面板选择}{25}{section.5.3}%
+\contentsline {section}{\numberline {5.4}probe 配置过程}{25}{section.5.4}%
+\contentsline {section}{\numberline {5.5}LCD 文本控制台}{26}{section.5.5}%
+\contentsline {section}{\numberline {5.6}当前限制与改进方向}{26}{section.5.6}%
+\contentsline {section}{\numberline {5.7}故障定位}{27}{section.5.7}%
+\contentsline {chapter}{\numberline {第六章\hspace {.3em}}Wi-Fi 驱动架构}{28}{chapter.6}%
+\contentsline {section}{\numberline {6.1}当前支持范围}{28}{section.6.1}%
+\contentsline {section}{\numberline {6.2}硬件与 USB 拓扑}{28}{section.6.2}%
+\contentsline {section}{\numberline {6.3}USB/Wi-Fi 分层 Trace 开关}{29}{section.6.3}%
+\contentsline {section}{\numberline {6.4}构建、firmware 和配置文件}{30}{section.6.4}%
+\contentsline {section}{\numberline {6.5}initcall、枚举与驱动匹配}{31}{section.6.5}%
+\contentsline {section}{\numberline {6.6}\texttt {mt7601u\_probe()} 初始化阶段}{32}{section.6.6}%
+\contentsline {subsection}{\numberline {6.6.1}控制传输}{32}{subsection.6.6.1}%
+\contentsline {subsection}{\numberline {6.6.2}固件下载}{33}{subsection.6.6.2}%
+\contentsline {subsection}{\numberline {6.6.3}eFuse 和射频初始化}{33}{subsection.6.6.3}%
+\contentsline {section}{\numberline {6.7}扫描、认证和 WPA2 状态机}{33}{section.6.7}%
+\contentsline {section}{\numberline {6.8}RX：IRQ + NAPI 风格下半部}{34}{section.6.8}%
+\contentsline {section}{\numberline {6.9}TX 与网络栈}{34}{section.6.9}%
+\contentsline {section}{\numberline {6.10}自动连接和手工测试}{34}{section.6.10}%
+\contentsline {section}{\numberline {6.11}当前已知限制}{35}{section.6.11}%
+\contentsline {section}{\numberline {6.12}故障定位}{36}{section.6.12}%
+\contentsline {section}{\numberline {6.13}MT7601U Wi-Fi 架构总览与硬件连接}{36}{section.6.13}%
+\contentsline {subsection}{\numberline {6.13.1}概述}{36}{subsection.6.13.1}%
+\contentsline {subsection}{\numberline {6.13.2}与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}{37}{subsection.6.13.2}%
+\contentsline {subsection}{\numberline {6.13.3}总体分层}{38}{subsection.6.13.3}%
+\contentsline {subsection}{\numberline {6.13.4}硬件连接}{39}{subsection.6.13.4}%
+\contentsline {subsubsection}{\numberline {6.13.4.1}SoC 内部：USB Host 子系统}{40}{subsubsection.6.13.4.1}%
+\contentsline {subsubsection}{\numberline {6.13.4.2}板上：USB2514 Hub 与 USB-A 口}{40}{subsubsection.6.13.4.2}%
+\contentsline {subsubsection}{\numberline {6.13.4.3}电气与链路层：480 Mbit/s 上传的是什么}{41}{subsubsection.6.13.4.3}%
+\contentsline {subsubsection}{\numberline {6.13.4.4}空口：网卡到路由器}{41}{subsubsection.6.13.4.4}%
+\contentsline {subsection}{\numberline {6.13.5}软件架构}{42}{subsection.6.13.5}%
+\contentsline {subsubsection}{\numberline {6.13.5.1}执行上下文}{42}{subsubsection.6.13.5.1}%
+\contentsline {section}{\numberline {6.14}USB 主机栈：EHCI 数据传输与中断处理}{43}{section.6.14}%
+\contentsline {subsection}{\numberline {6.14.1}USB 各层架构}{43}{subsection.6.14.1}%
+\contentsline {subsubsection}{\numberline {6.14.1.1}平台层：PHY 与控制器启动}{43}{subsubsection.6.14.1.1}%
+\contentsline {subsubsection}{\numberline {6.14.1.2}HCD 层：QH/qTD 与 dummy 追加法}{44}{subsubsection.6.14.1.2}%
+\contentsline {subsubsection}{\numberline {6.14.1.3}总线上的包与事务}{44}{subsubsection.6.14.1.3}%
+\contentsline {subsubsection}{\numberline {6.14.1.4}EHCI 数据结构：QH 与 qTD}{46}{subsubsection.6.14.1.4}%
+\contentsline {subsubsection}{\numberline {6.14.1.5}EHCI 怎样执行异步调度}{47}{subsubsection.6.14.1.5}%
+\contentsline {subsubsection}{\numberline {6.14.1.6}控制传输：MT7601U 的寄存器读写}{48}{subsubsection.6.14.1.6}%
+\contentsline {subsubsection}{\numberline {6.14.1.7}Bulk OUT：一帧怎样从内存到网卡}{48}{subsubsection.6.14.1.7}%
+\contentsline {subsubsection}{\numberline {6.14.1.8}Bulk IN：EP4 的接收环}{49}{subsubsection.6.14.1.8}%
+\contentsline {subsubsection}{\numberline {6.14.1.9}MCU 命令与 EP5}{49}{subsubsection.6.14.1.9}%
+\contentsline {subsubsection}{\numberline {6.14.1.10}枚举请求序列}{49}{subsubsection.6.14.1.10}%
+\contentsline {subsubsection}{\numberline {6.14.1.11}出错处理与 data toggle}{50}{subsubsection.6.14.1.11}%
+\contentsline {subsubsection}{\numberline {6.14.1.12}枚举与 Hub}{50}{subsubsection.6.14.1.12}%
+\contentsline {subsubsection}{\numberline {6.14.1.13}USB core 与设备驱动接口}{51}{subsubsection.6.14.1.13}%
+\contentsline {subsection}{\numberline {6.14.2}中断与下半部：一帧怎样从 IRQ 55 走到协议栈}{51}{subsection.6.14.2}%
+\contentsline {subsubsection}{\numberline {6.14.2.1}上半部为什么这么短}{52}{subsubsection.6.14.2.1}%
+\contentsline {subsubsection}{\numberline {6.14.2.2}NAPI 的三个状态位}{53}{subsubsection.6.14.2.2}%
+\contentsline {subsubsection}{\numberline {6.14.2.3}时钟中断：状态机和超时的动力}{53}{subsubsection.6.14.2.3}%
+\contentsline {subsubsection}{\numberline {6.14.2.4}发送方向：没有中断}{53}{subsubsection.6.14.2.4}%
+\contentsline {subsubsection}{\numberline {6.14.2.5}上下文与锁}{54}{subsubsection.6.14.2.5}%
+\contentsline {subsection}{\numberline {6.14.3}用分层 Trace 对齐 USB 与 Wi-Fi 调用链}{54}{subsection.6.14.3}%
+\contentsline {section}{\numberline {6.15}通信图：EP4 接收环、NAPI 与 EP4 OUT 发送}{55}{section.6.15}%
+\contentsline {section}{\numberline {6.16}实板排查：关联失败、时序图与通信图}{63}{section.6.16}%
+\contentsline {subsection}{\numberline {6.16.1}2026-11-16 排查：Tiny210 关联失败（auth 卡死 → ACK 丢失）}{63}{subsection.6.16.1}%
+\contentsline {subsubsection}{\numberline {6.16.1.1}参与的进程、中断上下文与锁}{65}{subsubsection.6.16.1.1}%
+\contentsline {subsubsection}{\numberline {6.16.1.2}第一阶段：auth 帧卡在 EP8 OUT}{67}{subsubsection.6.16.1.2}%
+\contentsline {subsubsection}{\numberline {6.16.1.3}第二阶段：固定 ch9 后 auth 成功、关联无效}{68}{subsubsection.6.16.1.3}%
+\contentsline {subsubsection}{\numberline {6.16.1.4}全部问题与处理}{69}{subsubsection.6.16.1.4}%
+\contentsline {subsubsection}{\numberline {6.16.1.5}结果：UNICAST\_TO\_ME 掩码修复 ACK}{70}{subsubsection.6.16.1.5}%
+\contentsline {subsubsection}{\numberline {6.16.1.6}成功连接的完整通信过程（对应通信图 0--8）}{70}{subsubsection.6.16.1.6}%
+\contentsline {subsubsection}{\numberline {6.16.1.7}每一步的函数、USB 传输方式与数据格式}{74}{subsubsection.6.16.1.7}%
+\contentsline {chapter}{\numberline {第七章\hspace {.3em}}MT7601U 与 802.11/WPA2 协议实现}{77}{chapter.7}%
+\contentsline {section}{\numberline {7.1}MT7601U 硬件层}{77}{section.7.1}%
+\contentsline {subsection}{\numberline {7.1.1}probe 时的初始化}{77}{subsection.7.1.1}%
+\contentsline {subsection}{\numberline {7.1.2}USB 上的帧格式}{78}{subsection.7.1.2}%
+\contentsline {subsection}{\numberline {7.1.3}WCID 与密钥表}{79}{subsection.7.1.3}%
+\contentsline {section}{\numberline {7.2}802.11 与 WPA2：网卡如何和路由器通信}{79}{section.7.2}%
+\contentsline {subsection}{\numberline {7.2.1}连接状态机}{79}{subsection.7.2.1}%
+\contentsline {subsection}{\numberline {7.2.2}各阶段帧}{79}{subsection.7.2.2}%
+\contentsline {subsection}{\numberline {7.2.3}WPA2-PSK 密钥推导（wpa\_crypto.c）}{80}{subsection.7.2.3}%
+\contentsline {subsection}{\numberline {7.2.4}802.11 帧头}{80}{subsection.7.2.4}%
+\contentsline {subsection}{\numberline {7.2.5}硬件替主机做的事}{81}{subsection.7.2.5}%
+\contentsline {subsection}{\numberline {7.2.6}扫描：Beacon 解析}{81}{subsection.7.2.6}%
+\contentsline {subsection}{\numberline {7.2.7}认证与关联：逐字节}{82}{subsection.7.2.7}%
+\contentsline {subsection}{\numberline {7.2.8}EAPOL-Key 帧结构}{83}{subsection.7.2.8}%
+\contentsline {subsection}{\numberline {7.2.9}密码学细节（{\ttfamily \small wpa\_crypto.c}，全部软件实现）}{83}{subsection.7.2.9}%
+\contentsline {subsection}{\numberline {7.2.10}CCMP：数据帧加密（硬件完成）}{84}{subsection.7.2.10}%
+\contentsline {subsection}{\numberline {7.2.11}Tiny210 上尚未实现的部分}{85}{subsection.7.2.11}%
+\contentsline {subsection}{\numberline {7.2.12}802.11 数据帧与 Ethernet 帧的转换}{85}{subsection.7.2.12}%
+\contentsline {section}{\numberline {7.3}网络协议层}{85}{section.7.3}%
+\contentsline {section}{\numberline {7.4}时序图}{87}{section.7.4}%
+\contentsline {subsection}{\numberline {7.4.1}枚举与固件下载}{87}{subsection.7.4.1}%
+\contentsline {subsection}{\numberline {7.4.2}连接与 WPA2 四次握手}{88}{subsection.7.4.2}%
+\contentsline {subsection}{\numberline {7.4.3}DHCP 与 ARP 数据路径}{89}{subsection.7.4.3}%
+\contentsline {section}{\numberline {7.5}函数调用链与日志对照}{89}{section.7.5}%
+\contentsline {subsection}{\numberline {7.5.1}驱动注册与 probe}{89}{subsection.7.5.1}%
+\contentsline {subsection}{\numberline {7.5.2}接收路径}{90}{subsection.7.5.2}%
+\contentsline {subsection}{\numberline {7.5.3}连接：系统调用与状态机}{91}{subsection.7.5.3}%
+\contentsline {subsection}{\numberline {7.5.4}发送路径（DHCP）}{92}{subsection.7.5.4}%
+\contentsline {subsection}{\numberline {7.5.5}完整实板日志（成功的一次）}{92}{subsection.7.5.5}%
+\contentsline {section}{\numberline {7.6}实板调试中的问题与所在层}{93}{section.7.6}%
+\contentsline {chapter}{\numberline {第八章\hspace {.3em}}Tiny210 根文件系统、bcache 与日志}{95}{chapter.8}%
+\contentsline {section}{\numberline {8.1}当前根文件系统来源}{95}{section.8.1}%
+\contentsline {section}{\numberline {8.2}镜像生成}{95}{section.8.2}%
+\contentsline {section}{\numberline {8.3}磁盘格式}{96}{section.8.3}%
+\contentsline {section}{\numberline {8.4}运行时 I/O 层次}{96}{section.8.4}%
+\contentsline {section}{\numberline {8.5}bcache}{97}{section.8.5}%
+\contentsline {section}{\numberline {8.6}redo log}{97}{section.8.6}%
+\contentsline {section}{\numberline {8.7}文件系统何时初始化}{98}{section.8.7}%
+\contentsline {section}{\numberline {8.8}\texttt {/init} 与设备节点}{98}{section.8.8}%
+\contentsline {section}{\numberline {8.9}后续改进}{98}{section.8.9}%
+\contentsline {chapter}{\numberline {第九章\hspace {.3em}}Tiny210 设备模型与驱动开发}{99}{chapter.9}%
+\contentsline {section}{\numberline {9.1}分层}{99}{section.9.1}%
+\contentsline {section}{\numberline {9.2}核心对象}{99}{section.9.2}%
+\contentsline {section}{\numberline {9.3}注册和匹配}{100}{section.9.3}%
+\contentsline {section}{\numberline {9.4}initcall}{101}{section.9.4}%
+\contentsline {section}{\numberline {9.5}当前 S5PV210 platform devices}{101}{section.9.5}%
+\contentsline {section}{\numberline {9.6}MMIO 映射}{102}{section.9.6}%
+\contentsline {section}{\numberline {9.7}字符设备与 file\_operations}{102}{section.9.7}%
+\contentsline {section}{\numberline {9.8}板载 K1-\/-K8：输入子系统和 event 接口}{102}{section.9.8}%
+\contentsline {section}{\numberline {9.9}新增一个 platform driver}{104}{section.9.9}%
+\contentsline {subsection}{\numberline {9.9.1}描述板级资源}{104}{subsection.9.9.1}%
+\contentsline {subsection}{\numberline {9.9.2}编写驱动}{104}{subsection.9.9.2}%
+\contentsline {subsection}{\numberline {9.9.3}加入构建}{105}{subsection.9.9.3}%
+\contentsline {subsection}{\numberline {9.9.4}验证}{105}{subsection.9.9.4}%
+\contentsline {section}{\numberline {9.10}当前模型与 Linux 的差异}{105}{section.9.10}%
+\contentsline {chapter}{\numberline {第十章\hspace {.3em}}Tiny210 上板调试记录：BL1、SD、USB 与串口}{106}{chapter.10}%
+\contentsline {section}{\numberline {10.1}启动链与各阶段运行在哪里}{106}{section.10.1}%
+\contentsline {section}{\numberline {10.2}串口：板子正常，终端显示乱码}{107}{section.10.2}%
+\contentsline {section}{\numberline {10.3}LED 判断 BL1 走到哪一步}{107}{section.10.3}%
+\contentsline {section}{\numberline {10.4}EHCI 上第一个 bulk OUT 永远发不完}{107}{section.10.4}%
+\contentsline {section}{\numberline {10.5}iROM 拷贝函数读第 0 扇区卡死}{108}{section.10.5}%
+\contentsline {section}{\numberline {10.6}初始化``无声失败''：R1b 的 busy 结束判断}{108}{section.10.6}%
+\contentsline {section}{\numberline {10.7}没有异常向量表时，出错只会``卡死''}{109}{section.10.7}%
+\contentsline {section}{\numberline {10.8}一行 \texttt {.balign\ 32} 让所有地址错开 16 字节}{109}{section.10.8}%
+\contentsline {section}{\numberline {10.9}解析 MBR 时的对齐错误}{109}{section.10.9}%
+\contentsline {section}{\numberline {10.10}SD 卡布局与文件}{110}{section.10.10}%
+\contentsline {section}{\numberline {10.11}固件与文件的加载时机}{110}{section.10.11}%
+\contentsline {section}{\numberline {10.12}内核启动前的长时间停顿}{111}{section.10.12}%
+\contentsline {section}{\numberline {10.13}Wi-Fi 扫描永远停在信道 1：延时任务从来不执行}{111}{section.10.13}%
+\contentsline {section}{\numberline {10.14}超时后清理 QH 把数据 toggle 复位了}{111}{section.10.14}%
+\contentsline {section}{\numberline {10.15}MT7601U 发送端点一直 NAK（排查中）}{112}{section.10.15}%
+\contentsline {section}{\numberline {10.16}经验小结}{112}{section.10.16}%
+\contentsline {chapter}{\numberline {第十一章\hspace {.3em}}参考资料与源码入口}{113}{chapter.11}%
+\contentsline {section}{\numberline {11.1}硬件资料}{113}{section.11.1}%
+\contentsline {section}{\numberline {11.2}仓库入口}{113}{section.11.2}%
+\contentsline {section}{\numberline {11.3}阅读原则}{114}{section.11.3}%
+\contentsline {chapter}{版本说明}{115}{chapter*.65}%

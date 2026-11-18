@@ -75,6 +75,7 @@ MM_OBJS = \
   $K/mm/fdt.o \
   $K/mm/slab.o \
   $K/mm/vm.o \
+  $K/mm/mmu_trace.o \
   $K/mm/mmap.o
 
 LIB_OBJS = \
@@ -224,6 +225,14 @@ CFLAGS += -DVFS_TRACE=$(VFS_TRACE)
 # trapframe snapshot whenever a user image is created or replaced.
 VM_TRACE ?= 0
 CFLAGS += -DVM_TRACE=$(VM_TRACE)
+
+# Memory-layout / MMU story (include/kernel/mmu_trace.h):
+#   MMU_TRACE=1  boot: sections, bootstrap tables, TCR/MAIR/SCTLR, kvmmake
+#                regions and their table pages, final TTBR1 map, buddy ranges
+#   MMU_TRACE=2  + one summary per userinit / fork / exec
+#   MMU_TRACE=3  + every table page, user page and ELF chunk of fork/exec
+MMU_TRACE ?= 0
+CFLAGS += -DMMU_TRACE=$(MMU_TRACE)
 
 # Process/context/trapframe scheduling trace.  This is separate from
 # VM_TRACE because a full page-table walk is not useful on every switch.

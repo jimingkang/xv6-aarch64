@@ -1,0 +1,226 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {第六章\hspace  {.3em}}Wi-Fi 驱动架构}{28}{chapter.6}\protected@file@percent }
+\@writefile{lof}{\addvspace {10.0pt}}
+\@writefile{lot}{\addvspace {10.0pt}}
+\newlabel{ch:wifi-arch}{{六}{28}{Wi-Fi 驱动架构}{chapter.6}{}}
+\newlabel{tiny210-mt7601u-usb-wi-fi-ux9a71ux52a8}{{六}{28}{Wi-Fi 驱动架构}{chapter.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.1}当前支持范围}{28}{section.6.1}\protected@file@percent }
+\newlabel{ux5f53ux524dux652fux6301ux8303ux56f4}{{6.1}{28}{当前支持范围}{section.6.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.2}硬件与 USB 拓扑}{28}{section.6.2}\protected@file@percent }
+\newlabel{ux786cux4ef6ux4e0e-usb-ux62d3ux6251}{{6.2}{28}{硬件与 USB 拓扑}{section.6.2}{}}
+\gdef \LT@xiii {\LT@entry 
+    {1}{164.58562pt}\LT@entry 
+    {1}{287.39233pt}}
+\gdef \LT@xiv {\LT@entry 
+    {1}{107.58464pt}\LT@entry 
+    {1}{76.2866pt}\LT@entry 
+    {1}{215.70511pt}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.1}{\ignorespaces Tiny210 USB-A 到 MT7601U 的硬件拓扑\relax }}{29}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:tiny-wifi-hw}{{6.1}{29}{Tiny210 USB-A 到 MT7601U 的硬件拓扑\relax }{figure.caption.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.3}USB/Wi-Fi 分层 Trace 开关}{29}{section.6.3}\protected@file@percent }
+\newlabel{tiny210-wifi-trace}{{6.3}{29}{USB/Wi-Fi 分层 Trace 开关}{section.6.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.4}构建、firmware 和配置文件}{30}{section.6.4}\protected@file@percent }
+\newlabel{ux6784ux5efafirmware-ux548cux914dux7f6eux6587ux4ef6}{{6.4}{30}{构建、firmware 和配置文件}{section.6.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.5}initcall、枚举与驱动匹配}{31}{section.6.5}\protected@file@percent }
+\newlabel{initcallux679aux4e3eux4e0eux9a71ux52a8ux5339ux914d}{{6.5}{31}{initcall、枚举与驱动匹配}{section.6.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.2}{\ignorespaces EHCI 枚举 MT7601U 并交给 USB driver 的过程\relax }}{32}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:tiny-wifi-enum}{{6.2}{32}{EHCI 枚举 MT7601U 并交给 USB driver 的过程\relax }{figure.caption.10}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.6}\texttt  {mt7601u\_probe()} 初始化阶段}{32}{section.6.6}\protected@file@percent }
+\newlabel{mt7601u_probe-ux521dux59cbux5316ux9636ux6bb5}{{6.6}{32}{\texorpdfstring {\texttt {mt7601u\_probe()} 初始化阶段}{mt7601u\_probe() 初始化阶段}}{section.6.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.3}{\ignorespaces MT7601U probe 的主要硬件初始化阶段\relax }}{32}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:tiny-wifi-probe}{{6.3}{32}{MT7601U probe 的主要硬件初始化阶段\relax }{figure.caption.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.1}控制传输}{32}{subsection.6.6.1}\protected@file@percent }
+\newlabel{ux63a7ux5236ux4f20ux8f93}{{6.6.1}{32}{控制传输}{subsection.6.6.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.2}固件下载}{33}{subsection.6.6.2}\protected@file@percent }
+\newlabel{ux56faux4ef6ux4e0bux8f7d}{{6.6.2}{33}{固件下载}{subsection.6.6.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6.3}eFuse 和射频初始化}{33}{subsection.6.6.3}\protected@file@percent }
+\newlabel{efuse-ux548cux5c04ux9891ux521dux59cbux5316}{{6.6.3}{33}{eFuse 和射频初始化}{subsection.6.6.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.7}扫描、认证和 WPA2 状态机}{33}{section.6.7}\protected@file@percent }
+\newlabel{ux626bux63cfux8ba4ux8bc1ux548c-wpa2-ux72b6ux6001ux673a}{{6.7}{33}{扫描、认证和 WPA2 状态机}{section.6.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.4}{\ignorespaces 扫描、Open-System 认证、关联与 WPA2 状态机\relax }}{33}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:tiny-wifi-state}{{6.4}{33}{扫描、Open-System 认证、关联与 WPA2 状态机\relax }{figure.caption.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.8}RX：IRQ + NAPI 风格下半部}{34}{section.6.8}\protected@file@percent }
+\newlabel{rxirq--napi-ux98ceux683cux4e0bux534aux90e8}{{6.8}{34}{RX：IRQ + NAPI 风格下半部}{section.6.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.5}{\ignorespaces Wi-Fi RX 从 EHCI 中断到 xv6 网络栈\relax }}{34}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:tiny-wifi-rx}{{6.5}{34}{Wi-Fi RX 从 EHCI 中断到 xv6 网络栈\relax }{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.9}TX 与网络栈}{34}{section.6.9}\protected@file@percent }
+\newlabel{tx-ux4e0eux7f51ux7edcux6808}{{6.9}{34}{TX 与网络栈}{section.6.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.10}自动连接和手工测试}{34}{section.6.10}\protected@file@percent }
+\newlabel{ux81eaux52a8ux8fdeux63a5ux548cux624bux5de5ux6d4bux8bd5}{{6.10}{34}{自动连接和手工测试}{section.6.10}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.11}当前已知限制}{35}{section.6.11}\protected@file@percent }
+\newlabel{ux5f53ux524dux5df2ux77e5ux9650ux5236}{{6.11}{35}{当前已知限制}{section.6.11}{}}
+\gdef \LT@xv {\LT@entry 
+    {1}{164.58562pt}\LT@entry 
+    {1}{287.39233pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.12}故障定位}{36}{section.6.12}\protected@file@percent }
+\newlabel{ux6545ux969cux5b9aux4f4d}{{6.12}{36}{故障定位}{section.6.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.13}MT7601U Wi-Fi 架构总览与硬件连接}{36}{section.6.13}\protected@file@percent }
+\newlabel{wa:ch-05a-wifi-arch-hw}{{6.13}{36}{MT7601U Wi-Fi 架构总览与硬件连接}{section.6.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.13.1}概述}{36}{subsection.6.13.1}\protected@file@percent }
+\gdef \LT@xvi {\LT@entry 
+    {1}{73.44133pt}\LT@entry 
+    {1}{161.64487pt}\LT@entry 
+    {1}{167.33542pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.13.2}与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}{37}{subsection.6.13.2}\protected@file@percent }
+\newlabel{wa:rpi}{{6.13.2}{37}{与 RPi3 版本（rpi3-lock 分支 xv6-book）的对照}{subsection.6.13.2}{}}
+\gdef \LT@xvii {\LT@entry 
+    {1}{64.9055pt}\LT@entry 
+    {1}{150.26378pt}\LT@entry 
+    {1}{252.6937pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.13.3}总体分层}{38}{subsection.6.13.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.6}{\ignorespaces Wi-Fi 链路分层\relax }}{38}{figure.caption.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.13.4}硬件连接}{39}{subsection.6.13.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.7}{\ignorespaces 硬件连接\relax }}{39}{figure.caption.15}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6.4}{\ignorespaces MT7601U USB 端点（日志 {\ttfamily  \small bulk in 4,5/512 out 8/512}）\relax }}{39}{table.caption.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.13.4.1}SoC 内部：USB Host 子系统}{40}{subsubsection.6.13.4.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.8}{\ignorespaces S5PV210 内 USB Host 相关模块\relax }}{40}{figure.caption.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.13.4.2}板上：USB2514 Hub 与 USB-A 口}{40}{subsubsection.6.13.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.13.4.3}电气与链路层：480 Mbit/s 上传的是什么}{41}{subsubsection.6.13.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.13.4.4}空口：网卡到路由器}{41}{subsubsection.6.13.4.4}\protected@file@percent }
+\gdef \LT@xviii {\LT@entry 
+    {1}{99.04881pt}\LT@entry 
+    {1}{301.06339pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.13.5}软件架构}{42}{subsection.6.13.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.9}{\ignorespaces 软件架构与源文件\relax }}{42}{figure.caption.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.13.5.1}执行上下文}{42}{subsubsection.6.13.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6.14}USB 主机栈：EHCI 数据传输与中断处理}{43}{section.6.14}\protected@file@percent }
+\newlabel{wa:ch-05b-usb-stack}{{6.14}{43}{USB 主机栈：EHCI 数据传输与中断处理}{section.6.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.14.1}USB 各层架构}{43}{subsection.6.14.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.10}{\ignorespaces USB 软件分层\relax }}{43}{figure.caption.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.1}平台层：PHY 与控制器启动}{43}{subsubsection.6.14.1.1}\protected@file@percent }
+\newlabel{wa:phy}{{6.14.1.1}{43}{平台层：PHY 与控制器启动}{subsubsection.6.14.1.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.2}HCD 层：QH/qTD 与 dummy 追加法}{44}{subsubsection.6.14.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.3}总线上的包与事务}{44}{subsubsection.6.14.1.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.11}{\ignorespaces USB 三种包（PID 本身带反码，所以不需要另加 CRC）\relax }}{44}{figure.caption.21}\protected@file@percent }
+\gdef \LT@xix {\LT@entry 
+    {1}{59.21495pt}\LT@entry 
+    {1}{70.59605pt}\LT@entry 
+    {1}{264.0748pt}}
+\gdef \LT@xx {\LT@entry 
+    {1}{44.98857pt}\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{275.4559pt}}
+\gdef \LT@xxi {\LT@entry 
+    {1}{44.98857pt}\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{275.4559pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.4}EHCI 数据结构：QH 与 qTD}{46}{subsubsection.6.14.1.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.12}{\ignorespaces 异步调度环：每个端点一个 QH，传输是挂在 QH 下的 qTD 链（图中为一次寄存器读和 EP4 的 4 个接收缓冲）\relax }}{46}{figure.caption.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.5}EHCI 怎样执行异步调度}{47}{subsubsection.6.14.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.6}控制传输：MT7601U 的寄存器读写}{48}{subsubsection.6.14.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.7}Bulk OUT：一帧怎样从内存到网卡}{48}{subsubsection.6.14.1.7}\protected@file@percent }
+\gdef \LT@xxii {\LT@entry 
+    {1}{22.22636pt}\LT@entry 
+    {1}{192.9429pt}\LT@entry 
+    {1}{175.87125pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.8}Bulk IN：EP4 的接收环}{49}{subsubsection.6.14.1.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.9}MCU 命令与 EP5}{49}{subsubsection.6.14.1.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.10}枚举请求序列}{49}{subsubsection.6.14.1.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.11}出错处理与 data toggle}{50}{subsubsection.6.14.1.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.12}枚举与 Hub}{50}{subsubsection.6.14.1.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.1.13}USB core 与设备驱动接口}{51}{subsubsection.6.14.1.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.14.2}中断与下半部：一帧怎样从 IRQ 55 走到协议栈}{51}{subsection.6.14.2}\protected@file@percent }
+\newlabel{wa:irq}{{6.14.2}{51}{中断与下半部：一帧怎样从 IRQ 55 走到协议栈}{subsection.6.14.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.13}{\ignorespaces 接收中断的上半部与下半部\relax }}{52}{figure.caption.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.2.1}上半部为什么这么短}{52}{subsubsection.6.14.2.1}\protected@file@percent }
+\gdef \LT@xxiii {\LT@entry 
+    {1}{70.59605pt}\LT@entry 
+    {1}{326.67085pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.2.2}NAPI 的三个状态位}{53}{subsubsection.6.14.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.2.3}时钟中断：状态机和超时的动力}{53}{subsubsection.6.14.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.2.4}发送方向：没有中断}{53}{subsubsection.6.14.2.4}\protected@file@percent }
+\gdef \LT@xxiv {\LT@entry 
+    {1}{84.82243pt}\LT@entry 
+    {1}{110.42992pt}\LT@entry 
+    {1}{207.16928pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.14.2.5}上下文与锁}{54}{subsubsection.6.14.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.14.3}用分层 Trace 对齐 USB 与 Wi-Fi 调用链}{54}{subsection.6.14.3}\protected@file@percent }
+\newlabel{wa:usb-wifi-trace}{{6.14.3}{54}{用分层 Trace 对齐 USB 与 Wi-Fi 调用链}{subsection.6.14.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.15}通信图：EP4 接收环、NAPI 与 EP4 OUT 发送}{55}{section.6.15}\protected@file@percent }
+\newlabel{wa:comm}{{6.15}{55}{通信图：EP4 接收环、NAPI 与 EP4 OUT 发送}{section.6.15}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.14}{\ignorespaces MT7601U 收发通信图：参与者、0--10 号消息与锁\relax }}{56}{figure.caption.25}\protected@file@percent }
+\newlabel{fig:wifi-comm-overview}{{6.14}{56}{MT7601U 收发通信图：参与者、0--10 号消息与锁\relax }{figure.caption.25}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.15}{\ignorespaces EHCI 异步环里的 WiFi 队列：每个 QH 下的 qTD 链，圆圈数字对应图\nobreakspace  {}\ref  {fig:wifi-comm-overview} 的消息号\relax }}{57}{figure.caption.26}\protected@file@percent }
+\newlabel{fig:wifi-comm-qh}{{6.15}{57}{EHCI 异步环里的 WiFi 队列：每个 QH 下的 qTD 链，圆圈数字对应图~\ref {fig:wifi-comm-overview} 的消息号\relax }{figure.caption.26}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.16}{\ignorespaces 消息 0--2：probe 预挂接收 qTD，HC 执行传输，IRQ 55 转 NAPI\relax }}{58}{figure.caption.27}\protected@file@percent }
+\newlabel{fig:wifi-comm-0-2}{{6.16}{58}{消息 0--2：probe 预挂接收 qTD，HC 执行传输，IRQ 55 转 NAPI\relax }{figure.caption.27}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.17}{\ignorespaces 消息 3--4：NAPI poll 摘下完成的 qTD，rx\_parse 拆聚合段\relax }}{59}{figure.caption.28}\protected@file@percent }
+\newlabel{fig:wifi-comm-3-4}{{6.17}{59}{消息 3--4：NAPI poll 摘下完成的 qTD，rx\_parse 拆聚合段\relax }{figure.caption.28}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.18}{\ignorespaces 消息 5--6：802.11 转以太网交给网络栈，缓冲重新挂回 EP4 IN\relax }}{60}{figure.caption.29}\protected@file@percent }
+\newlabel{fig:wifi-comm-5-6}{{6.18}{60}{消息 5--6：802.11 转以太网交给网络栈，缓冲重新挂回 EP4 IN\relax }{figure.caption.29}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.19}{\ignorespaces 消息 7--8：net\_xmit 组 TXINFO + TXWI，EP4 OUT 同步 bulk\relax }}{61}{figure.caption.30}\protected@file@percent }
+\newlabel{fig:wifi-comm-7-8}{{6.19}{61}{消息 7--8：net\_xmit 组 TXINFO + TXWI，EP4 OUT 同步 bulk\relax }{figure.caption.30}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6.20}{\ignorespaces 消息 9--10：读 TX\_STAT\_FIFO，出错时的 Halted 恢复\relax }}{62}{figure.caption.31}\protected@file@percent }
+\newlabel{fig:wifi-comm-9-10}{{6.20}{62}{消息 9--10：读 TX\_STAT\_FIFO，出错时的 Halted 恢复\relax }{figure.caption.31}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6.16}实板排查：关联失败、时序图与通信图}{63}{section.6.16}\protected@file@percent }
+\newlabel{dbg:ch}{{6.16}{63}{实板排查：关联失败、时序图与通信图}{section.6.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.16.1}2026-11-16 排查：Tiny210 关联失败（auth 卡死 → ACK 丢失）}{63}{subsection.6.16.1}\protected@file@percent }
+\newlabel{dbg:assoc-debug}{{6.16.1}{63}{2026-11-16 排查：Tiny210 关联失败（auth 卡死 → ACK 丢失）}{subsection.6.16.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.1}参与的进程、中断上下文与锁}{65}{subsubsection.6.16.1.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.21}{\ignorespaces 通信图：进程/中断上下文之间的 0--8 号消息、每条路径上的锁，以及成功运行中每一步的日志（文字版见第\nobreakspace  {}\ref  {dbg:steps} 节）\relax }}{65}{figure.caption.32}\protected@file@percent }
+\newlabel{dbg:comm}{{6.21}{65}{通信图：进程/中断上下文之间的 0--8 号消息、每条路径上的锁，以及成功运行中每一步的日志（文字版见第~\ref {dbg:steps} 节）\relax }{figure.caption.32}{}}
+\gdef \LT@xxv {\LT@entry 
+    {1}{136.0374pt}\LT@entry 
+    {1}{320.9803pt}}
+\gdef \LT@xxvi {\LT@entry 
+    {1}{116.12047pt}\LT@entry 
+    {1}{53.5244pt}\LT@entry 
+    {1}{292.52756pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.2}第一阶段：auth 帧卡在 EP8 OUT}{67}{subsubsection.6.16.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.22}{\ignorespaces 时序图：auth 帧卡在 EP8 OUT（PING/NAK 3 秒）\relax }}{67}{figure.caption.33}\protected@file@percent }
+\newlabel{dbg:stall}{{6.22}{67}{时序图：auth 帧卡在 EP8 OUT（PING/NAK 3 秒）\relax }{figure.caption.33}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.3}第二阶段：固定 ch9 后 auth 成功、关联无效}{68}{subsubsection.6.16.1.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6.23}{\ignorespaces 时序图：固定 ch9，auth 成功一次，association 之后 AP 不再回应\relax }}{68}{figure.caption.34}\protected@file@percent }
+\newlabel{dbg:assoc}{{6.23}{68}{时序图：固定 ch9，auth 成功一次，association 之后 AP 不再回应\relax }{figure.caption.34}{}}
+\gdef \LT@xxvii {\LT@entry 
+    {1}{22.22636pt}\LT@entry 
+    {1}{93.35826pt}\LT@entry 
+    {1}{136.0374pt}\LT@entry 
+    {1}{144.57323pt}\LT@entry 
+    {1}{59.21495pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.4}全部问题与处理}{69}{subsubsection.6.16.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.5}结果：UNICAST\_TO\_ME 掩码修复 ACK}{70}{subsubsection.6.16.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.6}成功连接的完整通信过程（对应通信图 0--8）}{70}{subsubsection.6.16.1.6}\protected@file@percent }
+\newlabel{dbg:steps}{{6.16.1.6}{70}{成功连接的完整通信过程（对应通信图 0--8）}{subsubsection.6.16.1.6}{}}
+\gdef \LT@xxviii {\LT@entry 
+    {1}{42.1433pt}\LT@entry 
+    {1}{93.35826pt}\LT@entry 
+    {1}{79.13188pt}\LT@entry 
+    {1}{70.59605pt}\LT@entry 
+    {1}{184.40707pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {6.16.1.7}每一步的函数、USB 传输方式与数据格式}{74}{subsubsection.6.16.1.7}\protected@file@percent }
+\newlabel{dbg:steps-detail}{{6.16.1.7}{74}{每一步的函数、USB 传输方式与数据格式}{subsubsection.6.16.1.7}{}}
+\@setckpt{chapters/05-wifi-merged}{
+\setcounter{page}{77}
+\setcounter{equation}{0}
+\setcounter{enumi}{5}
+\setcounter{enumii}{0}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{0}
+\setcounter{chapter}{6}
+\setcounter{section}{16}
+\setcounter{subsection}{1}
+\setcounter{subsubsection}{7}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{23}
+\setcounter{table}{15}
+\setcounter{LT@tables}{28}
+\setcounter{LT@chunks}{2}
+\setcounter{lstnumber}{13}
+\setcounter{FancyVerbLine}{9}
+\setcounter{float@type}{8}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{Item}{62}
+\setcounter{Hfootnote}{0}
+\setcounter{Hy@AnnotLevel}{0}
+\setcounter{bookmark@seq@number}{74}
+\setcounter{none}{10}
+\setcounter{lstlisting}{0}
+\setcounter{section@level}{0}
+}

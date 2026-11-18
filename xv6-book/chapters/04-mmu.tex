@@ -1256,6 +1256,163 @@ static int fb_mmap(struct file *f, struct vm_area_struct *vma) {
 
 已知限制：没有写时复制，fork 复制所有已触碰的私有页；\code{pcache\_page} 只在页被映射期间存在，不是统一的页缓存，\code{write()} 不会更新已映射的共享页；没有 \code{mprotect}、\code{mremap}、\code{madvise} 和页回收。
 
+\section{全景：内存布局、页表页与 \code{exec} 装载}
+\label{sec:mmu-panorama}
+
+前面各节分别讲了启动页表、memblock、伙伴系统、\code{kvmmake()} 和 \code{exec()}。这一节把它们放在同一张图里，并用一个新的编译开关 \code{MMU\_TRACE} 打出的真实地址逐页核对：每张页表放在哪一页物理内存、谁指向谁、一次 \code{exec("/bin/ls")} 究竟分配了哪些页。所有数字都来自 QEMU raspi3b 上 \code{make MMU\_TRACE=3} 的一次启动，日志保存在 \file{tools/manim/rpi3-mmu-trace3.log}。
+
+\subsection{\code{MMU\_TRACE} 开关}
+
+\code{MMU\_TRACE} 与 \code{MM\_TRACE}（每个分配事件一行，\ref{sec:proc-mem} 节）、\code{VM\_TRACE}（完整的 L1/L2/L3 转储）互补，按“讲故事”的粒度输出，定义在 \file{include/kernel/mmu\_trace.h} 和 \file{kernel/mm/mmu\_trace.c}：
+
+\begin{shcode}
+make MMU_TRACE=1 qemu   # boot: sections, boot tables, TCR/MAIR/SCTLR, kvmmake regions, TTBR1 map
+make MMU_TRACE=2 qemu   # + one summary per userinit / fork / exec
+make MMU_TRACE=3 qemu   # + every table page, user page, COW share and ELF chunk of fork/exec
+\end{shcode}
+
+\code{kvmmake()} 运行时 \code{printf} 还不能用，所以它映射的每个区域以及从 memblock 取出的每个表页先记在 \code{mmu\_trace.c} 的小数组里，\code{main()} 在 \code{memblock\_dump()} 之后由 \code{mmu\_trace\_boot()} 一并打印；四张启动表还原封不动留在 \code{.bss} 里，直接解码即可。第 3 级的逐页输出只对正在 fork/exec 的那个进程打开（\code{p->mmutrace}），别的进程缺页不会刷屏。宏名用 \code{MMUTRACE(level)}，因为 \code{MMTRACE} 已被 \code{MM\_TRACE} 占用。关闭时（默认 0）全部代码被编译器删掉。
+
+\subsection{一张图看全局}
+
+图~\ref{fig:rpi3-memory-layout} 把三样东西摆在一起：左边是当前进程的用户半边（TTBR0），第一列列出整个 64 位虚拟地址空间；中间是物理地址；右边是内核半边（TTBR1）。每一半都按“VA $\to$ L1 $\to$ L2 $\to$ L3 $\to$ PA”展开，共用同一上级表项的行合并成一格，所以哪一级在哪里分叉一眼可见。下方两块放大了页表页本身：用户的 L1/L2/L3 和它们指向的数据页，以及内核的 17 个表页。
+
+\begin{sidewaysfigure}
+  \centering
+  \includegraphics[width=\textheight]{rpi3-memory-layout.pdf}
+  \caption{rpi3 内存布局：用户半边（TTBR0，整个 64 位 VA）$\leftarrow$ 物理地址 $\rightarrow$ 内核半边（TTBR1），下方为页表页放大图（MMU\_TRACE=3 实测）}
+  \label{fig:rpi3-memory-layout}
+\end{sidewaysfigure}
+
+64 位地址只有两头有效。VA[63:39] 全 0 时 MMU 用 TTBR0 翻译，全 1 时用 TTBR1，其余（\code{0x0000\_0080\_0000\_0000}--\code{0xFFFF\_FF7F\_FFFF\_FFFF}）是非规范地址，两个 TTBR 都不查，访问即产生翻译错误。用户半边里 xv6 只用到 256\,GiB（\code{MAXUVA = 1 << 38}）：程序镜像从 VA~0 开始，ld.so 紧随其后，再是保护页和 4 页栈；brk 堆从 \code{sz} 向上，最多长到最低的 VMA；mmap 窗口是 \code{[MMAP\_MIN, MMAP\_TOP)} $=$ \code{[64 GiB, 256 GiB - 256 MiB)}，自顶向下分配。
+
+\subsection{页表页在哪里}
+
+每一级页表都是 512 项 $\times$ 8 字节 $=$ 4\,KiB，正好一页；三级的区别只在一项管多大：L1 一项 1\,GiB，L2 一项 2\,MiB（可以直接是块），L3 一项 4\,KiB。内核正式页表一共 17 页，恰好占满 \code{0x3EF000}--\code{0x3FFFFF}（\code{/proc/iomem} 的 “Kernel page tables”），见表~\ref{tab:kpt-pages}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{内核 TTBR1 页表的 17 个表页（memblock 自 \code{EARLYTOP} 向下分配）}
+  \label{tab:kpt-pages}
+  \begin{tabularx}{\linewidth}{@{}llX@{}}
+    \toprule
+    物理地址 & 表 & 由谁指向 / 管辖范围 \\
+    \midrule
+    \code{0x3FF000} & L1 根 & \reg{TTBR1\_EL1} \\
+    \code{0x3FE000} & L2 & L1[0]：KERNBASE $+$ 0--1\,GiB \\
+    \code{0x3FD000}--\code{0x3F6000} & 8 张 L3 & L2[504..511]：外设 \code{0x3F000000}--\code{0x3FFFFFFF}，4096 个 Device 页 \\
+    \code{0x3F5000} & L2 & L1[1]：KERNBASE $+$ 1--2\,GiB \\
+    \code{0x3F4000} & L3 & 0x3F5000 的 [0]：ARM local 一页 \\
+    \code{0x3F3000}/\code{3F2000}/\code{3F1000} & 3 张 L3 & L2[56..58]：ramdisk、摄像头 DMA（Normal-NC）、模块区（RWX） \\
+    \code{0x3F0000} & L3 & L2[0]：PA 0--2\,MiB（第 0 页、\code{.text}、data/bss） \\
+    \code{0x3EF000} & L3 & L2[1]：PA 2--4\,MiB \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+它们落在这里有两个原因：\code{kvmmake()} 运行时还没有伙伴系统，\code{kalloc()} 走早期分支 \code{memblock\_alloc(PGSIZE, PGSIZE)}；而此时只有启动表映射的 0--4\,MiB 可以访问，所以 \code{memblock\_init()} 末尾把分配上限设成 \code{EARLYTOP}，memblock 又是自顶向下分配，于是从 \code{0x3FF000} 往下排了 17 页，永不释放。L2 \code{0x3FE000} 的 [2..55]、[59..479] 是 2\,MiB 块描述符，直接指向 RAM，没有 L3：475 个块覆盖 950\,MiB，若全用 4\,KiB 页则需要 480 张 L3（约 1.9\,MiB）。
+
+不在这个范围里的页表有三类：\code{.bss} 里的四张启动表（\code{0xC9000}--\code{0xCC000}，只在开 MMU 时用）；KSTACK 区 L1[255] 下的 L2/L3，第一次 \code{allocproc()} 映射内核栈时由 \code{walk(kernel\_pagetable, \ldots, 1)} 从伙伴系统取；以及所有用户页表，每个进程的 L1/L2/L3 都是 \code{kalloc()} 取到的任意空闲页。
+
+启动时 \code{MMU\_TRACE=1} 打出的寄存器解码与上面一致：
+
+\begin{txtcode}
+mmu: TCR_EL1=b5193519: T0SZ=25 -> user VA 0-7fffffffff (39 bits), T1SZ=25 -> kernel VA ffffff8000000000-
+mmu:   TG0=4K TG1=4K granule, walk = L1 -> L2 -> L3 (9+9+9+12 bits, no L0), IPS=32-bit PA
+mmu: MAIR_EL1=ff4400: Attr0=0 Device-nGnRnE, Attr1=44 Normal non-cacheable, Attr2=ff Normal write-back
+mmu: SCTLR_EL1=30d01805: M(MMU)=1 C(D-cache)=1 I(I-cache)=1 A(align check)=0 WXN=0
+mmu: kernel table uses 17 table pages (68 KiB): 475 x 2 MiB blocks, 6018 x 4 KiB pages
+mmu: linear map of RAM: 1921 x 4 KiB + 475 x 2 MiB (DirectMap4k 7684 KiB, DirectMap2M 950 MiB)
+\end{txtcode}
+
+图~\ref{fig:rpi3-mmu-page-tables} 从另一个角度画同一件事：VA 的位拆分、启动两阶段的四张静态表、正式内核页表树、一个进程的 TTBR0 树和描述符格式，最后一块与 tiny210（ARMv7）对照。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{rpi3-mmu-page-tables.pdf}
+  \caption{rpi3 的 MMU：VA 拆分、启动两阶段、内核页表树、进程页表、描述符格式，以及与 tiny210 的对比}
+  \label{fig:rpi3-mmu-page-tables}
+\end{figure}
+
+\subsection{\code{exec("/bin/ls")} 一页一页地装载}
+
+\ref{sec:uvm} 节讲了 \code{exec()} 之后的布局，这里跟着 \code{MMU\_TRACE=3} 看它是怎么一页页建出来的（pid 19，shell fork 出的子进程）。所谓“主程序镜像”就是 \file{/bin/ls} 这个 ELF 文件——准确说是它的两个 \code{PT\_LOAD} 段；\file{/bin/ls} 是 \code{ET\_DYN}（PIE），所以 exec 还要装第二个镜像，即 \code{PT\_INTERP} 指定的 \file{/lib/ld-xv6.so}；libc.so 则由 ld.so 回到用户态后自己 \code{mmap}，不经过 exec。
+
+\begin{txtcode}
+exec: /bin/ls pid 19: inode 34, 10304 bytes, ET_DYN ELF, entry 5a8, 5 program headers
+mmu:   L1 root: kalloc pa 3b60a000 (user TTBR0 table, 512 x 8-byte entries, empty)
+exec:   image at base 0: 2 PT_LOAD, uvmalloc VA 0-1fff (2 pages, zero-filled)
+mmu:   L2 table: kalloc pa 3b621000 -> user L1[0] = 3b621003 (VA 0-3fffffff)
+mmu:   L3 table: kalloc pa 3b624000 -> user L2[0] = 3b624003 (VA 0-1fffff)
+mmu:   page: kalloc pa 3b622000 -> VA 0 (L3[0] = 3b62274b Normal-WB RW EL0+EL1 ISH)
+mmu:   page: kalloc pa 3b623000 -> VA 1000 (L3[1] = 3b62374b Normal-WB RW EL0+EL1 ISH)
+exec:   LOAD VA 0 memsz 8f9 filesz 8f9 file off 0 flags R-X (mapped RWX: no per-segment permissions)
+exec:   read file off 0 -> VA 0 (pa 3b622000) 2297 bytes
+exec:   LOAD VA 1900 memsz 1c8 filesz 1a8 file off 900 flags RW- (mapped RWX: no per-segment permissions)
+exec:   read file off 900 -> VA 1900 (pa 3b623900) 424 bytes
+exec:   image at base 2000: 2 PT_LOAD, uvmalloc VA 2000-3fff (2 pages, zero-filled)
+   ...  (ld.so: L3[2] -> 3ca000, L3[3] -> 3b637000)
+exec:   stack: guard page VA 4000 (PTE_U cleared), stack VA 5000-8fff
+exec:   argv: 2 strings + argv[]/envp/auxv 18 words copied to VA 8f50-8fff
+exec: /bin/ls pid 19: sz 9000 sp 8f50 entry 2784, 3 table pages + 9 user pages, TTBR0 = root 3b60a000
+\end{txtcode}
+
+图~\ref{fig:rpi3-exec-ls} 把这段日志画成七步：
+
+\begin{enumerate}
+  \item \code{srcopen()}：\code{namei} $+$ \code{ilock}，检查 ELF 头（\code{EM\_AARCH64}、\code{ET\_DYN}），\code{readinterp()} 找到 \file{/lib/ld-xv6.so}。
+  \item \code{uvmcreate()}：\code{kalloc()} 一页清零作新 L1。旧页表（fork 留下的 COW 表）此时仍在 TTBR0，任何一步失败都能整张丢弃。
+  \item \code{loadimage()} $\to$ \code{uvmalloc()}：每页 \code{kalloc()} $+$ 清零 $\to$ \code{mappages(PTE\_NORMAL|PTE\_U)} $\to$ \code{walk(alloc=1)}。第一页时 L1[0]、L2[0] 都无效，\code{walk()} 依次 \code{kalloc} 出 L2 和 L3 并写入表描述符（\code{PA | PTE\_TABLE | PTE\_VALID}，即 \code{0x\ldots003}）；以后的页只写 L3 项（\code{PA | perm | AF | V}，即 \code{0x\ldots74B}）。
+  \item \code{loadseg()}：\code{uva2ka()} 用 \code{walk(alloc=0)} 查\emph{新}表得到 PA，\code{P2V} 后经内核 TTBR1 的线性映射 \code{readi}——新表此时还没装进 TTBR0。\code{memsz > filesz} 的 \code{.bss} 已被 \code{uvmalloc} 清零。
+  \item 在 \code{PGROUNDUP(sz) = 0x2000} 处用同一个 \code{loadimage()} 装 ld.so，入口 $= \code{0x2000} + \code{0x784} = \code{0x2784}$。
+  \item 再 \code{uvmalloc} 5 页，\code{uvmclear()} 把最低一页的 PTE\_U 清掉（\code{0x\ldots74B} $\to$ \code{0x\ldots70B}）成保护页；\code{copyout} argv、envp 和 auxv，\code{sp = 0x8F50}。
+  \item 提交：\code{vm->pagetable} 指向新表，\code{elr = 0x2784}；\code{uvmsync\_icache()}；\code{switchuvm()} 写 \reg{TTBR0\_EL1} $=$ \code{0x3B60A000} 并 \code{flush\_tlb()}；\code{uvmfree(旧表)} 对 COW 共享页只 \code{put\_page()}。
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{rpi3-exec-ls.pdf}
+  \caption{\code{exec("/bin/ls")}（pid 19）的七步与最终 TTBR0 页表：3 个表页 $+$ 9 个用户页}
+  \label{fig:rpi3-exec-ls}
+\end{figure}
+
+结果是 3 个表页加 9 个用户页。两点值得注意：exec 不按需分页，镜像的每一页在 exec 时就分配并读入，所以程序大小的实际上限是空闲内存（QEMU 上约 0.9\,GiB），而不是 64\,GiB 的虚拟窗口；文件偏移是 32 位 \code{uint}，段内容最多 4\,GiB。fork 则相反，\code{uvmcopy()} 一页也不复制（\ref{sec:cow-fork} 节），日志里是 10 行 \code{cow:}，父子 PTE 都改成 \code{RO + PTE\_COW}，保护页因为没有 PTE\_U 原样共享。
+
+\subsection{与 tiny210（ARMv7）的对比}
+
+同一套 xv6 在 tiny210 分支上跑 ARMv7 短描述符页表，差别全部来自硬件格式（表~\ref{tab:rpi3-vs-tiny210}）。ARMv7 的 L1 表 4096 项 $\times$ 4 字节 $=$ 16\,KiB 且必须 16\,KiB 对齐，4\,KiB 的 \code{kalloc} 给不出，只能在 \code{.bss} 里预留 \code{roots[256][4096]} 静态池；而且只用一个 TTBR0（TTBCR $=0$），内核映射必须复制进每个进程的根。AArch64 每级表正好一页，内核又独占 TTBR1，进程页表只装用户自己的映射。
+
+\begin{table}[htbp]
+  \centering
+  \caption{用户/内核页表：tiny210（ARMv7）与 rpi3（ARMv8）}
+  \label{tab:rpi3-vs-tiny210}
+  \begin{tabularx}{\linewidth}{@{}lXX@{}}
+    \toprule
+     & tiny210 & rpi3 \\
+    \midrule
+    内核根表 & \code{.bss} 静态池 \code{roots[0]}，16\,KiB 对齐 & memblock 页 \code{0x3FF000}（4\,KiB）；\code{.bss} 里只有开 MMU 用的四张启动表 \\
+    映射几套 & VA $=$ PA 恒等映射一套 & 恒等映射只活到 \code{br \_start}；此后 KERNBASE $+$ PA 线性映射 \\
+    新进程根表 & \code{rootalloc()} 后 \code{memmove} 整张内核 L1 & \code{kalloc()} 一页，空表 \\
+    级数 & L1（1\,MiB）$\to$ L2（1\,KiB 粗页表，占一整页） & L1（1\,GiB）$\to$ L2（2\,MiB）$\to$ L3（4\,KiB） \\
+    切换进程 & 换整张表 & 只换 TTBR0 \\
+    fork & 逐页 \code{kalloc} $+$ \code{memmove} & 共享物理页，RO $+$ \code{PTE\_COW} \\
+    根表上限 & 256 个地址空间 & 只受内存限制 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{发现的问题}
+
+把每个 PTE 打出来以后，几处可以改进的地方就很明显：
+
+\begin{itemize}
+  \item exec 装入的用户页没有区分权限：\code{uvmalloc()} 一律 \code{PTE\_NORMAL|PTE\_U}，ELF 的 R-X/RW- 被忽略（日志里的 \code{mapped RWX}），\code{.text} 可写，数据和栈可执行；而缺页处理分配的堆页（\ref{sec:proc-mem} 节的 \code{0x6000003b61e74b}）是带 UXN/PXN 的。按 \code{ph.flags} 给代码设 \code{PTE\_RO}、给数据设 \code{PTE\_UXN} 即可实现 W\^{}X。
+  \item 用户页不设 PXN，\code{SCTLR.WXN = 0}，也没有开 PAN：内核可以直接执行用户页。
+  \item PIE 的基址是 0，VA~0 有效，空指针解引用读到的是程序自己的 \code{.text}，不会缺页。
+  \item \code{kvmmake()} 把 \code{[etext, EARLYTOP)} 整段交给 \code{kvmmap()}，PA 2--4\,MiB 用了 512 个 4\,KiB 页和一张 L3；改用 \code{kvmmap\_linear()} 可以换成一个 2\,MiB 块。
+  \item 模块区 1\,MiB 永久 RWX；用户栈固定 4 页（16\,KiB），不会增长。
+\end{itemize}
+
 \section{MMIO、总线地址与 DMA}
 
 \subsection{MMIO}

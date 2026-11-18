@@ -11,6 +11,7 @@
 #include <kernel/page.h>
 #include <kernel/memblock.h>
 #include <kernel/mm_trace.h>
+#include <kernel/mmu_trace.h>
 
 /*
  * the kernel's page table.
@@ -37,6 +38,8 @@ kvmmap_block(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 perm)
       panic("kvmmap_block");
     memset(l2, 0, PGSIZE);
     *l1e = PA2PTE(V2P(l2)) | PTE_TABLE | PTE_VALID;
+    if(MMUTRACE(1))
+      mmu_trace_newtable(kpgtbl, va, 2, PX(1, va), V2P(l2));
   }
   l2 = (pagetable_t)P2V(PTE2PA(*l1e));
   pte = &l2[PX(2, va)];
@@ -69,36 +72,58 @@ kvmmake(void)
 {
   pagetable_t kpgtbl;
 
+  if(MMUTRACE(1))
+    mmu_trace_kregion("BCM2837 peripherals", PERIPHERAL_BASE, PERIPHERAL_BASE_PA,
+                      0x01000000, PTE_DEVICE | PTE_XN);
   kpgtbl = (pagetable_t) kalloc();
   memset(kpgtbl, 0, PGSIZE);
+  if(MMUTRACE(1))
+    mmu_trace_newtable(kpgtbl, 0, 1, -1, V2P(kpgtbl));
 
   // BCM2837 peripheral and ARM-local MMIO windows.
   kvmmap(kpgtbl, PERIPHERAL_BASE, PERIPHERAL_BASE_PA,
          0x01000000, PTE_DEVICE | PTE_XN);
+  if(MMUTRACE(1))
+    mmu_trace_kregion("ARM local (mailbox, timer)", LOCAL_BASE, LOCAL_BASE_PA, PGSIZE,
+                      PTE_DEVICE | PTE_XN);
   kvmmap(kpgtbl, LOCAL_BASE, LOCAL_BASE_PA, PGSIZE,
          PTE_DEVICE | PTE_XN);
 
   // QEMU loads fs.img here; it is outside the allocator's RAM range.
+  if(MMUTRACE(1))
+    mmu_trace_kregion("ramdisk", RAMDISK, RAMDISK_PA, RAMDISK_SIZE, PTE_NORMAL | PTE_XN);
   kvmmap(kpgtbl, RAMDISK, RAMDISK_PA, RAMDISK_SIZE,
          PTE_NORMAL | PTE_XN);
 
   // Camera DMA buffer: non-cacheable normal memory (see memlayout.h).
+  if(MMUTRACE(1))
+    mmu_trace_kregion("camera DMA", CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
   kvmmap(kpgtbl, CAMDMA, CAMDMA_PA, CAMDMA_SIZE, PTE_NORMAL_NC | PTE_XN);
 
   // Loadable-module arena: read/write/execute normal memory.  The loader
   // copies a .ko's text in and then the kernel runs it, so unlike every other
   // region above etext this one is left executable (no PTE_XN, no PTE_RO).
+  if(MMUTRACE(1))
+    mmu_trace_kregion("module arena", MODAREA, MODAREA_PA, MODAREA_SIZE, PTE_NORMAL);
   kvmmap(kpgtbl, MODAREA, MODAREA_PA, MODAREA_SIZE, PTE_NORMAL);
 
   // Raspberry Pi AArch64 secondary-core spin-table slots live at physical
   // 0xe0..0xf0.  Keep only page zero in the high direct map so CPU0 can
   // publish _entry after switching away from the bootstrap page table.
+  if(MMUTRACE(1))
+    mmu_trace_kregion("page 0 (spin table)", KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
   kvmmap(kpgtbl, KERNBASE, 0, PGSIZE, PTE_NORMAL | PTE_XN);
 
   // map kernel text executable and read-only.
+  if(MMUTRACE(1))
+    mmu_trace_kregion("kernel text", KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK,
+                      PTE_NORMAL | PTE_RO);
   kvmmap(kpgtbl, KERNLINK, V2P(KERNLINK), (uint64)etext-KERNLINK, PTE_NORMAL | PTE_RO);
 
   // map kernel data and the rest of the bootstrap window with 4 KiB pages.
+  if(MMUTRACE(1))
+    mmu_trace_kregion("kernel data+bss+early RAM", (uint64)etext, V2P(etext),
+                      (uint64)P2V(EARLYTOP)-(uint64)etext, PTE_NORMAL | PTE_XN);
   kvmmap(kpgtbl, (uint64)etext, V2P(etext), (uint64)P2V(EARLYTOP)-(uint64)etext, PTE_NORMAL | PTE_XN);
 
   // Map every other byte of RAM memblock knows about (Linux map_mem()),
@@ -111,6 +136,9 @@ kvmmake(void)
       start = EARLYTOP;
     if(start >= stop)
       continue;
+    if(MMUTRACE(1))
+      mmu_trace_kregion("linear map of RAM", KERNBASE + start, start, stop - start,
+                        PTE_NORMAL | PTE_XN);
     if(start < CARVEOUT_END && stop > CARVEOUT_START){
       if(start < CARVEOUT_START)
         kvmmap_linear(kpgtbl, start, CARVEOUT_START, PTE_NORMAL | PTE_XN);
@@ -179,7 +207,9 @@ void
 kvminit(void)
 {
   initlock(&vm_dump_lock, "vmdump");
+  mmu_kvm_building = 1;
   kernel_pagetable = kvmmake();
+  mmu_kvm_building = 0;
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -450,6 +480,8 @@ procvmtrace(struct proc *p, char *event)
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
+  pagetable_t root = pagetable;
+
   if(va >= MAXVA)
     panic("walk");
 
@@ -470,6 +502,8 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       *pte = PA2PTE(V2P(pagetable)) | PTE_TABLE | PTE_VALID;
       MMTRACE("walk: va %p: new L%d table pa %p in L%d[%d]\n", va, level + 1,
               V2P(pagetable), level, (int)PX(level, va));
+      if(MMUTRACE(1))
+        mmu_trace_newtable(root, va, level + 1, PX(level, va), V2P(pagetable));
     }
   }
   return &pagetable[PX(3, va)];
@@ -612,6 +646,8 @@ uvmcreate()
   if(pagetable == 0)
     return 0;
   memset(pagetable, 0, PGSIZE);
+  if(MMUTRACE_PAGES())
+    mmu_trace_newtable(pagetable, 0, 1, -1, V2P(pagetable));
   return pagetable;
 }
 
@@ -629,6 +665,9 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
   memset(mem, 0, PGSIZE);
   mappages(pagetable, 0, PGSIZE, V2P(mem), PTE_NORMAL|PTE_U);
   memmove(mem, src, sz);
+  if(MMUTRACE(2))
+    printf("mmu: userinit: initcode %d bytes -> VA 0 (page pa %s), user root pa %s\n",
+           (int)sz, mmu_hx(V2P(mem)), mmu_hx(V2P(pagetable)));
   uvmsync_icache(pagetable, sz);
 }
 
@@ -655,6 +694,13 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
+    }
+    if(MMUTRACE_PAGES()){
+      pte_t *pte = walk(pagetable, a, 0);
+      char ab[80];
+      myproc()->mmu_pages++;
+      printf("mmu:   page: kalloc pa %s -> VA %s (L3[%d] = %s %s)\n", mmu_hx(V2P(mem)),
+             mmu_hx(a), (int)PX(3, a), mmu_hx(*pte), mmu_attr_str(*pte, ab, sizeof(ab)));
     }
   }
   return newsz;
@@ -775,6 +821,14 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       goto err;
     get_page(virt_to_page(P2V(pa)));
     cow_stat.shared++;
+    if(MMUTRACE_PAGES()){
+      myproc()->mmu_pages++;
+      printf("mmu:   cow: VA %s pa %s now mapped by parent and child (refcount %d), %s\n",
+             mmu_hx(i), mmu_hx(pa), page_count(virt_to_page(P2V(pa))),
+             (flags & PTE_COW) ? "both PTEs RO+COW" :
+             (flags & PTE_U) ? "read-only, shared as is" :
+             "stack guard (no PTE_U), shared as is");
+    }
   }
   return 0;
 

@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1560" viewBox="0 0 1640 1560" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="12">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+<marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f5fae"/></marker>
+<marker id="arO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d35400"/></marker>
+<marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker>
+<marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e8449"/></marker>
+<marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6c3fb5"/></marker>
+</defs>
+<rect width="1640" height="1560" fill="#ffffff"/>
+<text x="820.0" y="36" font-size="21" text-anchor="middle" font-weight="600" fill="#222">rpi3-lock 的 MMU：39 位 VA、4 KiB 粒度、三级页表（L1 → L2 → L3），启动两阶段与进程页表</text>
+<text x="820.0" y="60" font-size="13" text-anchor="middle" font-weight="normal" fill="#555">TCR_EL1 = 0xB5193519：T0SZ = T1SZ = 25，TG0 = TG1 = 4K，IRGN/ORGN = WB-WA，SH = Inner；MAIR_EL1 = 0xFF4400</text>
+<text x="40" y="96" font-size="15" text-anchor="start" font-weight="600" fill="#222">① 虚拟地址拆分（TTBR1 用于 VA[63:39] 全 1，TTBR0 用于全 0）</text>
+<rect x="60" y="110" width="170" height="52" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="145.0" y="130" font-size="13" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">63..39</text>
+<text x="145.0" y="146" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">全 1 → TTBR1</text>
+<text x="145.0" y="159" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">全 0 → TTBR0</text>
+<rect x="230" y="110" width="150" height="52" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="305.0" y="130" font-size="13" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">38..30</text>
+<text x="305.0" y="146" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">L1 索引 (9)</text>
+<rect x="380" y="110" width="150" height="52" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="455.0" y="130" font-size="13" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">29..21</text>
+<text x="455.0" y="146" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">L2 索引 (9)</text>
+<rect x="530" y="110" width="150" height="52" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="605.0" y="130" font-size="13" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">20..12</text>
+<text x="605.0" y="146" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">L3 索引 (9)</text>
+<rect x="680" y="110" width="150" height="52" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="755.0" y="130" font-size="13" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">11..0</text>
+<text x="755.0" y="146" font-size="11.5" text-anchor="middle" font-weight="normal" fill="#222">页内偏移 (12)</text>
+<text x="850" y="128" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">L1 项管 1 GiB，L2 项管 2 MiB（可直接是块），L3 项管 4 KiB 页。</text>
+<text x="850" y="146" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">没有 L0：T0SZ=25 ⇒ 2^39 = 512 GiB，每半边只需一张 512 项的 L1 表。</text>
+<text x="40" y="200" font-size="15" text-anchor="start" font-weight="600" fill="#222">② 阶段 1：entry.S（MMU 关）→ entrypgtinit() 在 .bss 里填 4 张静态表</text>
+<text x="60" y="234" font-size="12" text-anchor="start" font-weight="600" fill="#222">TTBR0 =</text>
+<rect x="130" y="220" width="210" height="38" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="138" y="235" font-size="12" text-anchor="start" font-weight="600" fill="#222">l1entrypgt @ 0xCC000</text>
+<text x="138" y="253" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] = 0xCB003 → L2</text>
+<rect x="400" y="220" width="330" height="38" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="408" y="235" font-size="12" text-anchor="start" font-weight="600" fill="#222">l2entrypgt @ 0xCB000（恒等映射）</text>
+<text x="408" y="253" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0..1] 块 PA 0–0x3FFFFF  Normal-WB</text>
+<line x1="340" y1="253" x2="398" y2="253" stroke="#1f5fae" stroke-width="1.3" marker-end="url(#arB)"/>
+<text x="60" y="304" font-size="12" text-anchor="start" font-weight="600" fill="#222">TTBR1 =</text>
+<rect x="130" y="290" width="210" height="38" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="138" y="305" font-size="12" text-anchor="start" font-weight="600" fill="#222">l1kpgt @ 0xCA000</text>
+<text x="138" y="323" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] = 0xC9003 → L2</text>
+<rect x="400" y="290" width="330" height="70" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="408" y="305" font-size="12" text-anchor="start" font-weight="600" fill="#222">l2kpgt @ 0xC9000（高地址）</text>
+<text x="408" y="323" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0..1]   块 → PA 0–0x3FFFFF</text>
+<text x="408" y="339" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[64..65] 块 → DTB 0x8000000</text>
+<text x="408" y="355" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[505]    块 → 0x3F200000 Device (UART)</text>
+<line x1="340" y1="323" x2="398" y2="323" stroke="#1f5fae" stroke-width="1.3" marker-end="url(#arB)"/>
+<text x="760" y="236" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">然后：写 TTBR0/TTBR1、TCR、MAIR → tlbi vmalle1 → SCTLR |= M|C|I</text>
+<text x="760" y="256" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">→ br _start（VA 0xFFFFFF80000xxxxx），PC 从恒等映射跳到高地址。</text>
+<text x="760" y="276" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">恒等映射只为 “开 MMU 的那条指令之后、跳转之前” 还能取指。</text>
+<text x="760" y="304" font-size="12.5" text-anchor="start" font-weight="600" fill="#222">阶段 2：main() → memblock_init(DTB) → kvminit() 用 memblock 页建正式表</text>
+<text x="760" y="324" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">→ kvminithart()：TTBR1 = 0x3FF000，TTBR0 = 0，flush_tlb()；4 张启动表从此作废。</text>
+<text x="760" y="344" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">→ page_alloc_init()：mem_map + memblock_free_all() 交给伙伴系统。</text>
+<text x="40" y="400" font-size="15" text-anchor="start" font-weight="600" fill="#222">③ 正式内核页表（TTBR1_EL1 = 0x3FF000），共 17 个表页 = 68 KiB</text>
+<rect x="40" y="480" width="200" height="86" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="48" y="495" font-size="12" text-anchor="start" font-weight="600" fill="#222">L1 根 @ 0x3FF000</text>
+<text x="48" y="513" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0]   → L2 0x3FE000</text>
+<text x="48" y="529" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1]   → L2 0x3F5000</text>
+<text x="48" y="545" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[255] → L2（KSTACK，</text>
+<text x="48" y="561" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">       allocproc 时建）</text>
+<rect x="300" y="420" width="300" height="118" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="308" y="435" font-size="12" text-anchor="start" font-weight="600" fill="#222">L2 @ 0x3FE000（VA 0–1 GiB）</text>
+<text x="308" y="453" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0]       → L3 0x3F0000</text>
+<text x="308" y="469" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1]       → L3 0x3EF000</text>
+<text x="308" y="485" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[2..55]   2 MiB 块  0x400000–</text>
+<text x="308" y="501" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[56..58]  → L3 0x3F3000/2000/1000</text>
+<text x="308" y="517" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[59..479] 2 MiB 块  0x7600000–</text>
+<text x="308" y="533" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[504..511]→ 8 张 L3 0x3FD000–0x3F6000</text>
+<path d="M 240 517 C 270 517, 270 450, 298 450" fill="none" stroke="#c86400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<rect x="300" y="560" width="300" height="38" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="308" y="575" font-size="12" text-anchor="start" font-weight="600" fill="#222">L2 @ 0x3F5000（VA 1–2 GiB）</text>
+<text x="308" y="593" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] → L3 0x3F4000</text>
+<path d="M 240 533 C 270 533, 270 576, 298 576" fill="none" stroke="#c86400" stroke-width="1.3" opacity="1" marker-end="url(#arO)"/>
+<rect x="680" y="416" width="900" height="24" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="690" y="432" font-size="12" text-anchor="start" font-weight="normal" fill="#222">L3 0x3F0000：[0] 第 0 页 RW XN；[128..188] .text RO 可执行；[189..511] 数据 RW XN</text>
+<rect x="680" y="444" width="900" height="24" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="690" y="460" font-size="12" text-anchor="start" font-weight="normal" fill="#222">L3 0x3EF000：[0..511] 0x200000–0x3FFFFF 4 KiB 页（本可用一个 2 MiB 块）</text>
+<rect x="680" y="472" width="900" height="24" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="690" y="488" font-size="12" text-anchor="start" font-weight="normal" fill="#222">2 MiB 块：线性映射 RAM，Normal-WB RW XN（共 475 块 = 950 MiB）</text>
+<rect x="680" y="500" width="900" height="24" rx="3" fill="#e3d7f5" stroke="#6c3fb5" stroke-width="1.2"/>
+<text x="690" y="516" font-size="12" text-anchor="start" font-weight="normal" fill="#222">L3 ×3：ramdisk(WB) / 摄像头 DMA(Normal-NC) / 模块区(RWX)</text>
+<rect x="680" y="528" width="900" height="24" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="690" y="544" font-size="12" text-anchor="start" font-weight="normal" fill="#222">L3 ×8：0x3F000000–0x3FFFFFFF 4096 个 Device-nGnRnE 页</text>
+<rect x="680" y="576" width="900" height="24" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="690" y="592" font-size="12" text-anchor="start" font-weight="normal" fill="#222">L3 0x3F4000：[0] 0x40000000 ARM local，Device</text>
+<line x1="600" y1="450" x2="678" y2="428" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<line x1="600" y1="466" x2="678" y2="456" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<line x1="600" y1="482" x2="678" y2="484" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<line x1="600" y1="498" x2="678" y2="512" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<line x1="600" y1="530" x2="678" y2="540" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<line x1="600" y1="592" x2="678" y2="588" stroke="#888" stroke-width="1" marker-end="url(#ar)"/>
+<text x="40" y="640" font-size="15" text-anchor="start" font-weight="600" fill="#222">④ exec /bin/ls（pid 19）建的 TTBR0：3 个表页 + 9 个用户页（MMU_TRACE=3 实测）</text>
+<rect x="40" y="680" width="230" height="54" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="48" y="695" font-size="12" text-anchor="start" font-weight="600" fill="#222">L1 根 kalloc 0x3B60A000</text>
+<text x="48" y="713" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] = 0x3B621003 → L2</text>
+<text x="48" y="729" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">其余 511 项无效</text>
+<rect x="330" y="680" width="230" height="54" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="338" y="695" font-size="12" text-anchor="start" font-weight="600" fill="#222">L2 kalloc 0x3B621000</text>
+<text x="338" y="713" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] = 0x3B624003 → L3</text>
+<text x="338" y="729" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">（VA 0–0x1FFFFF）</text>
+<line x1="270" y1="709" x2="328" y2="709" stroke="#d35400" stroke-width="1.3" marker-end="url(#arO)"/>
+<rect x="620" y="660" width="420" height="118" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="628" y="675" font-size="12" text-anchor="start" font-weight="600" fill="#222">L3 kalloc 0x3B624000</text>
+<text x="628" y="693" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[0] 0x3B62274B → pa 0x3B622000  ls .text</text>
+<text x="628" y="709" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[1] 0x3B62374B → pa 0x3B623000  ls .data/.bss</text>
+<text x="628" y="725" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[2] 0x3CA74B   → pa 0x3CA000    ld.so .text</text>
+<text x="628" y="741" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[3] 0x3B63774B → pa 0x3B637000  ld.so .data</text>
+<text x="628" y="757" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[4] 0x3B63870B → 保护页（PTE_U=0）</text>
+<text x="628" y="773" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">[5..8] → 0x3B639000–0x3B63C000  用户栈</text>
+<line x1="560" y1="709" x2="618" y2="700" stroke="#d35400" stroke-width="1.3" marker-end="url(#arO)"/>
+<text x="1080" y="676" font-size="12.5" text-anchor="start" font-weight="600" fill="#222">顺序（exec.c）：</text>
+<text x="1080" y="696" font-size="12" text-anchor="start" font-weight="normal" fill="#222">uvmcreate() → 空 L1 根</text>
+<text x="1080" y="713" font-size="12" text-anchor="start" font-weight="normal" fill="#222">loadimage(): uvmalloc() 逐页 kalloc+清零，</text>
+<text x="1080" y="730" font-size="12" text-anchor="start" font-weight="normal" fill="#222">  第一次 mappages() 时 walk() 建 L2、L3</text>
+<text x="1080" y="747" font-size="12" text-anchor="start" font-weight="normal" fill="#222">  loadseg(): uva2ka() 找页，readi 按页拷文件</text>
+<text x="1080" y="764" font-size="12" text-anchor="start" font-weight="normal" fill="#222">PT_INTERP → 在 PGROUNDUP(sz) 再装 ld.so</text>
+<text x="1080" y="781" font-size="12" text-anchor="start" font-weight="normal" fill="#222">uvmalloc 5 页，uvmclear 第一页成保护页</text>
+<text x="1080" y="798" font-size="12" text-anchor="start" font-weight="normal" fill="#222">copyout argv/auxv，elr = ld.so 入口</text>
+<text x="1080" y="815" font-size="12" text-anchor="start" font-weight="normal" fill="#222">提交：vm-&gt;pagetable = 新表，switchuvm()</text>
+<text x="1080" y="832" font-size="12" text-anchor="start" font-weight="normal" fill="#222">  写 TTBR0 + tlbi，再 uvmfree(旧表)</text>
+<text x="40" y="800" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">fork（sh pid 16 → pid 19）：allocproc 建内核栈（映射进 TTBR1 的 KSTACK）和空 L1 根，uvmcopy 逐页：</text>
+<text x="40" y="818" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">子表 walk() 建 L2/L3，PTE 指向父进程同一物理页，get_page() 使 refcount=2，父子 PTE 都改成 RO + PTE_COW；保护页无 PTE_U 原样共享。</text>
+<text x="40" y="836" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">随后 exec 丢弃这张 COW 表（uvmfree），只 put_page 不复制 —— 所以 fork+exec 只为子进程真正分配 3+9 页。</text>
+<text x="40" y="880" font-size="15" text-anchor="start" font-weight="600" fill="#222">⑤ 描述符格式（以用户页 0x3B62274B 为例）</text>
+<rect x="40" y="894" width="90" height="58" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="85.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">63..58</text>
+<text x="85.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">软件</text>
+<rect x="130" y="894" width="50" height="58" rx="3" fill="#f9e3d3" stroke="#c0582b" stroke-width="1.2"/>
+<text x="155.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">57</text>
+<text x="155.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">COW</text>
+<rect x="180" y="894" width="66" height="58" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="213.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">56</text>
+<text x="213.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">SPECIAL</text>
+<rect x="246" y="894" width="62" height="58" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="277.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">55</text>
+<text x="277.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">SHARED</text>
+<rect x="308" y="894" width="50" height="58" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="333.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">54</text>
+<text x="333.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">UXN</text>
+<rect x="358" y="894" width="50" height="58" rx="3" fill="#fde2e1" stroke="#c0392b" stroke-width="1.2"/>
+<text x="383.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">53</text>
+<text x="383.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">PXN</text>
+<rect x="408" y="894" width="200" height="58" rx="3" fill="#d9f2df" stroke="#1e8449" stroke-width="1.2"/>
+<text x="508.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">47..12</text>
+<text x="508.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">输出地址 PA[47:12]</text>
+<text x="508.0" y="939" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">= 0x3B622</text>
+<rect x="608" y="894" width="40" height="58" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="628.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">11</text>
+<text x="628.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">nG</text>
+<rect x="648" y="894" width="50" height="58" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="673.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">10</text>
+<text x="673.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">AF=1</text>
+<rect x="698" y="894" width="60" height="58" rx="3" fill="#c6d8f7" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="728.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">9..8</text>
+<text x="728.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">SH=11</text>
+<text x="728.0" y="939" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">Inner</text>
+<rect x="758" y="894" width="70" height="58" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="793.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">7..6</text>
+<text x="793.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">AP=01</text>
+<text x="793.0" y="939" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">EL0 RW</text>
+<rect x="828" y="894" width="40" height="58" rx="3" fill="#f6f6f6" stroke="#b0b0b0" stroke-width="1.2"/>
+<text x="848.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">5</text>
+<text x="848.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">NS</text>
+<rect x="868" y="894" width="80" height="58" rx="3" fill="#d6eef0" stroke="#16808a" stroke-width="1.2"/>
+<text x="908.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">4..2</text>
+<text x="908.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">AttrIndx</text>
+<text x="908.0" y="939" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">=2 WB</text>
+<rect x="948" y="894" width="60" height="58" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="978.0" y="910" font-size="11.5" text-anchor="middle" font-weight="600" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">1..0</text>
+<text x="978.0" y="926" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">11</text>
+<text x="978.0" y="939" font-size="11" text-anchor="middle" font-weight="normal" fill="#222">页/表</text>
+<text x="40" y="980" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">L1/L2 描述符低两位：11 = 指向下一级表（表描述符 0x…003），01 = 块（L2 的 2 MiB 块）；L3 低两位必须是 11 才是页。</text>
+<text x="40" y="1000" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">AP[2:1]：00 EL1 RW，01 EL0+EL1 RW（PTE_U），10 EL1 RO（PTE_RO），11 EL0+EL1 RO。fork 后 COW 页 = AP 11 + bit57。</text>
+<text x="40" y="1020" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">AttrIndx 选 MAIR 字节：0 = 0x00 Device-nGnRnE（外设），1 = 0x44 Normal 不可缓存（摄像头 DMA），2 = 0xFF Normal 写回（RAM）。</text>
+<text x="40" y="1040" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">内核数据都设 UXN|PXN（XN）；.text 只读不设 XN；模块区既可写又可执行。用户页两个 XN 都没设：EL0 和 EL1 都能执行用户页。</text>
+<text x="40" y="1060" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">bit55-57 是 ARMv8 留给软件的位：PTE_SHARED（共享 libc 文本）、PTE_SPECIAL（VM_PFNMAP 设备页）、PTE_COW（写时复制）。</text>
+<text x="40" y="1100" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">⑥ 一次地址翻译：CPU 取 TTBRn → L1[VA[38:30]] → L2[VA[29:21]]（块则结束）→ L3[VA[20:12]] → PA = 描述符[47:12] | VA[11:0]。TLB 未命中时硬件按 TCR 的 IRGN/ORGN 用可缓存访问遍历这些表。</text>
+<text x="40" y="1120" font-size="12.5" text-anchor="start" font-weight="normal" fill="#222">    例：exec 返回 EL0 后先执行 ld.so 的入口 VA 0x2784：L1[0] → L2[0] → L3[2] = 0x3CA74B → PA 0x3CA784。</text>
+<text x="40" y="1160" font-size="15" text-anchor="start" font-weight="600" fill="#222">⑦ 与 tiny210（ARMv7）对比：内核根表放在哪、映射几套、进程表里有什么</text>
+<line x1="820" y1="1180" x2="820" y2="1580" stroke="#bbb" stroke-dasharray="4,4"/>
+<text x="40" y="1194" font-size="13.5" text-anchor="start" font-weight="600" fill="#1f5fae">tiny210：短描述符，只用 TTBR0（TTBCR=0），VA = PA</text>
+<text x="40" y="1216" font-size="11.5" text-anchor="start" font-weight="normal" fill="#222">开 MMU：kvminithart() 写 TTBR0 后直接置 SCTLR.M；内核链接在物理地址 0x20008000，只有一套恒等映射。</text>
+<rect x="40" y="1234" width="330" height="70" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="48" y="1249" font-size="12" text-anchor="start" font-weight="600" fill="#222">内核 L1 = roots[0]（.bss 静态池）</text>
+<text x="48" y="1267" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">16 KiB 对齐，4096 项 × 4 B</text>
+<text x="48" y="1283" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">1 MiB 段：DRAM 恒等 + 外设 MMIO</text>
+<text x="48" y="1299" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">池共 256 个根，占 bss 4 MiB</text>
+<rect x="440" y="1234" width="340" height="70" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="448" y="1249" font-size="12" text-anchor="start" font-weight="600" fill="#222">进程 A 的 L1 = roots[5]</text>
+<text x="448" y="1267" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">memmove(kernel L1, 16 KiB) 整张复制</text>
+<text x="448" y="1283" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">+ 用户 L1[0..] → L2 粗页表</text>
+<text x="448" y="1299" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">  L2 = 256 项 × 4 B = 1 KiB，占 4 KiB 页</text>
+<rect x="440" y="1330" width="340" height="38" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="448" y="1345" font-size="12" text-anchor="start" font-weight="600" fill="#222">进程 B 的 L1 = roots[6]</text>
+<text x="448" y="1363" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">又一份内核映射副本 + 自己的 L2</text>
+<line x1="370" y1="1270" x2="438" y2="1270" stroke="#1f5fae" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#arB)"/>
+<text x="375" y="1262" font-size="11" text-anchor="start" font-weight="normal" fill="#1f5fae">复制</text>
+<text x="40" y="1360" font-size="12.5" text-anchor="start" font-weight="600" fill="#222">TTBR0 =</text>
+<line x1="100" y1="1355" x2="438" y2="1350" stroke="#d35400" stroke-width="1.3" marker-end="url(#arO)"/>
+<text x="160" y="1348" font-size="11" text-anchor="start" font-weight="normal" fill="#d35400">switchuvm()：换整张表</text>
+<text x="40" y="1404" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 内核映射存在于每个进程的根里，切换进程 = 换掉整个地址空间。</text>
+<text x="40" y="1424" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 两级：L1（1 MiB）→ L2（4 KiB 页）；L2 只用 1 KiB，浪费 3 KiB。</text>
+<text x="40" y="1444" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• fork：uvmcopy() 每页 kalloc + memmove，真复制。</text>
+<text x="40" y="1464" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 根表数受静态池限制（256 个地址空间）。</text>
+<text x="850" y="1194" font-size="13.5" text-anchor="start" font-weight="600" fill="#c86400">rpi3-lock：4 KiB 粒度三级表，TTBR1 = 内核，TTBR0 = 用户</text>
+<text x="850" y="1216" font-size="11.5" text-anchor="start" font-weight="normal" fill="#222">内核链接在 0xFFFFFF8000080000，装在 PA 0x80000：恒等映射只活到 br _start，此后只用高地址映射。</text>
+<rect x="850" y="1234" width="330" height="70" rx="3" fill="#dbe8fb" stroke="#1f5fae" stroke-width="1.2"/>
+<text x="858" y="1249" font-size="12" text-anchor="start" font-weight="600" fill="#222">阶段 1：.bss 里 4 张启动表</text>
+<text x="858" y="1267" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">TTBR0 l1entrypgt：VA 0–4M = PA（临时）</text>
+<text x="858" y="1283" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">TTBR1 l1kpgt：KERNBASE+PA（高地址）</text>
+<text x="858" y="1299" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">kvminithart() 后作废</text>
+<rect x="850" y="1330" width="330" height="70" rx="3" fill="#ffe0b8" stroke="#c86400" stroke-width="1.2"/>
+<text x="858" y="1345" font-size="12" text-anchor="start" font-weight="600" fill="#222">阶段 2：内核 L1 0x3FF000（memblock）</text>
+<text x="858" y="1363" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">4 KiB = 512 项 × 8 B，任何页分配器都行</text>
+<text x="858" y="1379" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">全 RAM 线性映射 KERNBASE + PA</text>
+<text x="858" y="1395" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">所有 CPU、所有进程共用这一张</text>
+<line x1="1015" y1="1310" x2="1015" y2="1328" stroke="#c86400" stroke-width="1.3" marker-end="url(#arO)"/>
+<rect x="1250" y="1234" width="340" height="54" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="1258" y="1249" font-size="12" text-anchor="start" font-weight="600" fill="#222">进程 A 的 L1（kalloc 4 KiB）</text>
+<text x="1258" y="1267" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">空表：没有任何内核项</text>
+<text x="1258" y="1283" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">L1[0] → L2 → L3 → 用户页（共 3 个表页）</text>
+<rect x="1250" y="1314" width="340" height="38" rx="3" fill="#fde9cf" stroke="#d35400" stroke-width="1.2"/>
+<text x="1258" y="1329" font-size="12" text-anchor="start" font-weight="600" fill="#222">进程 B 的 L1（kalloc 4 KiB）</text>
+<text x="1258" y="1347" font-size="11" text-anchor="start" font-weight="normal" fill="#222" font-family="Menlo,'SF Mono',Consolas,monospace">fork：PTE 指向同一物理页，RO + COW</text>
+<text x="1250" y="1386" font-size="12" text-anchor="start" font-weight="600" fill="#d35400">TTBR0 = 当前进程（switchuvm 只换它）</text>
+<text x="1250" y="1406" font-size="12" text-anchor="start" font-weight="600" fill="#c86400">TTBR1 = 0x3FF000（始终不变）</text>
+<text x="850" y="1456" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 进程表只装用户映射；内核部分由 TTBR1 那一张承担，按 VA 最高位自动选表。</text>
+<text x="850" y="1476" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 三级：L1（1 GiB）→ L2（2 MiB，可作块）→ L3（4 KiB 页），每级正好一页。</text>
+<text x="850" y="1496" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• fork：uvmcopy() 只共享 + 标 COW，写时 cow_break() 才复制。</text>
+<text x="850" y="1516" font-size="12" text-anchor="start" font-weight="normal" fill="#222">• 根表数只受内存限制；进程内核栈映射在 TTBR1 的 KSTACK 区。</text>
+</svg>

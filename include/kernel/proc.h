@@ -169,6 +169,8 @@ struct proc {
   uint64 run_ticks;            // scheduler ticks consumed
   int vm_trace_exec_printed;   // first committed exec image was dumped
   int vm_trace_syscall_printed;// first syscall after that exec was dumped
+  int mmutrace;                // MMU_TRACE=3: print every page of this fork/exec
+  int mmu_tables, mmu_pages;   // MMU_TRACE: table/user pages taken by it
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
