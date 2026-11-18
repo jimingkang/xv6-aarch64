@@ -276,7 +276,7 @@ arrow(vx + vw, vmid("0x00000000 – 0x01BFFFFF"), lx, l1pos["[000..01b]"], "#d35
 arrow(lx + lw, l1pos["[480..483]"], px, pmid("48000000"), "#8e44ad", curve=(1100, l1pos["[480..483]"] - 30))
 arrow(lx + lw, l1pos["[470..47f]"], px, pmid("47000000"), "#8e44ad", curve=(1100, l1pos["[470..47f]"] - 30))
 arrow(lx + lw, l1pos["[46f]"], px + 4, sec_y0 + 8, "#2160a0", sw=2, curve=(1100, l1pos["[46f]"] - 40))
-arrow(lx + lw, l1pos["[400]"], px, pmid("40000000"), "#1e8449", curve=(1100, l1pos["[400]"] - 60))
+arrow(lx + lw, l1pos["[400]"], px, pmid("40000000"), "#1e8449", curve=(1100, l1pos["[400]"] + 70))
 arrow(lx + lw, l1pos["[01c]"], px, pmid("01C00000"), "#c0392b", curve=(1100, l1pos["[01c]"] + 260))
 # L1[000] -> L2 table, L2 entries -> exact pages, L2 itself lives at 46FE0000
 arrow(lx + lw, l1pos["[000..01b]"], qx, qy + 18, "#d35400", sw=2, curve=(790, l1pos["[000..01b]"]))
@@ -288,12 +288,16 @@ arrow(lx + lw, l1pos["[100..17f]"], px, pmid("48000000") + 6, "#a93d8c", dash="5
       curve=(800, pmid("48000000") + 6))
 text(qx + 10, qy - 14, "紫色虚线：进程 mmap /dev/fb0（fbtest）时 L1[100..] 写成用户段 → 帧缓冲", 11.5, "#a93d8c")
 # One physical page, two virtual addresses: user VA 0 via L2, kernel VA = PA via the L1 section.
-cx0, cy0 = 840, qy - 132
-rect(cx0, cy0, 500, 96, "#eef4fb", "#2160a0", rx=5)
-text(cx0 + 12, cy0 + 20, "同一物理页 PA 0x46FE1000 有两个虚拟地址：", 12.5, "#2160a0", weight="600")
-text(cx0 + 12, cy0 + 42, "用户态 VA 0x00000000 → L1[000]=46fe0001 → L2[0]=46fe1072（AP=11）", 11.5, "#d35400")
-text(cx0 + 12, cy0 + 62, "内核态 VA 0x46FE1000 → L1[46f]=46f01402 段 → 46F00000 | 0xE1000（AP=01）", 11.5, "#2160a0")
-text(cx0 + 12, cy0 + 82, "loadseg/copyout 用 uva2ka() 得到 0x46FE1000，直接当内核指针写入", 11, "#555")
+cx0, cy0, cw0, ch0 = 840, l1pos["[46f]"] + 16, 500, 80
+rect(cx0, cy0, cw0, ch0, "#eef4fb", "#2160a0", rx=5)
+text(cx0 + 12, cy0 + 18, "同一物理页 PA 0x46FE1000 有两个虚拟地址：", 12.5, "#2160a0", weight="600")
+text(cx0 + 12, cy0 + 37, "用户态 VA 0x00000000 → L1[000]=46fe0001 → L2[0]=46fe1072（AP=11）", 11.5, "#d35400")
+text(cx0 + 12, cy0 + 55, "内核态 VA 0x46FE1000 → L1[46f]=46f01402 段 → 46F00000 | 0xE1000（AP=01）", 11.5, "#2160a0")
+text(cx0 + 12, cy0 + 73, "loadseg/copyout 用 uva2ka() 得到 0x46FE1000，直接当内核指针写入", 11, "#555")
+# left: from the kernel entry L1[46f] (VA 0x46FE1000); right: to the page 46FE1000.
+o(f'<path d="M{lx + lw},{l1pos["[46f]"] + 4} C{cx0 - 40},{l1pos["[46f]"] + 4} {cx0 - 40},{cy0 + 52} {cx0},{cy0 + 52}" '
+  f'fill="none" stroke="#2160a0" stroke-width="1.4" stroke-dasharray="2 3"/>')
+arrow(cx0 + cw0, cy0 + 30, px + 10, qpos["46FE1000"], "#2160a0", sw=1.6, dash="2 3")
 
 # ------------------------------------------------------------ bottom boxes
 by, bh = 1330, 290
