@@ -172,7 +172,7 @@ l1 = [
     ("[484..fff] 等", "00000000", "缺页", "#999"),
     ("[480..483]", f"{SEC_NC(0x48000000):08x}…", "帧缓冲 NC+XN", "#8e44ad"),
     ("[470..47f]", f"{SEC_RAM(0x47000000):08x}…", "win32k", "#8e44ad"),
-    ("[46f]", f"{SEC_RAM(0x46F00000):08x}", "PA 46F00000", "#1e8449"),
+    ("[46f]", f"{SEC_RAM(0x46F00000):08x}", "PA 46F00000 起 1 MiB", "#2160a0"),
     ("…", "", "112 段 = 112 MiB", "#1e8449"),
     ("[400]", f"{SEC_RAM(0x40000000):08x}", "PA 40000000 内核", "#1e8449"),
     ("[200..3ff] 等", "00000000", "缺页", "#999"),
@@ -210,12 +210,16 @@ for lab, h, c, f in prows:
     ppos[lab.split(" ")[0]] = (y, h)
     y += h
 # Exact pages at the top of the kalloc pool (freelist head = highest address).
-ky = ppos["408C0000"][0] + 62
+# The 1 MiB covered by the single section L1[46f]; the pages below all lie in it.
+sec_y0 = ppos["408C0000"][0] + 42
+ky = sec_y0 + 30
+rect(px + 4, sec_y0, pw - 8, 84, "none", "#2160a0", sw=1.5, rx=3, dash="6 3")
+text(px + 10, sec_y0 + 13, "L1[46f] 这 1 MiB：46F00000–46FFFFFF", 10.5, "#2160a0", weight="600")
 qpos = {}
 for i, (a_, b_, fill, stroke) in enumerate([("46FE1000", "用户页 VA 0", "#c8ecd2", "#1e8449"),
                                              ("46FE0000", "L2 表（L1[0]=46fe0001）", "#fde9cf", "#d35400"),
                                              ("46FDF000", "用户页 VA 1000 …", "#c8ecd2", "#1e8449")]):
-    yy = ky + i * 24
+    yy = ky + i * 22
     rect(px + 10, yy - 14, 96, 19, fill, stroke, sw=1, rx=2)
     text(px + 15, yy, a_, 11.5, "#222", mono=True)
     text(px + 112, yy, b_, 11, "#333")
@@ -271,7 +275,7 @@ arrow(vx + vw, vmid("0x00000000 – 0x01BFFFFF"), lx, l1pos["[000..01b]"], "#d35
 # L1 -> PA (sections)
 arrow(lx + lw, l1pos["[480..483]"], px, pmid("48000000"), "#8e44ad", curve=(1100, l1pos["[480..483]"] - 30))
 arrow(lx + lw, l1pos["[470..47f]"], px, pmid("47000000"), "#8e44ad", curve=(1100, l1pos["[470..47f]"] - 30))
-arrow(lx + lw, l1pos["[46f]"], px, ppos["408C0000"][0] + 12, "#1e8449", curve=(1100, l1pos["[46f]"] - 40))
+arrow(lx + lw, l1pos["[46f]"], px + 4, sec_y0 + 8, "#2160a0", sw=2, curve=(1100, l1pos["[46f]"] - 40))
 arrow(lx + lw, l1pos["[400]"], px, pmid("40000000"), "#1e8449", curve=(1100, l1pos["[400]"] - 60))
 arrow(lx + lw, l1pos["[01c]"], px, pmid("01C00000"), "#c0392b", curve=(1100, l1pos["[01c]"] + 260))
 # L1[000] -> L2 table, L2 entries -> exact pages, L2 itself lives at 46FE0000
@@ -284,13 +288,11 @@ arrow(lx + lw, l1pos["[100..17f]"], px, pmid("48000000") + 6, "#a93d8c", dash="5
       curve=(800, pmid("48000000") + 6))
 text(qx + 10, qy - 14, "紫色虚线：进程 mmap /dev/fb0（fbtest）时 L1[100..] 写成用户段 → 帧缓冲", 11.5, "#a93d8c")
 # One physical page, two virtual addresses: user VA 0 via L2, kernel VA = PA via the L1 section.
-arrow(lx + lw, l1pos["[46f]"], px + 10, qpos["46FE1000"] - 3, "#2160a0", sw=2, dash="7 3",
-      curve=(1250, l1pos["[46f]"] + 40))
 cx0, cy0 = 840, qy - 132
 rect(cx0, cy0, 500, 96, "#eef4fb", "#2160a0", rx=5)
 text(cx0 + 12, cy0 + 20, "同一物理页 PA 0x46FE1000 有两个虚拟地址：", 12.5, "#2160a0", weight="600")
 text(cx0 + 12, cy0 + 42, "用户态 VA 0x00000000 → L1[000]=46fe0001 → L2[0]=46fe1072（AP=11）", 11.5, "#d35400")
-text(cx0 + 12, cy0 + 62, "内核态 VA 0x46FE1000 → L1[46f]=46f01402 段（VA = PA，AP=01）", 11.5, "#2160a0")
+text(cx0 + 12, cy0 + 62, "内核态 VA 0x46FE1000 → L1[46f]=46f01402 段 → 46F00000 | 0xE1000（AP=01）", 11.5, "#2160a0")
 text(cx0 + 12, cy0 + 82, "loadseg/copyout 用 uva2ka() 得到 0x46FE1000，直接当内核指针写入", 11, "#555")
 
 # ------------------------------------------------------------ bottom boxes
