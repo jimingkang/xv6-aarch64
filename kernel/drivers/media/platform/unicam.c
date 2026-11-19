@@ -229,6 +229,8 @@ camsensor_register(struct camsensor *s)
      s->ops->stream_on == 0 || s->ops->stream_off == 0 || s->nmodes < 1)
     return -1;
   cam.candidates[cam.ncandidates++] = s;
+  printf("camera: registered sensor candidate %s (%d mode%s)\n", s->name,
+         s->nmodes, s->nmodes == 1 ? "" : "s");
   return 0;
 }
 
@@ -1001,6 +1003,9 @@ camera_bind(void)
     // power cycles: clone modules occasionally miss their first power edge.
     int attempts = myproc() ? 3 : 1;
 
+    printf("camera: probing candidate %d/%d: %s\n", i + 1,
+           cam.ncandidates, s->name);
+
     if(!mode_supported(s, &s->modes[0])){
       printf("unicam: %s default mode %s not supported by CSI1\n",
              s->name, s->modes[0].name);
@@ -1062,7 +1067,8 @@ camera_init(void)
   // unicam_irq() masks a genuinely stuck/spurious line after 100 assertions.
   cam.irq_off = 0;
   bcm2837_disable_irq(CSI1_IRQ);
-  printf("camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap\n");
+  printf("camera: driver multi-sensor-v1 gpio-sccb-v10 unicam-irq-v3 "
+         "double-buffer mmap\n");
   if(register_chrdev(CAMERA, "video0", &fops) < 0){
     printf("unicam: cannot register /dev/video0\n");
     return;

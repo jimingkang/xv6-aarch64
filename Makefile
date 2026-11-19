@@ -123,6 +123,7 @@ DRIVER_BLOCK_OBJS = \
 DRIVER_MEDIA_OBJS = \
   $K/drivers/firmware/mbox.o \
   $K/drivers/media/i2c/i2c.o \
+  $K/drivers/media/i2c/imx219.o \
   $K/drivers/media/i2c/ov5647.o \
   $K/drivers/media/platform/unicam.o
 
