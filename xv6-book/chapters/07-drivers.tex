@@ -2647,7 +2647,7 @@ GTK = AES-Key-Unwrap(KEK, M3 的 key data) 中的 GTK KDE               wpa_aes_
 
 \paragraph{电源和时钟由谁管.} 摄像头模块上的稳压器由 \code{CAM\_GPIO0} 使能，这根线接在 VideoCore 管理的 GPIO 扩展器上，Unicam 所在的电源域也归固件管，ARM 只能通过 mailbox 发属性标签请固件代办。\code{CM\_CAM1} 时钟则是普通的时钟管理器寄存器，内核直接写。传感器自己的像素时钟来自模块上的 25\,MHz 晶振，不需要 SoC 提供。
 
-\paragraph{CPU 只在两头出现.} 把这些放在一起看，CPU 的角色就清楚了：开始时它是\emph{配置者}——经 mailbox 上电、写时钟、经 SCCB 配传感器、经 MMIO 配 Unicam；数据开始流动以后，传感器 → Unicam → 内存这条路完全不经过 CPU；CPU 只需要对 FS/FE 事件作出反应，在恰当的帧开始前换掉 DMA 地址（图~\ref{fig:cam-fsm}），最后把整帧交给用户。早期版本为了安全屏蔽了中断，由 CPU 每 1\,ms 读一次 \code{STA}/\code{ISTA}；现在以 CSI1 中断（GPU IRQ 39）为主、10\,ms watchdog 兜底，见 \ref{sec:cam-dma} 小节。
+\paragraph{CPU 只在两头出现.} 把这些放在一起看，CPU 的角色就清楚了：开始时它是\emph{配置者}——经 mailbox 上电、写时钟、经 SCCB 配传感器、经 MMIO 配 Unicam；数据开始流动以后，传感器 → Unicam → 内存这条路完全不经过 CPU；CPU 只需要对 FS/FE 事件作出反应，在恰当的帧开始前换掉 DMA 地址（图~\ref{fig:cam-state-timing}），最后把整帧交给用户。早期版本为了安全屏蔽了中断，由 CPU 每 1\,ms 读一次 \code{STA}/\code{ISTA}；现在以 CSI1 中断（GPU IRQ 39）为主、10\,ms watchdog 兜底，见 \ref{sec:cam-dma} 小节。
 
 \paragraph{顺序约束.} 几条通路之间有严格的先后关系，驱动的步骤顺序就是由它们决定的：先上电，SCCB 才可能应答；传感器先停在 LP-11，Unicam 才能在干净的空闲态上完成模拟复位和校准；接收器先使能、传感器后出流，否则第一个 FS 可能丢失；停止时反过来，先停传感器再停接收器，避免接收器在一帧中间被关掉。表~\ref{tab:cam-board} 列出了这些部件在 Pi 3B+ 上的具体资源。
 
@@ -2880,7 +2880,7 @@ camera: OV5647 on CSI1 (2 lanes) -> /dev/video0, 640x480 RAW10
 
 \subsection{拍一帧}
 
-本小节和图~\ref{fig:cam-calls}、图~\ref{fig:cam-fsm} 描述的是最初的单缓冲版本，\ref{sec:cam-log} 和 \ref{sec:cam-bugs} 小节的日志也来自它；现在的双缓冲、中断驱动版本见 \ref{sec:cam-dma} 小节。用户每 \code{read()} 一次 \code{/dev/video0} 就拍一帧，返回 40 字节的帧头（magic、宽、高、行字节数、格式、长度、序号、时间戳）加打包的 RAW10 数据。帧头里的 \code{format} 同时给出 Bayer 顺序（OV5647 是 BGGR，IMX219 是 RGGB），用户程序据此去马赛克。\code{cam\_capture()} 的顺序与 Linux 相同——开始时先启动接收器再让传感器出流，结束时先停传感器再停接收器；整条调用链见图~\ref{fig:cam-calls}：
+本小节和图~\ref{fig:cam-calls} 描述的是最初的单缓冲版本，\ref{sec:cam-log} 和 \ref{sec:cam-bugs} 小节的日志也来自它；现在的双缓冲、中断驱动版本见 \ref{sec:cam-dma} 小节。用户每 \code{read()} 一次 \code{/dev/video0} 就拍一帧，返回 40 字节的帧头（magic、宽、高、行字节数、格式、长度、序号、时间戳）加打包的 RAW10 数据。帧头里的 \code{format} 同时给出 Bayer 顺序（OV5647 是 BGGR，IMX219 是 RGGB），用户程序据此去马赛克。\code{cam\_capture()} 的顺序与 Linux 相同——开始时先启动接收器再让传感器出流，结束时先停传感器再停接收器；整条调用链见图~\ref{fig:cam-calls}：
 
 \begin{figure}[htbp]
   \centering
@@ -2954,49 +2954,7 @@ camera: OV5647 on CSI1 (2 lanes) -> /dev/video0, 640x480 RAW10
   \item \code{stream\_off} → 停 Unicam → \code{power\_off} → 关时钟和电源域，把数据从 \code{CAMDMA}（非缓存映射，物理 \code{0x07200000}）拷给用户。
 \end{enumerate}
 
-第 6 步的关键（图~\ref{fig:cam-fsm}）是：写进 \code{IBSA0/IBEA0} 的新地址\emph{要到下一个帧开始才生效}。所以真缓冲那一帧刚开始就把假缓冲写回去，这一帧会继续完整地写进真缓冲，之后的帧则落进假缓冲，缓冲区里恰好留下一整帧。假缓冲的大小编程为 0，是照搬 Linux 绕开循环缓冲模式越界写缺陷的做法。
-
-\begin{figure}[htbp]
-  \centering
-  \begin{tikzpicture}[x=1mm,y=1mm, font=\footnotesize]
-    \def\fw{22}\def\gap{5}
-    % row labels
-    \node[lab, anchor=east] at (14,40) {传感器输出};
-    \node[lab, anchor=east] at (14,30) {DMA 实际写入};
-    \node[lab, anchor=east] at (14,20) {\code{IBSA0} 寄存器};
-    \node[lab, anchor=east] at (14,10) {\code{cam.state}};
-    \foreach \i/\n in {0/29,1/30,2/31,3/32}{
-      \pgfmathsetmacro{\xs}{16+\i*(\fw+\gap)}
-      \draw[fill=structurecolor!15, draw=structurecolor!70!black] (\xs,36.5) rectangle ++(\fw,7) node[midway]{第 \n 帧};
-      \draw[red!70!black, thick] (\xs,34) -- (\xs,46) node[above, font=\scriptsize]{FS};
-      \draw[gray!70!black, thick] (\xs+\fw,34) -- (\xs+\fw,46) node[above, font=\scriptsize]{FE};
-      \draw[gray!40, dashed] (\xs,4) -- (\xs,34);
-    }
-    % DMA target row
-    \foreach \i/\t/\c in {0/假缓冲/gray!12, 1/假缓冲/gray!12, 2/真缓冲 \code{FRAME\_PA}/orange!30, 3/假缓冲/gray!12}{
-      \pgfmathsetmacro{\xs}{16+\i*(\fw+\gap)}
-      \draw[fill=\c, draw=gray!60] (\xs,26.5) rectangle ++(\fw,7) node[midway]{\t};
-    }
-    % IBSA row
-    \draw[fill=gray!8, draw=gray!60] (16,16.5) rectangle (43,23.5) node[midway]{\code{DUMMY\_PA}};
-    \draw[fill=orange!20, draw=gray!60] (43,16.5) rectangle (70,23.5) node[midway]{\code{FRAME\_PA}};
-    \draw[fill=gray!8, draw=gray!60] (70,16.5) rectangle (119,23.5) node[midway]{\code{DUMMY\_PA}};
-    % state row
-    \foreach \a/\b/\t in {16/43/{\textsc{warmup}}, 43/70/{\textsc{armed}}, 70/92/{\textsc{capture}}, 92/119/{\textsc{done} → 停流}}{
-      \draw[fill=structurecolor!8, draw=structurecolor!60!black] (\a,6.5) rectangle (\b,13.5) node[midway]{\t};
-    }
-    % annotations
-    \node[lab, align=left, anchor=north west, text width=44mm] (n1) at (2,-1) {\textbf{A} 第 30 个 FS（或 1.5\,s 期限）：写入 \code{FRAME\_PA}，进入 \textsc{armed}；本帧仍写假缓冲};
-    \node[lab, align=left, anchor=north west, text width=44mm] (n2) at (50,-1) {\textbf{B} 下一个 FS：新地址生效，第 31 帧写进真缓冲；处理程序立刻写回 \code{DUMMY\_PA}，进入 \textsc{capture}};
-    \node[lab, align=left, anchor=north west, text width=40mm] (n3) at (98,-1) {\textbf{C} 第 31 帧的 FE：真缓冲里正好一整帧，进入 \textsc{done}；第 32 帧落进假缓冲};
-    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (43,54) {A};
-    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (70,54) {B};
-    \node[circle, draw=red!70!black, inner sep=0.8pt, font=\scriptsize\bfseries, fill=white] at (92,54) {C};
-  \end{tikzpicture}
-  \caption{帧状态机的时序。\code{IBSA0/IBEA0} 的新值要到下一个帧开始（FS）才被硬件锁存，所以“写真地址”和“写回假地址”都比它们生效的那一帧早一个 FS}
-  \label{fig:cam-fsm}
-\end{figure}
-
+第 6 步的关键是：写进 \code{IBSA0/IBEA0} 的新地址\emph{要到下一个帧开始才生效}。单缓冲版本利用这一点，在真缓冲那一帧的 FS 里就把假缓冲写回去：这一帧继续完整地写进真缓冲，之后的帧落进假缓冲，缓冲区里恰好留下一整帧，然后停流。现在的双缓冲版本在同一个 FS 里改写的是“另一个槽”而不是假缓冲，传感器也不再停流；完整的状态机、一次取帧的时序和双缓冲时序见 \ref{sec:cam-state} 小节（图~\ref{fig:cam-state-machine}～\ref{fig:cam-state-timing}）。假缓冲的大小编程为 0，是照搬 Linux 绕开循环缓冲模式越界写缺陷的做法。
 \paragraph{为什么用轮询而不是中断.} 设备树说 CSI1 是 GPU IRQ 39，但这个编号没有在真机上验证过；第一次打开它时 CPU0 陷入了清不掉的电平中断（\ref{sec:cam-bugs} 小节问题 7）。所以目前屏蔽 IRQ 39，用 \reg{CNTVCT\_EL0} 计一个 4 秒期限、每 1\,ms 轮询一次 Unicam 状态。现在真机上的日志是：
 
 \begin{txtcode}
@@ -3109,7 +3067,7 @@ CAMDMA_PA = 0x07200000
 
 Unicam 只认一段起止地址，所以每个槽必须物理连续。内核和用户两侧都把这段内存映射成 \code{Normal-NC}（非缓存普通内存）：Unicam 写进 DRAM 的像素，CPU 直接读到的就是最新数据，每帧前后不需要作废缓存行。Arm 不保证同一物理页用不同内存属性映射（例如内核可缓存、用户不可缓存）时的正确性，所以两侧的属性必须一致。
 
-\paragraph{双缓冲：槽的状态机.} 每个槽在五个状态之间循环（图~\ref{fig:cam-slots}）：\textsc{free} 表示空闲；\textsc{next} 表示地址已写进 \code{IBSA0/IBEA0}，等下一个 FS 锁存；\textsc{active} 表示 Unicam 正在往里写；\textsc{done} 表示一帧已完整写完，排在完成队列里；\textsc{user} 表示被读者取走，正在被用户使用。
+\paragraph{双缓冲：槽的状态机.} 每个槽在五个状态之间循环（图~\ref{fig:cam-slots}）：\textsc{free} 表示空闲；\textsc{next} 表示地址已写进 \code{IBSA0/IBEA0}，等下一个 FS 锁存；\textsc{active} 表示 Unicam 正在往里写；\textsc{done} 表示一帧已完整写完，排在完成队列里；\textsc{user} 表示被读者取走，正在被用户使用。槽状态之上还有一个全局的 \code{cam.state}，两者如何一起变化见 \ref{sec:cam-state} 小节。
 
 \begin{figure}[htbp]
   \centering
@@ -3205,6 +3163,8 @@ if(read(fd, &h, sizeof(h)) == sizeof(h)){
 
 这一版已经通过完整构建；以 CSI1 中断为主的完成路径还需要烧录后，从真机日志 \code{unicam: frame captured by CSI1 IRQ 39; watchdog remains armed} 来确认。
 
+\input{chapters/sec-cam-state}
+
 \subsection{用户程序 \code{camshot}}
 
 \code{camshot} 用纯整数运算完成图像处理（用户程序以 \code{-mcpu=cortex-a53+nofp} 编译）：解包 RAW10（每 4 个像素占 5 字节），减黑电平 16，BGGR 双线性去马赛克，灰度世界白平衡（增益限制在 0.5～4），把绿色通道的第 99 百分位拉到满幅，查表做 gamma 2.2 校正，写成 24 位 BMP。\code{-t N} 让传感器输出内部测试图案（1 彩条、2 色块、3 随机），这时改用固定的 1.0 白平衡和固定电平，不做统计——测试图案本身是校准过的，正好单独验证传感器、CSI-2、DMA、转换和写盘；\code{-s} 输出 320$\times$240 半尺寸。
@@ -3265,7 +3225,7 @@ $ /bin/camshot -t 1 -s -o /boot/cam02.bmp
 
 \paragraph{\ding{174} 先接收器、后出流.} \code{unicam: receiver enabled} 在 \code{starting sensor stream} 之前，顺序与 Linux 一致。随后 \code{ov5647\_stream\_on()} 写三张表：公共寄存器 51 项、640$\times$480 模式 29 项、曝光增益等控制 11 项，再加上虚拟通道、测试图案、退出待机、MIPI 控制等几次读改写。它们全部经 25\,kHz 软件 SCCB：一次 16 位地址的写是 4 个字节、约 36 个时钟，约 1.5\,ms，九十多次写加起来约 0.15 秒——慢，但只在开流时发生一次。
 
-\paragraph{\ding{175} 一帧到手.} \code{cam\_capture()} 每 1\,ms 调一次 \code{unicam\_service(0)}，状态机经过 \textsc{warmup}（丢 30 帧）、\textsc{armed}、\textsc{capture}，在帧结束时进入 \textsc{done}（图~\ref{fig:cam-fsm}）。“\code{intentionally masked}”说明 IRQ 39 是有意屏蔽的，不是丢了中断。
+\paragraph{\ding{175} 一帧到手.} \code{cam\_capture()} 每 1\,ms 调一次 \code{unicam\_service(0)}，状态机经过 \textsc{warmup}（丢 30 帧）、\textsc{armed}、\textsc{capture}，在帧结束时进入 \textsc{done}（状态含义见图~\ref{fig:cam-state-machine}；单缓冲版本在 \textsc{capture} 一开始就写回 dummy，取到一帧后停流）。“\code{intentionally masked}”说明 IRQ 39 是有意屏蔽的，不是丢了中断。
 
 \paragraph{\ding{176} 数字对得上.} \code{read()} 返回 \code{384040} 字节：40 字节帧头加 $640\times480\times10/8=384000$ 字节 RAW10。测试图案模式下 \code{camshot} 用固定的 1.0 白平衡和电平，所以下一行直接是 \code{fixed WB/level}。
 

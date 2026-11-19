@@ -1,0 +1,83 @@
+% 图：一次取帧的时序（camshot / camserver 的第一次 read），右栏标出每一步之后的 cam.state。
+% 依赖 main.tex 的 box / lab 样式和 \code。内容按 unicam.c / imx219.c。
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      head/.style={box, minimum width=24mm, minimum height=8mm, font=\scriptsize, align=center},
+      m/.style={-{Stealth[length=1.6mm]}, semithick, draw=blue!60!black},
+      hw/.style={-{Stealth[length=1.6mm]}, semithick, dashed, draw=red!65!black},
+      px/.style={-{Stealth[length=2mm]}, line width=1.1pt, draw=orange!85!black},
+      nul/.style={-{Stealth[length=1.6mm]}, semithick, draw=gray!60},
+      up/.style={lab, font=\scriptsize, text=black, fill=white, inner sep=0.5pt, anchor=south},
+      dn/.style={font=\tiny\ttfamily, text=gray!40!black, fill=white, inner sep=0.5pt, anchor=north},
+      sl/.style={lab, font=\scriptsize, text=black, anchor=west, align=left, fill=white, inner sep=0.5pt},
+      tag/.style={draw=structurecolor!70!black, fill=structurecolor!12, rounded corners=1.5pt,
+        font=\fontsize{5.5pt}{6pt}\selectfont\bfseries, minimum width=17mm, minimum height=3.6mm, inner sep=0.5pt},
+      phase/.style={lab, font=\scriptsize\bfseries, text=structurecolor!50!black, anchor=west}]
+    % lifelines
+    \def\xA{6}\def\xC{38}\def\xU{74}\def\xM{106}\def\xI{134}\def\xS{156}
+    \def\ytop{0}\def\ybot{-167}
+    \foreach \x/\t in {\xA/{\code{camshot} /\\\code{camserver}}, \xC/{\file{/dev/video0}\\\code{camread}/\code{cam\_grab}},
+                       \xU/{Unicam 接收器\\\code{unicam\_service}}, \xM/{DDR 缓冲\\槽 0 / 槽 1 / dummy}, \xI/{IMX219\\传感器}}{
+      \draw[gray!55, densely dashed] (\x,\ytop-4) -- (\x,\ybot);
+      \node[head] at (\x,\ytop) {\t};
+    }
+    \node[lab, font=\scriptsize\bfseries, text=structurecolor!50!black] at (\xS,\ytop) {\code{cam.state}};
+    \draw[gray!35] (\xS,\ytop-4) -- (\xS,\ybot);
+
+    \newcommand{\yr}[1]{-6.6*(#1)-6}
+    % \msg{row}{x1}{x2}{style}{what}{call}
+    \newcommand{\msg}[6]{\draw[#4] (#2,{\yr{#1}}) -- (#3,{\yr{#1}})
+        node[up, pos=0.5, yshift=0.2mm] {#5} node[dn, pos=0.5, yshift=-0.2mm] {#6};}
+    % \self{row}{x}{style}{text}
+    \newcommand{\self}[4]{\draw[#3] (#2,{\yr{#1}+1.4}) -- ++(3.5,0) -- ++(0,-2.8) -- ++(-3.5,0);
+        \node[sl] at (#2+4.5,{\yr{#1}}) {#4};}
+    \newcommand{\st}[2]{\node[tag] at (\xS,{\yr{#1}}) {#2};}
+    \newcommand{\ph}[2]{\fill[structurecolor!6] (\xA-5,{\yr{#1}+3.7}) rectangle (\xI+12,{\yr{#1}+0.4});
+        \node[phase] at (\xA-4.5,{\yr{#1}+2}) {#2};}
+
+    \st{0}{IDLE}
+    % ---- 1 启动
+    \ph{0.6}{阶段 1　第一次 \code{read}：上电、配接收器、让传感器出流}
+    \msg{1}{\xA}{\xC}{m}{\code{read(fd, \&hdr, 40)}}{camread(): !cam.streaming}
+    \self{2}{\xC}{m}{\code{cam\_stream\_start()}：电源域 UNICAM1、CAM1 时钟、\code{power\_on}}
+    \st{2}{WARMUP}
+    \msg{3}{\xC}{\xU}{m}{\code{unicam\_start()}：D-PHY 2 lane、RAW10}{set\_image\_buffer(DUMMY\_PA, 0)}
+    \msg{4}{\xC}{\xI}{m}{\code{stream\_on()}：CCI 写寄存器表，\code{0x0100 = 1}}{imx219\_stream\_on() → LP-11 → HS}
+
+    % ---- 2 预热循环
+    \ph{5.1}{阶段 2　预热：传感器连续出帧，接收器停在 dummy，整帧丢掉}
+    \draw[gray!60, rounded corners=1.5pt] (\xA+16,{\yr{5.5}+1.5}) rectangle (\xI+4,{\yr{10.6}});
+    \node[lab, fill=white, inner sep=0.5pt, anchor=north west, font=\tiny] at (\xA+16.5,{\yr{5.5}+1.2}) {loop × \code{warmup\_frames}（IMX219 为 5，OV5647 为 30）};
+    \msg{6}{\xI}{\xU}{hw}{FS 短包}{ISTA.FSI → IRQ 39}
+    \self{7}{\xU}{hw}{\code{unicam\_service()}：\code{frame\_starts++}}
+    \msg{8}{\xI}{\xU}{hw}{RAW10 长包 ×480 行}{800 B/行}
+    \msg{9}{\xU}{\xM}{nul}{写 dummy：\code{IBSA0 == IBEA0}}{0 字节，什么都不写}
+    \msg{10}{\xI}{\xU}{hw}{FE 短包}{ISTA.FEI}
+    \msg{11}{\xU}{\xC}{hw}{预热最后一个 FS：\code{wakeup}}{state = CAM\_STREAMING}
+    \st{11}{STREAMING}
+
+    % ---- 3 取一帧
+    \ph{12.1}{阶段 3　取帧：排槽 → 下一个 FS 锁存 → FE 完成}
+    \msg{13}{\xC}{\xU}{m}{\code{cam\_grab()} → \code{queue\_slot\_locked()}}{IBSA0 = 0xc7200000（槽 0），dsb sy}
+    \st{13}{ARMED}
+    \self{14}{\xC}{m}{\code{sleep(\&done\_count)}：等 FE（当前这帧仍写 dummy）}
+    \msg{15}{\xI}{\xU}{hw}{FS：硬件锁存影子指针 → 槽 0}{IRQ 39}
+    \self{16}{\xU}{hw}{槽 0 → ACTIVE；\code{queue\_slot\_locked()} 再排槽 1 为 NEXT}
+    \st{16}{CAPTURE}
+    \msg{17}{\xI}{\xU}{hw}{RAW10 ×480 行}{}
+    \draw[px] (\xU,{\yr{18}}) -- node[up]{AXI 写槽 0：384000 B} node[dn]{0xc7200000 .. 0xc725dc00} (\xM,{\yr{18}});
+    \msg{19}{\xI}{\xU}{hw}{FE}{IRQ 39}
+    \msg{20}{\xU}{\xC}{hw}{槽 0 → DONE，\code{done\_push\_locked(0)}}{wakeup(\&done\_count)}
+    \st{20}{DONE}
+    \msg{21}{\xC}{\xA}{m}{帧头 40 B，\code{reserved=0}}{槽 0 → USER}
+
+    % ---- 4 用帧、还槽
+    \ph{22.1}{阶段 4　用户读像素、下一次 \code{read} 还槽}
+    \draw[px] (\xA,{\yr{23}}) -- node[up, pos=0.72]{零拷贝：读 \code{map + reserved × 512 KB}} node[dn, pos=0.72]{camproc\_jpeg\_raw()} (\xM,{\yr{23}});
+    \msg{24}{\xA}{\xC}{m}{下一次 \code{read}：先还槽}{release\_slot\_locked(0)}
+  \end{tikzpicture}
+  \caption{一次取帧的时序，右栏是每一步之后的 \code{cam.state}。蓝实线是进程上下文里的调用，红虚线是传感器发来的 CSI-2 包和它触发的中断，
+    橙色粗线是真正写进或读出像素的地方。注意预热阶段（阶段 2）传感器的包照样到达、照样产生 FS/FE 中断，只是 DMA 的长度是 0}
+  \label{fig:cam-state-seq}
+\end{figure}

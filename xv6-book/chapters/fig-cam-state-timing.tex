@@ -1,0 +1,124 @@
+% 图：帧状态机的时序（双缓冲版）。替换原来单槽版的“帧状态机的时序”图。
+% 场景：camserver 的 capture_worker 用两个 fd 轮流 read，jpeg_worker 处理得比一帧慢，
+% 所以第 8 帧两个槽都在用户手里，只能丢帧。内容按 kernel/drivers/media/platform/unicam.c。
+% 依赖 main.tex 的 lab 样式和 \code。
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      seg/.style={draw=gray!60},
+      dum/.style={fill=gray!12, text=gray!50!black},
+      s0/.style={fill=orange!22},
+      s1/.style={fill=yellow!25},
+      st/.style={fill=structurecolor!10, font=\fontsize{5.5pt}{6pt}\selectfont},
+      ev/.style={circle, draw=red!65!black, fill=white, inner sep=0.4pt, minimum size=3.6mm,
+        font=\tiny\bfseries, text=red!65!black},
+      wr/.style={-{Stealth[length=1.3mm]}, thick, draw=red!65!black},
+      rowlab/.style={lab, anchor=east, align=right, font=\scriptsize}]
+    % ------------------------------------------------------------ geometry
+    % 帧周期 24 mm：FS 在 x，FE 在 x+16，之后 8 mm 消隐（时间轴不按比例）
+    \def\T{24}\def\A{16}
+    \pgfmathsetmacro{\Xo}{38}
+    % y of each row
+    \def\yS{0}\def\yW{-8}\def\yD{-16}\def\yP{-24}\def\yQ{-32}\def\yC{-40}
+    % helper: \seg{x1}{x2}{y}{style}{text}
+    \newcommand{\seg}[5]{\path[seg, #4] (#1,#3-2.5) rectangle (#2,#3+2.5); \node[font=\scriptsize, #4, fill=none, draw=none, inner sep=0pt] at ({(#1+#2)/2},#3) {#5};}
+
+    \newcommand{\stf}{\fontsize{5pt}{6pt}\selectfont}
+    % row labels
+    \node[rowlab] at (23,\yS) {传感器输出};
+    \node[rowlab] at (23,\yW) {\code{IBSA0/IBEA0}\\影子指针};
+    \node[rowlab] at (23,\yD) {本帧 DMA 目标\\（FS 时锁存）};
+    \node[rowlab] at (23,\yP) {槽 0 状态};
+    \node[rowlab] at (23,\yQ) {槽 1 状态};
+    \node[rowlab] at (23,\yC) {\code{cam.state}};
+
+    % FS / FE ticks and sensor frames 5..9
+    \foreach \k [count=\i from 0] in {5,...,9}{
+      \pgfmathsetmacro{\fs}{\Xo+\T*\i}
+      \pgfmathsetmacro{\fe}{\fs+\A}
+      \draw[red!70!black, semithick] (\fs,4.5) -- (\fs,-43);
+      \draw[gray!55, semithick] (\fe,4.5) -- (\fe,-43);
+      \node[font=\tiny, text=red!70!black, anchor=south] at (\fs,4.3) {FS};
+      \node[font=\tiny, text=gray!60!black, anchor=south] at (\fe,4.3) {FE};
+      \path[seg, fill=structurecolor!12] (\fs,\yS-2.5) rectangle ++(\A,5); \node at (\fs+\A/2,\yS) {第 \k 帧};
+    }
+    % x positions of the events
+    \pgfmathsetmacro{\xa}{\Xo}            % 1: FS5
+    \pgfmathsetmacro{\xb}{\Xo+15}         % 2: read → cam_grab
+    \pgfmathsetmacro{\xc}{\Xo+\T}         % 3: FS6
+    \pgfmathsetmacro{\xd}{\Xo+\T+\A}      % 4: FE6
+    \pgfmathsetmacro{\xe}{\Xo+2*\T}       % 5: FS7
+    \pgfmathsetmacro{\xf}{\Xo+2*\T+\A}    % 6: FE7
+    \pgfmathsetmacro{\xg}{\Xo+3*\T}       % 7: FS8
+    \pgfmathsetmacro{\xh}{\Xo+3*\T+12}    % 8: read(fd0) 还槽 0
+    \pgfmathsetmacro{\xi}{\Xo+4*\T}       % FS9
+    \pgfmathsetmacro{\xz}{\Xo+5*\T-1}     % end
+    \pgfmathsetmacro{\xs}{\Xo-14}         % start
+
+    % IBSA0 shadow pointer (changes when software writes it)
+    \seg{\xs}{\xb}{\yW}{dum}{\code{DUMMY}}
+    \seg{\xb}{\xc}{\yW}{s0}{槽 0}
+    \seg{\xc}{\xe}{\yW}{s1}{槽 1}
+    \seg{\xe}{\xh}{\yW}{dum}{\code{DUMMY}（停靠）}
+    \seg{\xh}{\xz}{\yW}{s0}{槽 0}
+
+    % DMA target of each frame (latched at FS)
+    \seg{\xs}{\xa}{\yD}{dum}{}
+    \seg{\xa}{\xc}{\yD}{dum}{dummy，0 字节}
+    \seg{\xc}{\xe}{\yD}{s0}{写槽 0}
+    \seg{\xe}{\xg}{\yD}{s1}{写槽 1}
+    \seg{\xg}{\xi}{\yD}{dum}{dummy，丢帧}
+    \seg{\xi}{\xz}{\yD}{s0}{写槽 0}
+
+    % slot 0
+    \seg{\xs}{\xb}{\yP}{fill=white, text=gray}{FREE}
+    \seg{\xb}{\xc}{\yP}{s0}{NEXT}
+    \seg{\xc}{\xd}{\yP}{s0, fill=orange!45}{ACTIVE}
+    \seg{\xd}{\xh}{\yP}{fill=white, font=\tiny}{DONE → USER（\code{jpeg\_worker} 编码中）}
+    \seg{\xh}{\xi}{\yP}{s0}{NEXT}
+    \seg{\xi}{\xz}{\yP}{s0, fill=orange!45}{ACTIVE}
+
+    % slot 1
+    \seg{\xs}{\xc}{\yQ}{fill=white, text=gray}{FREE}
+    \seg{\xc}{\xe}{\yQ}{s1}{NEXT}
+    \seg{\xe}{\xf}{\yQ}{s1, fill=yellow!55}{ACTIVE}
+    \seg{\xf}{\xz}{\yQ}{fill=white}{DONE → USER（等下一次 \code{read(fd1)} 还）}
+
+    % cam.state
+    \seg{\xs}{\xa}{\yC}{st}{\stf WARMUP}
+    \seg{\xa}{\xb}{\yC}{st}{\stf STREAMING}
+    \seg{\xb}{\xc}{\yC}{st}{\stf ARMED}
+    \seg{\xc}{\xd}{\yC}{st, fill=orange!20}{\stf CAPTURE}
+    \seg{\xd}{\xe}{\yC}{st, fill=green!12}{\stf DONE}
+    \seg{\xe}{\xf}{\yC}{st, fill=orange!20}{\stf CAPTURE}
+    \seg{\xf}{\xh}{\yC}{st, fill=green!12}{\stf DONE（丢第 8 帧）}
+    \seg{\xh}{\xi}{\yC}{st}{\stf ARMED}
+    \seg{\xi}{\xz}{\yC}{st, fill=orange!20}{\stf CAPTURE}
+
+    % software writes of the shadow pointer
+    \foreach \x in {\xb,\xc,\xe,\xh}{ \draw[wr] (\x,-2.2) -- (\x,-5.3); }
+
+    % event markers
+    \foreach \x/\n in {\xa/1,\xb/2,\xc/3,\xd/4,\xe/5,\xf/6,\xg/7,\xh/8}{
+      \node[ev] at (\x,11) {\n};
+      \draw[red!65!black, densely dotted] (\x,9.2) -- (\x,7.2);
+    }
+    \node[ev, draw=gray, text=gray] at (\xi,11) {3};
+
+    % event notes
+    \begin{scope}[every node/.style={lab, font=\scriptsize, text=black, anchor=north west, text width=37mm, align=left}]
+      \node at (0,-47) {\textbf{\color{red!65!black}1} 第 5 个 FS：\code{frame\_starts} 达到 \code{warmup\_frames}，WARMUP → STREAMING，唤醒 read。指针仍是 dummy。};
+      \node at (40,-47) {\textbf{\color{red!65!black}2} \code{read(fd0)} → \code{cam\_grab()} → \code{queue\_slot\_locked()} 把槽 0 写进影子指针，ARMED。第 5 帧已在收，仍进 dummy。};
+      \node at (80,-47) {\textbf{\color{red!65!black}3} FS：硬件锁存槽 0 → ACTIVE、CAPTURE；同一次中断再排槽 1 为 NEXT（双缓冲）。};
+      \node at (120,-47) {\textbf{\color{red!65!black}4} FE：槽 0 → DONE，进 \code{doneq}，\code{wakeup}；\code{read(fd0)} 返回 40 字节帧头，槽 0 → USER。};
+      \node at (0,-63) {\textbf{\color{red!65!black}5} FS：锁存槽 1。再排槽时没有 FREE 槽，\code{park\_dummy\_locked()} 把影子指针改回 dummy。};
+      \node at (40,-63) {\textbf{\color{red!65!black}6} FE：槽 1 → DONE；正在等的 \code{read(fd1)} 拿走它，槽 1 → USER。};
+      \node at (80,-63) {\textbf{\color{red!65!black}7} FS：\code{next\_slot < 0}，状态不变，第 8 帧整帧写进 dummy，宁可丢帧也不覆盖用户在读的槽。};
+      \node at (120,-63) {\textbf{\color{red!65!black}8} 槽 0 编码完，\code{capture\_worker} 再 \code{read(fd0)}：先还槽 0，\code{release\_slot\_locked()} 立刻把它排成 NEXT，ARMED。下一个 FS 同 3。};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{帧状态机的时序（双缓冲，以 IMX219 的 \code{warmup\_frames} = 5 为例）。\code{IBSA0/IBEA0} 是影子寄存器：软件随时写（红色短箭头），硬件只在下一个 FS 才把它锁存成本帧的 DMA 目标，
+    所以“排一个槽”总是对下一帧生效。正常时 FS 中断里就把另一个槽排好，状态在 CAPTURE 和 DONE 之间来回；两个槽都在用户手里时停靠 dummy 丢帧，
+    用户还槽时立即重排}
+  \label{fig:cam-state-timing}
+\end{figure}

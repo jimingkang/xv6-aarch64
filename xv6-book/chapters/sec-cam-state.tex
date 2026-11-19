@@ -1,0 +1,76 @@
+% 小节：帧状态机。三张图配合说明：
+%   fig:cam-state-machine（状态和转移）、fig:cam-state-seq（一次取帧，谁在推动转移）、
+%   fig:cam-state-timing（双缓冲时序，影子指针为什么“提前一帧”）。
+% 内容按 kernel/drivers/media/platform/unicam.c 的 enum cam_state / enum cam_buffer_state。
+\subsection{帧状态机}
+\label{sec:cam-state}
+
+驱动用两层状态描述“现在收到哪了”。全局的 \code{cam.state} 有六个值：IDLE、WARMUP、STREAMING、ARMED、CAPTURE、DONE。
+每个 DMA 槽另有自己的状态 \code{buffers[i].state}：FREE、NEXT、ACTIVE、DONE、USER。
+两者都只在持有 \code{cam.lock} 时修改。推动它们的只有两类事件：
+
+\begin{itemize}
+  \item 进程上下文里的 \code{camread()} / \code{camrelease()}（图中蓝色）；
+  \item Unicam 的 FS / FE 中断（图中红色）。\code{unicam\_service()} 本身不是中断处理程序：登记在 IRQ 39 上的是 \code{unicam\_irq()}，它再调用 \code{unicam\_service(1)}；每 10\,ms 一次的看门狗
+        \code{unicam\_poll\_work()} 调用的是同一个 \code{unicam\_service()}，所以中断丢了状态机也照样往前走，只是慢一点。
+\end{itemize}
+
+\input{chapters/fig-cam-state-machine}
+
+\paragraph{传感器一直出流，接收器决定要不要。}
+图~\ref{fig:cam-state-machine} 灰色区域里的状态都满足 \code{cam.streaming = 1}：IMX219 已经写了 \code{MODE\_SELECT = 1}，
+以约 30\,fps 不停地发 FS、480 行 RAW10、FE，驱动没有办法让它暂停。驱动能控制的只有 Unicam 的写指针 \code{IBSA0/IBEA0}。
+把它设成起点等于终点的 dummy（\code{park\_dummy\_locked()}）时，接收器照样收包、照样报 FS/FE 中断，但写 0 个字节，这一帧就丢了。
+所以 WARMUP 和 STREAMING 不是“传感器没出流”，而是“传感器在出流，接收器在空转”。
+图~\ref{fig:cam-state-seq} 的阶段 2 画的就是这种空转：每个包都画出来了，只有指向 DDR 的那根线是 0 字节。
+
+\input{chapters/fig-cam-state-seq}
+
+\paragraph{一次取帧走过的状态。}
+按图~\ref{fig:cam-state-seq} 从上往下看：
+\begin{enumerate}
+  \item \textbf{IDLE → WARMUP}：第一次 \code{read} 发现 \code{cam.streaming == 0}，调用 \code{cam\_stream\_start()}：
+        打开电源域和时钟，传感器上电，\code{unicam\_start()} 把指针设成 dummy，最后 \code{stream\_on()}。
+  \item \textbf{WARMUP → STREAMING}：\code{unicam\_service()} 在每个 FS 里 \code{frame\_starts++}，数到传感器的 \code{warmup\_frames}（OV5647 为 30，让自动曝光收敛；IMX219 没有自动曝光，为 5）
+        或 1.5\,s 期限到，就进 STREAMING 并唤醒读者。这是 STREAMING 唯一的入口，以后不会再回来。
+  \item \textbf{STREAMING → ARMED}：\code{cam\_grab()} 调用 \code{queue\_slot\_locked()}，把一个 FREE 槽写进影子指针，槽变成 NEXT。
+  \item \textbf{ARMED → CAPTURE}：下一个 FS，硬件把影子指针锁存成本帧的 DMA 目标；中断里槽变成 ACTIVE，并\emph{马上}把另一个 FREE 槽排成 NEXT。
+  \item \textbf{CAPTURE → DONE}：FE 时 480 行已经由 AXI 写完，槽变成 DONE、进 \code{doneq}，\code{wakeup} 让 \code{read} 返回 40 字节帧头。
+        帧头的 \code{reserved} 是槽号，槽变成 USER，用户从 \code{mmap} 的地址直接读像素。
+\end{enumerate}
+
+\paragraph{为什么要在 FS 而不是 FE 排下一帧。}
+FS 中断的意思不是“这帧的数据到了”，而是“这帧的地址已经锁定”。\code{IBSA0/IBEA0} 是影子寄存器：软件随时可以写，
+硬件只在 FS 那一刻把它装进当前帧。所以 FS 一到，改影子寄存器就只影响下一帧，这正是排下一帧的最早时机。
+如果等到 FE 才排，FE 和下一个 FS 之间只有很短的消隐期，中断稍晚一点就赶不上，下一帧只能进 dummy。
+Linux 的 \code{unicam\_isr()} 也是这样分工：FS 里调用 \code{schedule\_next\_buffer()}，FE 里完成当前帧。
+
+\paragraph{FS 和 FE 各处理什么。}
+两个中断都不碰像素：像素从头到尾由 Unicam 的 AXI 写主机自己写进 DDR，CPU 一个字节都不搬。以第 $N$ 帧为例：
+\begin{itemize}
+  \item \textbf{FS($N$) 中断管“地址”，而且是向前看一帧。} 中断到来之前，硬件刚把影子指针锁存成第 $N$ 帧的 DMA 目标（比如槽 0）。
+        驱动把它记成 ACTIVE（\code{active\_slot = next\_slot}），再把另一个 FREE 槽写进影子指针——这是给第 $N{+}1$ 帧准备的，
+        第 $N$ 帧的地址已经锁死，此时改什么都影响不到它。它和上一帧的数据也没有关系。预热阶段 FS 还多一个用途：数帧。
+  \item \textbf{FE($N$) 中断管“完成”，只是记账。} 这时第 $N$ 帧的 480 行已经由 DMA 写完。驱动做的是 \code{frame\_ends++}、
+        槽 → DONE、记帧号和时间戳、\code{done\_push\_locked()}、\code{wakeup}；随后 \code{read} 返回帧头，用户从 \code{mmap} 直接读像素。
+\end{itemize}
+一句话：FS 管下一帧写到哪，FE 管这一帧好了没有。FE($N$) 和 FS($N{+}1$) 只隔一小段消隐期，可能在同一次 \code{unicam\_service()} 里一起被看到，
+所以代码先处理 FE、再处理 FS：先把第 $N$ 帧交出去，再接手第 $N{+}1$ 帧。
+
+\input{chapters/fig-cam-state-timing}
+
+\paragraph{稳态：CAPTURE 和 DONE 之间来回。}
+图~\ref{fig:cam-state-timing} 是 \code{camserver} 用两个 fd 轮流读的情形。事件 3 的 FS 里槽 1 已经排好，
+所以事件 5 的 FS 直接从 DONE 跳到 CAPTURE，不经过 ARMED，这是双缓冲的正常路径。
+ARMED 只出现在“之前没有排槽”的时候：一开始（事件 2），或者两个槽都被用户占着之后（事件 8）。
+
+\paragraph{两个槽都在用户手里：停在 DONE，丢帧。}
+事件 5 的 FS 想再排一个槽，可槽 0 还在 \code{jpeg\_worker} 手里（USER），槽 1 刚变成 ACTIVE，于是 \code{park\_dummy\_locked()} 把影子指针改回 dummy。
+事件 7 的 FS 发现 \code{next\_slot < 0}，什么都不做，第 8 帧整帧写进 dummy。注意状态\emph{停在 DONE}，并不会退回 STREAMING：
+STREAMING 只表示“预热刚结束、还没排过槽”。驱动宁可丢一帧，也不覆盖用户还在读的槽。
+用户下一次 \code{read} 先调用 \code{release\_slot\_locked()} 还槽；这时 \code{next\_slot < 0}，它立刻把还回来的槽重新排成 NEXT，状态变成 ARMED（事件 8）。
+
+\paragraph{回到 IDLE。}
+最后一个 fd 被 \code{close}（\code{camrelease()}）、\code{cam\_grab()} 4\,s 没等到帧、或者预热失败，都会调用 \code{cam\_stream\_stop()}：
+先把状态写成 IDLE，让正在跑的看门狗不再重排自己，再 \code{stream\_off}、停接收器、断时钟和电源域，所有槽回到 FREE。
+所以图~\ref{fig:cam-state-machine} 里这条边是从整个灰色区域出发的。

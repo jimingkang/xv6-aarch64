@@ -371,8 +371,8 @@ now=... div=2500 fsel=55 levels=3
 | 5 | `unicam_start(&sensor->bus, mode)`：按 Linux `unicam_start_rx()` 配置接收器，DMA 指针先指向 dummy |
 | 6 | 打开 CSI1 中断 |
 | 7 | `sensor->stream_on(mode)`：OV5647 依次写公共寄存器表 → 640x480 模式表 → HTS/VTS/曝光/增益 → VC → 缓存的测试图 → 退出软件待机 → MIPI 开始发送 |
-| 8 | 进程在专用 `&cam.done_count` 等待通道睡眠；CSI1 FS/FE IRQ 是主完成源，10 ms delayed work 只作 watchdog；最多 4 s |
-| 9 | FE 把 ACTIVE 槽放入 DONE 队列；普通 `read` 拷出帧，mmap 模式只返回槽号和帧头 |
+| 8 | 预热：每个 FS 数一帧，数到 `warmup_frames`（OV5647 30，IMX219 5）进入 `STREAMING`，接收器仍停在 dummy；然后 `cam_grab()` 排一个槽（`ARMED`），进程在 `&cam.done_count` 上睡眠。CSI1 FS/FE IRQ 是主路径，10 ms delayed work 只作 watchdog；最多 4 s。详见 §6 |
+| 9 | 下一个 FS 锁存这个槽（`CAPTURE`）并在同一中断里排另一个槽；FE 把 ACTIVE 槽放入 DONE 队列（`DONE`）；普通 `read` 拷出帧，mmap 模式只返回槽号和帧头 |
 | 10 | 最后一个 `/dev/video0` 引用关闭时，才执行 `sensor->stream_off` → 关中断 → `unicam_stop()` → 断电 |
 
 顺序与 Linux 相同：开始时先启动接收器再让传感器出流，结束时先停传感器再停接收器。
@@ -444,43 +444,203 @@ OV5647 不通过一根额外 GPIO 通知 Unicam“现在接收”。开始顺序
 
 1. OV5647 的 clock/data lane 从 LP-11 进入 HS，Unicam D-PHY 用 SoT 同步完成时钟恢复和解串；
 2. OV5647 在 data lane 上发送 CSI-2 **Frame Start short packet**（DT `0x00`、VC0）；
-3. Unicam 包解析器识别 FS，置 `ISTA.FSI`，把 shadow `IBSA0/IBEA0` 锁存为本帧地址并开始接收
-   RAW10 long packet（DT `0x2b`）；
+3. Unicam 包解析器识别 FS，把 shadow `IBSA0/IBEA0` 锁存为本帧地址，置 `ISTA.FSI` 并产生 CSI1 IRQ，
+   然后开始接收 RAW10 long packet（DT `0x2b`）。这个 FS 中断不处理像素：本帧地址已经锁死，
+   驱动借这个时机为**下一帧**排槽（见 §6“FS 和 FE 各处理什么”）；
 4. 每行像素经内部 FIFO 由 AXI 写主机搬到 DDR；CPU 不逐字节参与；
 5. OV5647 发送 **Frame End short packet**（DT `0x01`），Unicam 置 `ISTA.FEI`/`STA.PI0` 并产生
-   CSI1 IRQ；中断处理把 ACTIVE 槽移入 DONE 队列并唤醒等帧进程。
+   CSI1 IRQ；此时整帧已由 DMA 写完，中断处理只做记账：把 ACTIVE 槽移入 DONE 队列并唤醒等帧进程。
 
 所以电气层的 LP→HS/SoT 告诉接收 PHY“一段高速 burst 来了”，CSI-2 协议层的 FS/FE short
 packet 才告诉 Unicam“帧从这里开始/结束”。SCCB 只负责预先配置传感器，并不参与逐帧握手。
 
 ## 6. 帧状态机
 
-```text
-WARMUP ──(第 30 个 FS)──► STREAMING ──read/有空槽──► ARMED
- dummy                     dummy                         │ 下一个 FS 锁存槽
-                                                        ▼
-              用户持有 DONE 槽 ◄── FE ── CAM_CAPTURE/ACTIVE
-                       │                    │ FS 后预挂另一个 FREE 槽
-                       └─释放──► FREE ──────┘
+驱动用两层状态描述“现在收到哪了”：
+
+- 全局 `cam.state`（`enum cam_state`）：`IDLE`、`WARMUP`、`STREAMING`、`ARMED`、`CAPTURE`、`DONE`；
+- 每个 DMA 槽的 `buffers[i].state`（`enum cam_buffer_state`）：`FREE`、`NEXT`、`ACTIVE`、`DONE`、`USER`。
+
+两者都只在持有 `cam.lock` 时修改。推动它们的只有两类事件：进程上下文里的
+`camread()` / `camrelease()`，以及 Unicam 的 FS / FE 中断。
+
+![cam.state 状态机](images/camera-state-machine.png)
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> WARMUP: 首个 read → cam_stream_start()
+    WARMUP --> STREAMING: FS 数到 warmup_frames 或 1.5 s（指针仍是 dummy）
+    STREAMING --> ARMED: read → cam_grab() → queue_slot_locked()
+    ARMED --> CAPTURE: FS：硬件锁存 NEXT 槽，中断里再排另一个槽
+    CAPTURE --> DONE: FE：槽 → DONE，进 doneq，wakeup
+    DONE --> CAPTURE: FS 且已有 NEXT 槽（双缓冲稳态）
+    DONE --> DONE: FS 但没有 NEXT 槽（两个槽都在用户手里，本帧丢）
+    DONE --> ARMED: 还槽 / cam_grab 排上一个 FREE 槽
+    WARMUP --> IDLE: cam_stream_stop()
+    STREAMING --> IDLE: cam_stream_stop()
+    ARMED --> IDLE: cam_stream_stop()
+    CAPTURE --> IDLE: cam_stream_stop()
+    DONE --> IDLE: cam_stream_stop()
 ```
 
-关键在于：写进 `IBSA0/IBEA0` 的新地址**要到下一个帧开始才生效**（Linux 也是在帧开始时安排
-“下一帧”的缓冲区）。当前实现会优先写入另一个 FREE 槽；只有两个槽都处于 ACTIVE、DONE 或
-USER 状态时才写回 dummy。这样前一帧在用户态处理时，下一帧仍可由硬件接收，又不会覆盖用户
-持有的槽。
+`cam_stream_stop()` 的触发条件：最后一个 `close`（`camrelease()`）、`cam_grab()` 4 s 没等到帧、
+预热失败或 `stream_on` 失败。它先把状态写成 `IDLE`，让正在跑的 watchdog 不再重排自己，再
+`stream_off` → 停 Unicam → 断时钟和电源域，所有槽回到 `FREE`。
+
+几个容易画错的地方（对照 `unicam.c`）：
+
+1. **没有 `DONE → STREAMING`。** 两个槽都被用户占着时状态停在 `DONE`，接收器停靠 dummy 丢帧；
+   `STREAMING` 只在预热结束时进入一次，表示“预热刚完、还没排过槽”。
+2. **有 `DONE → CAPTURE`。** 这是双缓冲的正常路径：FS 时另一个槽已经是 `NEXT`，直接进入
+   `CAPTURE`，不经过 `ARMED`。`ARMED` 只出现在“之前没有排槽”的时候：第一次取帧，或者
+   两个槽都被占、用户刚还回一个。
+3. **任何状态都能回 `IDLE`**，不只是 `STREAMING`。
+4. **`read` 之前的循环里 DMA 不写任何槽**：指针是 dummy，长度 0。
+
+### 传感器一直出流，接收器停在 dummy 上
+
+这句话说的是两头互不依赖：
+
+- **传感器这头**：`MODE_SELECT = 1`（OV5647 是退出软件待机）之后，它以约 30 fps 不停地发
+  FS → 480 行 RAW10 → FE。Unicam 没办法让它暂停。
+- **接收器这头**：往哪写由 `IBSA0`（起）/ `IBEA0`（止）决定。dummy 就是让两者都指向
+  `0x07300000`、起 = 止（`park_dummy_locked()` → `set_image_buffer(DUMMY_PA, 0)`）。
+- **停在 dummy 上**：硬件照样收包、照样报 FS/FE 中断，但缓冲区长度是 0，一个字节都不写进
+  DDR，这一帧就被扔掉了。Linux unicam 也用这招空转。
+- **为什么这样设计**：传感器停了再开要重新等几帧稳定。让它一直出流，没人要帧时接收器空转；
+  有 `read` 要帧时只要把指针换成真槽，下一帧就能拿到，不用再预热。
+
+所以 `WARMUP` 和 `STREAMING` 不是“传感器没出流”，而是“传感器在出流，接收器在空转”。
+
+### 一次取帧的时序
+
+![一次取帧的时序](images/camera-state-seq.png)
+
+```mermaid
+sequenceDiagram
+    participant APP as camshot/camserver
+    participant CAM as /dev/video0 (camread/cam_grab)
+    participant UNI as Unicam (unicam_service)
+    participant DMA as DDR 槽 0/1/dummy
+    participant IMX as IMX219
+
+    Note right of UNI: cam.state = IDLE
+    APP->>CAM: read(fd, &hdr, 40)
+    CAM->>CAM: cam_stream_start()：电源域、CAM1 时钟、power_on → WARMUP
+    CAM->>UNI: unicam_start()：D-PHY 2 lane、RAW10、FS/FE IRQ
+    UNI->>UNI: set_image_buffer(DUMMY_PA, 0)
+    CAM->>IMX: stream_on()：CCI 写寄存器表，0x0100 = 1
+
+    loop warmup_frames 次（IMX219 为 5，OV5647 为 30）
+        IMX-->>UNI: FS 短包 → ISTA.FSI → IRQ 39
+        UNI->>UNI: unicam_service()：frame_starts++
+        IMX-->>UNI: RAW10 长包 ×480 行
+        UNI-->>DMA: 写 dummy：IBSA0 == IBEA0，0 字节
+        IMX-->>UNI: FE 短包
+    end
+    UNI-->>CAM: wakeup，state = STREAMING
+
+    CAM->>UNI: cam_grab() → queue_slot_locked()：IBSA0 = 槽 0（ARMED）
+    CAM->>CAM: sleep(&done_count)
+    Note over UNI,IMX: 当前帧仍写 dummy，等下一个 FS
+    IMX-->>UNI: FS：硬件锁存影子指针 → 槽 0
+    UNI->>UNI: 槽 0 ACTIVE（CAPTURE）；再排槽 1 为 NEXT
+    IMX-->>UNI: RAW10 ×480 行
+    UNI->>DMA: AXI 写槽 0：384000 B
+    IMX-->>UNI: FE
+    UNI-->>CAM: 槽 0 → DONE，done_push_locked(0)，wakeup（DONE）
+    CAM-->>APP: 40 B 帧头，reserved = 0（槽 0 → USER）
+    APP->>DMA: 零拷贝读 map + reserved × 512 KB
+    APP->>CAM: 下一次 read：先 release_slot_locked(0)
+```
+
+逐步解释（预热、排槽、FS 锁存三步）：
+
+**预热**
+
+1. `stream_on` 之后线上已经有数据，但 `unicam_start()` 早已把指针设成 dummy，所以预热期间的帧全部丢弃。
+2. 每到一个 FS，Unicam 置 `ISTA.FSI`，触发 IRQ 39：`unicam_irq()` → `unicam_service(1)`。
+3. `unicam_service()` 拿 `cam.lock`，读 `STA`/`ISTA` 再原样写回（写 1 清零，把刚看到的位清掉）。
+4. 这时 `next_slot = -1`，只做一件事：`frame_starts++`。
+5. `frame_starts ≥ warmup_frames`，或超过 `warm_deadline`（1.5 s），状态 `WARMUP → STREAMING`，
+   `wakeup(&cam.done_count)` 叫醒在 `read` 里等的进程。
+6. 如果 IRQ 39 没接通，`unicam_poll_work()` 每 10 ms 调一次 `unicam_service(0)`，同一个状态机，慢一点而已。
+
+**`cam_grab` 排槽**
+
+1. `read(fd, &hdr, 40)` → `camread()` → `cam_grab()`，拿 `cam.lock`（同时关本 CPU 中断）。
+2. 完成队列为空、也没有 NEXT/ACTIVE 槽时调用 `queue_slot_locked()`：
+   - `free_slot_locked()` 找到 FREE 槽 0；
+   - `set_image_buffer(0x07200000, 384000)`：`IBSA0 = 0xc7200000`，`IBEA0 = 0xc725dc00`；
+   - `dsb sy`：保证两次 MMIO 写真正到达外设之后，状态才对另一个 CPU 上的中断可见；
+   - 槽 0 → `NEXT`，`next_slot = 0`，状态 `ARMED`。
+3. 关键：`IBSA0/IBEA0` 是**影子寄存器**，写进去不立即生效，要到下一个 FS 硬件才把它装进那一帧。
+   所以即使此刻正在收一帧，它仍写 dummy，不会写一半到槽 0。
+4. `sleep(&cam.done_count, &cam.lock)` 让出 CPU，最多 4 s；超时打印 `unicam: no frame ...` 并停流。
+
+**FS 锁存，再排第二个槽**
+
+1. 传感器发下一帧的 FS，Unicam 在这一刻把影子指针装进本帧，这一帧的 384000 字节开始写进槽 0。
+2. 同时 `ISTA.FSI` 触发 IRQ 39，`unicam_service()`：
+   - `frame_starts++`；发现 `next_slot = 0`，说明硬件刚锁存了它；
+   - `next_slot = -1`，`active_slot = 0`，槽 0 → `ACTIVE`，状态 `CAPTURE`；
+   - 紧接着再调 `queue_slot_locked()`：槽 1 也 FREE，把 `0x07280000` 写进影子指针，槽 1 → `NEXT`。
+     这就是双缓冲：槽 0 在收这一帧，槽 1 已为下一帧排好。
+3. 接下来 480 行由 AXI 写进 `0xc7200000 .. 0xc725dc00`，CPU 不参与。
+4. 如果两个槽都在用户手里（`USER`），`queue_slot_locked()` 找不到 FREE 槽，就 `park_dummy_locked()`
+   改回 dummy：下一帧丢，但不覆盖用户在读的槽。用户下次 `read` 先 `release_slot_locked()`，
+   它发现 `next_slot < 0`，立刻把还回来的槽重新排成 `NEXT`。
+
+### FS 和 FE 各处理什么
+
+两个中断都**不处理像素**。像素从头到尾由 Unicam 的 AXI 写主机自己写进 DDR，CPU 一个字节都不搬。
+以第 N 帧为例：
+
+| 中断 | 到来时硬件已经做了什么 | 驱动做什么 | 管的是 |
+|---|---|---|---|
+| FS(N) | 把影子指针锁存成第 N 帧的 DMA 目标（如槽 0） | 槽 0 记为 `ACTIVE`；把另一个 FREE 槽写进影子指针，给第 N+1 帧；预热期间只数帧 | **下一帧写到哪**（向前看一帧） |
+| FE(N) | 第 N 帧 480 行已由 DMA 写完 | `frame_ends++`；槽 → `DONE`，记帧号和时间戳；`done_push_locked()`；`wakeup` | **这一帧好了没有**（记账） |
+
+为什么在 FS 而不是 FE 排下一帧：FS 中断的意思不是“这帧数据到了”，而是“这帧的地址已经锁死”。
+从这一刻起改影子寄存器只影响下一帧，这是排下一帧最早的时机。如果等到 FE 才排，FE 和下一个 FS
+之间只有很短的消隐期，中断稍晚一点就赶不上，下一帧只能进 dummy。Linux `unicam_isr()` 也这样分工：
+FS 里 `schedule_next_buffer()`，FE 里完成当前帧。
+
+FE(N) 和 FS(N+1) 只隔一小段消隐期，可能在同一次 `unicam_service()` 里一起被看到，所以代码**先处理 FE、
+再处理 FS**：先把第 N 帧交出去，再接手第 N+1 帧。
+
+### 双缓冲时序
+
+下图是 `camserver` 用两个 fd 轮流读、`jpeg_worker` 比一帧慢的情形（IMX219，`warmup_frames = 5`）：
+
+![帧状态机的时序（双缓冲）](images/camera-state-timing.png)
+
+| 事件 | 时刻 | 发生了什么 | `cam.state` |
+|---|---|---|---|
+| 1 | 第 5 个 FS | `frame_starts` 达到 `warmup_frames`，唤醒 read；指针仍是 dummy | WARMUP → STREAMING |
+| 2 | 第 5 帧中途 | `read(fd0)` → `cam_grab()` 把槽 0 写进影子指针；第 5 帧已在收，仍进 dummy | → ARMED |
+| 3 | FS(6) | 硬件锁存槽 0 → ACTIVE；同一中断再排槽 1 为 NEXT | → CAPTURE |
+| 4 | FE(6) | 槽 0 → DONE，`read(fd0)` 返回帧头，槽 0 → USER | → DONE |
+| 5 | FS(7) | 锁存槽 1；没有 FREE 槽可排，`park_dummy_locked()` | DONE → CAPTURE |
+| 6 | FE(7) | 槽 1 → DONE，等着的 `read(fd1)` 拿走它 | → DONE |
+| 7 | FS(8) | `next_slot < 0`，什么都不做，第 8 帧整帧写进 dummy | 停在 DONE |
+| 8 | 第 8 帧中途 | 槽 0 编码完，`read(fd0)` 先还槽，`release_slot_locked()` 立刻把它排成 NEXT | → ARMED |
+|   | FS(9) | 同事件 3 | → CAPTURE |
 
 dummy 的结束地址等于起始地址（大小 0），这是照搬 Linux 的做法：Linux 注释说，循环缓冲模式
 有一个会导致越界写的硬件缺陷，所以 dummy 要按 0 字节来编程。
 
 ### 中断与轮询
 
-状态机 `unicam_service()` 由两条路径驱动，都在 `cam.lock` 保护下运行：
+`unicam_service()` **不是中断处理程序本身**，而是被两条路径调用的公共服务函数，都在 `cam.lock`
+（自旋锁，关本地中断）保护下运行，谁先调都一样；参数 `from_irq` 只用来统计 `cam.irqs`：
 
-- **主路径：CSI1 中断**（legacy GPU IRQ 39）：FS/FE 到达后立刻推进状态并
-  `wakeup(&cam.done_count)`；首次成功会打印
+- **主路径：CSI1 中断**（legacy GPU IRQ 39）。登记在中断控制器上的处理程序是 `unicam_irq()`，
+  它调用 `unicam_service(1)`：FS/FE 到达后立刻推进状态并 `wakeup(&cam.done_count)`；首次成功会打印
   `unicam: frame captured by CSI1 IRQ 39; watchdog remains armed`；
-- **容错路径：`camera_wq` delayed work**：按 10 ms 到期时间调用同一个服务函数，处理
-  没有路由 IRQ 39 的板卡，并唤醒读者检查 4 s 截止时间。
+- **容错路径：`camera_wq` delayed work**。`unicam_poll_work()` 按 10 ms 到期时间调用 `unicam_service(0)`，
+  处理没有路由 IRQ 39 的板卡，并唤醒读者检查 4 s 截止时间。
 
 `read()` 本身不再执行 `delay_us()` 忙等，而是以 `cam.lock` 调用
 `sleep(&cam.done_count, &cam.lock)`。IRQ 或 watchdog 唤醒它；因此相机等待不会占满一个 Cortex-A53

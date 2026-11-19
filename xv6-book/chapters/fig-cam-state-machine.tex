@@ -1,0 +1,53 @@
+% 图：cam.state 状态机（unicam.c 的 enum cam_state），每条边写触发事件和执行它的函数。
+% 依赖 main.tex 的 box / lab 样式和 \code。
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[x=1mm,y=1mm, font=\scriptsize,
+      stt/.style={box, rounded corners=4pt, minimum width=24mm, minimum height=8mm, font=\small\bfseries\sffamily},
+      sub/.style={lab, font=\tiny, align=center},
+      tr/.style={-{Stealth[length=1.8mm]}, semithick, draw=structurecolor!60!black},
+      hw/.style={tr, draw=red!65!black},
+      sw/.style={tr, draw=blue!60!black},
+      el/.style={lab, font=\scriptsize, text=black, align=center, fill=white, inner sep=1pt}]
+    % running region
+    \fill[gray!5, rounded corners=4pt] (22,-56) rectangle (158,13);
+    \node[lab, anchor=north east, font=\scriptsize] at (157,12.5) {\code{cam.streaming = 1}：传感器一直在出流};
+
+    \node[stt, fill=gray!10, draw=gray!70] (idle) at (0,0) {IDLE};
+    \node[sub, below=0.6mm of idle] {断电，没有 fd 在读};
+    \node[stt] (warm) at (40,0) {WARMUP};
+    \node[sub, below=0.6mm of warm] {指针 = dummy\\只数 FS};
+    \node[stt] (strm) at (88,0) {STREAMING};
+    \node[sub, below=0.6mm of strm] {指针 = dummy\\空转，等 read};
+    \node[stt] (arm) at (140,0) {ARMED};
+    \node[sub, below=0.6mm of arm] {影子指针 = 槽 k\\本帧仍写 dummy};
+    \node[stt, fill=orange!18] (cap) at (140,-40) {CAPTURE};
+    \node[sub, below=0.6mm of cap] {本帧写槽 k\\影子 = 另一槽或 dummy};
+    \node[stt, fill=green!12] (done) at (70,-40) {DONE};
+    \node[sub, below=0.6mm of done] {\code{doneq} 里有帧\\\code{read} 可以取走};
+
+    \fill (-22,0) circle (1.2);
+    \draw[tr] (-21,0) -- node[el, above=0.5mm]{开机} (idle);
+
+    \draw[sw] (idle) -- node[el, above=1mm]{首个 \code{read}\\\code{cam\_stream\_start()}} (warm);
+    \draw[hw] (warm) -- node[el, above=1mm]{FS 数到 \code{warmup\_frames} 或 1.5 s\\\code{unicam\_service()}} (strm);
+    \draw[sw] (strm) -- node[el, above=1mm]{\code{read} → \code{cam\_grab()}\\\code{queue\_slot\_locked()}} (arm);
+    \draw[hw] (arm) -- node[el, left=1mm, anchor=east]{FS：硬件锁存槽 k\\\code{active\_slot = k}\\再排另一个槽} (cap);
+    \draw[hw] ([yshift=1.8mm]cap.west) -- node[el, above=0.5mm]{FE：槽 → DONE，进 \code{doneq}，\code{wakeup}} ([yshift=1.8mm]done.east);
+    \draw[hw] ([yshift=-1.8mm]done.east) -- node[el, below=0.5mm]{FS 且已有 NEXT 槽（双缓冲稳态）} ([yshift=-1.8mm]cap.west);
+    \draw[sw] (done.north east) -- node[el, sloped, above=0.3mm]{还槽 / \code{cam\_grab} 排上一个 FREE 槽} (arm.south west);
+    \draw[hw] ([yshift=2mm]done.west) .. controls +(-18,10) and +(-18,-10) .. node[el, left=0.5mm]{FS 但没有 NEXT 槽\\（两个槽都在用户手里）\\本帧写 dummy，丢} ([yshift=-2mm]done.west);
+
+    % stop transitions
+    \draw[sw, dashed, draw=gray!60!black] (90,-56) -| node[el, pos=0.3, below=0.8mm]{最后一个 \code{close}、取帧 4 s 超时、预热失败 → \code{cam\_stream\_stop()}} (idle.south);
+
+    % legend
+    \begin{scope}[shift={(-14,-70)}]
+      \draw[hw] (0,0) -- (8,0); \node[lab, anchor=west, font=\scriptsize] at (9,0) {硬件事件（FS / FE 中断里的 \code{unicam\_service()}）};
+      \draw[sw] (78,0) -- (86,0); \node[lab, anchor=west, font=\scriptsize] at (87,0) {进程上下文（\code{camread} / \code{camrelease}）};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{\code{cam.state} 状态机。红边由 Unicam 中断推动，蓝边由读者推动。STREAMING 只在预热结束时进入一次；之后有槽排着就在 CAPTURE 和 DONE 之间来回，
+    两个槽都被用户占着就停在 DONE 丢帧，直到有人还槽回到 ARMED。任何状态都可以经 \code{cam\_stream\_stop()} 回到 IDLE}
+  \label{fig:cam-state-machine}
+\end{figure}
