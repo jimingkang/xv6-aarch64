@@ -1,0 +1,761 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="5515" viewBox="0 0 1400 5515" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs><rect width="1400" height="5515" fill="#fafbfc"/><text x="700.0" y="42.0" font-size="24" fill="#111" text-anchor="middle" font-weight="bold">xv6 Raspberry Pi 3：USB 键盘从上电到一个字符进入终端（DWC2，步骤 0–9）</text>
+<text x="700.0" y="70.0" font-size="13" fill="#555" text-anchor="middle" font-weight="normal">DWC2 OTG（host 模式） · Hub(addr 1) 口 1 · 全速 boot 键盘 627:1 (addr 2, ep1 IN, 8 B, bInterval 10) · kernel/drivers/usb/host/dwc2.c, usb/core/usb.c, input/usbkbd.c</text>
+<text x="700.0" y="90.0" font-size="12.5" fill="#00796b" text-anchor="middle" font-weight="normal">日志开关：make USBKBD_TRACE=1|2|3（行首 kbdN: 即步骤 N；kbd-: 为任意步骤里的控制传输）</text>
+<rect x="30.0" y="110.0" width="1340.0" height="470.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<text x="50.0" y="138.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">步骤 0–9 的相互关系：谁触发谁、在哪个上下文里跑、哪里形成循环</text>
+<text x="50.0" y="158.0" font-size="12" fill="#555" text-anchor="start" font-weight="normal">实线 = 正常顺序；绿色环 = 每次按键都走一遍的接收循环；灰色 = 没按键时的轮询；紫色虚线 = 热插拔重新枚举。框里的数字 = 下面卡片的步骤号</text>
+<rect x="40.0" y="170.0" width="1320.0" height="80.0" rx="6" fill="#f3f5f8" fill-opacity="1" stroke="#f3f5f8" stroke-width="1"/>
+<text x="54.0" y="206.0" font-size="12" fill="#333" text-anchor="start" font-weight="bold">进程上下文</text>
+<text x="54.0" y="222.0" font-size="10.5" fill="#777" text-anchor="start" font-weight="normal">启动时一次</text>
+<rect x="40.0" y="275.0" width="1320.0" height="80.0" rx="6" fill="#eef7f6" fill-opacity="1" stroke="#eef7f6" stroke-width="1"/>
+<text x="54.0" y="311.0" font-size="12" fill="#333" text-anchor="start" font-weight="bold">硬件</text>
+<text x="54.0" y="327.0" font-size="10.5" fill="#777" text-anchor="start" font-weight="normal">DWC2·Hub TT·键盘</text>
+<rect x="40.0" y="370.0" width="1320.0" height="80.0" rx="6" fill="#fdf0f0" fill-opacity="1" stroke="#fdf0f0" stroke-width="1"/>
+<text x="54.0" y="406.0" font-size="12" fill="#333" text-anchor="start" font-weight="bold">中断上下文</text>
+<text x="54.0" y="422.0" font-size="10.5" fill="#777" text-anchor="start" font-weight="normal">IRQ 9</text>
+<rect x="40.0" y="465.0" width="1320.0" height="80.0" rx="6" fill="#eef3fb" fill-opacity="1" stroke="#eef3fb" stroke-width="1"/>
+<text x="54.0" y="501.0" font-size="12" fill="#333" text-anchor="start" font-weight="bold">kworker</text>
+<text x="54.0" y="517.0" font-size="10.5" fill="#777" text-anchor="start" font-weight="normal">进程上下文</text>
+<rect x="146.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#666" stroke-width="1.8"/>
+<circle cx="164.0" cy="210" r="12" fill="#666"/>
+<text x="164.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">0</text>
+<text x="182.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">模块加载</text>
+<text x="182.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">usbkbd 先于 dwc2</text>
+<rect x="341.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#1f5fae" stroke-width="1.8"/>
+<circle cx="359.0" cy="210" r="12" fill="#1f5fae"/>
+<text x="359.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">1</text>
+<text x="377.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">主控初始化</text>
+<text x="377.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">复位·host·HPRT0</text>
+<rect x="536.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#1f5fae" stroke-width="1.8"/>
+<circle cx="554.0" cy="210" r="12" fill="#1f5fae"/>
+<text x="554.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">2</text>
+<text x="572.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">枚举 Hub</text>
+<text x="572.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">addr 1 · 口供电</text>
+<rect x="731.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#7b3fb3" stroke-width="1.8"/>
+<circle cx="749.0" cy="210" r="12" fill="#7b3fb3"/>
+<text x="749.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">3</text>
+<text x="767.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">枚举键盘</text>
+<text x="767.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">split · addr · 配置</text>
+<rect x="926.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#b07d00" stroke-width="1.8"/>
+<circle cx="944.0" cy="210" r="12" fill="#b07d00"/>
+<text x="944.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">4</text>
+<text x="962.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">总线匹配</text>
+<text x="962.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">usb_match→probe</text>
+<rect x="1121.0" y="183.0" width="178.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#c25a00" stroke-width="1.8"/>
+<circle cx="1139.0" cy="210" r="12" fill="#c25a00"/>
+<text x="1139.0" y="215.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">5</text>
+<text x="1157.0" y="206.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">usbkbd_probe</text>
+<text x="1157.0" y="224.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">SET_PROTOCOL·submit</text>
+<line x1="324.0" y1="210.0" x2="339.0" y2="210.0" stroke="#444" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="519.0" y1="210.0" x2="534.0" y2="210.0" stroke="#444" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="714.0" y1="210.0" x2="729.0" y2="210.0" stroke="#444" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="909.0" y1="210.0" x2="924.0" y2="210.0" stroke="#444" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="1104.0" y1="210.0" x2="1119.0" y2="210.0" stroke="#444" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="720.0" y="288.0" width="200.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#00796b" stroke-width="1.8"/>
+<circle cx="738.0" cy="315" r="12" fill="#00796b"/>
+<text x="738.0" y="320.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">6</text>
+<text x="756.0" y="311.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">通道 6 轮询</text>
+<text x="756.0" y="329.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">SSPLIT/CSPLIT · NAK/数据</text>
+<rect x="720.0" y="383.0" width="200.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#c62828" stroke-width="1.8"/>
+<circle cx="738.0" cy="410" r="12" fill="#c62828"/>
+<text x="738.0" y="415.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">7</text>
+<text x="756.0" y="406.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">dwc2_irq</text>
+<text x="756.0" y="424.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">屏蔽 b6 · schedule_work</text>
+<rect x="720.0" y="478.0" width="200.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#7b3fb3" stroke-width="1.8"/>
+<circle cx="738.0" cy="505" r="12" fill="#7b3fb3"/>
+<text x="738.0" y="510.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">8</text>
+<text x="756.0" y="501.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">dwc2 下半部</text>
+<text x="756.0" y="519.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">system_wq · giveback</text>
+<rect x="980.0" y="478.0" width="200.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#2e7d32" stroke-width="1.8"/>
+<circle cx="998.0" cy="505" r="12" fill="#2e7d32"/>
+<text x="998.0" y="510.0" font-size="13" fill="#fff" text-anchor="middle" font-weight="bold">9</text>
+<text x="1016.0" y="501.0" font-size="12.5" fill="#111" text-anchor="start" font-weight="bold">usbkbd_rx_work</text>
+<text x="1016.0" y="519.0" font-size="10.5" fill="#555" text-anchor="start" font-weight="normal">usbkbd_wq · 报告差分</text>
+<rect x="1180.0" y="383.0" width="170.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#2e7d32" stroke-width="1.8"/>
+<text x="1265.0" y="406.0" font-size="12.5" fill="#111" text-anchor="middle" font-weight="bold">consoleintr / evdev</text>
+<text x="1265.0" y="424.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">sh 读到字符 · event0</text>
+<rect x="335.0" y="288.0" width="190.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#7b3fb3" stroke-width="1.8"/>
+<text x="430.0" y="311.0" font-size="12.5" fill="#111" text-anchor="middle" font-weight="bold">Hub 状态端点 ch7</text>
+<text x="430.0" y="329.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">插拔 → 位图非 0</text>
+<rect x="335.0" y="478.0" width="190.0" height="54.0" rx="8" fill="#fff" fill-opacity="1" stroke="#7b3fb3" stroke-width="1.8"/>
+<text x="430.0" y="501.0" font-size="12.5" fill="#111" text-anchor="middle" font-weight="bold">dwc2_hub_wq</text>
+<text x="430.0" y="519.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">GET_STATUS · reprobe</text>
+<path d="M1210,237 C1210,280 920,255 860,286" fill="none" stroke="#c25a00" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="1080.0" y="276.0" font-size="11.5" fill="#c25a00" text-anchor="start" font-weight="normal">usb_submit_urb → interrupt_rx[0] → arm ch6</text>
+<path d="M920,303 C1010,275 1010,345 922,327" fill="none" stroke="#666" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="1000.0" y="293.0" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">NAK：dwc2_periodic_wq 10 ms 后再 arm</text>
+<line x1="820.0" y1="342.0" x2="820.0" y2="381.0" stroke="#c62828" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="828.0" y="366.5" font-size="11.5" fill="#c62828" text-anchor="start" font-weight="normal">HCINT6 XferCompl → IRQ 9</text>
+<path d="M720,400 C650,380 650,335 718,323" fill="none" stroke="#c62828" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="500.0" y="366.5" font-size="11" fill="#c62828" text-anchor="start" font-weight="normal">SSPLIT ACK / 同帧 NYET：</text>
+<text x="500.0" y="381.5" font-size="11" fill="#c62828" text-anchor="start" font-weight="normal">IRQ 内当场续发 CSPLIT</text>
+<line x1="820.0" y1="437.0" x2="820.0" y2="476.0" stroke="#7b3fb3" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="828.0" y="461.5" font-size="11.5" fill="#7b3fb3" text-anchor="start" font-weight="normal">schedule_work(system_wq)</text>
+<line x1="920.0" y1="505.0" x2="978.0" y2="505.0" stroke="#2e7d32" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="949.0" y="491.0" font-size="10.5" fill="#2e7d32" text-anchor="middle" font-weight="normal">queue_work</text>
+<path d="M1180,495 C1230,475 1265,465 1265,439" fill="none" stroke="#2e7d32" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="1195.0" y="469.0" font-size="11" fill="#2e7d32" text-anchor="start" font-weight="normal">字符/按键事件</text>
+<path d="M1080,478 C1080,355 1000,345 922,337" fill="none" stroke="#2e7d32" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="1092.0" y="404.0" font-size="11.5" fill="#2e7d32" text-anchor="start" font-weight="normal">usb_submit_urb</text>
+<text x="1092.0" y="419.0" font-size="11.5" fill="#2e7d32" text-anchor="start" font-weight="normal">重新提交（回到 6）</text>
+<path d="M430,342 L430,476" fill="none" stroke="#7b3fb3" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="438.0" y="410.0" font-size="11" fill="#7b3fb3" text-anchor="start" font-weight="normal">IRQ 9 → hub work</text>
+<path d="M335,505 C200,505 200,270 430,239" fill="none" stroke="#7b3fb3" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="130.0" y="420.0" font-size="11" fill="#7b3fb3" text-anchor="start" font-weight="normal">连接位图变了：</text>
+<text x="130.0" y="435.0" font-size="11" fill="#7b3fb3" text-anchor="start" font-weight="normal">拆树 → dwc2_init()</text>
+<text x="130.0" y="450.0" font-size="11" fill="#7b3fb3" text-anchor="start" font-weight="normal">（回到步骤 1）</text>
+<path d="M1015,237 C1015,265 430,245 430,286" fill="none" stroke="#7b3fb3" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="600.0" y="267.0" font-size="11" fill="#7b3fb3" text-anchor="start" font-weight="normal">步骤 5 之后：dwc2_start_hub_monitor() 在 ch7 上开始监视</text>
+<rect x="30.0" y="598.0" width="1340.0" height="372.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="628" r="17" fill="#666"/>
+<text x="62.0" y="634.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">0</text>
+<text x="92.0" y="628.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">模块加载：usbhid-kbd（order 2）先于 dwc2（order 4）</text>
+<text x="92.0" y="650.0" font-size="12.5" fill="#666" text-anchor="start" font-weight="normal">进程上下文 · main() → do_initcalls → module_init_ord 顺序</text>
+<text x="1350.0" y="628.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：usb_bus 驱动链表</text>
+<text x="92.0" y="672.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">usbkbd 先把 usb_driver 挂到 usb 总线并建好 usbkbd_wq；dwc2 后注册 platform 设备/驱动，</text>
+<text x="92.0" y="690.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">platform 总线一匹配就调 dwc2_probe() 枚举。这样已经插着的键盘在第一次扫描时就能绑定驱动。</text>
+<text x="90.0" y="720.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="720.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usbkbd_driver_init()</text>
+<line x1="324.0" y1="716.0" x2="880.0" y2="716.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="720.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">kernel/drivers/input/usbkbd.c</text>
+<text x="176.0" y="738.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="738.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">init_workqueue(&amp;usbkbd_wq, 1)</text>
+<line x1="411.7" y1="734.0" x2="880.0" y2="734.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="738.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">单 worker：报告按顺序处理</text>
+<text x="176.0" y="756.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="756.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_register_driver(&amp;usbkbd_driver)</text>
+<line x1="455.5" y1="752.0" x2="880.0" y2="752.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="756.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">id_table: class 3/1/1</text>
+<text x="170.0" y="774.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_driver_init()</text>
+<line x1="309.4" y1="770.0" x2="880.0" y2="770.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="774.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">MMIO 0x3f980000，IRQ 9</text>
+<text x="176.0" y="792.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="792.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">platform_device_register + platform_driver_register</text>
+<text x="198.0" y="810.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="810.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_probe(): 建 dwc2_periodic_wq / dwc2_hub_wq，init_work ×4</text>
+<line x1="652.7" y1="806.0" x2="880.0" y2="806.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="810.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">interrupt_rx[i].work / retry_work</text>
+<text x="198.0" y="828.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="828.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_init()</text>
+<line x1="302.3" y1="824.0" x2="880.0" y2="824.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="828.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">→ 步骤 1</text>
+<rect x="90.0" y="846.0" width="1240.0" height="98.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="864.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="884.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd0: module usbhid-kbd (order 2): usbkbd_wq created, usb_driver usbhid-keyboard registered (id c03s01p01)</text>
+<text x="102.0" y="901.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd0: module dwc2 (order 4): platform device bcm2837-dwc2 MMIO 0x000000003f980000 IRQ 9 -&gt; platform_driver_register -&gt; dwc2_probe</text>
+<text x="102.0" y="918.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">workqueue: dwc2_periodic_wq worker=0 pid=8</text>
+<text x="102.0" y="935.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">workqueue: dwc2_hub_wq worker=0 pid=9</text>
+<rect x="30.0" y="988.0" width="1340.0" height="488.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="1018" r="17" fill="#1f5fae"/>
+<text x="62.0" y="1024.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">1</text>
+<text x="92.0" y="1018.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">主控初始化：供电、软复位、强制 Host、开中断、根口复位</text>
+<text x="92.0" y="1040.0" font-size="12.5" fill="#1f5fae" text-anchor="start" font-weight="normal">进程上下文 · dwc2_probe → dwc2_init（kernel/drivers/usb/host/dwc2.c）</text>
+<text x="92.0" y="1062.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">经 VideoCore 邮箱 SET_POWER_STATE 给 USB HCD 上电；读 GSNPSID 确认是 Synopsys OTG（0x4f54xxxx）。</text>
+<text x="92.0" y="1080.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">GRSTCTL.CSFTRST 软复位后再置 GUSBCFG.FORCEHOST（先置会被复位冲掉）；只开 GINTMSK.HCHINT 一个</text>
+<text x="92.0" y="1098.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">全局中断源，GAHBCFG 打开 DMA 和全局中断。HPRT0 先供电，等 CONNSTS，再复位 50 ms，看到 PrtEna。</text>
+<text x="90.0" y="1128.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="1128.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_firmware_power_on()</text>
+<line x1="345.9" y1="1124.0" x2="880.0" y2="1124.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1128.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">mbox 通道 8，tag 0x28001，id 3</text>
+<text x="170.0" y="1146.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">wr(GRSTCTL, CSFTRST)</text>
+<line x1="324.0" y1="1142.0" x2="880.0" y2="1142.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1146.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">等 AHBIDLE</text>
+<text x="170.0" y="1164.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">wr(GUSBCFG, FORCEHOST)</text>
+<line x1="338.6" y1="1160.0" x2="880.0" y2="1160.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1164.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">GINTSTS.CURMOD=1</text>
+<text x="170.0" y="1182.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">wr(GINTMSK, HCHINT); wr(GAHBCFG, DMA_EN|GLBL_INTR_EN)</text>
+<line x1="564.9" y1="1178.0" x2="880.0" y2="1178.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1182.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">只要通道中断</text>
+<text x="170.0" y="1200.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">wr(HPRT0, PWR) … wr(HPRT0, PWR|RST) … 清 RST</text>
+<line x1="491.9" y1="1196.0" x2="880.0" y2="1196.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1200.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">PrtEna=1，速度 = 全速</text>
+<text x="90.0" y="1232.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="1230.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HPRT0 @0x440 = 0x0002100d（端口复位后，QEMU）</text>
+<text x="1292.2" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">0</text>
+<text x="1185.3" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">3</text>
+<text x="1042.8" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">7</text>
+<text x="900.3" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">11</text>
+<text x="757.8" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">15</text>
+<text x="615.3" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">19</text>
+<text x="472.8" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">23</text>
+<text x="330.3" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">27</text>
+<text x="187.8" y="1240.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">31</text>
+<rect x="170.0" y="1246.0" width="463.1" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="401.6" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="633.1" y="1246.0" width="71.2" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="668.8" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Spd=01</text>
+<rect x="704.4" y="1246.0" width="142.5" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="775.6" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="846.9" y="1246.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="864.7" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Pwr</text>
+<rect x="882.5" y="1246.0" width="106.9" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="935.9" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="989.4" y="1246.0" width="35.6" height="26.0" rx="0" fill="#ffe6d2" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1007.2" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Rst</text>
+<rect x="1025.0" y="1246.0" width="142.5" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1096.2" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="1167.5" y="1246.0" width="35.6" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1185.3" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">EnChg</text>
+<rect x="1203.1" y="1246.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1220.9" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Ena</text>
+<rect x="1238.8" y="1246.0" width="35.6" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1256.6" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">CDet</text>
+<rect x="1274.4" y="1246.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1292.2" y="1263.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Conn</text>
+<text x="170.0" y="1286.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b18:17</text>
+<text x="240.0" y="1286.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtSpd</text>
+<text x="350.0" y="1286.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">00 高速 / 01 全速 / 10 低速</text>
+<text x="170.0" y="1304.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b12</text>
+<text x="240.0" y="1304.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtPwr</text>
+<text x="350.0" y="1304.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">根口 VBUS 供电（软件置 1）</text>
+<text x="170.0" y="1322.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b8</text>
+<text x="240.0" y="1322.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtRst</text>
+<text x="350.0" y="1322.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">软件置 1 保持 50 ms 再清 0</text>
+<text x="740.0" y="1286.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b3,1</text>
+<text x="810.0" y="1286.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">EnChng/ConnDet</text>
+<text x="920.0" y="1286.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">写 1 清除（HPRT_W1C，改写时要屏蔽）</text>
+<text x="740.0" y="1304.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b2</text>
+<text x="810.0" y="1304.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtEna</text>
+<text x="920.0" y="1304.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">复位结束后硬件置 1</text>
+<text x="740.0" y="1322.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b0</text>
+<text x="810.0" y="1322.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtConnSts</text>
+<text x="920.0" y="1322.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">有设备连接</text>
+<rect x="90.0" y="1356.0" width="1240.0" height="98.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="1374.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="1394.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd1: dwc2_init: mailbox SET_POWER_STATE(USB HCD) done, GSNPSID=4f54294a (OT2 core) @0xffffff803f980000</text>
+<text x="102.0" y="1411.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd1: core soft reset (GRSTCTL.CSFTRST), GUSBCFG.FORCEHOST -&gt; GINTSTS.CURMOD=host; GINTMSK=HCHINT, GAHBCFG=DMA_EN|GLBL_INTR_EN (IRQ 9)</text>
+<text x="102.0" y="1428.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd1: root port HPRT0: PWR -&gt; CONNSTS -&gt; RST 50ms -&gt; ENA, speed=full</text>
+<text x="102.0" y="1445.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: host hprt=2100d hcfg=0 hfnum=34a</text>
+<rect x="30.0" y="1494.0" width="1340.0" height="541.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="1524" r="17" fill="#1f5fae"/>
+<text x="62.0" y="1530.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">2</text>
+<text x="92.0" y="1524.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">枚举根设备 = Hub（真机 LAN9514，QEMU 自动插入 usb-hub）</text>
+<text x="92.0" y="1546.0" font-size="12.5" fill="#1f5fae" text-anchor="start" font-weight="normal">进程上下文 · dwc2_init → control() → channel_xfer(ch0) 忙等 HCINT</text>
+<text x="1350.0" y="1524.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：无（启动时单线程；运行期 hub 事件在 dwc2_hub_wq）</text>
+<text x="92.0" y="1568.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">控制传输都走通道 0：SETUP(PID=SETUP) → DATA(DATA1) → STATUS(反方向 0 字节 DATA1)，CPU 轮询 HCINT。</text>
+<text x="92.0" y="1586.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">先只读 8 字节设备描述符拿 bMaxPacketSize0，再读完整 18 字节，SET_ADDRESS 0→1；读配置描述符找</text>
+<text x="92.0" y="1604.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">状态变化中断端点（ep1，以后由通道 7 监视热插拔），SET_CONFIGURATION，读 Hub 描述符，各口 PORT_POWER。</text>
+<text x="90.0" y="1634.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="1634.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">get_device_descriptor(0, ctrl_buf)</text>
+<line x1="426.2" y1="1630.0" x2="880.0" y2="1630.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1634.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">8 字节 → mps，再 18 字节</text>
+<text x="176.0" y="1652.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="1652.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(addr, type, req, value, index, data, len)</text>
+<text x="198.0" y="1670.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="1670.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">channel_xfer(0, …, PID_SETUP) / (PID_DATA1) / 状态阶段</text>
+<line x1="587.0" y1="1666.0" x2="880.0" y2="1666.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1670.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">HCDMA = 0xc0000000|phys</text>
+<text x="170.0" y="1688.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(0, 0x00, SET_ADDRESS, 1)</text>
+<line x1="411.6" y1="1684.0" x2="880.0" y2="1684.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1688.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">usb_ep0_mps[1] = 8</text>
+<text x="170.0" y="1706.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(1, 0x80, GET_DESCRIPTOR, CONFIG&lt;&lt;8)</text>
+<line x1="491.9" y1="1702.0" x2="880.0" y2="1702.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1706.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">找 bEndpointAddress&amp;0x80 且中断型</text>
+<text x="170.0" y="1724.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(1, 0x00, SET_CONFIGURATION, cfg)</text>
+<text x="170.0" y="1742.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(1, 0x23, HUB_SET_FEATURE, PORT_POWER, port)</text>
+<line x1="550.3" y1="1738.0" x2="880.0" y2="1738.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="1742.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">×8 端口</text>
+<text x="90.0" y="1774.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="1772.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ SETUP 包（8 字节，ch0 以 PID=SETUP 发出）：GET_DESCRIPTOR(Device, 8)</text>
+<text x="1238.8" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 7</text>
+<text x="1096.2" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 6</text>
+<text x="953.8" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 5</text>
+<text x="811.2" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 4</text>
+<text x="668.8" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 3</text>
+<text x="526.2" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 2</text>
+<text x="383.8" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 1</text>
+<text x="241.2" y="1782.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 0</text>
+<rect x="170.0" y="1788.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="241.2" y="1805.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">bmReqType=80</text>
+<rect x="312.5" y="1788.0" width="142.5" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="383.8" y="1805.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">bRequest=06</text>
+<rect x="455.0" y="1788.0" width="285.0" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="597.5" y="1805.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">wValue=0100</text>
+<rect x="740.0" y="1788.0" width="285.0" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="882.5" y="1805.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">wIndex=0000</text>
+<rect x="1025.0" y="1788.0" width="285.0" height="26.0" rx="0" fill="#ffe6d2" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1167.5" y="1805.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">wLength=0008</text>
+<text x="170.0" y="1828.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte0</text>
+<text x="240.0" y="1828.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">bmRequestType</text>
+<text x="350.0" y="1828.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">b7 方向(1=IN) b6:5 类型 b4:0 接收者</text>
+<text x="170.0" y="1846.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte1</text>
+<text x="240.0" y="1846.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">bRequest</text>
+<text x="350.0" y="1846.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">06 GET_DESCRIPTOR / 05 SET_ADDRESS / 09 SET_CONFIG</text>
+<text x="170.0" y="1864.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte2-3</text>
+<text x="240.0" y="1864.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">wValue</text>
+<text x="350.0" y="1864.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">描述符类型&lt;&lt;8 | 索引；SET_ADDRESS 的新地址</text>
+<text x="740.0" y="1828.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte4-5</text>
+<text x="810.0" y="1828.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">wIndex</text>
+<text x="920.0" y="1828.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">接口号（HID 请求）或 Hub 端口号</text>
+<text x="740.0" y="1846.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte6-7</text>
+<text x="810.0" y="1846.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">wLength</text>
+<text x="920.0" y="1846.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">数据阶段长度；0 则直接进入状态阶段</text>
+<rect x="90.0" y="1898.0" width="1240.0" height="115.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="1916.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="1936.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -&gt; ok</text>
+<text x="102.0" y="1953.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -&gt; ok</text>
+<text x="102.0" y="1970.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=1 i=0 len=0} -&gt; ok</text>
+<text x="102.0" y="1987.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd2: root device 409:55aa class=9: GET_DESCRIPTOR(8) -&gt; bMaxPacketSize0=8, GET_DESCRIPTOR(18), SET_ADDRESS 0 -&gt; 1</text>
+<text x="102.0" y="2004.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd2: hub addr 1: SET_CONFIGURATION 1, hub descriptor 8 ports, status-change ep1 in (bInterval 255), PORT_POWER on all ports</text>
+<rect x="30.0" y="2053.0" width="1340.0" height="506.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="2083" r="17" fill="#7b3fb3"/>
+<text x="62.0" y="2089.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">3</text>
+<text x="92.0" y="2083.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">Hub 口复位 → split 路由 → 键盘地址 2 → 配置描述符 → SET_CONFIGURATION</text>
+<text x="92.0" y="2105.0" font-size="12.5" fill="#7b3fb3" text-anchor="start" font-weight="normal">进程上下文 · dwc2_init 扫描 Hub 端口（HUB_GET_STATUS / SET_FEATURE(PORT_RESET)）</text>
+<text x="92.0" y="2127.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">口 1 有连接（status=0x101）→ PORT_RESET → 状态 0x103（Enable，非高速 = 全速）。全/低速设备在高速 Hub 后面，</text>
+<text x="92.0" y="2145.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">DWC2 必须用 split 事务：usb_route[addr] = {hub=1, port=1}，之后每次访问都写 HCSPLT。地址 0 枚举后</text>
+<text x="92.0" y="2163.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">SET_ADDRESS 2；遍历配置描述符：接口 0 = 3/1/1（boot 键盘），后面的端点描述符给出 ep1 IN、mps 8、bInterval 10。</text>
+<text x="90.0" y="2193.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="2193.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(1, 0xa3, HUB_GET_STATUS, 0, port)</text>
+<line x1="477.3" y1="2189.0" x2="880.0" y2="2189.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2193.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">wPortStatus / wPortChange</text>
+<text x="170.0" y="2211.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(1, 0x23, HUB_SET_FEATURE, PORT_RESET, port)</text>
+<line x1="550.3" y1="2207.0" x2="880.0" y2="2207.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2211.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">轮询到 Enable</text>
+<text x="170.0" y="2229.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_route[0] = {hub 1, port 1, low_speed 0}</text>
+<line x1="491.9" y1="2225.0" x2="880.0" y2="2225.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2229.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">→ HCSPLT</text>
+<text x="170.0" y="2247.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">get_device_descriptor(0) ; SET_ADDRESS 2</text>
+<line x1="470.0" y1="2243.0" x2="880.0" y2="2243.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2247.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">627:1 QEMU USB Keyboard</text>
+<text x="170.0" y="2265.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">遍历 CONFIG：dtype 4 接口 / dtype 5 端点</text>
+<line x1="418.9" y1="2261.0" x2="880.0" y2="2261.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2265.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">填 usb_hid_child[0]</text>
+<text x="170.0" y="2283.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(2, 0x00, SET_CONFIGURATION, 1)</text>
+<line x1="455.4" y1="2279.0" x2="880.0" y2="2279.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2283.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">设备进入 Configured</text>
+<text x="90.0" y="2315.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="2313.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HCSPLT6 @0x5c4 = 0x8000c081（键盘在 Hub 口 1 后，全速 → split）</text>
+<text x="1292.2" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">0</text>
+<text x="1185.3" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">3</text>
+<text x="1042.8" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">7</text>
+<text x="900.3" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">11</text>
+<text x="757.8" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">15</text>
+<text x="615.3" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">19</text>
+<text x="472.8" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">23</text>
+<text x="330.3" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">27</text>
+<text x="187.8" y="2323.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">31</text>
+<rect x="170.0" y="2329.0" width="35.6" height="26.0" rx="0" fill="#ffe6d2" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="187.8" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Spl</text>
+<rect x="205.6" y="2329.0" width="498.8" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="455.0" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="704.4" y="2329.0" width="35.6" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="722.2" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Cmp</text>
+<rect x="740.0" y="2329.0" width="71.2" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="775.6" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Pos=3</text>
+<rect x="811.2" y="2329.0" width="249.4" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="935.9" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">HubAddr=1</text>
+<rect x="1060.6" y="2329.0" width="249.4" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1185.3" y="2346.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">PrtAddr=1</text>
+<text x="170.0" y="2369.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b31</text>
+<text x="240.0" y="2369.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">SpltEna</text>
+<text x="350.0" y="2369.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">经高速 Hub 的 TT 做 split 事务</text>
+<text x="170.0" y="2387.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b16</text>
+<text x="240.0" y="2387.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">CompSplt</text>
+<text x="350.0" y="2387.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">0 = SSPLIT，1 = CSPLIT</text>
+<text x="170.0" y="2405.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b15:14</text>
+<text x="240.0" y="2405.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">XactPos</text>
+<text x="350.0" y="2405.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">3 = ALL（整包）</text>
+<text x="740.0" y="2369.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b13:7</text>
+<text x="810.0" y="2369.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">HubAddr</text>
+<text x="920.0" y="2369.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">TT 所在 Hub 的地址 = 1</text>
+<text x="740.0" y="2387.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b6:0</text>
+<text x="810.0" y="2387.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PrtAddr</text>
+<text x="920.0" y="2387.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">Hub 下行口 = 1</text>
+<rect x="90.0" y="2439.0" width="1240.0" height="98.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="2457.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="2477.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: hub port 1: PORT_RESET -&gt; enabled full speed; route SPLIT via hub TT (HCSPLT); child 627:1 addr 0 -&gt; 2</text>
+<text x="102.0" y="2494.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -&gt; ok</text>
+<text x="102.0" y="2511.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: config 1 (34 bytes): interface 0 class 3/1/1 (boot keyboard), interrupt-IN ep1 mps=8 bInterval=10</text>
+<text x="102.0" y="2528.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: SET_CONFIGURATION 1 on addr 2 -&gt; configured</text>
+<rect x="30.0" y="2577.0" width="1340.0" height="319.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="2607" r="17" fill="#b07d00"/>
+<text x="62.0" y="2613.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">4</text>
+<text x="92.0" y="2607.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">注册 usb_device → usb 总线 match → probe</text>
+<text x="92.0" y="2629.0" font-size="12.5" fill="#b07d00" text-anchor="start" font-weight="normal">进程上下文 · device_register → bus_probe_device → usb_match / usb_probe（drivers/usb/core/usb.c）</text>
+<text x="1350.0" y="2607.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：device/driver 链表锁</text>
+<text x="92.0" y="2651.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">每个 boot-HID 接口发布一个 usb_device（usbH0..3），所以无线接收器的键盘/鼠标接口能各自绑驱动。</text>
+<text x="92.0" y="2669.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">usb_match 只比较 id_table 里 match_flags 指定的字段：CLASS|SUBCLASS|PROTOCOL = 3/1/1，忽略 VID/PID。</text>
+<text x="92.0" y="2687.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">没有内建驱动匹配时（如鼠标 3/1/2），总线用 modalias "usb:c03s01p02" 去 request_module 加载 usbmouse.ko。</text>
+<text x="90.0" y="2717.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="2717.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_device_register(&amp;usb_hid_child[0])</text>
+<line x1="455.4" y1="2713.0" x2="880.0" y2="2713.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2717.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">dev.bus = &amp;usb_bus</text>
+<text x="176.0" y="2735.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="2735.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">device_register → 遍历 usb_bus 的驱动</text>
+<text x="198.0" y="2753.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="2753.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_match(dev, drv)</text>
+<line x1="360.7" y1="2749.0" x2="880.0" y2="2749.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2753.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">c03 s01 p01 == id_table[0]</text>
+<text x="198.0" y="2771.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="2771.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_probe(dev) → usbkbd_probe(udev)</text>
+<line x1="477.5" y1="2767.0" x2="880.0" y2="2767.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="2771.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">→ 步骤 5</text>
+<rect x="90.0" y="2789.0" width="1240.0" height="81.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="2807.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="2827.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd4: usb_device_register(usbH0) addr=2 intf=0 -&gt; bus_type usb: match/probe</text>
+<text x="102.0" y="2844.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd4: usb_match: usbH0 (627:1 c3s1p1) ~ id_table of driver usbhid-keyboard -&gt; match</text>
+<text x="102.0" y="2861.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd4: usb_probe: dev-&gt;driver=usbhid-keyboard -&gt; usbhid-keyboard-&gt;probe()</text>
+<rect x="30.0" y="2914.0" width="1340.0" height="628.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="2944" r="17" fill="#c25a00"/>
+<text x="62.0" y="2950.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">5</text>
+<text x="92.0" y="2944.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">usbkbd_probe：boot 协议、input 设备、提交中断 URB → 通道 6</text>
+<text x="92.0" y="2966.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">进程上下文 · usbkbd_probe → usb_submit_urb → dwc2_submit_urb → dwc2_interrupt_schedule_locked</text>
+<text x="1350.0" y="2944.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：urb-&gt;lock · usb_lock（dwc2 调度表）</text>
+<text x="92.0" y="2988.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">SET_PROTOCOL(0=boot) 固定 8 字节报告格式；SET_IDLE(0) 让键盘只在状态变化时回报。注册 input 设备 event0。</text>
+<text x="92.0" y="3006.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">usb_fill_int_urb 把 8 字节 report[]、完成回调 usbkbd_irq_complete、bInterval 10 填进 URB；提交后 URB 归 HCD：</text>
+<text x="92.0" y="3024.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">dwc2 把它放进 interrupt_rx[] 的空槽（最多 4 个中断端点轮流用一个通道 6），通道空闲就立即写通道寄存器启动。</text>
+<text x="90.0" y="3054.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="3054.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(2, 0x21, HID_SET_PROTOCOL, 0, intf)</text>
+<text x="170.0" y="3072.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">control(2, 0x21, HID_SET_IDLE, 0, intf)</text>
+<text x="170.0" y="3090.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">input_register_device(kbd-&gt;input)</text>
+<line x1="418.9" y1="3086.0" x2="880.0" y2="3086.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3090.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">/dev/input/event0</text>
+<text x="170.0" y="3108.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_fill_int_urb(urb, udev, 1, report, 8, usbkbd_irq_complete, kbd, 10)</text>
+<text x="170.0" y="3126.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_submit_urb(urb)</text>
+<line x1="316.7" y1="3122.0" x2="880.0" y2="3122.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3126.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">state IDLE → SUBMITTED</text>
+<text x="176.0" y="3144.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="3144.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_submit_urb(urb)</text>
+<line x1="346.0" y1="3140.0" x2="880.0" y2="3140.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3144.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">interrupt_rx[0].pending = 1</text>
+<text x="198.0" y="3162.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="3162.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_schedule_locked()</text>
+<line x1="455.6" y1="3158.0" x2="880.0" y2="3158.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3162.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">round-robin 选一个 pending</text>
+<text x="220.0" y="3180.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="236.0" y="3180.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_rx_start(req)</text>
+<line x1="448.4" y1="3176.0" x2="880.0" y2="3176.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3180.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">HCSPLT/HCDMA/HCTSIZ/HAINTMSK/HCCHAR</text>
+<text x="90.0" y="3212.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="3210.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HCCHAR6 @0x5c0 = 0x808c8808 写入（CHENA=1 启动；回读 0x008c8808）</text>
+<text x="1292.2" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">0</text>
+<text x="1185.3" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">3</text>
+<text x="1042.8" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">7</text>
+<text x="900.3" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">11</text>
+<text x="757.8" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">15</text>
+<text x="615.3" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">19</text>
+<text x="472.8" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">23</text>
+<text x="330.3" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">27</text>
+<text x="187.8" y="3220.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">31</text>
+<rect x="170.0" y="3226.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="187.8" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">En</text>
+<rect x="205.6" y="3226.0" width="35.6" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="223.4" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Dis</text>
+<rect x="241.2" y="3226.0" width="35.6" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="259.1" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Odd</text>
+<rect x="276.9" y="3226.0" width="249.4" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="401.6" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">DevAddr=2</text>
+<rect x="526.2" y="3226.0" width="71.2" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="561.9" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">MC=0</text>
+<rect x="597.5" y="3226.0" width="71.2" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="633.1" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Type=3</text>
+<rect x="668.8" y="3226.0" width="35.6" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="686.6" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">LS</text>
+<rect x="704.4" y="3226.0" width="35.6" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="722.2" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">-</text>
+<rect x="740.0" y="3226.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="757.8" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">IN</text>
+<rect x="775.6" y="3226.0" width="142.5" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="846.9" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">EP=1</text>
+<rect x="918.1" y="3226.0" width="391.9" height="26.0" rx="0" fill="#ffe6d2" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1114.1" y="3243.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">MPS=8</text>
+<text x="170.0" y="3266.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b31</text>
+<text x="240.0" y="3266.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">ChEna</text>
+<text x="350.0" y="3266.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">写 1 让通道开始；完成后硬件清 0</text>
+<text x="170.0" y="3284.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b28:22</text>
+<text x="240.0" y="3284.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">DevAddr</text>
+<text x="350.0" y="3284.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">SET_ADDRESS 分配的地址 2</text>
+<text x="170.0" y="3302.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b19:18</text>
+<text x="240.0" y="3302.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">EPType</text>
+<text x="350.0" y="3302.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">0 控制 / 2 批量 / 3 中断</text>
+<text x="170.0" y="3320.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b17</text>
+<text x="240.0" y="3320.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">LSpdDev</text>
+<text x="350.0" y="3320.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">低速设备置 1（QEMU 键盘是全速）</text>
+<text x="740.0" y="3266.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b15</text>
+<text x="810.0" y="3266.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">EPDir</text>
+<text x="920.0" y="3266.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">1 = IN</text>
+<text x="740.0" y="3284.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b14:11</text>
+<text x="810.0" y="3284.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">EPNum</text>
+<text x="920.0" y="3284.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">中断 IN 端点 1</text>
+<text x="740.0" y="3302.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b10:0</text>
+<text x="810.0" y="3302.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">MPS</text>
+<text x="920.0" y="3302.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">wMaxPacketSize = 8</text>
+<rect x="90.0" y="3354.0" width="1240.0" height="166.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="3372.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="3392.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd5: usbkbd_probe 627:1 intf 0: state, input_dev, urb allocated; SET_PROTOCOL(boot) + SET_IDLE(0)</text>
+<text x="102.0" y="3409.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=2 split OUT SETUP{21 HID_SET_PROTOCOL v=0 i=0 len=0} -&gt; ok</text>
+<text x="102.0" y="3426.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd-: ctrl ch0 addr=2 split OUT SETUP{21 HID_SET_IDLE v=0 i=0 len=0} -&gt; ok</text>
+<text x="102.0" y="3443.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">input: USB HID Boot Keyboard registered as event0</text>
+<text x="102.0" y="3460.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd5: usb_fill_int_urb(ep1, buf=report[8], complete=usbkbd_irq_complete, interval=10) -&gt; usb_submit_urb</text>
+<text x="102.0" y="3477.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd5: dwc2_submit_urb: urb ep1 len=8 -&gt; interrupt_rx[0] pending, channel 6 free</text>
+<text x="102.0" y="3494.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=1296</text>
+<text x="102.0" y="3511.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10</text>
+<rect x="30.0" y="3560.0" width="1340.0" height="470.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="3590" r="17" fill="#00796b"/>
+<text x="62.0" y="3596.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">6</text>
+<text x="92.0" y="3590.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">通道 6 轮询中断 IN 端点：没按键 = NAK，每个 bInterval 重来一次</text>
+<text x="92.0" y="3612.0" font-size="12.5" fill="#00796b" text-anchor="start" font-weight="normal">硬件（DWC2 发 IN 令牌，DMA）· 软件只在每次结束时介入：dwc2_periodic_wq 的 delayed work</text>
+<text x="1350.0" y="3590.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：usb_lock</text>
+<text x="92.0" y="3634.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">DWC2 在这里没有周期调度表：一次只发一个事务。真机：SSPLIT（ACK）→ 等 2 个微帧 → CSPLIT（NYET 再试 / 数据 / NAK）；</text>
+<text x="92.0" y="3652.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">ACK/NYET 在 dwc2_irq 的快路径里当场重发 CSPLIT（微帧时限 125 µs，不能等 kworker）。QEMU 直接给出最终结果。</text>
+<text x="92.0" y="3670.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">NAK：释放通道 6，mod_delayed_work(retry_work, bInterval=10 ms → 1 jiffy)，到点再 pending → 重新 arm（DATA 不翻转）。</text>
+<text x="90.0" y="3700.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="3700.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_irq → dwc2_interrupt_rx_irq_fast()</text>
+<line x1="462.7" y1="3696.0" x2="880.0" y2="3696.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3700.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">仅 split ACK / 同帧 NYET</text>
+<text x="170.0" y="3718.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_rx_complete(): HCINT &amp; NAK</text>
+<line x1="477.3" y1="3714.0" x2="880.0" y2="3714.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3718.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">→ release ch6</text>
+<text x="176.0" y="3736.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="3736.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">mod_delayed_work(&amp;dwc2_periodic_wq, &amp;req-&gt;retry_work, 1)</text>
+<line x1="608.8" y1="3732.0" x2="880.0" y2="3732.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3736.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">10 ms</text>
+<text x="170.0" y="3754.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_retry_work()</text>
+<line x1="375.1" y1="3750.0" x2="880.0" y2="3750.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3754.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">req-&gt;pending = 1</text>
+<text x="176.0" y="3772.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="3772.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_schedule_locked() → dwc2_interrupt_rx_start()</text>
+<line x1="638.0" y1="3768.0" x2="880.0" y2="3768.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="3772.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">SSPLIT 再来</text>
+<text x="90.0" y="3804.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="3802.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HCTSIZ6 @0x5d0 = 0x00080008（DATA0）/ 0x40080008（DATA1）</text>
+<text x="1292.2" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">0</text>
+<text x="1185.3" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">3</text>
+<text x="1042.8" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">7</text>
+<text x="900.3" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">11</text>
+<text x="757.8" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">15</text>
+<text x="615.3" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">19</text>
+<text x="472.8" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">23</text>
+<text x="330.3" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">27</text>
+<text x="187.8" y="3812.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">31</text>
+<rect x="170.0" y="3818.0" width="35.6" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="187.8" y="3835.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">DoPng</text>
+<rect x="205.6" y="3818.0" width="71.2" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="241.2" y="3835.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">PID</text>
+<rect x="276.9" y="3818.0" width="356.2" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="455.0" y="3835.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">PktCnt=1</text>
+<rect x="633.1" y="3818.0" width="676.9" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="971.6" y="3835.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">XferSize=8</text>
+<text x="170.0" y="3858.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b30:29</text>
+<text x="240.0" y="3858.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PID</text>
+<text x="350.0" y="3858.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">00 DATA0 / 10 DATA1 / 11 SETUP</text>
+<text x="170.0" y="3876.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b28:19</text>
+<text x="240.0" y="3876.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">PktCnt</text>
+<text x="350.0" y="3876.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">ceil(8 / MPS 8) = 1 个包</text>
+<text x="740.0" y="3858.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b18:0</text>
+<text x="810.0" y="3858.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">XferSize</text>
+<text x="920.0" y="3858.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">完成后剩余字节；8 - 剩余 = 实收</text>
+<text x="740.0" y="3876.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace"></text>
+<text x="810.0" y="3876.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">toggle</text>
+<text x="920.0" y="3876.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">每收奇数个包 interrupt_in_toggle ^= 1</text>
+<rect x="90.0" y="3910.0" width="1240.0" height="98.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="3928.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=3，没按键时每 10 ms 重复这一轮；原样摘录）</text>
+<text x="102.0" y="3948.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again</text>
+<text x="102.0" y="3965.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=38c</text>
+<text x="102.0" y="3982.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -&gt; mask HAINTMSK, schedule_work(system_wq)</text>
+<text x="102.0" y="3999.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd6: ch6 NAK (no key change) -&gt; release ch6, retry in 1 jiffies</text>
+<rect x="30.0" y="4048.0" width="1340.0" height="455.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="4078" r="17" fill="#c62828"/>
+<text x="62.0" y="4084.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">7</text>
+<text x="92.0" y="4078.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">按键：XferCompl → IRQ 9 → dwc2_irq（上半部）</text>
+<text x="92.0" y="4100.0" font-size="12.5" fill="#c62828" text-anchor="start" font-weight="normal">中断上下文 · el1 IRQ 向量 → devintr() → gic_iar()=9（IRQ_PENDING_1 b9）→ dwc2_irq()</text>
+<text x="1350.0" y="4078.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：无（只读寄存器、屏蔽 HAINTMSK，不拿睡眠锁）</text>
+<text x="92.0" y="4122.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">键盘有变化时把 8 字节报告 DMA 到 report[]（HCDMA 用 0xc0000000 总线别名），HCINT6 = XferCompl|ChHltd，</text>
+<text x="92.0" y="4140.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">HAINT b6 → GINTSTS.HCHINT → BCM2837 legacy IRQ 9。dwc2_irq 不处理数据：屏蔽 HAINTMSK b6（防止重入风暴），</text>
+<text x="92.0" y="4158.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">dwc2_irq_pending |= 1&lt;&lt;6，schedule_work(&amp;interrupt_rx[0].work) 交给 system_wq 的 kworker。</text>
+<text x="90.0" y="4188.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="4188.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">devintr(): irq == DWC2_IRQ</text>
+<line x1="367.8" y1="4184.0" x2="880.0" y2="4184.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4188.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">trap.c</text>
+<text x="176.0" y="4206.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="4206.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_irq()</text>
+<text x="198.0" y="4224.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4224.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">GINTSTS &amp; GINTMSK &amp; HCHINT ; channels = HAINT &amp; HAINTMSK</text>
+<line x1="630.8" y1="4220.0" x2="880.0" y2="4220.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4224.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">= 0x40</text>
+<text x="198.0" y="4242.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4242.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_rx_irq_fast()</text>
+<line x1="426.4" y1="4238.0" x2="880.0" y2="4238.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4242.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">非 split 中间态 → 0</text>
+<text x="198.0" y="4260.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4260.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">wr(HAINTMSK, ~channels) ; dwc2_irq_pending |= channels</text>
+<text x="198.0" y="4278.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4278.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">schedule_work(&amp;ch6_req-&gt;work)</text>
+<line x1="433.7" y1="4274.0" x2="880.0" y2="4274.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4278.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">system_wq</text>
+<text x="90.0" y="4310.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="4308.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HCINT6 @0x5c8：数据 = 0x03，空闲轮询 = 0x12（NAK），真机 split 还会见到 ACK/NYET</text>
+<text x="1292.2" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">0</text>
+<text x="1185.3" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">3</text>
+<text x="1042.8" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">7</text>
+<text x="900.3" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">11</text>
+<text x="757.8" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">15</text>
+<text x="615.3" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">19</text>
+<text x="472.8" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">23</text>
+<text x="330.3" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">27</text>
+<text x="187.8" y="4318.0" font-size="9.5" fill="#888" text-anchor="middle" font-weight="normal">31</text>
+<rect x="170.0" y="4324.0" width="748.1" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="544.1" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">0</text>
+<rect x="918.1" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="935.9" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">DTE</text>
+<rect x="953.8" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="971.6" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">FOv</text>
+<rect x="989.4" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1007.2" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Bbl</text>
+<rect x="1025.0" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1042.8" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">XErr</text>
+<rect x="1060.6" y="4324.0" width="35.6" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1078.4" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">NYET</text>
+<rect x="1096.2" y="4324.0" width="35.6" height="26.0" rx="0" fill="#efe3fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1114.1" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">ACK</text>
+<rect x="1131.9" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fff4c7" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1149.7" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">NAK</text>
+<rect x="1167.5" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1185.3" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">STALL</text>
+<rect x="1203.1" y="4324.0" width="35.6" height="26.0" rx="0" fill="#fde0e0" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1220.9" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">AHB</text>
+<rect x="1238.8" y="4324.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1256.6" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Hlt</text>
+<rect x="1274.4" y="4324.0" width="35.6" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1292.2" y="4341.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">Cpl</text>
+<text x="170.0" y="4364.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b0</text>
+<text x="240.0" y="4364.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">XferCompl</text>
+<text x="350.0" y="4364.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">收到数据，DMA 已写入 report[]</text>
+<text x="170.0" y="4382.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b1</text>
+<text x="240.0" y="4382.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">ChHltd</text>
+<text x="350.0" y="4382.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">通道已停（每次结束都会置）</text>
+<text x="170.0" y="4400.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b4</text>
+<text x="240.0" y="4400.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">NAK</text>
+<text x="350.0" y="4400.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">键盘无变化 → 按 bInterval 重试</text>
+<text x="740.0" y="4364.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b5</text>
+<text x="810.0" y="4364.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">ACK</text>
+<text x="920.0" y="4364.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">真机：SSPLIT 被 TT 接受 → 发 CSPLIT</text>
+<text x="740.0" y="4382.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b6</text>
+<text x="810.0" y="4382.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">NYET</text>
+<text x="920.0" y="4382.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">真机：TT 还没拿到结果 → 再 CSPLIT</text>
+<text x="740.0" y="4400.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">b2,3,7-10</text>
+<text x="810.0" y="4400.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">错误</text>
+<text x="920.0" y="4400.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">AHB/STALL/XactErr/Babble/FrmOvrun/DTErr</text>
+<rect x="90.0" y="4434.0" width="1240.0" height="47.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="4452.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="4472.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -&gt; mask HAINTMSK, schedule_work(system_wq)</text>
+<rect x="30.0" y="4521.0" width="1340.0" height="390.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="4551" r="17" fill="#7b3fb3"/>
+<text x="62.0" y="4557.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">8</text>
+<text x="92.0" y="4551.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">dwc2 下半部：读结果、翻转 DATA toggle、归还 URB</text>
+<text x="92.0" y="4573.0" font-size="12.5" fill="#7b3fb3" text-anchor="start" font-weight="normal">kworker（system_wq）· dwc2_interrupt_urb_work → dwc2_interrupt_rx_complete → usb_hcd_giveback_urb</text>
+<text x="1350.0" y="4551.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：usb_lock → urb-&gt;lock（回调前释放）</text>
+<text x="92.0" y="4595.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">在锁内读 HCINT6（=3），HCTSIZ 剩余 0 → 实收 8 字节；dc ivac 使 report[] 的 cache 行失效后 CPU 才看得到 DMA 数据。</text>
+<text x="92.0" y="4613.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">收到奇数个包 → interrupt_in_toggle ^= 1（下次 DATA1/DATA0 交替）。释放通道 6 给别的端点，然后</text>
+<text x="92.0" y="4631.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">usb_hcd_giveback_urb：URB 状态 SUBMITTED → IDLE（归还给类驱动），调用 usbkbd_irq_complete，它只 queue_work。</text>
+<text x="90.0" y="4661.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="4661.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_urb_work(work)</text>
+<text x="176.0" y="4679.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="4679.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_rx_complete(req)</text>
+<line x1="426.3" y1="4675.0" x2="880.0" y2="4675.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4679.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">XferCompl，8 字节</text>
+<text x="198.0" y="4697.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4697.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">cache_invalidate_range(report, 8)</text>
+<line x1="462.9" y1="4693.0" x2="880.0" y2="4693.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4697.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">dc ivac</text>
+<text x="198.0" y="4715.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4715.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_interrupt_release_locked + schedule_locked</text>
+<line x1="565.1" y1="4711.0" x2="880.0" y2="4711.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4715.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">通道 6 空出</text>
+<text x="176.0" y="4733.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="4733.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_hcd_giveback_urb(urb, 0, 8)</text>
+<line x1="426.3" y1="4729.0" x2="880.0" y2="4729.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="4733.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">urb-&gt;state = URB_IDLE</text>
+<text x="198.0" y="4751.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="4751.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">urb-&gt;complete(urb) = usbkbd_irq_complete</text>
+<text x="220.0" y="4769.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="236.0" y="4769.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">queue_work(&amp;usbkbd_wq, &amp;kbd-&gt;rx_work)</text>
+<rect x="90.0" y="4787.0" width="1240.0" height="98.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="4805.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="4825.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -&gt; 8 bytes DMA'd, dc ivac, next PID DATA1 -&gt; giveback</text>
+<text x="102.0" y="4842.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -&gt; IDLE, call complete()</text>
+<text x="102.0" y="4859.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd8: usbkbd_irq_complete: status=0 len=8 -&gt; queue_work(usbkbd_wq)</text>
+<text x="102.0" y="4876.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: ch6 transfer complete addr=2 ep=1 bytes=8 data=0,0,8,0,0,0,0,0</text>
+<rect x="30.0" y="4929.0" width="1340.0" height="558.0" rx="10" fill="#fff" fill-opacity="1" stroke="#c9ced6" stroke-width="1.2"/>
+<circle cx="62" cy="4959" r="17" fill="#2e7d32"/>
+<text x="62.0" y="4965.0" font-size="17" fill="#fff" text-anchor="middle" font-weight="bold">9</text>
+<text x="92.0" y="4959.0" font-size="17" fill="#111" text-anchor="start" font-weight="bold">usbkbd_rx_work：报告差分 → consoleintr() / input 事件 → 重新提交</text>
+<text x="92.0" y="4981.0" font-size="12.5" fill="#2e7d32" text-anchor="start" font-weight="normal">kworker（usbkbd_wq）· usbkbd_rx_work → consoleintr()（tty） + input_report_key/input_sync（evdev）</text>
+<text x="1350.0" y="4959.0" font-size="12" fill="#b07d00" text-anchor="end" font-weight="normal">锁：kbd-&gt;lock · cons.lock · dev-&gt;lock（input）</text>
+<text x="92.0" y="5003.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">与上一份报告比较：新出现的 usage = 按下，消失的 = 松开；modifier 字节逐位比较。按下的字母键按 Shift/CapsLock/</text>
+<text x="92.0" y="5021.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">Ctrl 查表成字符直接 consoleintr(c)（和 Mini UART 同一个入口：回显、行编辑、^C、唤醒 consoleread）；</text>
+<text x="92.0" y="5039.0" font-size="12.8" fill="#333" text-anchor="start" font-weight="normal">同时报 EV_KEY 给 evdev（/dev/input/event0），input_sync 发 EV_SYN。最后 usb_submit_urb 重新挂上，回到步骤 5/6。</text>
+<text x="90.0" y="5069.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">函数</text>
+<text x="170.0" y="5069.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usbkbd_rx_work(work)</text>
+<text x="176.0" y="5087.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="5087.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">for 新 usage: usbkbd_key(kbd, mod, code)</text>
+<line x1="484.7" y1="5083.0" x2="880.0" y2="5083.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="5087.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">shiftmap['H']</text>
+<text x="198.0" y="5105.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="5105.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">consoleintr('H')</text>
+<line x1="338.8" y1="5101.0" x2="880.0" y2="5101.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="5105.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">cons.buf / echo / wakeup(&amp;cons.r)</text>
+<text x="198.0" y="5123.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="214.0" y="5123.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">input_report_key(input, KEY_H, 1)</text>
+<line x1="462.9" y1="5119.0" x2="880.0" y2="5119.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="5123.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">evdev_pass_event</text>
+<text x="176.0" y="5141.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="5141.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">for 消失的 usage: input_report_key(…, 0)</text>
+<text x="176.0" y="5159.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="5159.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">input_sync(input)</text>
+<line x1="324.1" y1="5155.0" x2="880.0" y2="5155.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="5159.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">EV_SYN 帧结束</text>
+<text x="176.0" y="5177.0" font-size="12" fill="#999" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">└</text>
+<text x="192.0" y="5177.0" font-size="12.2" fill="#7b3fb3" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">usb_submit_urb(kbd-&gt;irq_urb)</text>
+<line x1="404.4" y1="5173.0" x2="880.0" y2="5173.0" stroke="#ddd" stroke-width="1" stroke-dasharray="5 3"/>
+<text x="890.0" y="5177.0" font-size="11.8" fill="#555" text-anchor="start" font-weight="normal">→ dwc2_submit_urb</text>
+<text x="90.0" y="5209.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">数据格式</text>
+<text x="168.0" y="5207.0" font-size="12.5" fill="#c25a00" text-anchor="start" font-weight="normal">▸ HID boot 键盘报告（8 字节，DMA 写到 kbd-&gt;report[]）：按下 Shift+H</text>
+<text x="1238.8" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 7</text>
+<text x="1096.2" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 6</text>
+<text x="953.8" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 5</text>
+<text x="811.2" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 4</text>
+<text x="668.8" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 3</text>
+<text x="526.2" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 2</text>
+<text x="383.8" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 1</text>
+<text x="241.2" y="5217.0" font-size="10" fill="#888" text-anchor="middle" font-weight="normal">byte 0</text>
+<rect x="170.0" y="5223.0" width="142.5" height="26.0" rx="0" fill="#ffe6d2" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="241.2" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">mod=02</text>
+<rect x="312.5" y="5223.0" width="142.5" height="26.0" rx="0" fill="#eceff1" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="383.8" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">rsv=00</text>
+<rect x="455.0" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dff3df" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="526.2" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key1=0b</text>
+<rect x="597.5" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="668.8" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key2=00</text>
+<rect x="740.0" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="811.2" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key3</text>
+<rect x="882.5" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="953.8" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key4</text>
+<rect x="1025.0" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1096.2" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key5</text>
+<rect x="1167.5" y="5223.0" width="142.5" height="26.0" rx="0" fill="#dbe9fb" fill-opacity="1" stroke="#555" stroke-width="0.8"/>
+<text x="1238.8" y="5240.0" font-size="11.5" fill="#222" text-anchor="middle" font-weight="normal">key6</text>
+<text x="170.0" y="5263.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte0</text>
+<text x="240.0" y="5263.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">modifier</text>
+<text x="350.0" y="5263.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">b0 LCtrl b1 LShift b2 LAlt b3 LGUI b4-7 右侧</text>
+<text x="170.0" y="5281.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte1</text>
+<text x="240.0" y="5281.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">reserved</text>
+<text x="350.0" y="5281.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">保留</text>
+<text x="170.0" y="5299.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">byte2-7</text>
+<text x="240.0" y="5299.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">keycode[6]</text>
+<text x="350.0" y="5299.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">同时按下的最多 6 个 HID usage</text>
+<text x="740.0" y="5263.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">0x04..</text>
+<text x="810.0" y="5263.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">usage</text>
+<text x="920.0" y="5263.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">0x04='a' ... 0x0b='h' 0x28=Enter 0x2c=空格</text>
+<text x="740.0" y="5281.0" font-size="11.5" fill="#222" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">0x01..03</text>
+<text x="810.0" y="5281.0" font-size="11.5" fill="#1f5fae" text-anchor="start" font-weight="normal">ErrorRollOver</text>
+<text x="920.0" y="5281.0" font-size="11.5" fill="#333" text-anchor="start" font-weight="normal">按键过多：保持上次状态</text>
+<rect x="90.0" y="5333.0" width="1240.0" height="132.0" rx="6" fill="#f5f6f8" fill-opacity="1" stroke="#d5d9df" stroke-width="1"/>
+<text x="102.0" y="5351.0" font-size="11.5" fill="#777" text-anchor="start" font-weight="normal">日志（QEMU raspi3b，make USBKBD_TRACE=2，键入 "echo Hi"；原样摘录）</text>
+<text x="102.0" y="5371.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [2 0 b 0 0 0 0 0] prev keys=0,0</text>
+<text x="102.0" y="5388.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0xb down -&gt; 'H' -&gt; consoleintr()</text>
+<text x="102.0" y="5405.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: input_sync -&gt; event0 evdev clients (EV_SYN)</text>
+<text x="102.0" y="5422.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: resubmit interrupt URB (back to step 5/6)</text>
+<text x="102.0" y="5439.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0x28 down -&gt; 0xa -&gt; consoleintr()</text>
+<text x="102.0" y="5456.0" font-size="11.6" fill="#1b3a57" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">Hi</text></svg>

@@ -19,6 +19,7 @@
 #include <kernel/usb.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <kernel/usbkbd_trace.h>
 
 #define HID_REQ_SET_IDLE     0x0a
 #define HID_REQ_SET_PROTOCOL 0x0b
@@ -134,6 +135,13 @@ usbkbd_key(struct usbkbd_state *kbd, uchar modifiers, uchar code)
     c = c - 'a' + 1;
   else if(control && c >= 'A' && c <= 'Z')
     c = c - 'A' + 1;
+  if(KBDTRACE(1)){
+    char ch[2] = { (char)c, 0 };   // kernel printf has no %c
+    if(c >= 0x20 && c < 0x7f)
+      printf("kbd9: usage 0x%x down -> '%s' -> consoleintr()\n", code, ch);
+    else
+      printf("kbd9: usage 0x%x down -> 0x%x -> consoleintr()\n", code, c);
+  }
   consoleintr(c);
 
 report_key:
@@ -168,6 +176,12 @@ usbkbd_rx_work(struct work_struct *work)
     if(kbd->error_count++ < 4)
       printf("usbkbd: channel 6 transfer error; rearming\n");
   }
+  if(KBDTRACE(1) && status == 0 && n >= HID_REPORT_SIZE)
+    printf("kbd9: usbkbd_rx_work(usbkbd_wq): report %d bytes "
+           "[%x %x %x %x %x %x %x %x] prev keys=%x,%x\n", n,
+           kbd->report[0], kbd->report[1], kbd->report[2], kbd->report[3],
+           kbd->report[4], kbd->report[5], kbd->report[6], kbd->report[7],
+           kbd->previous[2], kbd->previous[3]);
   if(status == 0 && n >= HID_REPORT_SIZE){
     if(kbd->report_count++ == 0)
       printf("usbkbd: first HID report mod=%x keys=%x,%x,%x,%x,%x,%x\n",
@@ -202,17 +216,26 @@ usbkbd_rx_work(struct work_struct *work)
       for(int j = 2; j < HID_REPORT_SIZE; j++)
         if(kbd->report[j] == code)
           still_down = 1;
-      if(!still_down)
+      if(!still_down){
+        if(KBDTRACE(1))
+          printf("kbd9: usage 0x%x up -> EV_KEY %d value 0\n",
+                 code, hid_to_key[code]);
         if(hid_to_key[code])
           input_report_key(kbd->input, hid_to_key[code], 0);
+      }
     }
     input_sync(kbd->input);
+    if(KBDTRACE(2))
+      printf("kbd9: input_sync -> event%d evdev clients (EV_SYN)\n",
+             kbd->input->event_number);
     memmove(kbd->previous, kbd->report, HID_REPORT_SIZE);
   }
 rearm:
   acquire(&kbd->lock);
   rearm = kbd->active && !kbd->disconnected;
   release(&kbd->lock);
+  if(KBDTRACE(2) && rearm)
+    printf("kbd9: resubmit interrupt URB (back to step 5/6)\n");
   if(rearm && usb_submit_urb(kbd->irq_urb) < 0){
     acquire(&kbd->lock);
     if(kbd->active && kbd->error_count++ < 4)
@@ -232,6 +255,9 @@ usbkbd_irq_complete(struct urb *urb)
   acquire(&kbd->lock);
   if(kbd->active && !kbd->disconnected){
     kbd->irq_count++;
+    if(KBDTRACE(2))
+      printf("kbd8: usbkbd_irq_complete: status=%d len=%d -> "
+             "queue_work(usbkbd_wq)\n", urb->status, urb->actual_length);
     queue_work(&usbkbd_wq, &kbd->rx_work);
   }
   release(&kbd->lock);
@@ -265,6 +291,10 @@ usbkbd_probe(struct usb_device *udev)
     return -1;
   }
   init_work(&kbd->rx_work, usbkbd_rx_work);
+  if(KBDTRACE(1))
+    printf("kbd5: usbkbd_probe %x:%x intf %d: state, input_dev, urb "
+           "allocated; SET_PROTOCOL(boot) + SET_IDLE(0)\n",
+           udev->vendor, udev->product, udev->interface_number);
   // Force the compact, universally specified 8-byte keyboard report format.
   if(udev->ops->control(udev, 0x21, HID_REQ_SET_PROTOCOL,
                         HID_BOOT_PROTOCOL, udev->interface_number, 0, 0) < 0)
@@ -288,6 +318,11 @@ usbkbd_probe(struct usb_device *udev)
                    udev->interrupt_in_interval);
   kbd->active = 1;
   udev->dev.driver_data = kbd;
+  if(KBDTRACE(1))
+    printf("kbd5: usb_fill_int_urb(ep%d, buf=report[%d], "
+           "complete=usbkbd_irq_complete, interval=%d) -> usb_submit_urb\n",
+           udev->interrupt_in_ep, HID_REPORT_SIZE,
+           udev->interrupt_in_interval);
   if(usb_submit_urb(kbd->irq_urb) < 0)
     goto fail_registered;
   printf("usbkbd: IRQ-driven boot keyboard ready ep=%d mps=%d interval=%d\n",
@@ -353,6 +388,10 @@ usbkbd_driver_init(void)
 {
   init_workqueue(&usbkbd_wq, "usbkbd_wq", 1);
   usb_register_driver(&usbkbd_driver);
+  if(KBDTRACE(1))
+    printf("kbd0: module usbhid-kbd (order 2): usbkbd_wq created, "
+           "usb_driver %s registered (id c03s01p01)\n",
+           usbkbd_driver.driver.name);
 }
 
 // Order 2: registered before dwc2 enumerates, so a boot keyboard that is

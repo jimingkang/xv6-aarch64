@@ -1,0 +1,60 @@
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=38c
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=923
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=fae
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=15fe
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=1f35
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=2621
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=2ed8
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=3d0a
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=492
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=c02
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=178c
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=2140
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=28ed
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=31c7
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies
+kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[0] pending again
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803c080 HCTSIZ=80008 HCCHAR=8c8808 frame=3dab
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=12 -> mask HAINTMSK, schedule_work(system_wq)
+kbd6: ch6 NAK (no key change) -> release ch6, retry in 1 jiffies

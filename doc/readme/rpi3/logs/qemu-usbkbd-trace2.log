@@ -1,0 +1,401 @@
+E
+BPH0abcmini-uart: initialized
+
+xv6 kernel is booting
+build: bcm43430-sdio-v2
+kernel image built: 2026-11-18 20:59:13 UTC (rpi3-lock 4163a5f+dirty)
+
+memblock: memory map from DTB at pa 0x0000000008000000 (89494 bytes), model "Raspberry Pi 3 Model B"
+  memory.cnt = 1, total = 983040 KiB
+    [0] 0x0000000000000000-0x000000003bffffff 983040 KiB
+  reserved.cnt = 5, total = 17663 KiB
+    [0] 0x0000000000000000-0x00000000001b8fff 1764 KiB
+    [1] 0x00000000003ef000-0x00000000003fffff 68 KiB
+    [2] 0x0000000007000000-0x00000000075fffff 6144 KiB
+    [3] 0x0000000008000000-0x0000000008015d95 87 KiB
+    [4] 0x000000003b6a0000-0x000000003bffffff 9600 KiB
+buddy: 241344 pages managed, 241344 free, mem_map 9600 KiB at pa 0x000000003b6a0000
+slab: 7 kmalloc caches (32..2048 B), self-test ok, 1 page(s) kept by kmalloc-64
+workqueue: system_wq worker=0 pid=1
+workqueue: system_wq worker=1 pid=2
+workqueue: system_wq worker=2 pid=3
+workqueue: system_wq worker=3 pid=4
+workqueue: net_wq worker=0 pid=5
+workqueue: kmod worker=0 pid=6
+driver modules: 17 entries in the initcall table
+initcall level 4 (subsys)
+  input
+  block
+  i2c-core
+initcall level 5 (fs)
+  fat32
+initcall level 6 (device)
+  sdhost
+sdhost: card initialized (SDSC, 1-bit bus, 1048576 sectors = 512 MiB)
+mmcblk0: p1 p2 p3
+  mem
+  bcm2708_fb
+  arasan-sdio
+arasan-sdio: host base-clock=50000000 Hz, probing GPIO34-39
+arasan-sdio: request CMD5 failed status=1fa0000 irq=18001 c1=e8007
+arasan-sdio: no SDIO device found
+  usbhid-kbd
+workqueue: usbkbd_wq worker=0 pid=7
+kbd0: module usbhid-kbd (order 2): usbkbd_wq created, usb_driver usbhid-keyboard registered (id c03s01p01)
+  dwc2
+kbd0: module dwc2 (order 4): platform device bcm2837-dwc2 MMIO 0x000000003f980000 IRQ 9 -> platform_driver_register -> dwc2_probe
+workqueue: dwc2_periodic_wq worker=0 pid=8
+workqueue: dwc2_hub_wq worker=0 pid=9
+dwc2: firmware USB HCD power on
+kbd1: dwc2_init: mailbox SET_POWER_STATE(USB HCD) done, GSNPSID=4f54294a (OT2 core) @0xffffff803f980000
+dwc2: host-channel IRQ enabled
+kbd1: core soft reset (GRSTCTL.CSFTRST), GUSBCFG.FORCEHOST -> GINTSTS.CURMOD=host; GINTMSK=HCHINT, GAHBCFG=DMA_EN|GLBL_INTR_EN (IRQ 9)
+dwc2: host hprt=2100d hcfg=0 hfnum=34a
+kbd1: root port HPRT0: PWR -> CONNSTS -> RST 50ms -> ENA, speed=full
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+dwc2: root device class=9 vid=409 pid=55aa configs=1 mps=8
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=1 i=0 len=0} -> ok
+kbd2: root device 409:55aa class=9: GET_DESCRIPTOR(8) -> bMaxPacketSize0=8, GET_DESCRIPTOR(18), SET_ADDRESS 0 -> 1
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=25} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a0 HUB_GET_DESCRIPTOR v=2900 i=0 len=9} DATA1-IN -> ok
+dwc2: hub interrupt-IN ep=1 mps=2 interval=255 ports=8
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=2 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=3 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=4 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=5 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=6 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=7 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=8 len=0} -> ok
+kbd2: hub addr 1: SET_CONFIGURATION 1, hub descriptor 8 ports, status-change ep1 in (bInterval 255), PORT_POWER on all ports
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+dwc2: hub port 1 status=101 change=1
+dwc2: hub external port 1 connected status=101
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=4 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+dwc2: hub port 1 after-reset status=103 speed=full
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=1 len=0} -> ok
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=5fa089e
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=89e
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=3 hctsiz=0 hfnum=89e
+dwc2: ch0 CSPLIT complete addr=0 bytes=2/2 hcint=3 hctsiz=40000000 hfnum=89e
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 split OUT SETUP{0 SET_ADDRESS v=2 i=0 len=0} -> ok
+dwc2: hub port=1 child class=0 vid=627 pid=1 mps=8
+kbd3: hub port 1: PORT_RESET -> enabled full speed; route SPLIT via hub TT (HCSPLT); child 627:1 addr 0 -> 2
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=1/1 hcint=3 hctsiz=0 hfnum=29bf
+kbd-: ctrl ch0 addr=2 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=0 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=0 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=2/2 hcint=3 hctsiz=40000000 hfnum=29bf
+kbd-: ctrl ch0 addr=2 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=34} DATA1-IN -> ok
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=1/1 hcint=3 hctsiz=0 hfnum=29bf
+kbd-: ctrl ch0 addr=2 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=0 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=40000000 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=8/8 hcint=3 hctsiz=0 hfnum=29bf
+dwc2: ch0 CSPLIT complete addr=2 bytes=2/2 hcint=3 hctsiz=40000000 hfnum=29bf
+kbd-: ctrl ch0 addr=2 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=34} DATA1-IN -> ok
+kbd3: config 1 (34 bytes): interface 0 class 3/1/1 (boot keyboard), interrupt-IN ep1 mps=8 bInterval=10
+kbd-: ctrl ch0 addr=2 split OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd3: SET_CONFIGURATION 1 on addr 2 -> configured
+kbd4: usb_device_register(usbH0) addr=2 intf=0 -> bus_type usb: match/probe
+kbd4: usb_match: usbH0 (627:1 c3s1p1) ~ id_table of driver usbhid-keyboard -> match
+kbd4: usb_probe: dev->driver=usbhid-keyboard -> usbhid-keyboard->probe()
+kbd5: usbkbd_probe 627:1 intf 0: state, input_dev, urb allocated; SET_PROTOCOL(boot) + SET_IDLE(0)
+kbd-: ctrl ch0 addr=2 split OUT SETUP{21 HID_SET_PROTOCOL v=0 i=0 len=0} -> ok
+kbd-: ctrl ch0 addr=2 split OUT SETUP{21 HID_SET_IDLE v=0 i=0 len=0} -> ok
+input: USB HID Boot Keyboard registered as event0
+kbd5: usb_fill_int_urb(ep1, buf=report[8], complete=usbkbd_irq_complete, interval=10) -> usb_submit_urb
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=1296
+dwc2: ch6 armed addr=2 ep=1 split=8000c081 hcchar=8c8808 hctsiz=80008 hcintmsk=7ff haintmsk=40 gintmsk=2000000
+usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
+dwc2: HID boot keyboard intf 0 handed to usb bus
+dwc2: event-driven hub hotplug v2 scheduled on channel 7
+  ov5647
+initcall level 7 (late)
+  rootdev
+rootdev: partitions of mmcblk0
+rootdev:   mmcblk0p1 type=0xc (FAT32-LBA) start=2048 sectors=131072 size=64 MiB partuuid=58563633-01
+rootdev:   mmcblk0p2 type=0x7f (xv6 raw filesystem) start=133120 sectors=131072 size=64 MiB partuuid=58563633-02
+rootdev:   mmcblk0p3 type=0x83 (Linux) start=264192 sectors=784384 size=383 MiB partuuid=58563633-03
+fat32: BPB lba=2048 bytes/sector=512 sectors/cluster=1
+fat32: reserved=32 FATs=2 sectors/FAT=1024 root-cluster=2
+fat32: FAT lba=2080 data lba=4128
+fat32: allocator next-free hint=2662
+rootdev: bootfs mmcblk0p1 lba=2048 mounted as FAT32
+Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
+rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
+rootdev: xv6 filesystem on mmcblk0p2 start=133120 sectors=131072 size=64 MiB
+rootdev: ROOT_DEV = 5 (mmcblk0p3)
+  brcmfmac
+workqueue: brcmf0_wq worker=0 pid=10
+workqueue: brcmf1_wq worker=0 pid=11
+  mt7601u
+workqueue: mt7601u_wq worker=0 pid=12
+  unicam
+workqueue: camera_wq worker=0 pid=13
+camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap
+ov5647: firmware GPIO 133 (camera power) failed, firmware rev 346337
+ov5647:   SET_GPIO_CONFIG: firmware reported an error (status 0x0000000080000000, tag response 0x0000000080000000 = done 1 len 0, first word 133, stale replies 0)
+ov5647:   SET_GPIO_STATE: firmware reported an error (status 0x0000000080000000, tag response 0x0000000080000000 = done 1 len 0, first word 133, stale replies 0)
+i2c0: GPIO44/45 ALT1, 100000 Hz (core 350000000), BCM2837 two-stage abort
+ov5647: probing with 25 kHz GPIO SCCB; BSC0 bypassed
+ov5647: software SCCB ID read retry 1/5 (probe=NACK)
+ov5647: software SCCB ID read retry 2/5 (probe=NACK)
+ov5647: software SCCB ID read retry 3/5 (probe=NACK)
+ov5647: software SCCB ID read retry 4/5 (probe=NACK)
+ov5647: software SCCB ID read retry 5/5 (probe=NACK)
+camera: BSC probe summary 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: GPIO bitbang probe 0x36=BUS-STUCK 0x10=BUS-STUCK 0x1a=BUS-STUCK
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=0 flags=0 now=50 div=3500 fsel=55 levels=0
+camera: no sensor found (1 driver tried); /dev/video0 inactive
+  ext2
+  vfs
+vfs: one mount table for all filesystems; xv6fs ext2 procfs sysfs fat32 netfs
+PPH0hart 1 starting
+H0hartPH0 2 starting
+hart 3 starting
+rootfs: ram0 is /, with /dev/console and /root
+devtmpfs: initialized on ram1, 14 nodes
+ext2: p3 was not clean; preserving dirty state until e2fsck
+ext2: p3 ready rw start=264192 sectors=784384 block=4096 groups=1
+xjournal: ready on mmcblk0p2+65536 (lba=198656) capacity=1024 sectors
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
+exec: /init -> interpreter /lib/ld-xv6.so
+vfs: mounted procfs at /proc read-only
+vfs: mounted sysfs at /sys read-write
+vfs: mounted fat32 at /boot read-write
+netfs: configured server 192.168.0.195:5640 read-only
+vfs: mounted netfs at /mnt/net read-only
+init: connecting Wi-Fi from /etc/wifi.conf
+exec: /bin/wifi -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+wifi: connecting to TP-Link_B114
+wifi: association failed
+init: starting local login on /dev/ttyS0
+exec: /bin/login -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+
+xv6-rpi3 login: root
+Password: xv6
+Welcome root
+exec: /bin/sh -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+$ 
+=== typing via USB keyboard (HMP sendkey) ===
+dwc2 ch6 final p=0 int=3 uf=6 issue=21d6 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+dwc2: ch6 transfer complete addr=2 ep=1 bytes=8 data=0,0,8,0,0,0,0,0
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+usbkbd: channel 6 IRQ received
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 8 0 0 0 0 0] prev keys=0,0
+usbkbd: first HID report mod=0 keys=8,0,0,0,0,0
+kbd9: usage 0x8 down -> 'e' -> consoleintr()
+ekbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=2627
+dwc2 ch6 final p=0 int=3 uf=5 issue=3e5 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=8,0
+kbd9: usage 0x8 up -> EV_KEY 18 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=562
+dwc2 ch6 final p=0 int=3 uf=0 issue=1bf8 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 6 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0x6 down -> 'c' -> consoleintr()
+ckbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=1e30
+dwc2 ch6 final p=0 int=3 uf=3 issue=f00 age=63 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=6,0
+kbd9: usage 0x6 up -> EV_KEY 46 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=117d
+dwc2 ch6 final p=0 int=3 uf=3 issue=275b age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 b 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0xb down -> 'h' -> consoleintr()
+hkbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=287d
+dwc2 ch6 final p=0 int=3 uf=7 issue=ce7 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=b,0
+kbd9: usage 0xb up -> EV_KEY 35 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=e2e
+dwc2 ch6 final p=0 int=3 uf=7 issue=e57 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 12 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0x12 down -> 'o' -> consoleintr()
+okbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=f61
+dwc2 ch6 final p=0 int=3 uf=0 issue=34e0 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=12,0
+kbd9: usage 0x12 up -> EV_KEY 24 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=35ec
+dwc2 ch6 final p=0 int=3 uf=7 issue=185f age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 2c 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0x2c down -> ' ' -> consoleintr()
+ kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=1aa2
+dwc2 ch6 final p=0 int=3 uf=1 issue=cf6 age=123 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=2c,0
+kbd9: usage 0x2c up -> EV_KEY 57 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=12da
+dwc2 ch6 final p=0 int=3 uf=5 issue=3785 age=0 ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [2 0 0 0 0 0 0 0] prev keys=0,0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=39a3
+dwc2 ch6 final p=0 int=3 uf=1 issue=2f1f age=8a ssack=0
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [2 0 b 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0xb down -> 'H' -> consoleintr()
+Hkbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=3283
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [2 0 0 0 0 0 0 0] prev keys=b,0
+kbd9: usage 0xb up -> EV_KEY 35 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=14a8
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=0,0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=984
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 c 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0xc down -> 'i' -> consoleintr()
+ikbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=1486
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=c,0
+kbd9: usage 0xc up -> EV_KEY 23 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=3d93
+kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA1 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 28 0 0 0 0 0] prev keys=0,0
+kbd9: usage 0x28 down -> 0xa -> consoleintr()
+
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA1 mps=8 HCDMA=c803b080 HCTSIZ=40080008 HCCHAR=8c8808 frame=2670
+exec: /bin/echo -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+Hi
+$ kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=3 -> mask HAINTMSK, schedule_work(system_wq)
+kbd8: dwc2 work: HCINT=3 XFERCOMPL, HCTSIZ left=0 -> 8 bytes DMA'd, dc ivac, next PID DATA0 -> giveback
+kbd8: usb_hcd_giveback_urb: ep1 status=0 actual=8, URB_SUBMITTED -> IDLE, call complete()
+kbd8: usbkbd_irq_complete: status=0 len=8 -> queue_work(usbkbd_wq)
+kbd9: usbkbd_rx_work(usbkbd_wq): report 8 bytes [0 0 0 0 0 0 0 0] prev keys=28,0
+kbd9: usage 0x28 up -> EV_KEY 28 value 0
+kbd9: input_sync -> event0 evdev clients (EV_SYN)
+kbd9: resubmit interrupt URB (back to step 5/6)
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=2 ep1 IN DATA0 mps=8 HCDMA=c803b080 HCTSIZ=80008 HCCHAR=8c8808 frame=9bd
+dwc2: hub ch7 scheduler alive active=0 urb-state=0
+dwc2: hub ch7 first IRQ hcint=3 hctsiz=0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=11 i=1 len=0} -> ok

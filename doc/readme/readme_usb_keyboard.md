@@ -1,5 +1,7 @@
 # Raspberry Pi 3 USB 键盘驱动
 
+> 按步骤 0–9 的完整通信流程、图、动画和 `USBKBD_TRACE` 日志开关见 [rpi3/usb-keyboard.md](rpi3/usb-keyboard.md)。
+
 ## 驱动路径
 
 ```text

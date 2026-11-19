@@ -12,6 +12,7 @@
 #include <kernel/usb.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <kernel/usbkbd_trace.h>
 
 #define DWC2_BASE (PERIPHERAL_BASE + 0x00980000UL)
 #define USB_MBOX_BASE (PERIPHERAL_BASE + 0x0000b880UL)
@@ -174,6 +175,7 @@ static uint interrupt_rx_errors;
 static uint interrupt_rx_irq_logs;
 static int interrupt_rx_report_logged;
 static int interrupt_rx_arm_logged;
+static int kbdtrace_submit_arm;   // USBKBD_TRACE=2: log the arm after submit
 #define DWC2_RX_REQUESTS 4
 #define RX_FREE   0
 #define RX_QUEUED 1
@@ -525,6 +527,32 @@ restart_channel:
   return len - left;
 }
 
+#if USBKBD_TRACE >= 2
+static const char *
+usb_req_name(uint8 type, uint8 request)
+{
+  if((type & 0x60) == 0x20){              // class request
+    if((type & 0x1f) == 1)                // HID interface
+      return request == 0x0a ? "HID_SET_IDLE" :
+             request == 0x0b ? "HID_SET_PROTOCOL" :
+             request == 0x09 ? "HID_SET_REPORT" : "HID_REQ";
+    return request == 0 ? "HUB_GET_STATUS" :
+           request == 1 ? "HUB_CLEAR_FEATURE" :
+           request == 3 ? "HUB_SET_FEATURE" :
+           request == 6 ? "HUB_GET_DESCRIPTOR" : "HUB_REQ";
+  }
+  switch(request){
+  case USB_REQ_GET_STATUS: return "GET_STATUS";
+  case USB_REQ_CLEAR_FEATURE: return "CLEAR_FEATURE";
+  case USB_REQ_SET_FEATURE: return "SET_FEATURE";
+  case USB_SET_ADDRESS: return "SET_ADDRESS";
+  case USB_GET_DESCRIPTOR: return "GET_DESCRIPTOR";
+  case USB_SET_CONFIG: return "SET_CONFIGURATION";
+  }
+  return "REQ";
+}
+#endif
+
 static int
 control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
         void *data, uint16 len)
@@ -547,9 +575,11 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
            request, addr, r);
     return -1;
   }
+  int data_r = 0;
   if(len){
     r = channel_xfer(0, addr, 0, in, EPTYPE_CONTROL, mps,
                      data, len, PID_DATA1, 100000);
+    data_r = r;
     if(r < 0){
       printf("dwc2: control data failed req=%d addr=%d result=%d\n",
              request, addr, r);
@@ -561,6 +591,27 @@ control(int addr, uint8 type, uint8 request, uint16 value, uint16 index,
   if(r < 0)
     printf("dwc2: control status failed req=%d addr=%d result=%d\n",
            request, addr, r);
+#if USBKBD_TRACE >= 2
+    printf("kbd-: ctrl ch0 addr=%d %s%s SETUP{%x %s v=%x i=%x len=%d}%s "
+           "-> %s\n", addr,
+           (addr >= 0 && addr < 128 && usb_route[addr].hub) ? "split " : "",
+           in ? "IN" : "OUT", type, usb_req_name(type, request), value,
+           index, len, len ? (in ? " DATA1-IN" : " DATA1-OUT") : "",
+           r < 0 ? "fail" : "ok");
+  // The raw bytes of each stage, as they crossed the bus.
+  printf("kbd-:   SETUP DATA0 %x %x %x %x %x %x %x %x  (mps %d)\n",
+         setup_buf[0], setup_buf[1], setup_buf[2], setup_buf[3],
+         setup_buf[4], setup_buf[5], setup_buf[6], setup_buf[7], mps);
+  if(in && len && data_r > 0){
+    uchar *b = data;
+    for(int o = 0; o < data_r; o += 16){
+      printf("kbd-:   IN %s+%d:", o == 0 ? "DATA " : "     ", o);
+      for(int i = o; i < data_r && i < o + 16; i++)
+        printf(" %x", b[i]);
+      printf("\n");
+    }
+  }
+#endif
   return r < 0 ? -1 : 0;
 }
 
@@ -853,6 +904,15 @@ dwc2_interrupt_rx_start(struct dwc2_interrupt_request *req)
                   (usb_route[udev->address].low_speed ? HCCHAR_LSPDDEV : 0) |
                   HCCHAR_CHENA);
   req->last_issue_frame = rd(HFNUM) & 0x3fff;
+  if(KBDTRACE(3) || (KBDTRACE(2) && kbdtrace_submit_arm)){
+    kbdtrace_submit_arm = 0;
+    printf("kbd6: ch6 arm %s addr=%d ep%d IN %s mps=%d HCDMA=%x "
+           "HCTSIZ=%x HCCHAR=%x frame=%x\n",
+           split ? (req->complete_split ? "CSPLIT" : "SSPLIT") : "IN",
+           udev->address, urb->endpoint, pid == PID_DATA1 ? "DATA1" : "DATA0",
+           req->mps, rd(HCDMA(6)), rd(HCTSIZ(6)), rd(HCCHAR(6)),
+           req->last_issue_frame);
+  }
   if(!interrupt_rx_arm_logged){
     interrupt_rx_arm_logged = 1;
     printf("dwc2: ch6 armed addr=%d ep=%d split=%x hcchar=%x hctsiz=%x "
@@ -1213,6 +1273,12 @@ dwc2_submit_urb(struct urb *urb)
   req->complete_split = 0;
   req->csplit_retries = 0;
   req->pending = 1;
+  if(KBDTRACE(2))
+    printf("kbd5: dwc2_submit_urb: urb ep%d len=%d -> interrupt_rx[%d] "
+           "pending, channel 6 %s\n", urb->endpoint,
+           urb->transfer_buffer_length, (int)(req - interrupt_rx),
+           interrupt_rx_inflight >= 0 ? "busy (round-robin)" : "free");
+  kbdtrace_submit_arm = KBDTRACE(2);
   dwc2_interrupt_schedule_locked();
   release(&usb_lock);
   return 0;
@@ -1249,6 +1315,9 @@ dwc2_interrupt_retry_work(struct work_struct *work)
   acquire(&usb_lock);
   if(req->urb && req->urb->dev && !req->inflight)
     req->pending = 1;
+  if(KBDTRACE(3))
+    printf("kbd6: dwc2_periodic_wq: bInterval elapsed, interrupt_rx[%d] "
+           "pending again\n", (int)(req - interrupt_rx));
   dwc2_interrupt_schedule_locked();
   release(&usb_lock);
 }
@@ -1321,6 +1390,9 @@ dwc2_interrupt_rx_complete(struct dwc2_interrupt_request *req)
   }
   if(intr & HCINT_NAK){
     // No key-state change.  A new USB transaction begins with start-split.
+    if(KBDTRACE(3))
+      printf("kbd6: ch6 NAK (no key change) -> release ch6, retry in "
+             "%d jiffies\n", (int)dwc2_interrupt_interval_jiffies(udev));
     req->complete_split = 0;
     req->csplit_retries = 0;
     dwc2_interrupt_release_locked(req);
@@ -1356,6 +1428,10 @@ dwc2_interrupt_rx_complete(struct dwc2_interrupt_request *req)
     packets++;
   if(packets & 1)
     udev->interrupt_in_toggle ^= 1;
+  if(KBDTRACE(2))
+    printf("kbd8: dwc2 work: HCINT=%x XFERCOMPL, HCTSIZ left=%d -> %d bytes "
+           "DMA'd, dc ivac, next PID DATA%d -> giveback\n", intr, left,
+           result, udev->interrupt_in_toggle);
   // Report delivered: the class driver resubmits the same URB from its
   // completion callback, which re-enters it in the round-robin queue.  Release
   // channel 6 so a co-scheduled endpoint (or this one's resubmit) proceeds.
@@ -1904,6 +1980,12 @@ dwc2_irq(void)
   // Mask completed asynchronous channels.  Their HCINT status and DMA
   // residual count are consumed by the deferred driver poll, which rearms
   // the channel and its HAINT bit after cache maintenance and frame parsing.
+  if((channels & (1U << 6)) &&
+     (KBDTRACE(3) ||
+      (KBDTRACE(2) && !(ch6_intr & (HCINT_NAK | HCINT_NYET)))))
+    printf("kbd7: IRQ %d cpu%d dwc2_irq: GINTSTS.HCHINT HAINT=%x "
+           "HCINT6=%x -> mask HAINTMSK, schedule_work(system_wq)\n",
+           DWC2_IRQ, cpuid(), channels, ch6_intr);
   wr(HAINTMSK, rd(HAINTMSK) & ~channels);
   dwc2_irq_pending |= channels;
   if(channels & (1U << 4))
@@ -1969,6 +2051,9 @@ dwc2_init(void)
   else
     printf("dwc2: firmware USB HCD power on\n");
   id = rd(GSNPSID);
+  if(KBDTRACE(1))
+    printf("kbd1: dwc2_init: mailbox SET_POWER_STATE(USB HCD) done, "
+           "GSNPSID=%x (OT2 core) @%p\n", id, (void *)DWC2_BASE);
   if((id >> 16) != 0x4f54){
     printf("dwc2: no DWC2 controller id=%x\n", id);
     return;
@@ -2011,6 +2096,10 @@ dwc2_init(void)
   wr(HCFG, 0);
   wr(GAHBCFG, GAHBCFG_DMA_EN | GAHBCFG_GLBL_INTR_EN);
   printf("dwc2: host-channel IRQ enabled\n");
+  if(KBDTRACE(1))
+    printf("kbd1: core soft reset (GRSTCTL.CSFTRST), GUSBCFG.FORCEHOST "
+           "-> GINTSTS.CURMOD=host; GINTMSK=HCHINT, "
+           "GAHBCFG=DMA_EN|GLBL_INTR_EN (IRQ %d)\n", DWC2_IRQ);
 
   // Power the root port before testing connect status.  On real Raspberry
   // Pi 3 hardware the LAN951x hub is behind this port and needs time after
@@ -2041,6 +2130,10 @@ dwc2_init(void)
   }
   printf("dwc2: host hprt=%x hcfg=%x hfnum=%x\n",
          rd(HPRT0), rd(HCFG), rd(HFNUM));
+  if(KBDTRACE(1))
+    printf("kbd1: root port HPRT0: PWR -> CONNSTS -> RST 50ms -> ENA, "
+           "speed=%s\n", ((rd(HPRT0) >> 17) & 3) == 0 ? "high" :
+           ((rd(HPRT0) >> 17) & 3) == 1 ? "full" : "low");
 
   memset(ctrl_buf, 0, sizeof(ctrl_buf));
   if(get_device_descriptor(0, ctrl_buf) < 0){
@@ -2060,6 +2153,10 @@ dwc2_init(void)
   udelay(5000);
   usb_address = 1;
   usb_ep0_mps[1] = ep0_mps;
+  if(KBDTRACE(1))
+    printf("kbd2: root device %x:%x class=%d: GET_DESCRIPTOR(8) -> "
+           "bMaxPacketSize0=%d, GET_DESCRIPTOR(18), SET_ADDRESS 0 -> 1\n",
+           vid, pid, root_class, ep0_mps);
 
   if(root_class == 9){
     // Configure the high-speed hub connected to the DWC2 root port.
@@ -2105,6 +2202,11 @@ dwc2_init(void)
       control(1, 0x23, USB_REQ_SET_FEATURE, HUB_PORT_POWER, idx,
               ctrl_buf, 0);
     udelay(100000);
+    if(KBDTRACE(1))
+      printf("kbd2: hub addr 1: SET_CONFIGURATION %d, hub descriptor "
+             "%d ports, status-change ep%d in (bInterval %d), "
+             "PORT_POWER on all ports\n", cfg, nport, dwc2_hub_irq_ep,
+             dwc2_hub_irq_interval);
     // Port numbering differs among LAN9512/LAN9514 board revisions.  Scan
     // every downstream port and identify devices by VID/PID; do not assume
     // that port 1 is always the permanently attached Ethernet function.
@@ -2200,6 +2302,14 @@ dwc2_init(void)
       usb_route[usb_address] = usb_route[0];
       printf("dwc2: hub port=%d child class=%d vid=%x pid=%x mps=%d\n",
              port, root_class, vid, pid, ep0_mps);
+      if(KBDTRACE(1))
+        printf("kbd3: hub port %d: PORT_RESET -> enabled %s speed; "
+               "route %s; child %x:%x addr 0 -> %d\n", port,
+               (port_status & HUB_PORT_HIGH_SPEED) ? "high" :
+               (port_status & HUB_PORT_LOW_SPEED) ? "low" : "full",
+               usb_route[usb_address].hub ?
+                 "SPLIT via hub TT (HCSPLT)" : "direct",
+               vid, pid, usb_address);
       if(root_class == 9){
         memset(&nested_hid, 0, sizeof(nested_hid));
         if(find_boot_input_below_hub(usb_address, 1, &nested_hid)){
@@ -2390,6 +2500,17 @@ dwc2_init(void)
       dwc2_start_hub_monitor();
       return;
     }
+    if(KBDTRACE(1))
+      for(int i = 0; i < usb_hid_child_count; i++)
+        printf("kbd3: config %d (%d bytes): interface %d class %d/%d/%d "
+               "(boot %s), interrupt-IN ep%d mps=%d bInterval=%d\n", cfg,
+               total, usb_hid_child[i].interface_number,
+               usb_hid_child[i].class, usb_hid_child[i].subclass,
+               usb_hid_child[i].protocol,
+               usb_hid_child[i].protocol == 2 ? "mouse" : "keyboard",
+               usb_hid_child[i].interrupt_in_ep,
+               usb_hid_child[i].interrupt_in_max_packet,
+               usb_hid_child[i].interrupt_in_interval);
     if(control(usb_address, 0x00, USB_SET_CONFIG, cfg, 0,
                ctrl_buf, 0) < 0){
       printf("dwc2: HID SET_CONFIG %d failed\n", cfg);
@@ -2397,8 +2518,15 @@ dwc2_init(void)
       dwc2_start_hub_monitor();
       return;
     }
+    if(KBDTRACE(1))
+      printf("kbd3: SET_CONFIGURATION %d on addr %d -> configured\n",
+             cfg, usb_address);
     for(int i = 0; i < usb_hid_child_count; i++){
       struct usb_device *child = &usb_hid_child[i];
+      if(KBDTRACE(1))
+        printf("kbd4: usb_device_register(%s) addr=%d intf=%d "
+               "-> bus_type usb: match/probe\n", child->dev.name,
+               child->address, child->interface_number);
       if(usb_device_register(child) < 0){
         printf("dwc2: cannot register HID intf %d on %x:%x\n",
                child->interface_number, vid, pid);
@@ -2530,6 +2658,10 @@ dwc2_driver_init(void)
     .probe = dwc2_probe,
     .remove = dwc2_remove,
   };
+  if(KBDTRACE(1))
+    printf("kbd0: module dwc2 (order 4): platform device %s "
+           "MMIO %p IRQ %d -> platform_driver_register -> dwc2_probe\n",
+           dev.name, (void *)V2P_WO(DWC2_BASE), DWC2_IRQ);
   platform_device_register(&dev);
   platform_driver_register(&drv);
 }

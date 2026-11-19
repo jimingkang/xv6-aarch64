@@ -1,3 +1,0 @@
-file '/Users/jimingkang/Documents/xv6-aarch64/build/manim/videos/rpi3_memory_anim/720p30//MemoryInit.mp4'
-file '/Users/jimingkang/Documents/xv6-aarch64/build/manim/videos/rpi3_memory_anim/720p30//MmuSetup.mp4'
-file '/Users/jimingkang/Documents/xv6-aarch64/build/manim/videos/rpi3_memory_anim/720p30//ProcessExec.mp4'

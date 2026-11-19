@@ -277,6 +277,25 @@ $(PROC_SCHED_TRACE_CONFIG): FORCE_PROC_SCHED_TRACE_CONFIG
 
 $K/core/proc.o: $(PROC_SCHED_TRACE_CONFIG)
 
+# USB keyboard data path, numbered steps 0-9 (include/kernel/usbkbd_trace.h,
+# doc/readme/rpi3/usb-keyboard.md):
+#   USBKBD_TRACE=1  load/config steps, every report, key and console char
+#   USBKBD_TRACE=2  + decoded control transfers, URB submit/giveback, data IRQs
+#   USBKBD_TRACE=3  + idle NAK polling (very noisy)
+USBKBD_TRACE ?= 0
+CFLAGS += -DUSBKBD_TRACE=$(USBKBD_TRACE)
+USBKBD_TRACE_CONFIG = $K/.usbkbd_trace.config
+.PHONY: FORCE_USBKBD_TRACE_CONFIG
+FORCE_USBKBD_TRACE_CONFIG:
+
+$(USBKBD_TRACE_CONFIG): FORCE_USBKBD_TRACE_CONFIG
+	@cfg='$(USBKBD_TRACE)'; \
+	old=$$(test -f $@ && cat $@ || true); \
+	if test "$$old" != "$$cfg"; then printf '%s\n' "$$cfg" > $@; fi
+
+$K/drivers/usb/host/dwc2.o $K/drivers/usb/core/usb.o \
+$K/drivers/input/usbkbd.o: $(USBKBD_TRACE_CONFIG) include/kernel/usbkbd_trace.h
+
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
 CFLAGS += -fno-pie -no-pie

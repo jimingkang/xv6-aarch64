@@ -1,0 +1,402 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="3144" viewBox="0 0 1640 3144" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect x="0.0" y="0.0" width="1640.0" height="3144.0" rx="0" fill="#fafbfc" fill-opacity="1" stroke="none" stroke-width="1"/>
+<text x="820.0" y="36.0" font-size="23" fill="#111" text-anchor="middle" font-weight="bold">树莓派 3B+ 真机：USB 键盘的每一个数据包（DWC2 → Hub TT → 低速键盘）</text>
+<text x="820.0" y="60.0" font-size="13" fill="#555" text-anchor="middle" font-weight="normal">字节全部来自板子串口（make USBKBD_TRACE=2，控制传输打印 SETUP 8 字节和返回数据）；实线 = 高速总线（主机↔Hub），虚线 = 低速总线（Hub TT↔键盘）</text>
+<rect x="10.0" y="82.0" width="200.0" height="48.0" rx="7" fill="#fff" fill-opacity="1" stroke="#7b3fb3" stroke-width="1.8"/>
+<text x="110.0" y="103.0" font-size="14" fill="#7b3fb3" text-anchor="middle" font-weight="bold">CPU · dwc2.c</text>
+<text x="110.0" y="121.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">控制传输 control() / 中断 work</text>
+<rect x="230.0" y="82.0" width="200.0" height="48.0" rx="7" fill="#fff" fill-opacity="1" stroke="#1f5fae" stroke-width="1.8"/>
+<text x="330.0" y="103.0" font-size="14" fill="#1f5fae" text-anchor="middle" font-weight="bold">DWC2 主机控制器</text>
+<text x="330.0" y="121.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">ch0 控制 · ch6 中断 · 高速 480 Mb/s</text>
+<rect x="460.0" y="82.0" width="200.0" height="48.0" rx="7" fill="#fff" fill-opacity="1" stroke="#b07d00" stroke-width="1.8"/>
+<text x="560.0" y="103.0" font-size="14" fill="#b07d00" text-anchor="middle" font-weight="bold">Hub 424:2514 addr 1</text>
+<text x="560.0" y="121.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">LAN7515 内 · 口 3 的 TT（事务转换器）</text>
+<rect x="690.0" y="82.0" width="200.0" height="48.0" rx="7" fill="#fff" fill-opacity="1" stroke="#00796b" stroke-width="1.8"/>
+<text x="790.0" y="103.0" font-size="14" fill="#00796b" text-anchor="middle" font-weight="bold">键盘 2a7a:8a47</text>
+<text x="790.0" y="121.0" font-size="10.5" fill="#555" text-anchor="middle" font-weight="normal">低速 1.5 Mb/s · addr 0 → 4</text>
+<rect x="905.0" y="82.0" width="711.0" height="48.0" rx="7" fill="#fff" fill-opacity="1" stroke="#999" stroke-width="1"/>
+<text x="917.0" y="103.0" font-size="14" fill="#333" text-anchor="start" font-weight="bold">包内容（十六进制）与逐字段解释</text>
+<text x="917.0" y="121.0" font-size="10.5" fill="#777" text-anchor="start" font-weight="normal">灰色等宽行 = 对应的串口日志</text>
+<rect x="16.0" y="150.0" width="1608.0" height="50.0" rx="6" fill="#eef2f7" fill-opacity="1" stroke="#c8d1dc" stroke-width="1"/>
+<text x="28.0" y="171.0" font-size="15.5" fill="#123" text-anchor="start" font-weight="bold">A  Hub 口 3 发现键盘：高速控制传输直接发给 Hub（地址 1，不需要 split）</text>
+<text x="28.0" y="191.0" font-size="11.5" fill="#456" text-anchor="start" font-weight="normal">每个控制传输 = SETUP 事务（SETUP 令牌 + DATA0 8 字节 + ACK）→ 可选 DATA 事务（DATA1…）→ STATUS 事务（反方向 0 字节 DATA1）</text>
+<rect x="16.0" y="210.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="210.0" x2="110.0" y2="280.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="210.0" x2="330.0" y2="280.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="210.0" x2="560.0" y2="280.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="210.0" x2="790.0" y2="280.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="234.0" x2="554.0" y2="234.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="228.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SETUP · DATA0 → ACK</text>
+<text x="905.0" y="228.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">a3 00 00 00 03 00 04 00</text>
+<text x="905.0" y="246.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HUB GET_STATUS(port 3)：bmRequestType a3 = 设备→主机 | 类请求 | 接收者=其他(端口)</text>
+<text x="905.0" y="264.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bRequest 00 GET_STATUS · wValue 0 · wIndex 3（口号）· wLength 4</text>
+<line x1="110.0" y1="280.0" x2="110.0" y2="368.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="280.0" x2="330.0" y2="368.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="280.0" x2="560.0" y2="368.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="280.0" x2="790.0" y2="368.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="304.0" x2="336.0" y2="304.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="298.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">IN → DATA1 4 B · ACK</text>
+<text x="905.0" y="298.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">01 03 01 00</text>
+<text x="905.0" y="316.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">wPortStatus = 0x0301：b0 Connection · b8 Power · b9 LowSpeed（D- 上拉 = 低速）</text>
+<text x="905.0" y="334.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">wPortChange = 0x0001：b0 C_PORT_CONNECTION（刚插上）</text>
+<text x="905.0" y="352.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: hub port 3 status=301 change=1</text>
+<rect x="16.0" y="368.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="368.0" x2="110.0" y2="438.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="368.0" x2="330.0" y2="438.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="368.0" x2="560.0" y2="438.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="368.0" x2="790.0" y2="438.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="392.0" x2="554.0" y2="392.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="386.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SETUP · DATA0 → ACK；STATUS IN 0 B</text>
+<text x="905.0" y="386.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">23 03 04 00 03 00 00 00</text>
+<text x="905.0" y="404.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">SET_FEATURE(PORT_RESET=4, port 3)：bmRequestType 23 = 主机→设备 | 类 | 端口</text>
+<text x="905.0" y="422.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">Hub 在口 3 上驱动 SE0 复位 ≥10 ms，之后使能该口</text>
+<line x1="110.0" y1="438.0" x2="110.0" y2="484.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="438.0" x2="330.0" y2="484.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="438.0" x2="560.0" y2="484.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="438.0" x2="790.0" y2="484.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="462.0" x2="784.0" y2="462.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="456.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">SE0 复位 → 使能（低速信号）</text>
+<text x="905.0" y="456.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">复位后键盘处于地址 0、默认配置，只回应 EP0</text>
+<rect x="16.0" y="484.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="484.0" x2="110.0" y2="554.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="484.0" x2="330.0" y2="554.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="484.0" x2="560.0" y2="554.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="484.0" x2="790.0" y2="554.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="508.0" x2="554.0" y2="508.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="502.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">GET_STATUS(port 3)</text>
+<text x="905.0" y="502.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">a3 00 00 00 03 00 04 00 → 03 03 11 00</text>
+<text x="905.0" y="520.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">wPortStatus 0x0303：+ b1 Enable；wPortChange 0x0011：C_CONNECTION | C_RESET</text>
+<text x="905.0" y="538.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: hub port 3 after-reset status=303 speed=low</text>
+<line x1="110.0" y1="554.0" x2="110.0" y2="624.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="554.0" x2="330.0" y2="624.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="554.0" x2="560.0" y2="624.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="554.0" x2="790.0" y2="624.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="578.0" x2="554.0" y2="578.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="572.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">CLEAR_FEATURE ×2</text>
+<text x="905.0" y="572.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">23 01 10 00 03 00 00 00 / 23 01 14 00 03 00 00 00</text>
+<text x="905.0" y="590.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">清 C_PORT_CONNECTION(0x10) 与 C_PORT_RESET(0x14)，让 Hub 的状态变化端点安静下来</text>
+<text x="905.0" y="608.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">随后 dwc2 记 usb_route[0] = {hub 1, port 3, low_speed 1}：之后访问地址 0/4 全部走 split</text>
+<rect x="16.0" y="646.0" width="1608.0" height="50.0" rx="6" fill="#eef2f7" fill-opacity="1" stroke="#c8d1dc" stroke-width="1"/>
+<text x="28.0" y="667.0" font-size="15.5" fill="#123" text-anchor="start" font-weight="bold">B  一次 split 控制传输逐包展开：GET_DESCRIPTOR(Device, 8) 发给地址 0</text>
+<text x="28.0" y="687.0" font-size="11.5" fill="#456" text-anchor="start" font-weight="normal">主机和 Hub 之间是高速（SSPLIT/CSPLIT 令牌包住原来的低速事务）；Hub 的 TT 自己在低速口上和键盘完成真正的事务。每个阶段两次通道 0 事务。</text>
+<rect x="16.0" y="706.0" width="1608.0" height="88.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="706.0" x2="110.0" y2="794.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="706.0" x2="330.0" y2="794.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="706.0" x2="560.0" y2="794.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="706.0" x2="790.0" y2="794.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="730.0" x2="554.0" y2="730.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="724.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SSPLIT · SETUP(0,0) · DATA0 8 B</text>
+<text x="905.0" y="724.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">SPLIT{hub 1, SC 0, port 3, S 1, E 0, ET 00} SETUP{addr 0, ep 0} 80 06 00 01 00 00 08 00</text>
+<text x="905.0" y="742.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">SPLIT 令牌（4 字节）：PID 0x78 · HubAddr 7 位=1 · SC=0 开始 · Port 7 位=3 · S=1 低速 · ET=00 控制 · CRC5</text>
+<text x="905.0" y="760.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">通道寄存器：HCSPLT0=8000c083  HCCHAR0=00020040（addr 0 · EP0 · 控制 · LSpdDev · MPS 64）</text>
+<text x="905.0" y="778.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCTSIZ0=60080008：PID=SETUP · 1 包 · 8 字节。setup 包 = GET_DESCRIPTOR(类型 1 设备, 索引 0, 8 字节)</text>
+<line x1="110.0" y1="794.0" x2="110.0" y2="864.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="794.0" x2="330.0" y2="864.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="794.0" x2="560.0" y2="864.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="794.0" x2="790.0" y2="864.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="818.0" x2="336.0" y2="818.0" stroke="#b07d00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="812.0" font-size="11.8" fill="#b07d00" text-anchor="middle" font-weight="bold">ACK（TT 收下）</text>
+<text x="905.0" y="812.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCINT0 = 0x22 = ACK | ChHltd：TT 已缓存这次事务，主机要稍后用 CSPLIT 取结果</text>
+<text x="905.0" y="830.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">channel_xfer() 置 complete_split=1，udelay(125) 等一个微帧</text>
+<text x="905.0" y="848.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20040</text>
+<rect x="16.0" y="864.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="864.0" x2="110.0" y2="916.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="864.0" x2="330.0" y2="916.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="864.0" x2="560.0" y2="916.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="864.0" x2="790.0" y2="916.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="888.0" x2="784.0" y2="888.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="882.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">SETUP · DATA0 8 B → ACK（低速）</text>
+<text x="905.0" y="882.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">80 06 00 01 00 00 08 00</text>
+<text x="905.0" y="900.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">TT 在低速口上重放 SETUP 事务，键盘 ACK</text>
+<line x1="110.0" y1="916.0" x2="110.0" y2="962.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="916.0" x2="330.0" y2="962.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="916.0" x2="560.0" y2="962.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="916.0" x2="790.0" y2="962.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="940.0" x2="554.0" y2="940.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="934.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">CSPLIT · SETUP → ACK</text>
+<text x="905.0" y="934.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">CSPLIT（SC=1）取回键盘的握手：ACK → HCINT0 XferCompl，SETUP 阶段结束</text>
+<rect x="16.0" y="962.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="962.0" x2="110.0" y2="1032.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="962.0" x2="330.0" y2="1032.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="962.0" x2="560.0" y2="1032.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="962.0" x2="790.0" y2="1032.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="986.0" x2="554.0" y2="986.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="980.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SSPLIT · IN(0,0)</text>
+<text x="905.0" y="980.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HCCHAR0=00028040（+EPDir IN） HCTSIZ0=40080008（DATA1，8 字节）</text>
+<text x="905.0" y="998.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">数据阶段：IN 令牌也要先 SSPLIT，TT 回 ACK（HCINT0=0x22）</text>
+<text x="905.0" y="1016.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28040</text>
+<line x1="110.0" y1="1032.0" x2="110.0" y2="1084.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1032.0" x2="330.0" y2="1084.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1032.0" x2="560.0" y2="1084.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1032.0" x2="790.0" y2="1084.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1056.0" x2="784.0" y2="1056.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="1050.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">IN → DATA1 8 B → ACK（低速）</text>
+<text x="905.0" y="1050.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">12 01 10 01 00 00 00 08</text>
+<text x="905.0" y="1068.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">键盘回设备描述符前 8 字节，TT 代替主机回 ACK</text>
+<rect x="16.0" y="1084.0" width="1608.0" height="106.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1084.0" x2="110.0" y2="1190.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1084.0" x2="330.0" y2="1190.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1084.0" x2="560.0" y2="1190.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1084.0" x2="790.0" y2="1190.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1108.0" x2="336.0" y2="1108.0" stroke="#b07d00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="1102.0" font-size="11.8" fill="#b07d00" text-anchor="middle" font-weight="bold">CSPLIT · IN → DATA1 8 B</text>
+<text x="905.0" y="1102.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">12 01 10 01 00 00 00 08</text>
+<text x="905.0" y="1120.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCINT0 = 0x21 = XferCompl | ACK，HCTSIZ 剩 0 → 收到 8 字节</text>
+<text x="905.0" y="1138.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bLength 0x12=18 · bDescriptorType 1 · bcdUSB 0x0110（USB 1.1）· class 0 · sub 0 · proto 0</text>
+<text x="905.0" y="1156.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bMaxPacketSize0 = 8 → usb_ep0_mps[0] = 8；之后 18 字节的请求按 8 字节一包拆开（8+8+2）</text>
+<text x="905.0" y="1174.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=0</text>
+<line x1="110.0" y1="1190.0" x2="110.0" y2="1260.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1190.0" x2="330.0" y2="1260.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1190.0" x2="560.0" y2="1260.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1190.0" x2="790.0" y2="1260.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1214.0" x2="554.0" y2="1214.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="1208.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SSPLIT · OUT · DATA1 0 B</text>
+<text x="905.0" y="1208.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HCTSIZ0=40080000（DATA1，0 字节）</text>
+<text x="905.0" y="1226.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">状态阶段方向与数据相反：主机发 0 字节 DATA1 表示“收到”，TT ACK（0x22）</text>
+<text x="905.0" y="1244.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 … hctsiz=40080000</text>
+<rect x="16.0" y="1260.0" width="1608.0" height="46.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1260.0" x2="110.0" y2="1306.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1260.0" x2="330.0" y2="1306.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1260.0" x2="560.0" y2="1306.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1260.0" x2="790.0" y2="1306.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1284.0" x2="784.0" y2="1284.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="1278.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">OUT · DATA1 0 B → ACK</text>
+<text x="905.0" y="1278.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">键盘确认，控制传输完成</text>
+<line x1="110.0" y1="1306.0" x2="110.0" y2="1352.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1306.0" x2="330.0" y2="1352.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1306.0" x2="560.0" y2="1352.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1306.0" x2="790.0" y2="1352.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1330.0" x2="554.0" y2="1330.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="1324.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">CSPLIT · OUT → ACK</text>
+<text x="905.0" y="1324.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">dwc2 的日志只给 IN 数据阶段打 “CSPLIT complete”，SETUP/STATUS 的 CSPLIT 不打印</text>
+<rect x="16.0" y="1352.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1352.0" x2="110.0" y2="1404.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1352.0" x2="330.0" y2="1404.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1352.0" x2="560.0" y2="1404.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1352.0" x2="790.0" y2="1404.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<rect x="15.0" y="1362.0" width="870.0" height="22.0" rx="11" fill="#fff" fill-opacity="1" stroke="#c62828" stroke-width="1.4"/>
+<text x="25.0" y="1378.0" font-size="12" fill="#c62828" text-anchor="start" font-weight="bold">注：这一次用的 MPS 是 64</text>
+<text x="905.0" y="1370.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">第一次请求 HCCHAR 的 MPS=0x40：usb_ep0_mps[0] 还留着 Hub 枚举时的 64。8 字节请求只有一个包，所以无害；</text>
+<text x="905.0" y="1388.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">读到 bMaxPacketSize0=8 后立即改成 8（后面的 HCCHAR 都是 …008）</text>
+<rect x="16.0" y="1426.0" width="1608.0" height="50.0" rx="6" fill="#eef2f7" fill-opacity="1" stroke="#c8d1dc" stroke-width="1"/>
+<text x="28.0" y="1447.0" font-size="15.5" fill="#123" text-anchor="start" font-weight="bold">C  枚举键盘：每个控制传输的 SETUP 包和键盘返回的全部字节（split，同 B 的包序）</text>
+<text x="28.0" y="1467.0" font-size="11.5" fill="#456" text-anchor="start" font-weight="normal">左边是 SETUP 包 8 字节（bmRequestType bRequest wValue wIndex wLength，小端），右边是数据阶段收到的字节和逐字段解码</text>
+<rect x="16.0" y="1486.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1486.0" x2="110.0" y2="1538.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1486.0" x2="330.0" y2="1538.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1486.0" x2="560.0" y2="1538.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1486.0" x2="790.0" y2="1538.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1510.0" x2="784.0" y2="1510.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1504.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">GET_DESCRIPTOR(Device, 18)</text>
+<text x="905.0" y="1504.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">80 06 00 01 00 00 12 00</text>
+<text x="905.0" y="1522.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">数据阶段按 MPS 8 拆成 3 个 split IN：8 + 8 + 2 字节（DATA1, DATA0, DATA1 交替）</text>
+<line x1="110.0" y1="1538.0" x2="110.0" y2="1626.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1538.0" x2="330.0" y2="1626.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1538.0" x2="560.0" y2="1626.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1538.0" x2="790.0" y2="1626.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1562.0" x2="336.0" y2="1562.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1556.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">18 B 设备描述符</text>
+<text x="905.0" y="1556.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">12 01 10 01 00 00 00 08 | 7a 2a 47 8a 01 00 00 01 | 00 01</text>
+<text x="905.0" y="1574.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">idVendor 0x2a7a · idProduct 0x8a47 · bcdDevice 0x0001 · iManufacturer 0 · iProduct 1 · iSerial 0</text>
+<text x="905.0" y="1592.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bNumConfigurations 1；设备类 0 = 类别写在接口描述符里</text>
+<text x="905.0" y="1610.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8</text>
+<rect x="16.0" y="1626.0" width="1608.0" height="88.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1626.0" x2="110.0" y2="1714.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1626.0" x2="330.0" y2="1714.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1626.0" x2="560.0" y2="1714.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1626.0" x2="790.0" y2="1714.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1650.0" x2="784.0" y2="1650.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1644.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">SET_ADDRESS(4)</text>
+<text x="905.0" y="1644.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 05 04 00 00 00 00 00</text>
+<text x="905.0" y="1662.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">无数据阶段；状态阶段是 IN 0 字节。之后 usb_route[4] = usb_route[0]，usb_ep0_mps[4] = 8</text>
+<text x="905.0" y="1680.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">地址 = 端口号 + 1（dwc2_init 的约定）</text>
+<text x="905.0" y="1698.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: hub port 3: … child 2a7a:8a47 addr 0 -&gt; 4</text>
+<line x1="110.0" y1="1714.0" x2="110.0" y2="1784.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1714.0" x2="330.0" y2="1784.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1714.0" x2="560.0" y2="1784.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1714.0" x2="790.0" y2="1784.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1738.0" x2="784.0" y2="1738.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1732.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">GET_DESCRIPTOR(Config, 9)</text>
+<text x="905.0" y="1732.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">80 06 00 02 00 00 09 00 → 09 02 3b 00 02 01 00 a0 32</text>
+<text x="905.0" y="1750.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">wTotalLength 0x003b = 59 · bNumInterfaces 2 · bConfigurationValue 1 · iConfiguration 0</text>
+<text x="905.0" y="1768.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bmAttributes 0xa0 = 总线供电 + 远程唤醒 · bMaxPower 0x32 × 2 mA = 100 mA</text>
+<rect x="16.0" y="1784.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1784.0" x2="110.0" y2="1836.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1784.0" x2="330.0" y2="1836.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1784.0" x2="560.0" y2="1836.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1784.0" x2="790.0" y2="1836.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1808.0" x2="784.0" y2="1808.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1802.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">GET_DESCRIPTOR(Config, 59)</text>
+<text x="905.0" y="1802.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">80 06 00 02 00 00 3b 00</text>
+<text x="905.0" y="1820.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">数据阶段 8 个 split IN：7 × 8 + 3 字节</text>
+<line x1="110.0" y1="1836.0" x2="110.0" y2="1888.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1836.0" x2="330.0" y2="1888.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1836.0" x2="560.0" y2="1888.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1836.0" x2="790.0" y2="1888.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1860.0" x2="336.0" y2="1860.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1854.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">接口 0（boot 键盘）</text>
+<text x="905.0" y="1854.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">09 04 00 00 01 03 01 01 00</text>
+<text x="905.0" y="1872.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bInterfaceNumber 0 · alt 0 · 1 个端点 · class 03 HID · subclass 01 Boot · protocol 01 Keyboard</text>
+<rect x="16.0" y="1888.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="1888.0" x2="110.0" y2="1940.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1888.0" x2="330.0" y2="1940.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1888.0" x2="560.0" y2="1940.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1888.0" x2="790.0" y2="1940.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1912.0" x2="336.0" y2="1912.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1906.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">HID 描述符</text>
+<text x="905.0" y="1906.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">09 21 10 01 00 01 22 40 00</text>
+<text x="905.0" y="1924.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bcdHID 1.10 · 国家码 0 · 1 个下级描述符：类型 0x22 报告描述符，长度 0x40 = 64 字节（boot 协议不读它）</text>
+<line x1="110.0" y1="1940.0" x2="110.0" y2="2010.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="1940.0" x2="330.0" y2="2010.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="1940.0" x2="560.0" y2="2010.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1940.0" x2="790.0" y2="2010.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="1964.0" x2="336.0" y2="1964.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="1958.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">端点 0x81</text>
+<text x="905.0" y="1958.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">07 05 81 03 08 00 0a</text>
+<text x="905.0" y="1976.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bEndpointAddress 0x81 = EP1 IN · bmAttributes 03 中断 · wMaxPacketSize 8 · bInterval 10 ms</text>
+<text x="905.0" y="1994.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">→ usb_hid_child[0]：interrupt_in_ep 1 · mps 8 · interval 10</text>
+<rect x="16.0" y="2010.0" width="1608.0" height="88.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2010.0" x2="110.0" y2="2098.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2010.0" x2="330.0" y2="2098.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2010.0" x2="560.0" y2="2098.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2010.0" x2="790.0" y2="2098.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2034.0" x2="336.0" y2="2034.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2028.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">接口 1（非 boot）</text>
+<text x="905.0" y="2028.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">09 04 01 00 01 03 00 00 00 | 09 21 10 01 00 01 22 80 00 | 07 05 82 03 04 00 0a</text>
+<text x="905.0" y="2046.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">class 03 / subclass 00 / protocol 00：不是 boot 接口（多媒体键之类，报告描述符 128 字节），EP 0x82 IN mps 4</text>
+<text x="905.0" y="2064.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">dwc2 只为 3/1/1、3/1/2 发布 usb_device，所以这一接口被忽略；配置描述符共读了两遍（扫描时一次、配置 HID 时一次）</text>
+<text x="905.0" y="2082.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: config 1 (59 bytes): interface 0 class 3/1/1 (boot keyboard), interrupt-IN ep1 mps=8 bInterval=10</text>
+<line x1="110.0" y1="2098.0" x2="110.0" y2="2168.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2098.0" x2="330.0" y2="2168.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2098.0" x2="560.0" y2="2168.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2098.0" x2="790.0" y2="2168.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2122.0" x2="784.0" y2="2122.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2116.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">SET_CONFIGURATION(1)</text>
+<text x="905.0" y="2116.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 09 01 00 00 00 00 00</text>
+<text x="905.0" y="2134.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">设备进入 Configured，EP1 开始可用</text>
+<text x="905.0" y="2152.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd3: SET_CONFIGURATION 1 on addr 4 -&gt; configured</text>
+<rect x="16.0" y="2168.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2168.0" x2="110.0" y2="2238.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2168.0" x2="330.0" y2="2238.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2168.0" x2="560.0" y2="2238.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2168.0" x2="790.0" y2="2238.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2192.0" x2="784.0" y2="2192.0" stroke="#c25a00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2186.0" font-size="11.8" fill="#c25a00" text-anchor="middle" font-weight="bold">HID SET_PROTOCOL(Boot)</text>
+<text x="905.0" y="2186.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">21 0b 00 00 00 00 00 00</text>
+<text x="905.0" y="2204.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">bmRequestType 21 = 主机→设备 | 类 | 接口 · bRequest 0x0b · wValue 0 = Boot 协议 · wIndex 0 = 接口 0</text>
+<text x="905.0" y="2222.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">usbkbd_probe 发出：从此报告固定为 8 字节 boot 格式</text>
+<line x1="110.0" y1="2238.0" x2="110.0" y2="2308.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2238.0" x2="330.0" y2="2308.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2238.0" x2="560.0" y2="2308.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2238.0" x2="790.0" y2="2308.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2262.0" x2="784.0" y2="2262.0" stroke="#c25a00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2256.0" font-size="11.8" fill="#c25a00" text-anchor="middle" font-weight="bold">HID SET_IDLE(0)</text>
+<text x="905.0" y="2256.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">21 0a 00 00 00 00 00 00</text>
+<text x="905.0" y="2274.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">wValue 高字节 = 空闲时长 0（无限）：键盘只在按键状态变化时才回数据，否则一律 NAK</text>
+<text x="905.0" y="2292.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">input: USB HID Boot Keyboard registered as event0</text>
+<rect x="16.0" y="2330.0" width="1608.0" height="50.0" rx="6" fill="#eef2f7" fill-opacity="1" stroke="#c8d1dc" stroke-width="1"/>
+<text x="28.0" y="2351.0" font-size="15.5" fill="#123" text-anchor="start" font-weight="bold">D  中断 IN（通道 6）：按下 l、松开、s、Enter</text>
+<text x="28.0" y="2371.0" font-size="11.5" fill="#456" text-anchor="start" font-weight="normal">通道 6 每 10 ms 发一次 split 中断 IN；没变化时 TT 从键盘拿到 NAK。SSPLIT 的 ACK 和同帧 NYET 在 dwc2_irq 快路径里处理（CSPLIT 必须在 2 个微帧内发出）</text>
+<rect x="16.0" y="2390.0" width="1608.0" height="88.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2390.0" x2="110.0" y2="2478.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2390.0" x2="330.0" y2="2478.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2390.0" x2="560.0" y2="2478.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2390.0" x2="790.0" y2="2478.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="110.0" y1="2414.0" x2="324.0" y2="2414.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="220.0" y="2408.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">usb_submit_urb → ch6 arm</text>
+<text x="905.0" y="2408.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HCSPLT6=8000c083 HCCHAR6=810e8808 HCTSIZ6=00080008 HCDMA6=c03de080</text>
+<text x="905.0" y="2426.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCCHAR6：ChEna · DevAddr 4 · EPType 3 中断 · LSpdDev · IN · EP1 · MPS 8；HCTSIZ6：DATA0 · 1 包 · 8 字节</text>
+<text x="905.0" y="2444.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCDMA6 = 0xc0000000 | V2P(kbd-&gt;report)</text>
+<text x="905.0" y="2462.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd6: ch6 arm SSPLIT addr=4 ep1 IN DATA0 mps=8 HCDMA=c03de080 HCTSIZ=80008 HCCHAR=810e8808</text>
+<line x1="110.0" y1="2478.0" x2="110.0" y2="2530.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2478.0" x2="330.0" y2="2530.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2478.0" x2="560.0" y2="2530.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2478.0" x2="790.0" y2="2530.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2502.0" x2="554.0" y2="2502.0" stroke="#1f5fae" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="2496.0" font-size="11.8" fill="#1f5fae" text-anchor="middle" font-weight="bold">SSPLIT{ET 11 中断} · IN(4, 1)</text>
+<text x="905.0" y="2496.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">TT 回 ACK → HCINT6 0x22 → IRQ 9 → dwc2_irq → dwc2_interrupt_rx_irq_fast()：等到 SSPLIT 后第 2 个微帧，</text>
+<text x="905.0" y="2514.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">置 HCSPLT6.CompSplt 重新使能通道发 CSPLIT（这一步不打印，否则串口几毫秒就错过微帧窗口）</text>
+<rect x="16.0" y="2530.0" width="1608.0" height="46.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2530.0" x2="110.0" y2="2576.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2530.0" x2="330.0" y2="2576.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2530.0" x2="560.0" y2="2576.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2530.0" x2="790.0" y2="2576.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2554.0" x2="784.0" y2="2554.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="2548.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">IN(4, 1) → 没按键：NAK</text>
+<text x="905.0" y="2548.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">SET_IDLE(0) 后，状态没变键盘就回 NAK</text>
+<line x1="110.0" y1="2576.0" x2="110.0" y2="2628.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2576.0" x2="330.0" y2="2628.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2576.0" x2="560.0" y2="2628.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2576.0" x2="790.0" y2="2628.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2600.0" x2="554.0" y2="2600.0" stroke="#b07d00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="2594.0" font-size="11.8" fill="#b07d00" text-anchor="middle" font-weight="bold">CSPLIT · IN → NAK / NYET</text>
+<text x="905.0" y="2594.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">NAK（HCINT6 0x12）：释放通道 6，dwc2_periodic_wq 10 ms 后再 arm；NYET：TT 还没结果，同一帧内最多再 CSPLIT 3 次</text>
+<text x="905.0" y="2612.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">启动日志里的 “dwc2 ch6 final … int=0” 不是这里的事件（是别的通道的中断被旧调试行标成了 ch6）</text>
+<rect x="16.0" y="2628.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2628.0" x2="110.0" y2="2680.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2628.0" x2="330.0" y2="2680.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2628.0" x2="560.0" y2="2680.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2628.0" x2="790.0" y2="2680.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2652.0" x2="784.0" y2="2652.0" stroke="#00796b" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="675.0" y="2646.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">IN(4, 1) → DATA0 8 B → ACK</text>
+<text x="905.0" y="2646.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 00 0f 00 00 00 00 00</text>
+<text x="905.0" y="2664.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">按下 l：byte0 修饰键 0 · byte1 保留 · byte2 = HID usage 0x0f（'l'）· byte3..7 = 0（只按了一个键）</text>
+<line x1="110.0" y1="2680.0" x2="110.0" y2="2768.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2680.0" x2="330.0" y2="2768.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2680.0" x2="560.0" y2="2768.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2680.0" x2="790.0" y2="2768.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2704.0" x2="336.0" y2="2704.0" stroke="#b07d00" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="445.0" y="2698.0" font-size="11.8" fill="#b07d00" text-anchor="middle" font-weight="bold">CSPLIT · IN → DATA0 8 B</text>
+<text x="905.0" y="2698.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 00 0f 00 00 00 00 00</text>
+<text x="905.0" y="2716.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">HCINT6 = 0x23 = XferCompl | ChHltd | ACK（ACK 是 SSPLIT 阶段留下的）· HCTSIZ 剩 0 → 8 字节已 DMA 到 report[]</text>
+<text x="905.0" y="2734.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">IRQ 9：dwc2_irq 屏蔽 HAINTMSK b6 → schedule_work</text>
+<text x="905.0" y="2752.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd7: IRQ 9 cpu0 dwc2_irq: GINTSTS.HCHINT HAINT=40 HCINT6=23 -&gt; mask HAINTMSK, schedule_work</text>
+<rect x="16.0" y="2768.0" width="1608.0" height="52.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2768.0" x2="110.0" y2="2820.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2768.0" x2="330.0" y2="2820.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2768.0" x2="560.0" y2="2820.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2768.0" x2="790.0" y2="2820.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2792.0" x2="116.0" y2="2792.0" stroke="#7b3fb3" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="220.0" y="2786.0" font-size="11.8" fill="#7b3fb3" text-anchor="middle" font-weight="bold">work：dc ivac · toggle → DATA1 · giveback</text>
+<text x="905.0" y="2786.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">dwc2_interrupt_rx_complete：1 个包 → interrupt_in_toggle ^= 1；usb_hcd_giveback_urb → usbkbd_irq_complete → queue_work</text>
+<text x="905.0" y="2804.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd8: dwc2 work: HCINT=23 XFERCOMPL, HCTSIZ left=0 -&gt; 8 bytes DMA'd ... giveback</text>
+<line x1="110.0" y1="2820.0" x2="110.0" y2="2872.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2820.0" x2="330.0" y2="2872.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2820.0" x2="560.0" y2="2872.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2820.0" x2="790.0" y2="2872.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<rect x="15.0" y="2830.0" width="870.0" height="22.0" rx="11" fill="#fff" fill-opacity="1" stroke="#2e7d32" stroke-width="1.4"/>
+<text x="25.0" y="2846.0" font-size="12" fill="#2e7d32" text-anchor="start" font-weight="bold">usbkbd_rx_work：0x0f 新按下 → consoleintr('l') + KEY_L</text>
+<text x="905.0" y="2838.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">然后 usb_submit_urb：下一次 ch6 用 DATA1（HCTSIZ6=40080008）</text>
+<text x="905.0" y="2856.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0xf down -&gt; 'l' -&gt; consoleintr()</text>
+<rect x="16.0" y="2872.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="2872.0" x2="110.0" y2="2942.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2872.0" x2="330.0" y2="2942.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2872.0" x2="560.0" y2="2942.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2872.0" x2="790.0" y2="2942.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2896.0" x2="336.0" y2="2896.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2890.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">松开 l：DATA1 8 B</text>
+<text x="905.0" y="2890.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 00 00 00 00 00 00 00</text>
+<text x="905.0" y="2908.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">全 0 = 没有键按下 → usage 0x0f 消失 → EV_KEY KEY_L 值 0；toggle → DATA0</text>
+<text x="905.0" y="2926.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0xf up -&gt; EV_KEY 38 value 0</text>
+<line x1="110.0" y1="2942.0" x2="110.0" y2="3012.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="2942.0" x2="330.0" y2="3012.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="2942.0" x2="560.0" y2="3012.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2942.0" x2="790.0" y2="3012.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="2966.0" x2="336.0" y2="2966.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="2960.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">按下 s：DATA0 / 松开：DATA1</text>
+<text x="905.0" y="2960.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 00 16 00 00 00 00 00 / 00 00 00 00 00 00 00 00</text>
+<text x="905.0" y="2978.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">usage 0x16 = 's' → consoleintr('s')</text>
+<text x="905.0" y="2996.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0x16 down -&gt; 's' -&gt; consoleintr()</text>
+<rect x="16.0" y="3012.0" width="1608.0" height="70.0" rx="0" fill="#ffffff" fill-opacity="0.8" stroke="none" stroke-width="1"/>
+<line x1="110.0" y1="3012.0" x2="110.0" y2="3082.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="330.0" y1="3012.0" x2="330.0" y2="3082.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="560.0" y1="3012.0" x2="560.0" y2="3082.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="3012.0" x2="790.0" y2="3082.0" stroke="#d0d4da" stroke-width="1" stroke-dasharray="6 4"/>
+<line x1="790.0" y1="3036.0" x2="336.0" y2="3036.0" stroke="#00796b" stroke-width="2.2" marker-end="url(#ar)"/>
+<text x="560.0" y="3030.0" font-size="11.8" fill="#00796b" text-anchor="middle" font-weight="bold">按下 Enter：DATA0</text>
+<text x="905.0" y="3030.0" font-size="12.3" fill="#0b3d91" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">00 00 28 00 00 00 00 00</text>
+<text x="905.0" y="3048.0" font-size="11.8" fill="#222" text-anchor="start" font-weight="normal">usage 0x28 = Enter → consoleintr('\n') → wakeup(&amp;cons.r)：sh 的 read 返回 "ls\n"</text>
+<text x="905.0" y="3066.0" font-size="11" fill="#777" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">kbd9: usage 0x28 down -&gt; 0xa -&gt; consoleintr()   exec: /bin/ls</text>
+<text x="820.0" y="3120.0" font-size="11.5" fill="#555" text-anchor="middle" font-weight="normal">SPLIT 令牌：PID 0x78 | HubAddr(7) | SC(1: 0 开始 / 1 完成) | Port(7) | S(1: 低速) | E(1) | ET(2: 00 控制 / 10 批量 / 11 中断) | CRC5。DWC2 用 HCSPLT 的 SpltEna/CompSplt/HubAddr/PrtAddr 生成它。</text>
+</svg>

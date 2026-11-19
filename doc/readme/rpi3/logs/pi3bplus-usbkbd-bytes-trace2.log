@@ -1,0 +1,837 @@
+kbd0: module usbhid-kbd (order 2): usbkbd_wq created, usb_driver usbhid-key)
+  dwc2
+kbd0: module dwc2 (order 4): platform device bcm2837-dwc2 MMIO 0x000000003fe
+workqueue: dwc2_periodic_wq worker=0 pid=8
+workqueue: dwc2_hub_wq worker=0 pid=9
+dwc2: firmware USB HCD power on
+kbd1: dwc2_init: mailbox SET_POWER_STATE(USB HCD) done, GSNPSID=4f54280a (O0
+dwc2: host-channel IRQ enabled
+kbd1: core soft reset (GRSTCTL.CSFTRST), GUSBCFG.FORCEHOST -> GINTSTS.CURMO)
+dwc2: host hprt=100f hcfg=0 hfnum=174009c
+kbd1: root port HPRT0: PWR -> CONNSTS -> RST 50ms -> ENA, speed=high
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 1 0 0 8 0  (mps 8)
+kbd-:   IN DATA +0: 12 1 0 2 9 0 2 40
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 1 0 0 12 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 0 2 9 0 2 40 24 4 14 25 b3 b 0 0
+kbd-:   IN      +16: 0 1
+dwc2: root device class=9 vid=424 pid=2514 configs=1 mps=64
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=1 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 5 1 0 0 0 0 0  (mps 64)
+kbd2: root device 424:2514 class=9: GET_DESCRIPTOR(8) -> bMaxPacketSize0=641
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 29 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1 9 4 0 0 1 9 0
+kbd-:   IN      +16: 1 0 7 5 81 3 1 0 c 9 4 0 1 1 9 0
+kbd-:   IN      +32: 2 0 7 5 81 3 1 0 c
+kbd-: ctrl ch0 addr=1 OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 9 1 0 0 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 IN SETUP{a0 HUB_GET_DESCRIPTOR v=2900 i=0 len=9} DATAk
+kbd-:   SETUP DATA0 a0 6 0 29 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 29 4 d 0 32 1 2 ff
+dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=2 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 2 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=3 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 3 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=4 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 4 0 0 0  (mps 64)
+kbd2: hub addr 1: SET_CONFIGURATION 1, hub descriptor 4 ports, status-changs
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 1 1 1 0
+dwc2: hub port 1 status=101 change=1
+dwc2: hub external port 1 connected status=101
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=4 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 4 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 3 5 11 0
+dwc2: hub port 1 after-reset status=503 speed=high
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 10 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 14 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 1 0 0 8 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 0 2 9 0 2 40
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 1 0 0 12 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 0 2 9 0 2 40 24 4 14 25 b3 b 0 0
+kbd-:   IN      +16: 0 1
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=2 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 5 2 0 0 0 0 0  (mps 64)
+dwc2: hub port=1 child class=9 vid=424 pid=2514 mps=64
+kbd3: hub port 1: PORT_RESET -> enabled high speed; route direct; child 4242
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 29 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1 9 4 0 0 1 9 0
+kbd-:   IN      +16: 1 0 7 5 81 3 1 0 c 9 4 0 1 1 9 0
+kbd-:   IN      +32: 2 0 7 5 81 3 1 0 c
+kbd-: ctrl ch0 addr=2 OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 9 1 0 0 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 IN SETUP{a0 HUB_GET_DESCRIPTOR v=2900 i=0 len=9} DATAk
+kbd-:   SETUP DATA0 a0 6 0 29 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 29 3 d 0 32 1 2 ff
+dwc2: scanning nested hub addr=2 depth=1 ports=3
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=2 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 2 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=3 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 8 0 3 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 1 1 1 0
+dwc2: nested hub 2 port 1 status=101
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=4 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 4 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 1 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 3 5 11 0
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 10 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=1 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 14 0 1 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 1 0 0 8 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 10 2 ff 0 ff 40
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 1 0 0 12 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 10 2 ff 0 ff 40 24 4 0 78 0 3 0 0
+kbd-:   IN      +16: 0 1
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=8 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 5 8 0 0 0 0 0  (mps 64)
+dwc2: nested hub=2 port=1 child class=255 vid=424 pid=7800 addr=8
+kbd-: ctrl ch0 addr=8 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 27 0 1 1 0 e0 1
+kbd-: ctrl ch0 addr=8 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=39} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 27 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 27 0 1 1 0 e0 1 9 4 0 0 3 ff 0
+kbd-:   IN      +16: ff 0 7 5 81 2 0 2 0 7 5 2 2 0 2 0
+kbd-:   IN      +32: 7 5 83 3 10 0 4
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+dwc2: nested hub 2 port 2 status=100
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+dwc2: nested hub 2 port 3 status=100
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN k
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-INk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 29 0  (mps 64)
+kbd-:   IN DATA +0: 9 2 29 0 1 1 0 e0 1 9 4 0 0 1 9 0
+kbd-:   IN      +16: 1 0 7 5 81 3 1 0 c 9 4 0 1 1 9 0
+kbd-:   IN      +32: 2 0 7 5 81 3 1 0 c
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 2 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 0 1 0 0
+dwc2: hub port 2 status=100 change=0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 1 3 1 0
+dwc2: hub port 3 status=301 change=1
+dwc2: hub external port 3 connected status=301
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=4 i=3 len=0} -> ok
+kbd-:   SETUP DATA0 23 3 4 0 3 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN ->k
+kbd-:   SETUP DATA0 a3 0 0 0 3 0 4 0  (mps 64)
+kbd-:   IN DATA +0: 3 3 11 0
+dwc2: hub port 3 after-reset status=303 speed=low
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=3 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 10 0 3 0 0 0  (mps 64)
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=3 len=0} -> ok
+kbd-:   SETUP DATA0 23 1 14 0 3 0 0 0  (mps 64)
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20040 hctsd
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28040 hcts6
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=0 hfnum=17df118e
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20040 hcts3
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATk
+kbd-:   SETUP DATA0 80 6 0 1 0 0 8 0  (mps 64)
+kbd-:   IN DATA +0: 12 1 10 1 0 0 0 8
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hcts6
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsf
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=0 hfnum=d411317
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsb
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=f2
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsb
+dwc2: ch0 CSPLIT complete addr=0 bytes=2/2 hcint=21 hctsiz=0 hfnum=10ef1414
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hcts9
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DAk
+kbd-:   SETUP DATA0 80 6 0 1 0 0 12 0  (mps 8)
+kbd-:   IN DATA +0: 12 1 10 1 0 0 0 8 7a 2a 47 8a 1 0 0 1
+kbd-:   IN      +16: 0 1
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hctsd
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hcts6
+kbd-: ctrl ch0 addr=0 split OUT SETUP{0 SET_ADDRESS v=4 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 0 5 4 0 0 0 0 0  (mps 8)
+dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8
+kbd3: hub port 3: PORT_RESET -> enabled low speed; route SPLIT via hub TT (4
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc9
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc3
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=300173c
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc1
+dwc2: ch0 CSPLIT complete addr=4 bytes=1/1 hcint=21 hctsiz=40000000 hfnum=29
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc3
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 8)
+kbd-:   IN DATA +0: 9 2 3b 0 2 1 0 a0 32
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc9
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc4
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=504194d
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc2
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=4a
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc4
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=25e1a4e
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc3
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=1b
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc5
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=1cb31b50
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc5
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=7d
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc7
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=5e21c51
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc6
+dwc2: ch0 CSPLIT complete addr=4 bytes=3/3 hcint=21 hctsiz=40000000 hfnum=4e
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc8
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=59} DAk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 3b 0  (mps 8)
+kbd-:   IN DATA +0: 9 2 3b 0 2 1 0 a0 32 9 4 0 0 1 3 1
+kbd-:   IN      +16: 1 0 9 21 10 1 0 1 22 40 0 7 5 81 3 8
+kbd-:   IN      +32: 0 a 9 4 1 0 1 3 0 0 0 9 21 10 1 0
+kbd-:   IN      +48: 1 22 80 0 7 5 82 3 4 0 a
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hcb
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc6
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=6ea1edf
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc4
+dwc2: ch0 CSPLIT complete addr=4 bytes=1/1 hcint=21 hctsiz=40000000 hfnum=5c
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc6
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 9 0  (mps 8)
+kbd-:   IN DATA +0: 9 2 3b 0 2 1 0 a0 32
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hcc
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc6
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=1cb020f0
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc5
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=7d
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc7
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=63f21f1
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc6
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=5e
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc8
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=39922f2
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc7
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=2f
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc9
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=f623f3
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hc7
+dwc2: ch0 CSPLIT complete addr=4 bytes=3/3 hcint=23 hctsiz=40000000 hfnum=bf
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc8
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=59} DAk
+kbd-:   SETUP DATA0 80 6 0 2 0 0 3b 0  (mps 8)
+kbd-:   IN DATA +0: 9 2 3b 0 2 1 0 a0 32 9 4 0 0 1 3 1
+kbd-:   IN      +16: 1 0 9 21 10 1 0 1 22 40 0 7 5 81 3 8
+kbd-:   IN      +32: 0 a 9 4 1 0 1 3 0 0 0 9 21 10 1 0
+kbd-:   IN      +48: 1 22 80 0 7 5 82 3 4 0 a
+kbd3: config 1 (59 bytes): interface 0 class 3/1/1 (boot keyboard), interru0
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc5
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hcf
+kbd-: ctrl ch0 addr=4 split OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} ->k
+kbd-:   SETUP DATA0 0 9 1 0 0 0 0 0  (mps 8)
+kbd3: SET_CONFIGURATION 1 on addr 4 -> configured
+kbd4: usb_device_register(usbH0) addr=4 intf=0 -> bus_type usb: match/probe
+kbd4: usb_match: usbH0 (2a7a:8a47 c3s1p1) ~ id_table of driver usbhid-keyboh
+kbd4: usb_probe: dev->driver=usbhid-keyboard -> usbhid-keyboard->probe()
+kbd5: usbkbd_probe 2a7a:8a47 intf 0: state, input_dev, urb allocated; SET_P)
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc5
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hcf
+kbd-: ctrl ch0 addr=4 split OUT SETUP{21 HID_SET_PROTOCOL v=0 i=0 len=0} ->k
+kbd-:   SETUP DATA0 21 b 0 0 0 0 0 0  (mps 8)
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hc1
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hcb
+kbd-: ctrl ch0 addr=4 split OUT SETUP{21 HID_SET_IDLE v=0 i=0 len=0} -> ok
+kbd-:   SETUP DATA0 21 a 0 0 0 0 0 0  (mps 8)
+input: USB HID Boot Keyboard registered as event0
+kbd5: usb_fill_int_urb(ep1, buf=report[8], complete=usbkbd_irq_complete, inb
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 e
+kbd6: ch6 arm SSPLIT addr=4 ep1 IN DATA0 mps=8 HCDMA=c03de080 HCTSIZ=80008 0
+dwc2: ch6 armed addr=4 ep=1 split=8000c083 hcchar=10e8808 hctsiz=80008 hcin0
+usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
+dwc2: HID boot keyboard intf 0 handed to usb bus
+dwc2: event-driven hub hotplug v2 scheduled on channel 7
+  ov5647
+initcall level 7 (late)
+  rootdev
+rootdev: partitions of mmcblk0
+rootdev:   mmcblk0p1 type=0xc (FAT32-LBA) start=16384 sectors=1048576 size=1
+rootdev:   mmcblk0p2 type=0x7f (xv6 raw filesystem) start=1064960 sectors=82
+rootdev:   mmcblk0p3 type=0x83 (Linux) start=1884160 sectors=248463360 size3
+fat32: BPB lba=16384 bytes/sector=512 sectors/cluster=4
+fat32: reserved=32 FATs=2 sectors/FAT=2040 root-cluster=2
+fat32: FAT lba=16416 data lba=20496
+fat32: allocator next-free hint=4404
+rootdev: bootfs mmcblk0p1 lba=16384 mounted as FAT32
+Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
+rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
+rootdev: xv6 filesystem on mmcblk0p2 start=1064960 sectors=819200 size=400 B
+rootdev: ROOT_DEV = 5 (mmcblk0p3)
+workqueue: brcmf0_wq worker=0 pid=10
+workqueue: brcmf1_wq worker=0 pid=11
+arasan-sdio: request CMD53 failed status=1ff0106 irq=208000 c1=e0807
+arasan-sdio: request CMD53 failed status=1ff0006 irq=208000 c1=e0807
+arasan-sdio: request CMD53 failed status=1ff0106 irq=208000 c1=e0807
+
+  mt7601u
+workqueue: mt7601u_wq worker=0 pid=12
+  unicam
+workqueue: camera_wq worker=0 pid=13
+camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap
+ov5647: CAM_GPIO0 direction=output polarity=normal state=1
+i2c0: GPIO44/45 ALT1, 100000 Hz (core 250000000), BCM2837 two-stage abort
+ov5647: probing with 25 kHz GPIO SCCB; BSC0 bypassed
+ov5647: software SCCB ID read retry 1/5 (probe=NACK)
+ov5647: software SCCB ID read retry 2/5 (probe=NACK)
+ov5647: software SCCB ID read retry 3/5 (probe=NACK)
+ov5647: software SCCB ID read retry 4/5 (probe=NACK)
+ov5647: software SCCB ID read retry 5/5 (probe=NACK)
+camera: BSC probe summary 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: GPIO bitbang probe 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: no electrical I2C response; BSC0 routing is GPIO44/45 on Pi 3, checr
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=0 flags=0 now=50 div=2503
+camera: no sensor found (1 driver tried); /dev/video0 inactive
+  ext2
+  vfs
+vfs: one mount table for all filesystems; xv6fs ext2 procfs sysfs fat32 nets
+PH0hart 1 starting
+rootfs: ram0 is /, with /dev/console and /root
+hart 2 starting
+hart 3 starting
+devtmpfs: initialized on ram1, 14 nodes
+ext2: p3 was not clean; preserving dirty state until e2fsck
+ext2: p3 ready rw start=1884160 sectors=248463360 block=4096 groups=1
+xjournal: ready on mmcblk0p2+65536 (lba=1130496) capacity=1024 sectors
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature,)
+exec: /init -> interpreter /lib/ld-xv6.so
+vfs: mounted procfs at /proc read-only
+vfs: mounted sysfs at /sys read-write
+vfs: mounted fat32 at /boot read-write
+netfs: configured server 192.168.0.195:5640 read-only
+vfs: mounted netfs at /mnt/net read-only
+init: connecting Wi-Fi from /etc/wifi.conf
+exec: /bin/wifi -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+dwc2: hub ch7 scheduler alive active=0 urb-state=0
+dwc2: hub ch7 first IRQ hcint=12 hctsiz=80080001
+dwc2 ch6 final p=0 int=0 uf=3 issue=3132 age=1 ssack=30e4
+dwc2 ch6 final p=0 int=0 uf=5 issue=393c age=1 ssack=38ee
+dwc2 ch6 final p=0 int=0 uf=0 issue=147 age=1 ssack=f8
+dwc2 ch6 final p=1 int=0 uf=3 issue=953 age=0 ssack=952
+dwc2 ch6 final p=0 int=0 uf=5 issue=115c age=1 ssack=110e
+dwc2 ch6 final p=0 int=0 uf=7 issue=1966 age=1 ssack=1918
+dwc2 ch6 final p=0 int=0 uf=4 issue=297b age=1 ssack=292c
+dwc2 ch6 final p=1 int=0 uf=7 issue=3187 age=0 ssack=3186
+dwc2 ch6 final p=0 int=0 uf=1 issue=3990 age=1 ssack=3942
+dwc2 ch6 final p=0 int=0 uf=3 issue=19a age=1 ssack=14c
+dwc2 ch6 final p=1 int=0 uf=7 issue=9a7 age=0 ssack=9a6
+dwc2 ch6 final p=0 int=0 uf=1 issue=11b0 age=1 ssack=1162
+init: starting local login on /dev/ttyS0
+exec: /bin/login -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+
+xv6-rpi3 login: root
+Password: xv6
+Welcome root
+exec: /bin/sh -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+$ ls
+exec: /bin/ls -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+.                              1 22 4096
+..                             1 2 4096

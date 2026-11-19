@@ -1,0 +1,531 @@
+ reboot
+exec: /bin/reboot -> interpreter /lib/ld-xv6.so
+ld.so: rel
+reboot: restarting system (pi
+
+
+
+Raspberry Pi Bootcode
+Read File: config.txt, 149
+Read File: start.elf, 3022848 (bytes)
+Read File: fixup.dat, 7381 (bytes)
+MESS:00:00:00.940823:0: boot-part: 0 fs-type: 0
+MESS:00:00:00.943648:0: boot-part: 0 fs-type: 3
+MESS:00:00:01.087933:0: brfs: File read: /mfs/sd/config.txt
+MESS:00:00:01.092036:0: board: boardrev a020d4 otp a020d4
+MESS:00:00:01.097044:0: brfs: File read: 149 bytes
+MESS:00:00:01.141656:0: HDMI0:EDID error reading EDID block 0 attempt 0
+MESS:00:00:01.147818:0: HDMI0:EDID error reading EDID block 0 attempt 1
+MESS:00:00:01.154155:0: HDMI0:EDID error reading EDID block 0 attempt 2
+MESS:00:00:01.160492:0: HDMI0:EDID error reading EDID block 0 attempt 3
+MESS:00:00:01.166828:0: HDMI0:EDID error reading EDID block 0 attempt 4
+MESS:00:00:01.173165:0: HDMI0:EDID error reading EDID block 0 attempt 5
+MESS:00:00:01.179503:0: HDMI0:EDID error reading EDID block 0 attempt 6
+MESS:00:00:01.185839:0: HDMI0:EDID error reading EDID block 0 attempt 7
+MESS:00:00:01.192175:0: HDMI0:EDID error reading EDID block 0 attempt 8
+MESS:00:00:01.198512:0: HDMI0:EDID error reading EDID block 0 attempt 9
+MESS:00:00:01.204607:0: HDMI0:EDID giving up on reading EDID block 0
+MESS:00:00:01.215978:0: brfs: File read: /mfs/sd/config.txt
+MESS:00:00:01.431480:0: gpioman: gpioman_get_pin_num: pin DISPLAY_DSI_PORT not defined
+MESS:00:00:01.438514:0: gpioman: gpioman_get_pin_num: pin DISPLAY_DSI_PORT not defined
+MESS:00:00:01.447120:0: *** Restart logging
+MESS:00:00:01.449610:0: brfs: File read: 149 bytes
+MESS:00:00:01.457307:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 0
+MESS:00:00:01.463994:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 1
+MESS:00:00:01.470851:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 2
+MESS:00:00:01.477708:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 3
+MESS:00:00:01.484567:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 4
+MESS:00:00:01.491423:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 5
+MESS:00:00:01.498282:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 6
+MESS:00:00:01.505139:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 7
+MESS:00:00:01.511998:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 8
+MESS:00:00:01.518855:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 9
+MESS:00:00:01.525471:0: hdmi: HDMI0:EDID giving up on reading EDID block 0
+MESS:00:00:01.531370:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 0
+MESS:00:00:01.539168:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 1
+MESS:00:00:01.546024:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 2
+MESS:00:00:01.552883:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 3
+MESS:00:00:01.559741:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 4
+MESS:00:00:01.566597:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 5
+MESS:00:00:01.573456:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 6
+MESS:00:00:01.580314:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 7
+MESS:00:00:01.587170:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 8
+MESS:00:00:01.594029:0: hdmi: HDMI0:EDID error reading EDID block 0 attempt 9
+MESS:00:00:01.600644:0: hdmi: HDMI0:EDID giving up on reading EDID block 0
+MESS:00:00:01.606267:0: hdmi: HDMI:hdmi_get_state is deprecated, use hdmi_get_display_state instead
+MESS:00:00:01.615000:0: HDMI0: hdmi_pixel_freq_limit: 162000000
+MESS:00:00:01.620874:0: vec: vec_middleware_power_on: vec_base: 0x7e806000 rev-id 0x00002708 @ vec: 0x7e806100 @ 0x00000420 enc: 0x7e806060 @ 0x00000220 cgmsae: 0x7e80605c @ 0x00000000
+MESS:00:00:01.649838:0: dtb_file 'bcm2710-rpi-3-b-plus.dtb'
+MESS:00:00:01.657312:0: brfs: File read: /mfs/sd/bcm2710-rpi-3-b-plus.dtb
+MESS:00:00:01.662409:0: Loaded 'bcm2710-rpi-3-b-plus.dtb' to 0x100 size 0x8a12
+MESS:00:00:01.715874:0: brfs: File read: 35346 bytes
+MESS:00:00:01.720104:0: brfs: File read: /mfs/sd/config.txt
+MESS:00:00:01.732381:0: brfs: File read: 149 bytes
+MESS:00:00:01.736151:0: brfs: File read: /mfs/sd/cmdline.txt
+MESS:00:00:01.740866:0: Read command line from file 'cmdline.txt':
+MESS:00:00:01.746751:0: 'root=/dev/mmcblk0p3 rootfstype=ext2'
+MESS:00:00:01.768650:0: gpioman: gpioman_get_pin_num: pin EMMC_ENABLE not defined
+MESS:00:00:02.452189:0: brfs: File read: 36 bytes
+MESS:00:00:02.479918:0: brfs: File read: /mfs/sd/kernel8-xv6_wifi.img
+MESS:00:00:02.484661:0: Loaded 'kernel8-xv6_wifi.img' to 0x200000 size 0x47910
+MESS:00:00:02.492014:0: Kernel relocated to 0x80000
+MESS:00:00:02.496201:0: Device tree loaded to 0x2eff7200 (size 0x8db8)
+MESS:00:00:02.503935:0: uart: Set PL011 baud rate to 103448.300000 Hz
+MESS:00:00:02.510227:0: uart: Baud rate change done...
+MESS:00:00:02.513657:0: uart: Baud rateE
+BPH0abcmini-uart: initialized
+
+xv6 kernel is booting
+build: bcm43430-sdio-v2
+kernel image built: 2026-11-18 22:10:23 UTC (rpi3-lock 4163a5f+dirty)
+
+memblock: memory map from built-in, model "Raspberry Pi 3 Model B Plus Rev 1.4"
+  memory.cnt = 1, total = 114688 KiB
+    [0] 0x0000000000000000-0x0000000006ffffff 114688 KiB
+  reserved.cnt = 3, total = 9096 KiB
+    [0] 0x0000000000000000-0x00000000001b8fff 1764 KiB
+    [1] 0x00000000003ef000-0x00000000003fffff 68 KiB
+    [2] 0x0000000006ee8000-0x00000000075fffff 7264 KiB
+buddy: 27934 pages managed, 27934 free, mem_map 1120 KiB at pa 0x0000000006ee8000
+slab: 7 kmalloc caches (32..2048 B), self-test ok, 1 page(s) kept by kmalloc-64
+workqueue: system_wq worker=0 pid=1
+workqueue: system_wq worker=1 pid=2
+workqueue: system_wq worker=2 pid=3
+workqueue: system_wq worker=3 pid=4
+workqueue: net_wq worker=0 pid=5
+workqueue: kmod worker=0 pid=6
+driver modules: 17 entries in the initcall table
+initcall level 4 (subsys)
+  input
+  block
+  i2c-core
+initcall level 5 (fs)
+  fat32
+initcall level 6 (device)
+  sdhost
+sdhost: card initialized (SDHC, 4-bit bus, 250347520 sectors = 122240 MiB)
+mmcblk0: p1 p2 p3
+  mem
+  bcm2708_fb
+  arasan-sdio
+arasan-sdio: host base-clock=200000000 Hz, probing GPIO34-39
+sdio: sdio0:1 vendor=2d0 device=a9a6 class=0
+sdio: sdio0:2 vendor=2d0 device=a9a6 class=0
+sdio: sdio0:3 vendor=2d0 device=a9a6 class=2
+sdio: card sdio0:1 func1/2 grouped as one device vendor=2d0 device=a9a6
+  usbhid-kbd
+workqueue: usbkbd_wq worker=0 pid=7
+kbd0: module usbhid-kbd (order 2): usbkbd_wq created, usb_driver usbhid-keyboard registered (id c03s01p01)
+  dwc2
+kbd0: module dwc2 (order 4): platform device bcm2837-dwc2 MMIO 0x000000003f980000 IRQ 9 -> platform_driver_register -> dwc2_probe
+workqueue: dwc2_periodic_wq worker=0 pid=8
+workqueue: dwc2_hub_wq worker=0 pid=9
+dwc2: firmware USB HCD power on
+kbd1: dwc2_init: mailbox SET_POWER_STATE(USB HCD) done, GSNPSID=4f54280a (OT2 core) @0xffffff803f980000
+dwc2: host-channel IRQ enabled
+kbd1: core soft reset (GRSTCTL.CSFTRST), GUSBCFG.FORCEHOST -> GINTSTS.CURMOD=host; GINTMSK=HCHINT, GAHBCFG=DMA_EN|GLBL_INTR_EN (IRQ 9)
+dwc2: host hprt=100f hcfg=0 hfnum=16f009c
+kbd1: root port HPRT0: PWR -> CONNSTS -> RST 50ms -> ENA, speed=high
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+dwc2: root device class=9 vid=424 pid=2514 configs=1 mps=64
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=1 i=0 len=0} -> ok
+kbd2: root device 424:2514 class=9: GET_DESCRIPTOR(8) -> bMaxPacketSize0=64, GET_DESCRIPTOR(18), SET_ADDRESS 0 -> 1
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a0 HUB_GET_DESCRIPTOR v=2900 i=0 len=9} DATA1-IN -> ok
+dwc2: hub interrupt-IN ep=1 mps=1 interval=12 ports=4
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=2 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=3 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=8 i=4 len=0} -> ok
+kbd2: hub addr 1: SET_CONFIGURATION 1, hub descriptor 4 ports, status-change ep1 in (bInterval 12), PORT_POWER on all ports
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+dwc2: hub port 1 status=101 change=1
+dwc2: hub external port 1 connected status=101
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=4 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+dwc2: hub port 1 after-reset status=503 speed=high
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=2 i=0 len=0} -> ok
+dwc2: hub port=1 child class=9 vid=424 pid=2514 mps=64
+kbd3: hub port 1: PORT_RESET -> enabled high speed; route direct; child 424:2514 addr 0 -> 2
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a0 HUB_GET_DESCRIPTOR v=2900 i=0 len=9} DATA1-IN -> ok
+dwc2: scanning nested hub addr=2 depth=1 ports=3
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=2 len=0} -> ok
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=8 i=3 len=0} -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+dwc2: nested hub 2 port 1 status=101
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_SET_FEATURE v=4 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=1 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=2 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=1 len=0} -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=0 OUT SETUP{0 SET_ADDRESS v=8 i=0 len=0} -> ok
+dwc2: nested hub=2 port=1 child class=255 vid=424 pid=7800 addr=8
+kbd-: ctrl ch0 addr=8 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=8 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=39} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+dwc2: nested hub 2 port 2 status=100
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+dwc2: nested hub 2 port 3 status=100
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=2 IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=41} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=2 len=4} DATA1-IN -> ok
+dwc2: hub port 2 status=100 change=0
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+dwc2: hub port 3 status=301 change=1
+dwc2: hub external port 3 connected status=301
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_SET_FEATURE v=4 i=3 len=0} -> ok
+kbd-: ctrl ch0 addr=1 IN SETUP{a3 HUB_GET_STATUS v=0 i=3 len=4} DATA1-IN -> ok
+dwc2: hub port 3 after-reset status=303 speed=low
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=10 i=3 len=0} -> ok
+kbd-: ctrl ch0 addr=1 OUT SETUP{23 HUB_CLEAR_FEATURE v=14 i=3 len=0} -> ok
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20040 hctsiz=60080008 hfnum=1a17282f
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28040 hctsiz=40080008 hfnum=10032878
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=0 hfnum=63d28c0
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20040 hctsiz=40080000 hfnum=183128f5
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=8} DATA1-IN -> ok
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hctsiz=60080008 hfnum=1333297b
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsiz=40080008 hfnum=89e29c4
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=0 hfnum=137e2a0c
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsiz=80008 hfnum=10e12a41
+dwc2: ch0 CSPLIT complete addr=0 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=9c72a88
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsiz=40080002 hfnum=ee2ac1
+dwc2: ch0 CSPLIT complete addr=0 bytes=2/2 hcint=23 hctsiz=0 hfnum=2862b09
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hctsiz=40080000 hfnum=14832b3e
+kbd-: ctrl ch0 addr=0 split IN SETUP{80 GET_DESCRIPTOR v=100 i=0 len=18} DATA1-IN -> ok
+dwc2: ch0 SSPLIT ACK addr=0 in=0 hcint=22 hcsplt=8000c083 hcchar=20008 hctsiz=60080008 hfnum=18402bc5
+dwc2: ch0 SSPLIT ACK addr=0 in=1 hcint=22 hcsplt=8000c083 hcchar=28008 hctsiz=40080000 hfnum=dbd2c0e
+kbd-: ctrl ch0 addr=0 split OUT SETUP{0 SET_ADDRESS v=4 i=0 len=0} -> ok
+dwc2: hub port=3 child class=0 vid=2a7a pid=8a47 mps=8
+kbd3: hub port 3: PORT_RESET -> enabled low speed; route SPLIT via hub TT (HCSPLT); child 2a7a:8a47 addr 0 -> 4
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=caf2d21
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=b472d6b
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=a362db4
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80001 hfnum=1c392de9
+dwc2: ch0 CSPLIT complete addr=4 bytes=1/1 hcint=21 hctsiz=40000000 hfnum=9492e31
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=40080000 hfnum=1ca52e6b
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=cd92ef2
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=af92f3c
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=9eb2f85
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=1bf12fba
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=8f53002
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=1cb4303c
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=7453086
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=194530bb
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=6553103
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=1abc313d
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=49c3187
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=16ab31bc
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=3af3204
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=1819323e
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=2053288
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80003 hfnum=13ff32bd
+dwc2: ch0 CSPLIT complete addr=4 bytes=3/3 hcint=23 hctsiz=40000000 hfnum=10f3305
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=40080000 hfnum=1570333f
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=59} DATA1-IN -> ok
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=c7633c7
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=b833411
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=a66345a
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80001 hfnum=1c6c348f
+dwc2: ch0 CSPLIT complete addr=4 bytes=1/1 hcint=21 hctsiz=40000000 hfnum=97f34d7
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=40080000 hfnum=8b3510
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=9} DATA1-IN -> ok
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=18e53597
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=28635e1
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=16c362a
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=136f365f
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=7c36a7
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=c2b36e0
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=aa5372a
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=1c9f375f
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=40000000 hfnum=9ac37a7
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=cd37e0
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=23 hctsiz=0 hfnum=13db382a
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80008 hfnum=1147385f
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=40000000 hfnum=1ba338a8
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080008 hfnum=1b7938e2
+dwc2: ch0 CSPLIT complete addr=4 bytes=8/8 hcint=21 hctsiz=0 hfnum=559392c
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=80003 hfnum=17623961
+dwc2: ch0 CSPLIT complete addr=4 bytes=3/3 hcint=23 hctsiz=40000000 hfnum=46639a9
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=40080000 hfnum=18c739e3
+kbd-: ctrl ch0 addr=4 split IN SETUP{80 GET_DESCRIPTOR v=200 i=0 len=59} DATA1-IN -> ok
+kbd3: config 1 (59 bytes): interface 0 class 3/1/1 (boot keyboard), interrupt-IN ep1 mps=8 bInterval=10
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=17e33ab5
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080000 hfnum=17b3aff
+kbd-: ctrl ch0 addr=4 split OUT SETUP{0 SET_CONFIGURATION v=1 i=0 len=0} -> ok
+kbd3: SET_CONFIGURATION 1 on addr 4 -> configured
+kbd4: usb_device_register(usbH0) addr=4 intf=0 -> bus_type usb: match/probe
+kbd4: usb_match: usbH0 (2a7a:8a47 c3s1p1) ~ id_table of driver usbhid-keyboard -> match
+kbd4: usb_probe: dev->driver=usbhid-keyboard -> usbhid-keyboard->probe()
+kbd5: usbkbd_probe 2a7a:8a47 intf 0: state, input_dev, urb allocated; SET_PROTOCOL(boot) + SET_IDLE(0)
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=a543c95
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080000 hfnum=87a3cdf
+kbd-: ctrl ch0 addr=4 split OUT SETUP{21 HID_SET_PROTOCOL v=0 i=0 len=0} -> ok
+dwc2: ch0 SSPLIT ACK addr=4 in=0 hcint=22 hcsplt=8000c083 hcchar=1020008 hctsiz=60080008 hfnum=17e3d5f
+dwc2: ch0 SSPLIT ACK addr=4 in=1 hcint=22 hcsplt=8000c083 hcchar=1028008 hctsiz=40080000 hfnum=1c3c3daa
+kbd-: ctrl ch0 addr=4 split OUT SETUP{21 HID_SET_IDLE v=0 i=0 len=0} -> ok
+input: USB HID Boot Keyboard registered as event0
+kbd5: usb_fill_int_urb(ep1, buf=report[8], complete=usbkbd_irq_complete, interval=10) -> usb_submit_urb
+kbd5: dwc2_submit_urb: urb ep1 len=8 -> interrupt_rx[0] pending, channel 6 free
+kbd6: ch6 arm SSPLIT addr=4 ep1 IN DATA0 mps=8 HCDMA=c03dd080 HCTSIZ=80008 HCCHAR=810e8808 frame=3ece
+dwc2: ch6 armed addr=4 ep=1 split=8000c083 hcchar=10e8808 hctsiz=80008 hcintmsk=7ff haintmsk=40 gintmsk=2000000
+usbkbd: IRQ-driven boot keyboard ready ep=1 mps=8 interval=10
+dwc2: HID boot keyboard intf 0 handed to usb bus
+dwc2: event-driven hub hotplug v2 scheduled on channel 7
+  ov5647
+initcall level 7 (late)
+  rootdev
+rootdev: partitions of mmcblk0
+rootdev:   mmcblk0p1 type=0xc (FAT32-LBA) start=16384 sectors=1048576 size=512 MiB partuuid=2f8a2acc-01
+rootdev:   mmcblk0p2 type=0x7f (xv6 raw filesystem) start=1064960 sectors=819200 size=400 MiB partuuid=2f8a2acc-02
+rootdev:   mmcblk0p3 type=0x83 (Linux) start=1884160 sectors=248463360 size=121320 MiB partuuid=2f8a2acc-03
+fat32: BPB lba=16384 bytes/sector=512 sectors/cluster=4
+fat32: reserved=32 FATs=2 sectors/FAT=2040 root-cluster=2
+fat32: FAT lba=16416 data lba=20496
+fat32: allocator next-free hint=4254
+rootdev: bootfs mmcblk0p1 lba=16384 mounted as FAT32
+Kernel command line: root=/dev/mmcblk0p3 rootfstype=ext2
+rootdev: root=/dev/mmcblk0p3 rootfstype=ext2 -> mmcblk0p3
+rootdev: xv6 filesystem on mmcblk0p2 start=1064960 sectors=819200 size=400 MiB
+rootdev: ROOT_DEV = 5 (mmcblk0p3)
+workqueue: brcmf0_wq worker=0 pid=10
+workqueue: brcmf1_wq worker=0 pid=11
+arasan-sdio: request CMD53 failed status=1ff0106 irq=208000 c1=e0807
+arasan-sdio: request CMD53 failed status=1ff0006 irq=208000 c1=e0807
+arasan-sdio: request CMD53 failed status=1ff0106 irq=208000 c1=e0807
+
+  mt7601u
+workqueue: mt7601u_wq worker=0 pid=12
+  unicam
+workqueue: camera_wq worker=0 pid=13
+camera: driver gpio-sccb-v10 unicam-irq-v3 double-buffer mmap
+ov5647: CAM_GPIO0 direction=output polarity=normal state=1
+i2c0: GPIO44/45 ALT1, 100000 Hz (core 250000000), BCM2837 two-stage abort
+ov5647: probing with 25 kHz GPIO SCCB; BSC0 bypassed
+ov5647: software SCCB ID read retry 1/5 (probe=NACK)
+ov5647: software SCCB ID read retry 2/5 (probe=NACK)
+ov5647: software SCCB ID read retry 3/5 (probe=NACK)
+ov5647: software SCCB ID read retry 4/5 (probe=NACK)
+ov5647: software SCCB ID read retry 5/5 (probe=NACK)
+camera: BSC probe summary 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: GPIO bitbang probe 0x36=NACK 0x10=NACK 0x1a=NACK
+camera: no electrical I2C response; BSC0 routing is GPIO44/45 on Pi 3, check ribbon contacts and module power
+ov5647: no reply at i2c0 0x36 (GPIO44/45), BSC raw=0 flags=0 now=50 div=2500 fsel=55 levels=3
+camera: no sensor found (1 driver tried); /dev/video0 inactive
+  ext2
+  vfs
+vfs: one mount table for all filesystems; xv6fs ext2 procfs sysfs fat32 netfs
+PH0hart 2 starting
+rootfs: ram0 is /, with /dev/console and /root
+hart 3 starting
+hart 1 starting
+devtmpfs: initialized on ram1, 14 nodes
+ext2: p3 was not clean; preserving dirty state until e2fsck
+ext2: p3 ready rw start=1884160 sectors=248463360 block=4096 groups=1
+xjournal: ready on mmcblk0p2+65536 (lba=1130496) capacity=1024 sectors
+VFS: Mounted root (ext2 filesystem) on device 5 (/dev/root = mmcblk0p3).
+devtmpfs: mounted
+VFS: root moved over rootfs, chroot done; running /init
+blkdev: cache self-test ok (mmcblk0 sector 0: 1 device read, MBR signature, second read hit)
+exec: /init -> interpreter /lib/ld-xv6.so
+vfs: mounted procfs at /proc read-only
+vfs: mounted sysfs at /sys read-write
+vfs: mounted fat32 at /boot read-write
+netfs: configured server 192.168.0.195:5640 read-only
+vfs: mounted netfs at /mnt/net read-only
+init: connecting Wi-Fi from /etc/wifi.conf
+exec: /bin/wifi -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+dwc2: hub ch7 scheduler alive active=0 urb-state=0
+dwc2: hub ch7 first IRQ hcint=12 hctsiz=80080001
+dwc2 ch6 final p=0 int=0 uf=7 issue=56e age=1 ssack=520
+dwc2 ch6 final p=0 int=0 uf=1 issue=d78 age=1 ssack=d2a
+dwc2 ch6 final p=0 int=0 uf=3 issue=1583 age=0 ssack=1534
+dwc2 ch6 final p=0 int=0 uf=6 issue=1d8d age=1 ssack=1d3e
+dwc2 ch6 final p=0 int=0 uf=0 issue=2597 age=1 ssack=2548
+dwc2 ch6 final p=0 int=0 uf=3 issue=2da2 age=1 ssack=2d52
+dwc2 ch6 final p=0 int=0 uf=5 issue=35ac age=1 ssack=355e
+dwc2 ch6 final p=0 int=0 uf=7 issue=3db6 age=1 ssack=3d68
+dwc2 ch6 final p=0 int=0 uf=2 issue=5c1 age=1 ssack=572
+dwc2 ch6 final p=0 int=0 uf=4 issue=dcb age=1 ssack=d7c
+dwc2 ch6 final p=0 int=0 uf=7 issue=15d6 age=1 ssack=1587
+dwc2 ch6 final p=0 int=0 uf=1 issue=1de0 age=1 ssack=1d92
+init: starting local login on /dev/ttyS0
+exec: /bin/login -> interpreter /lib/ld-xv6.so
+ld.so: relocated libc.so in user space
+
+xv6-rpi3 login: 

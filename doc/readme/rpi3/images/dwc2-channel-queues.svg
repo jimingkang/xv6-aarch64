@@ -1,0 +1,255 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1560" viewBox="0 0 1400 1560" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Helvetica Neue',Arial,sans-serif" font-size="13">
+<defs><marker id="a24292f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#24292f"/></marker><marker id="a1a7f37" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f37"/></marker><marker id="a0969da" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0969da"/></marker><marker id="abf8700" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#bf8700"/></marker><marker id="acf222e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#cf222e"/></marker><marker id="a8250df" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8250df"/></marker><marker id="a57606a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker></defs>
+<rect x="0" y="0" width="1400" height="1560" rx="0" fill="#fff" stroke="#fff" stroke-width="1.4"/>
+<text x="700.0" y="34.0" font-size="20" fill="#24292f" text-anchor="middle" font-weight="normal">DWC2 通道“队列”收发图：3B+ 上的低速键盘 2a7a:8a47（Hub 1 口 3），对照 tiny210 的 EHCI QH 图</text>
+<text x="700.0" y="56.0" font-size="12" fill="#57606a" text-anchor="middle" font-weight="normal">DWC2 没有 QH/qTD 链表和帧表：硬件只有 8 个 host channel（寄存器组），一次 arm 一个事务；“队列”是驱动自己的请求表 + workqueue。绿 = 控制（ch0）· 蓝 = 中断 IN（ch6）· 紫 = Hub 状态（ch7）</text>
+<rect x="40" y="72" width="1320" height="66" rx="8" fill="#fff" stroke="#57606a" stroke-width="2"/>
+<text x="56.0" y="98.0" font-size="13.5" fill="#24292f" text-anchor="start" font-weight="bold">DWC2 全局寄存器</text>
+<text x="200.0" y="98.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">GAHBCFG</text>
+<text x="328.0" y="98.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">DMA_EN | GLBL_INTR_EN</text>
+<text x="590.0" y="98.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">GINTMSK</text>
+<text x="718.0" y="98.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">只开 HCHINT（b25）</text>
+<text x="980.0" y="98.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">GINTSTS</text>
+<text x="1108.0" y="98.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">HCHINT → IRQ 9（legacy 中断控制器）</text>
+<text x="200.0" y="122.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HAINT/HAINTMSK</text>
+<text x="328.0" y="122.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">每通道 1 位：b0 ch0 … b6 ch6 … b7 ch7</text>
+<text x="590.0" y="122.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HFNUM</text>
+<text x="718.0" y="122.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">帧号 + 微帧（split 定时用）</text>
+<text x="980.0" y="122.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HPRT0</text>
+<text x="1108.0" y="122.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">根口：0x100f 高速、已使能</text>
+<rect x="40" y="156" width="650" height="640" rx="10" fill="#f6fff8" stroke="#1a7f37" stroke-width="2"/>
+<text x="365.0" y="182.0" font-size="15" fill="#1a7f37" text-anchor="middle" font-weight="normal">控制传输：通道 0，CPU 忙等（没有中断、没有队列）</text>
+<text x="365.0" y="202.0" font-size="11.5" fill="#57606a" text-anchor="middle" font-weight="normal">control() → channel_xfer(0, …) ×3：SETUP / DATA / STATUS；全在 usb_lock 外、进程上下文里同步完成</text>
+<rect x="60" y="220" width="270" height="128" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="70.0" y="240.0" font-size="13.5" fill="#24292f" text-anchor="start" font-weight="bold">通道 0 寄存器（一次一个事务）</text>
+<text x="70.0" y="258.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCSPLT0 = 8000c083  split→Hub1 口3</text>
+<text x="70.0" y="274.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCCHAR0 = 0102 8008  addr4 EP0 控制 LS IN</text>
+<text x="70.0" y="290.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCTSIZ0 = 4008 0008  DATA1 1 包 8 B</text>
+<text x="70.0" y="306.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCDMA0  = 0xc0000000 | V2P(ctrl_buf)</text>
+<text x="70.0" y="322.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCINT0  ← CPU 轮询，不进 IRQ</text>
+<rect x="350" y="222" width="98" height="46" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="399.0" y="241.0" font-size="12.5" fill="#24292f" text-anchor="middle" font-weight="bold">SETUP</text>
+<text x="399.0" y="258.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">8 B · PID SETUP</text>
+<line x1="448" y1="245" x2="456" y2="245" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="458" y="222" width="98" height="46" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="507.0" y="241.0" font-size="12.5" fill="#24292f" text-anchor="middle" font-weight="bold">DATA</text>
+<text x="507.0" y="258.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">≤ MPS 一包 · DATA1/0</text>
+<line x1="556" y1="245" x2="564" y2="245" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="566" y="222" width="98" height="46" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="615.0" y="241.0" font-size="12.5" fill="#24292f" text-anchor="middle" font-weight="bold">STATUS</text>
+<text x="615.0" y="258.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">0 B · DATA1</text>
+<text x="350.0" y="288.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">每一阶段在 split 路由下都是一对事务：</text>
+<rect x="360" y="310" width="100" height="42" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="410.0" y="327.0" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="bold">arm SSPLIT</text>
+<text x="410.0" y="343.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">HCSPLT.CompSplt=0</text>
+<rect x="470" y="310" width="100" height="42" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="520.0" y="327.0" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="bold">HCINT ACK|Hlt</text>
+<text x="520.0" y="343.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">= 0x22，TT 收下</text>
+<rect x="580" y="310" width="100" height="42" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="630.0" y="327.0" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="bold">udelay(125)</text>
+<text x="630.0" y="343.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">等 1 个微帧</text>
+<line x1="460" y1="331" x2="468" y2="331" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#a1a7f37)"/>
+<line x1="570" y1="331" x2="578" y2="331" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#a1a7f37)"/>
+<rect x="470" y="374" width="210" height="42" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="575.0" y="391.0" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="bold">arm CSPLIT（CompSplt=1）</text>
+<text x="575.0" y="407.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">取 TT 的结果</text>
+<path d="M630,352 L630,372" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#a1a7f37)"/>
+<rect x="362" y="440" width="318" height="38" rx="6" fill="#fff" stroke="#8250df" stroke-width="1.4"/>
+<text x="372.0" y="456.0" font-size="12" fill="#8250df" text-anchor="start" font-weight="bold">NYET</text>
+<text x="372.0" y="471.0" font-size="10.5" fill="#57606a" text-anchor="start" font-weight="normal">TT 还没做完 → 125 µs 后再 CSPLIT</text>
+<rect x="362" y="488" width="318" height="38" rx="6" fill="#fff" stroke="#57606a" stroke-width="1.4"/>
+<text x="372.0" y="504.0" font-size="12" fill="#57606a" text-anchor="start" font-weight="bold">NAK</text>
+<text x="372.0" y="519.0" font-size="10.5" fill="#57606a" text-anchor="start" font-weight="normal">设备忙 → 整个事务从 SSPLIT 重来</text>
+<rect x="362" y="536" width="318" height="38" rx="6" fill="#fff" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="372.0" y="552.0" font-size="12" fill="#1a7f37" text-anchor="start" font-weight="bold">XferCompl</text>
+<text x="372.0" y="567.0" font-size="10.5" fill="#57606a" text-anchor="start" font-weight="normal">HCTSIZ 剩余 → 实收字节；IN 时 dc ivac</text>
+<path d="M560,416 L560,438" fill="none" stroke="#8250df" stroke-width="1.6" marker-end="url(#a8250df)"/>
+<path d="M362,459 C330,450 330,394 468,394" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a8250df)"/>
+<path d="M362,507 C300,490 300,340 358,331" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a57606a)"/>
+<text x="60.0" y="380.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">split 拆包：MPS=8 时 18 B 描述符 =</text>
+<text x="60.0" y="397.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">3 个独立的 split IN（8+8+2），</text>
+<text x="60.0" y="414.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">每包 DATA0/DATA1 交替。</text>
+<text x="60.0" y="438.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">高速设备（Hub 本身）不 split：</text>
+<text x="60.0" y="455.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">HCSPLT0 = 0，一次 IN 就是一个事务。</text>
+<text x="60.0" y="590.0" font-size="12.5" fill="#1a7f37" text-anchor="start" font-weight="bold">谁在用 ch0</text>
+<text x="72.0" y="612.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· 枚举：GET_DESCRIPTOR / SET_ADDRESS / SET_CONFIGURATION</text>
+<text x="72.0" y="630.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· Hub：GET_STATUS / SET_FEATURE(PORT_POWER/RESET) / CLEAR_FEATURE</text>
+<text x="72.0" y="648.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· HID：SET_PROTOCOL(Boot) / SET_IDLE(0)（usbkbd_probe）</text>
+<text x="72.0" y="666.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· 热插拔 worker（dwc2_hub_wq）里的端口查询</text>
+<text x="72.0" y="684.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· 互斥：所有调用都在 dwc2_init 或单 worker 的 dwc2_hub_wq 里，</text>
+<text x="72.0" y="702.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">· 从不并发，所以 ch0 不需要请求队列</text>
+<rect x="60" y="730" width="610" height="50" rx="6" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="72.0" y="750.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">对照 EHCI：控制传输是挂在 async 环上的 EP0 QH + SETUP/DATA/STATUS 三个 qTD，HC 自己执行；</text>
+<text x="72.0" y="768.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">DWC2 上每个 qTD 相当于一次 channel_xfer()，由 CPU 依次写寄存器、等 HCINT。</text>
+<rect x="710" y="156" width="650" height="640" rx="10" fill="#f5faff" stroke="#0969da" stroke-width="2"/>
+<text x="1035.0" y="182.0" font-size="15" fill="#0969da" text-anchor="middle" font-weight="normal">中断 IN：通道 6 + 请求表 interrupt_rx[4] + delayed work（软件周期调度）</text>
+<text x="1035.0" y="202.0" font-size="11.5" fill="#57606a" text-anchor="middle" font-weight="normal">没有帧表：每个端点的“下一次轮询”是 dwc2_periodic_wq 里的一个 delayed_work；通道 6 一次只服务一个端点</text>
+<text x="730.0" y="232.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold">interrupt_rx[DWC2_INT_REQUESTS = 4]（受 usb_lock 保护）</text>
+<rect x="730" y="244" width="360" height="34" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="742.0" y="266.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">[0]</text>
+<text x="780.0" y="259.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">键盘 usbH0 · urb → report[8]</text>
+<text x="780.0" y="273.0" font-size="10" fill="#57606a" text-anchor="start" font-weight="normal">mps 8 · pending / inflight · retry_work · work</text>
+<rect x="730" y="284" width="360" height="34" rx="6" fill="#eaeef2" stroke="#57606a" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="742.0" y="306.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">[1]</text>
+<text x="780.0" y="299.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">空（若有鼠标接口：usbH1）</text>
+<rect x="730" y="324" width="360" height="34" rx="6" fill="#eaeef2" stroke="#57606a" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="742.0" y="346.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">[2]</text>
+<text x="780.0" y="339.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">空</text>
+<rect x="730" y="364" width="360" height="34" rx="6" fill="#eaeef2" stroke="#57606a" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="742.0" y="386.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">[3]</text>
+<text x="780.0" y="379.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">空</text>
+<text x="730.0" y="420.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">interrupt_rx_inflight = 0（占着 ch6 的槽，-1 = 空闲）</text>
+<text x="730.0" y="436.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal" font-family="Menlo,'SF Mono',Consolas,monospace">interrupt_rx_rotate：round-robin 游标，公平轮转</text>
+<rect x="1110" y="244" width="230" height="150" rx="6" fill="#fff" stroke="#0969da" stroke-width="1.4"/>
+<text x="1120.0" y="264.0" font-size="13.5" fill="#24292f" text-anchor="start" font-weight="bold">通道 6 寄存器</text>
+<text x="1120.0" y="282.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCSPLT6 = 8000c083（+b16 CSPLIT）</text>
+<text x="1120.0" y="298.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCCHAR6 = 810e8808</text>
+<text x="1120.0" y="314.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">  ChEna addr4 中断 LS IN EP1 MPS8</text>
+<text x="1120.0" y="330.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCTSIZ6 = 00080008 / 40080008</text>
+<text x="1120.0" y="346.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCDMA6  = c03de080 → report[]</text>
+<text x="1120.0" y="362.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCINTMSK6 = 7ff · HAINTMSK b6</text>
+<text x="1120.0" y="378.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">HCINT6 → IRQ 9</text>
+<line x1="1090" y1="260" x2="1108" y2="260" stroke="#0969da" stroke-width="1.6" marker-end="url(#a0969da)"/>
+<text x="1092.0" y="252.0" font-size="10" fill="#0969da" text-anchor="start" font-weight="normal">arm</text>
+<text x="730.0" y="470.0" font-size="12.5" fill="#24292f" text-anchor="start" font-weight="bold">一次轮询（真机）：每格 = 一个 125 µs 微帧</text>
+<rect x="730" y="482" width="76" height="44" rx="0" fill="#dafbe1" stroke="#57606a" stroke-width="1"/>
+<text x="768.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal">SSPLIT</text>
+<text x="768.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">IN</text>
+<text x="768.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ0</text>
+<rect x="806" y="482" width="76" height="44" rx="0" fill="#fff8c5" stroke="#57606a" stroke-width="1"/>
+<text x="844.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal">TT 执行</text>
+<text x="844.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">LS IN</text>
+<text x="844.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ1</text>
+<rect x="882" y="482" width="76" height="44" rx="0" fill="#ddf4ff" stroke="#57606a" stroke-width="1"/>
+<text x="920.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal">CSPLIT</text>
+<text x="920.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">取结果</text>
+<text x="920.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ2</text>
+<rect x="958" y="482" width="76" height="44" rx="0" fill="#ddf4ff" stroke="#57606a" stroke-width="1"/>
+<text x="996.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal">(CSPLIT)</text>
+<text x="996.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">NYET 时</text>
+<text x="996.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ3</text>
+<rect x="1034" y="482" width="76" height="44" rx="0" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="1072.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal"></text>
+<text x="1072.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal"></text>
+<text x="1072.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ4</text>
+<rect x="1110" y="482" width="76" height="44" rx="0" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="1148.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal"></text>
+<text x="1148.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal"></text>
+<text x="1148.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ5</text>
+<rect x="1186" y="482" width="76" height="44" rx="0" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="1224.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal"></text>
+<text x="1224.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal"></text>
+<text x="1224.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ6</text>
+<rect x="1262" y="482" width="76" height="44" rx="0" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="1300.0" y="500.0" font-size="11" fill="#24292f" text-anchor="middle" font-weight="normal"></text>
+<text x="1300.0" y="516.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal"></text>
+<text x="1300.0" y="540.0" font-size="10" fill="#57606a" text-anchor="middle" font-weight="normal">µ7</text>
+<text x="730.0" y="566.0" font-size="11.2" fill="#24292f" text-anchor="start" font-weight="normal">µ0 SSPLIT → TT 回 ACK（HCINT6=0x22）→ IRQ 9 → dwc2_irq 快路径 dwc2_interrupt_rx_irq_fast()：</text>
+<text x="730.0" y="584.0" font-size="11.2" fill="#57606a" text-anchor="start" font-weight="normal">    等到 µ2（dwc2_wait_frame_delta），置 CompSplt 重新 ChEna —— 都在中断里，不经过 kworker</text>
+<text x="730.0" y="602.0" font-size="11.2" fill="#24292f" text-anchor="start" font-weight="normal">µ2 CSPLIT → NYET：同一帧内 &lt;3 次再 CSPLIT；NAK（0x12）：没按键；DATA0/1 + XferCompl（0x23）：有报告</text>
+<text x="730.0" y="620.0" font-size="11.2" fill="#24292f" text-anchor="start" font-weight="normal">NAK / 超窗 NYET：release ch6 → mod_delayed_work(retry_work, 10 ms) → 下一个 pending 槽接手</text>
+<text x="730.0" y="638.0" font-size="11.2" fill="#57606a" text-anchor="start" font-weight="normal">到点 dwc2_interrupt_retry_work()：槽重新 pending → schedule_locked() → 新的 SSPLIT</text>
+<rect x="730" y="668" width="610" height="112" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="742.0" y="688.0" font-size="10.6" fill="#24292f" text-anchor="start" font-weight="bold">对照 EHCI：</text>
+<text x="742.0" y="706.0" font-size="10.6" fill="#24292f" text-anchor="start" font-weight="normal">· 帧表 1024 项 → anchor QH → 中断 QH，HC 每 1 ms 自己走 ⟷ DWC2：delayed_work 每 10 ms 软件 arm 一次</text>
+<text x="742.0" y="724.0" font-size="10.6" fill="#24292f" text-anchor="start" font-weight="normal">· QH 的 S-mask/C-mask 决定在哪个微帧发 SSPLIT/CSPLIT ⟷ DWC2：dwc2_irq 里按 HFNUM 手工等 2 个微帧</text>
+<text x="742.0" y="742.0" font-size="10.6" fill="#24292f" text-anchor="start" font-weight="normal">· qTD 的 Active 位 + IOC 中断 ⟷ HCCHAR.ChEna + HCINT6 XferCompl</text>
+<text x="742.0" y="760.0" font-size="10.6" fill="#24292f" text-anchor="start" font-weight="normal">· NAK 时 qTD 留着下帧硬件自动重试 ⟷ DWC2：NAK 会让通道停下，必须软件重 arm</text>
+<rect x="40" y="816" width="1320" height="196" rx="10" fill="#fffdf2" stroke="#bf8700" stroke-width="2"/>
+<text x="56.0" y="842.0" font-size="14" fill="#bf8700" text-anchor="start" font-weight="normal">完成路径：通道 6 XferCompl → IRQ 9 → 两级 workqueue → 重新 arm（键盘、鼠标各自一条，共用通道 6）</text>
+<rect x="60" y="862" width="190" height="70" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="155.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">HCINT6 0x23</text>
+<text x="155.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">XferCompl|Hlt|ACK</text>
+<text x="155.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">DMA 已写 report[]</text>
+<line x1="250" y1="897" x2="274" y2="897" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="276" y="862" width="190" height="70" rx="6" fill="#fff8c5" stroke="#bf8700" stroke-width="1.4"/>
+<text x="371.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">dwc2_irq</text>
+<text x="371.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">IRQ 9 · 中断上下文</text>
+<text x="371.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">屏蔽 HAINTMSK b6</text>
+<line x1="466" y1="897" x2="490" y2="897" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="492" y="862" width="190" height="70" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="587.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">system_wq</text>
+<text x="587.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">dwc2_interrupt_urb_work</text>
+<text x="587.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">HCTSIZ→8B · toggle</text>
+<line x1="682" y1="897" x2="706" y2="897" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="708" y="862" width="190" height="70" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="803.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">giveback_urb</text>
+<text x="803.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">SUBMITTED→IDLE</text>
+<text x="803.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">→ usbkbd_irq_complete</text>
+<line x1="898" y1="897" x2="922" y2="897" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="924" y="862" width="190" height="70" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="1019.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">usbkbd_wq</text>
+<text x="1019.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">usbkbd_rx_work</text>
+<text x="1019.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">差分→consoleintr/evdev</text>
+<line x1="1114" y1="897" x2="1138" y2="897" stroke="#bf8700" stroke-width="1.6" marker-end="url(#abf8700)"/>
+<rect x="1140" y="862" width="190" height="70" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="1235.0" y="884.0" font-size="13" fill="#24292f" text-anchor="middle" font-weight="bold" font-family="Menlo,'SF Mono',Consolas,monospace">usb_submit_urb</text>
+<text x="1235.0" y="902.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">dwc2_submit_urb</text>
+<text x="1235.0" y="919.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">槽 pending→schedule</text>
+<path d="M1215,932 L1215,956 L120,956 L120,934" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a0969da)"/>
+<text x="660.0" y="972.0" font-size="11.5" fill="#0969da" text-anchor="middle" font-weight="normal">回到 interrupt_rx[0]：如果另一个端点（鼠标）在等，它先拿到通道 6</text>
+<text x="60.0" y="998.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">黄 = 中断上下文（只读寄存器、屏蔽、排队，不 printf 以免错过微帧）；蓝 = kworker 进程上下文。IRQ 里只有 SSPLIT ACK / 同帧 NYET 这两种“中间态”在快路径里当场续发。</text>
+<rect x="40" y="1032" width="650" height="210" rx="10" fill="#fcf7ff" stroke="#8250df" stroke-width="2"/>
+<text x="56.0" y="1058.0" font-size="14" fill="#8250df" text-anchor="start" font-weight="normal">通道 7：Hub 状态变化端点（热插拔）</text>
+<text x="60.0" y="1084.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">Hub 424:2514 的 EP1 IN（mps 1，bInterval 12 = 2^11 微帧 ≈ 256 ms）</text>
+<text x="60.0" y="1106.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">dwc2_start_hub_monitor()：dwc2_hub_urb 以 dwc2_root_hub 的身份提交</text>
+<text x="60.0" y="1128.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">回 0 → 重新提交；回非 0 位图（b3 = 口 3 变化）→ dwc2_hub_wq：</text>
+<text x="60.0" y="1150.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">  GET_STATUS 该口、清 C_* 位；连接位图变了 → 整棵树拆掉重新 dwc2_init()</text>
+<text x="60.0" y="1172.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">日志：dwc2: hub IRQ change=8 connected=2-&gt;a; reprobe（插上键盘）</text>
+<text x="60.0" y="1194.0" font-size="11.5" fill="#57606a" text-anchor="start" font-weight="normal">注意：只监视地址 1 的 Hub；插在嵌套 Hub（地址 2）口上的设备要重启才能发现</text>
+<rect x="710" y="1032" width="650" height="210" rx="10" fill="#fff" stroke="#57606a" stroke-width="2"/>
+<text x="726.0" y="1058.0" font-size="14" fill="#24292f" text-anchor="start" font-weight="normal">硬件链路（3B+，LAN7515 = 2514 Hub + 7800 网卡）</text>
+<rect x="730" y="1084" width="150" height="52" rx="6" fill="#fff" stroke="#24292f" stroke-width="1.4"/>
+<text x="805.0" y="1106.0" font-size="12" fill="#24292f" text-anchor="middle" font-weight="bold">DWC2 OTG</text>
+<text x="805.0" y="1124.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">根口 HPRT0 · 高速</text>
+<rect x="920" y="1084" width="200" height="52" rx="6" fill="#fff" stroke="#24292f" stroke-width="1.4"/>
+<text x="1020.0" y="1106.0" font-size="12" fill="#24292f" text-anchor="middle" font-weight="bold">Hub 424:2514 addr 1</text>
+<text x="1020.0" y="1124.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">4 口 · 单 TT（alt 0；未切 MTT）</text>
+<rect x="1160" y="1072" width="180" height="52" rx="6" fill="#fff" stroke="#24292f" stroke-width="1.4"/>
+<text x="1250.0" y="1094.0" font-size="12" fill="#24292f" text-anchor="middle" font-weight="bold">嵌套 Hub addr 2</text>
+<text x="1250.0" y="1112.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">口 1 → LAN7800 addr 8</text>
+<rect x="1160" y="1152" width="180" height="52" rx="6" fill="#fff" stroke="#24292f" stroke-width="1.4"/>
+<text x="1250.0" y="1174.0" font-size="12" fill="#24292f" text-anchor="middle" font-weight="bold">键盘 2a7a:8a47 addr 4</text>
+<text x="1250.0" y="1192.0" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">口 3 · 低速 1.5 Mb/s</text>
+<line x1="880" y1="1110" x2="918" y2="1110" stroke="#24292f" stroke-width="1.6" marker-end="url(#a24292f)"/>
+<text x="898.0" y="1102.0" font-size="9.5" fill="#57606a" text-anchor="middle" font-weight="normal">480M</text>
+<line x1="1120" y1="1102" x2="1158" y2="1098" stroke="#24292f" stroke-width="1.6" marker-end="url(#a24292f)"/>
+<path d="M1120,1124 C1140,1152 1140,1178 1158,1178" fill="none" stroke="#1a7f37" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a1a7f37)"/>
+<text x="1100.0" y="1172.0" font-size="9.5" fill="#1a7f37" text-anchor="end" font-weight="normal">1.5M</text>
+<text x="730.0" y="1168.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">高速段：所有包带 SPLIT 令牌，Hub 的 TT 负责</text>
+<text x="730.0" y="1186.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">转换成低速事务（每 1 ms 帧 / 125 µs 微帧）</text>
+<text x="730.0" y="1218.0" font-size="11" fill="#57606a" text-anchor="start" font-weight="normal">对照 tiny210：S5PV210 EHCI → USB2514 → 同一个键盘（地址 2，口 3）</text>
+<rect x="40" y="1262" width="1320" height="280" rx="10" fill="#fff" stroke="#57606a" stroke-width="2"/>
+<text x="56.0" y="1288.0" font-size="14" fill="#24292f" text-anchor="start" font-weight="normal">EHCI（tiny210）与 DWC2（rpi3）逐项对照</text>
+<text x="70.0" y="1316.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="normal"></text>
+<text x="200.0" y="1316.0" font-size="12.5" fill="#1a7f37" text-anchor="start" font-weight="bold">EHCI</text>
+<text x="790.0" y="1316.0" font-size="12.5" fill="#0969da" text-anchor="start" font-weight="bold">DWC2</text>
+<rect x="50" y="1326" width="1300" height="24" rx="0" fill="#f6f8fa" stroke="#f6f8fa" stroke-width="0"/>
+<text x="66.0" y="1342.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">调度结构</text>
+<text x="200.0" y="1342.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">async 环（QH horiz）+ periodic 帧表 1024 项</text>
+<text x="790.0" y="1342.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">8 个通道寄存器组；驱动的 interrupt_rx[4] 表</text>
+<text x="66.0" y="1366.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">一个事务</text>
+<text x="200.0" y="1366.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">qTD（token：PID/字节数/Active/IOC/CERR）</text>
+<text x="790.0" y="1366.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">HCTSIZ（PID/PktCnt/XferSize）+ HCCHAR.ChEna</text>
+<rect x="50" y="1374" width="1300" height="24" rx="0" fill="#f6f8fa" stroke="#f6f8fa" stroke-width="0"/>
+<text x="66.0" y="1390.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">端点描述</text>
+<text x="200.0" y="1390.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">QH epchar/epcap（地址、EP、MPS、速度、Hub/口、S/C-mask）</text>
+<text x="790.0" y="1390.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">HCCHAR（地址、EP、MPS、LSpd、类型）+ HCSPLT（Hub/口/CompSplt）</text>
+<text x="66.0" y="1414.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">split 定时</text>
+<text x="200.0" y="1414.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">硬件按 S-mask µ0 发 SSPLIT、C-mask µ2..4 发 CSPLIT</text>
+<text x="790.0" y="1414.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">软件：ACK 中断里等 2 个微帧再 ChEna（dwc2_irq 快路径）</text>
+<rect x="50" y="1422" width="1300" height="24" rx="0" fill="#f6f8fa" stroke="#f6f8fa" stroke-width="0"/>
+<text x="66.0" y="1438.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">轮询周期</text>
+<text x="200.0" y="1438.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">每 1 ms 帧表命中（bInterval 被忽略）</text>
+<text x="790.0" y="1438.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">NAK 后 delayed_work 10 ms（按 bInterval，向上取整到 jiffy）</text>
+<text x="66.0" y="1462.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">NAK</text>
+<text x="200.0" y="1462.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">qTD 保持 Active，下帧自动重试</text>
+<text x="790.0" y="1462.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">通道停下，软件重 arm</text>
+<rect x="50" y="1470" width="1300" height="24" rx="0" fill="#f6f8fa" stroke="#f6f8fa" stroke-width="0"/>
+<text x="66.0" y="1486.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">完成通知</text>
+<text x="200.0" y="1486.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">USBSTS.USBINT（IOC）→ IRQ 55 → ehci_intr_reap 扫 intrs[]</text>
+<text x="790.0" y="1486.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">HAINT b6 → GINTSTS.HCHINT → IRQ 9 → schedule_work</text>
+<text x="66.0" y="1510.0" font-size="12" fill="#24292f" text-anchor="start" font-weight="bold">DMA 地址</text>
+<text x="200.0" y="1510.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">物理地址</text>
+<text x="790.0" y="1510.0" font-size="11.5" fill="#24292f" text-anchor="start" font-weight="normal">0xc0000000 | 物理地址（VideoCore 总线别名）</text>
+</svg>

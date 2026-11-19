@@ -4,6 +4,7 @@
 #include <kernel/device.h>
 #include <kernel/usb.h>
 #include <kernel/slab.h>
+#include <kernel/usbkbd_trace.h>
 
 #define USB_CONTAINER(ptr, type, member) \
   ((type *)((char *)(ptr) - __builtin_offsetof(type, member)))
@@ -32,8 +33,14 @@ usb_match(struct device *dev, struct device_driver *driver)
        (!(flags & USB_DEVICE_ID_MATCH_SUBCLASS) ||
         id->subclass == udev->subclass) &&
        (!(flags & USB_DEVICE_ID_MATCH_PROTOCOL) ||
-        id->protocol == udev->protocol))
+        id->protocol == udev->protocol)){
+      if(KBDTRACE(1))
+        printf("kbd4: usb_match: %s (%x:%x c%xs%xp%x) ~ id_table of "
+               "driver %s -> match\n", dev->name, udev->vendor,
+               udev->product, udev->class, udev->subclass, udev->protocol,
+               driver->name);
       return 1;
+    }
   }
   return 0;
 }
@@ -46,6 +53,9 @@ usb_probe(struct device *dev)
   if(dev->driver == 0)
     return -1;
   udrv = USB_CONTAINER(dev->driver, struct usb_driver, driver);
+  if(KBDTRACE(1))
+    printf("kbd4: usb_probe: dev->driver=%s -> %s->probe()\n",
+           dev->driver->name, dev->driver->name);
   return udrv->probe ? udrv->probe(udev) : 0;
 }
 
@@ -248,6 +258,10 @@ usb_hcd_giveback_urb(struct urb *urb, int status, int actual_length)
   urb->completing = 1;
   complete = urb->complete;
   release(&urb->lock);
+  if(KBDTRACE(2) && urb->dev && urb->dev->class == 3)
+    printf("kbd8: usb_hcd_giveback_urb: ep%d status=%d actual=%d, "
+           "URB_SUBMITTED -> IDLE, call complete()\n",
+           urb->endpoint, status, actual_length);
 
   if(complete)
     complete(urb);
