@@ -269,9 +269,17 @@ struct brcmf_bus_state {
   uint8 iovar_buf[BRCMF_DCMD_MAX];
   uint8 wpa_tx[192];
   uint8 assoc_ies[512];
-  uint8 net_rx[1600];
+  // Received data frames waiting for NAPI to hand them to the stack.  A
+  // queue, because a sender waiting for TX credit reads frames too.
+#define BRCMF_NET_RXQ 4
+  uint8 net_rxq[BRCMF_NET_RXQ][1600];
+  int net_rxq_len[BRCMF_NET_RXQ];
+  int net_rxq_head, net_rxq_n;
   uint8 net_deliver[1600];
-  int net_rx_len;
+  // SDPCM TX flow control: the firmware advertises in every frame it sends
+  // (header byte 9) the highest sequence number the host may use.
+  uint8 tx_max;
+  int tx_credit_seen;
   int polling;
   int rx_more;          // last F2 read returned a frame: keep draining
   int ctl_len;
@@ -968,6 +976,8 @@ brcmf_sdpcm_header(struct brcmf_bus_state *bus, uint8 *p, uint16 length,
   p[7] = SDPCM_HEADER_LEN;
 }
 
+static int brcmf_rx_dispatch_locked(struct brcmf_bus_state*);
+
 static int
 brcmf_send_ether_locked(struct brcmf_bus_state *bus, void *frame, int length)
 {
@@ -981,6 +991,24 @@ brcmf_send_ether_locked(struct brcmf_bus_state *bus, void *frame, int length)
   memmove(bcdc + 1, frame, length);
   frame_len = SDPCM_HEADER_LEN + sizeof(*bcdc) + length;
   wire_len = (frame_len + 3) & ~3;
+  // Wait for TX credit (Linux data_ok()): a frame sent beyond tx_max is
+  // dropped by the firmware.  Frames read meanwhile carry the new tx_max
+  // and are queued for NAPI.  Without credit after ~20 ms, drop this frame
+  // (TCP resends it) rather than overrun the firmware.
+  for(int tries = 0; brcmf_bus.tx_credit_seen; tries++){
+    uint8 window = brcmf_bus.tx_max - brcmf_bus.tx_seq;
+    if(window != 0 && (window & 0x80) == 0)
+      break;
+    if(tries >= 200){
+      static int logs;
+      if(logs++ < 8)
+        printf("brcmfmac: no TX credit (seq %d max %d); frame dropped\n",
+               brcmf_bus.tx_seq, brcmf_bus.tx_max);
+      return -1;
+    }
+    if(brcmf_rx_dispatch_locked(bus) <= 0)
+      brcmf_delay_us(100);
+  }
   brcmf_sdpcm_header(bus, brcmf_bus.tx, frame_len, SDPCM_DATA_CHANNEL);
   return brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len);
 }
@@ -1287,9 +1315,20 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
       return -1;
   }
   *channel = brcmf_bus.rx[5] & 0x0f;
+  {
+    // TX credit, as Linux brcmf_sdio_readframes(): ignore a window that
+    // would let the host run more than 0x40 frames ahead.
+    uint8 tx_max = brcmf_bus.rx[9];
+    if((uint8)(tx_max - brcmf_bus.tx_seq) > 0x40)
+      tx_max = brcmf_bus.tx_seq + 2;
+    brcmf_bus.tx_max = tx_max;
+    brcmf_bus.tx_credit_seen = 1;
+  }
   offset = brcmf_bus.rx[7];
-  if(offset < SDPCM_HEADER_LEN || offset > length)
+  if(offset < SDPCM_HEADER_LEN || offset > length){
+    printf("brcmfmac: bad SDPCM data offset %d len %d\n", offset, length);
     return -1;
+  }
   *payload = brcmf_bus.rx + offset;
   *payload_len = length - offset;
   brcmf_bus.rx_more = 1;
@@ -1364,10 +1403,17 @@ brcmf_rx_dispatch_locked(struct brcmf_bus_state *bus)
       if(type == 0x888e)
         brcmf_wpa_rx_locked(bus, ether, length);
       else if(brcmf_bus.handshake_done &&
-              length <= (int)sizeof(brcmf_bus.net_rx) &&
-              brcmf_bus.net_rx_len == 0){
-        memmove(brcmf_bus.net_rx, ether, length);
-        brcmf_bus.net_rx_len = length;
+              length <= (int)sizeof(brcmf_bus.net_rxq[0])){
+        if(brcmf_bus.net_rxq_n < BRCMF_NET_RXQ){
+          int slot = (brcmf_bus.net_rxq_head + brcmf_bus.net_rxq_n) % BRCMF_NET_RXQ;
+          memmove(brcmf_bus.net_rxq[slot], ether, length);
+          brcmf_bus.net_rxq_len[slot] = length;
+          brcmf_bus.net_rxq_n++;
+        } else {
+          static int logs;
+          if(logs++ < 8)
+            printf("brcmfmac: RX queue full, frame dropped\n");
+        }
       }
     }
   }
@@ -1419,12 +1465,12 @@ brcmf_napi_poll(struct napi_struct *napi, int budget)
       break;
     }
     work_done++;
-    if(brcmf_bus.net_rx_len){
-      length = brcmf_bus.net_rx_len;
-      memmove(brcmf_bus.net_deliver, brcmf_bus.net_rx, length);
-      brcmf_bus.net_rx_len = 0;
-    }
-    if(length){
+    while(brcmf_bus.net_rxq_n > 0){
+      int slot = brcmf_bus.net_rxq_head;
+      length = brcmf_bus.net_rxq_len[slot];
+      memmove(brcmf_bus.net_deliver, brcmf_bus.net_rxq[slot], length);
+      brcmf_bus.net_rxq_head = (slot + 1) % BRCMF_NET_RXQ;
+      brcmf_bus.net_rxq_n--;
       release(&brcmf_bus.lock);
       net_rx_dev(napi->dev, brcmf_bus.net_deliver, length);
       acquire(&brcmf_bus.lock);

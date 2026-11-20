@@ -564,9 +564,15 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
   uint16 dport, sport;
   uint32 seq, ack;
   struct tcp_conn *c = 0;
-  if(dev == 0 || tcplen < (int)sizeof(*tcp) ||
-     tcp_checksum(ip->src, ip->dst, tcp, tcplen) != 0)
+  if(dev == 0 || tcplen < (int)sizeof(*tcp))
     return;
+  if(tcp_checksum(ip->src, ip->dst, tcp, tcplen) != 0){
+    static int logs;
+    if(logs++ < 16)
+      printf("tcpdbg: %s bad checksum tcplen=%d iplen=%d\n",
+             dev->dev.name, tcplen, iplen);
+    return;
+  }
   thlen = (tcp->offset >> 4) * 4;
   if(thlen < 20 || thlen > tcplen)
     return;
@@ -729,6 +735,13 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
   }
   if((c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
      datalen > 0){
+    if(seq != c->rcv_nxt){
+      static int logs;
+      if(logs++ < 24)
+        printf("tcpdbg: port %d seq %u rcv_nxt %u len %d rxlen %d ooo %d %s\n",
+               c->local_port, seq, c->rcv_nxt, datalen, c->rxlen, c->ooo_len,
+               (int)(seq - c->rcv_nxt) < 0 ? "old" : "ahead");
+    }
     if(seq == c->rcv_nxt){
       int room = TCP_RX_SIZE - c->rxlen;
       int n = datalen < room ? datalen : room;
