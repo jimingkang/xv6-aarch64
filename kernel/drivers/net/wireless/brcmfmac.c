@@ -1249,6 +1249,27 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   check = brcmf_bus.rx[2] | ((uint16)brcmf_bus.rx[3] << 8);
   if(length == 0 && check == 0)
     return 0;
+  if((uint16)(length ^ check) == 0xffff && length > BRCMF_FRAME_MAX){
+    // A valid header for a frame larger than the buffer (a superframe of
+    // several packets).  Read and drop the rest of it, so the next read
+    // starts at the next frame header; TCP resends what was in it.
+    static int logs;
+    int left = ((length - 64) + 3) & ~3;
+    if(logs++ < 8)
+      printf("brcmfmac: dropped %d-byte superframe\n", length);
+    while(left > 0){
+      int n = left > BRCMF_FRAME_MAX - 64 ? BRCMF_FRAME_MAX - 64 : left;
+      if(brcmf_f2_transfer(bus, 0, brcmf_bus.rx + 64, n) < 0){
+        brcmf_rx_terminate_locked(bus);
+        return 0;
+      }
+      left -= n;
+    }
+    // Go straight on to the next frame: its interrupt bit was cleared
+    // above, so returning "nothing pending" could stall the queue.
+    brcmf_bus.rx_more = 1;
+    return brcmf_rx_frame_locked(bus, channel, payload, payload_len);
+  }
   if((uint16)(length ^ check) != 0xffff ||
      length < SDPCM_HEADER_LEN || length > BRCMF_FRAME_MAX){
     static int logs;

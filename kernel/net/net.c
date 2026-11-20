@@ -416,6 +416,21 @@ tcp_checksum(uint32 src, uint32 dst, void *segment, int len)
   return (uint16)~sum;
 }
 
+// Receive window to advertise.  The full TCP_RX_SIZE on USB Ethernet; at
+// most 2 KB (about one full segment in flight) on Wi-Fi, because when
+// several frames queue in the Broadcom firmware it packs them into SDIO
+// superframes that brcmfmac cannot read one frame at a time.
+static int
+tcp_window(struct tcp_conn *c)
+{
+  int room = TCP_RX_SIZE - c->rxlen;
+  int usb = c->dev && c->dev->dev.name && c->dev->dev.name[0] == 'u' &&
+            c->dev->dev.name[1] == 's' && c->dev->dev.name[2] == 'b';
+  if(!usb && room > 2048)
+    room = 2048;
+  return room;
+}
+
 static int
 tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
                    void *data, int len)
@@ -452,7 +467,7 @@ tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
   tcp->ack = swap32(c->rcv_nxt);
   tcp->offset = 5 << 4;
   tcp->flags = flags;
-  tcp->window = swap16(TCP_RX_SIZE - c->rxlen);
+  tcp->window = swap16(tcp_window(c));
   if(len)
     memmove(tcp + 1, data, len);
   tcp->sum = swap16(tcp_checksum(ip->src, ip->dst, tcp,
