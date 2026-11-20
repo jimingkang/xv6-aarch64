@@ -124,6 +124,7 @@
 #define BRCMF_C_UP                    2
 #define BRCMF_C_DOWN                  3
 #define BRCMF_C_SET_INFRA             20
+#define BRCMF_C_SET_PM                86
 #define BRCMF_C_SET_AUTH              22
 #define BRCMF_C_GET_BSSID             23
 #define BRCMF_C_SET_SSID              26
@@ -2131,6 +2132,16 @@ brcmfmac_connect(char *ssid, char *passphrase)
           return -1;
         }
         printf("brcmfmac: wlan0 IPv4 ready\n");
+        // Power save off (PM_OFF), like "iw wlan0 set power_save off".  In
+        // the firmware's default PM2 the AP holds frames for us until the
+        // next beacon: ~100 ms on every packet to the Pi.
+        {
+          uint32 pm = 0;
+          if(brcmf_dcmd(bus, BRCMF_C_SET_PM, &pm, sizeof(pm), 1) < 0)
+            printf("brcmfmac: warning: cannot turn power save off\n");
+          else
+            printf("brcmfmac: power save off\n");
+        }
         brcmf_connect_watch_stop(bus);
         return 0;
       }
