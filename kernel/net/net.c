@@ -70,9 +70,12 @@ struct tcp_conn {
   uchar remote_mac[ETH_ADDR_LEN];
   int rxlen;
   uchar rx[TCP_RX_SIZE];
-  uint32 ooo_seq;
-  int ooo_len;
-  uchar ooo[TCP_RX_SIZE];
+  // Segments that arrived ahead of rcv_nxt (Wi-Fi delivers bursts out of
+  // order), merged into rx[] once the gap before them is filled.
+#define TCP_OOO_SEGS 6
+  uint32 ooo_seq[TCP_OOO_SEGS];
+  int ooo_len[TCP_OOO_SEGS];
+  uchar ooo[TCP_OOO_SEGS][TCP_MSS];
   int tx_unacked;
   uint32 tx_seq;
   uint8 tx_flags;
@@ -440,9 +443,12 @@ tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
   struct iphdr *ip;
   struct tcphdr *tcp;
   int framelen;
+  // SYN and SYN|ACK carry an MSS option.  Without it peers assume 536 (macOS
+  // uses 512), which quadruples the segment count of a transfer.
+  int optlen = (flags & TCP_SYN) ? 4 : 0;
   if(c->dev == 0 || len < 0 || len > NET_MTU - 40)
     return -1;
-  framelen = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp) + len;
+  framelen = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp) + optlen + len;
   packet = kalloc();
   if(packet == 0)
     return -1;
@@ -453,7 +459,7 @@ tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
   eth->type = swap16(ETH_TYPE_IP);
   ip = (struct iphdr*)(eth + 1);
   ip->vhl = 0x45;
-  ip->len = swap16(sizeof(*ip) + sizeof(*tcp) + len);
+  ip->len = swap16(sizeof(*ip) + sizeof(*tcp) + optlen + len);
   ip->id = swap16(++ip_id);
   ip->ttl = 64;
   ip->proto = IP_PROTO_TCP;
@@ -465,13 +471,20 @@ tcp_send_at_locked(struct tcp_conn *c, uint32 sequence, uint8 flags,
   tcp->dport = swap16(c->remote_port);
   tcp->seq = swap32(sequence);
   tcp->ack = swap32(c->rcv_nxt);
-  tcp->offset = 5 << 4;
+  tcp->offset = (5 + optlen / 4) << 4;
   tcp->flags = flags;
   tcp->window = swap16(tcp_window(c));
+  if(optlen){
+    uchar *opt = (uchar*)(tcp + 1);
+    opt[0] = 2;                 // kind: maximum segment size
+    opt[1] = 4;
+    opt[2] = TCP_MSS >> 8;
+    opt[3] = TCP_MSS & 0xff;
+  }
   if(len)
-    memmove(tcp + 1, data, len);
+    memmove((uchar*)(tcp + 1) + optlen, data, len);
   tcp->sum = swap16(tcp_checksum(ip->src, ip->dst, tcp,
-                                  sizeof(*tcp) + len));
+                                  sizeof(*tcp) + optlen + len));
   int result = netdev_xmit_on(c->dev, packet, framelen);
   kfree(packet);
   return result < 0 ? -1 : len;
@@ -551,6 +564,32 @@ tcp_start_queued_locked(struct tcp_conn *c)
   if(sent){
     wakeup(c);
     tcp_epollnotify(c);
+  }
+}
+
+// Move held out-of-order segments that now touch rcv_nxt into rx[].
+static void
+tcp_ooo_merge_locked(struct tcp_conn *c)
+{
+  for(int again = 1; again;){
+    again = 0;
+    for(int i = 0; i < TCP_OOO_SEGS; i++){
+      if(c->ooo_len[i] == 0)
+        continue;
+      int behind = (int)(c->rcv_nxt - c->ooo_seq[i]);
+      if(behind < 0)
+        continue;                       // still beyond a gap
+      if(behind < c->ooo_len[i]){
+        int n = c->ooo_len[i] - behind;
+        if(n > TCP_RX_SIZE - c->rxlen)
+          continue;                     // no room yet; keep it
+        memmove(c->rx + c->rxlen, c->ooo[i] + behind, n);
+        c->rxlen += n;
+        c->rcv_nxt += n;
+        again = 1;
+      }
+      c->ooo_len[i] = 0;                // merged, or entirely old
+    }
   }
 }
 
@@ -735,37 +774,43 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
   }
   if((c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
      datalen > 0){
-    if(seq != c->rcv_nxt){
-      static int logs;
-      if(logs++ < 24)
-        printf("tcpdbg: port %d seq %u rcv_nxt %u len %d rxlen %d ooo %d %s\n",
-               c->local_port, seq, c->rcv_nxt, datalen, c->rxlen, c->ooo_len,
-               (int)(seq - c->rcv_nxt) < 0 ? "old" : "ahead");
-    }
-    if(seq == c->rcv_nxt){
+    uchar *payload = (uchar*)tcp + thlen;
+    int behind = (int)(c->rcv_nxt - seq);   // bytes of it we already have
+    if(behind >= 0 && behind < datalen){
+      // In order (possibly overlapping what we have): take the new part.
       int room = TCP_RX_SIZE - c->rxlen;
-      int n = datalen < room ? datalen : room;
+      int n = datalen - behind < room ? datalen - behind : room;
       if(n > 0){
-        memmove(c->rx + c->rxlen, (uchar*)tcp + thlen, n);
+        memmove(c->rx + c->rxlen, payload + behind, n);
         c->rxlen += n;
         c->rcv_nxt += n;
-        // One held out-of-order segment is enough to bridge the common case
-        // where two adjacent Wi-Fi frames arrive in reverse poll order.
-        if(c->ooo_len && c->ooo_seq == c->rcv_nxt &&
-           c->ooo_len <= TCP_RX_SIZE - c->rxlen){
-          memmove(c->rx + c->rxlen, c->ooo, c->ooo_len);
-          c->rxlen += c->ooo_len;
-          c->rcv_nxt += c->ooo_len;
-          c->ooo_len = 0;
-        }
+        tcp_ooo_merge_locked(c);
         wakeup(c);
         tcp_epollnotify(c);
       }
-    } else if(seq > c->rcv_nxt && datalen <= (int)sizeof(c->ooo) &&
-              (c->ooo_len == 0 || seq < c->ooo_seq)){
-      c->ooo_seq = seq;
-      c->ooo_len = datalen;
-      memmove(c->ooo, (uchar*)tcp + thlen, datalen);
+    } else if(behind < 0 && -behind < TCP_RX_SIZE && datalen <= TCP_MSS){
+      // Ahead of a gap: keep it for later, unless already held.
+      int slot = -1, dup = 0;
+      for(int i = 0; i < TCP_OOO_SEGS; i++){
+        if(c->ooo_len[i] && c->ooo_seq[i] == seq)
+          dup = 1;
+        else if(!c->ooo_len[i] && slot < 0)
+          slot = i;
+      }
+      if(!dup && slot < 0){
+        // Full: give up the farthest segment if this one is nearer.
+        int far = 0;
+        for(int i = 1; i < TCP_OOO_SEGS; i++)
+          if((int)(c->ooo_seq[i] - c->ooo_seq[far]) > 0)
+            far = i;
+        if((int)(seq - c->ooo_seq[far]) < 0)
+          slot = far;
+      }
+      if(!dup && slot >= 0){
+        c->ooo_seq[slot] = seq;
+        c->ooo_len[slot] = datalen;
+        memmove(c->ooo[slot], payload, datalen);
+      }
     }
     // ACK current rcv_nxt for new, duplicate and out-of-order segments.
     tcp_send_locked(c, TCP_ACK, 0, 0);
