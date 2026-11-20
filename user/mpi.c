@@ -1093,6 +1093,12 @@ PMPI_Init(int *argc, char ***argv)
     fprintf(2, "mpi: rank %d: could not connect the nodes\n", me);
     PMPI_Abort(MPI_COMM_WORLD, 1);
   }
+  // Ranks with remote peers spin instead of sleeping.  Keep them off CPU 0,
+  // where the device interrupts and the network kworkers run on the Pi:
+  // sharing it with a spinning rank delayed every received packet by
+  // ~100 ms (Mac-Pi ping-pong 120-140 ms one way, ICMP ping 10 ms).
+  if(nremote && NCPU > 1)
+    sched_setaffinity(getpid(), 1U << (1 + lme % (NCPU - 1)));
   // Make sure every rank exists (and every pid is recorded) before user code.
   return PMPI_Barrier(MPI_COMM_WORLD);
 }
