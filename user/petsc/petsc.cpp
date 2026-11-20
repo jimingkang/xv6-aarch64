@@ -26,6 +26,18 @@
 
 #include "../sparse/bandlu.hpp"
 
+#ifdef MPI_HOST
+// Native build (hostmpi/Makefile): xv6's fprintf takes a descriptor, and
+// fmt_double is xv6's %e/%f/%g formatter (user/fmtfp.c).
+#include <unistd.h>
+#define fprintf(fd, ...) dprintf((fd), __VA_ARGS__)
+static int fmt_double(char *buf, int cap, double v, int width, int prec, int, int conv) {
+  char f[16];
+  snprintf(f, sizeof(f), "%%%d.%d%c", width, prec, conv);
+  return snprintf(buf, cap, f, v);
+}
+#endif
+
 namespace {
 
 int rank_ = 0, size_ = 1;

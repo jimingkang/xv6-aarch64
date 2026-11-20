@@ -1,0 +1,21 @@
+// Same 2 x 1 cantilever and 16 x 8 cells as shell_test::cantilever.
+Mesh.MshFileVersion = 2.2;
+Mesh.Binary = 0;
+Mesh.ElementOrder = 1;
+Point(1) = {0, 0, 0};
+Point(2) = {2, 0, 0};
+Point(3) = {2, 1, 0};
+Point(4) = {0, 1, 0};
+Line(1) = {1, 2};
+Line(2) = {2, 3};
+Line(3) = {3, 4};
+Line(4) = {4, 1};
+Curve Loop(1) = {1, 2, 3, 4};
+Plane Surface(1) = {1};
+Transfinite Curve {1, 3} = 17;
+Transfinite Curve {2, 4} = 9;
+Transfinite Surface {1} = {1, 2, 3, 4};
+Recombine Surface {1};
+Physical Surface("SHELL", 1) = {1};
+Physical Curve("CLAMP", 11) = {4};
+Physical Curve("LOAD", 12) = {2};

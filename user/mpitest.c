@@ -1,8 +1,12 @@
 // mpitest: functional tests and micro-benchmarks for the xv6 MPI subset.
 //   mpirun -np 4 mpitest
+#ifdef MPI_HOST
+#include "mpi_host.h"           // native build: make -C hostmpi
+#else
 #include <uapi/types.h>
 #include "user/user.h"
 #include "user/include/mpi.h"
+#endif
 
 static int rank, size, failures;
 
@@ -377,24 +381,25 @@ test_pi(void)
   report("integer pi reduce");
 }
 
+// Ping-pong latency and one-way bandwidth between ranks a and b.  The first
+// pair is 0-1; with more than two ranks 0-(size-1) is measured too, which in
+// a two-node job (see readme_mpi_tcp.md) is the TCP path between the nodes.
 static void
-bench(void)
+bench_pair(int a, int b, int pings, int reps)
 {
-  enum { PINGS = 2000, BIG = 65536, REPS = 50 };
+  enum { BIG = 65536 };
   char small[8];
   char *big;
   unsigned long t0, t1;
 
-  if(size < 2)
-    return;
   big = malloc(BIG);
   memset(big, rank, BIG);
   MPI_Barrier(MPI_COMM_WORLD);
-  if(rank < 2){
-    int peer = 1 - rank;
+  if(rank == a || rank == b){
+    int peer = rank == a ? b : a;
     t0 = MPI_Wtime_us();
-    for(int i = 0; i < PINGS; i++){
-      if(rank == 0){
+    for(int i = 0; i < pings; i++){
+      if(rank == a){
         MPI_Send(small, 8, MPI_BYTE, peer, 1, MPI_COMM_WORLD);
         MPI_Recv(small, 8, MPI_BYTE, peer, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       } else {
@@ -403,14 +408,14 @@ bench(void)
       }
     }
     t1 = MPI_Wtime_us();
-    if(rank == 0)
-      printf("mpitest: 8B ping-pong one-way latency %d.%d us\n",
-             (int)((t1 - t0) * 10 / (2 * PINGS)) / 10,
-             (int)((t1 - t0) * 10 / (2 * PINGS)) % 10);
+    if(rank == a)
+      printf("mpitest: ranks %d-%d 8B ping-pong one-way latency %d.%d us\n", a, b,
+             (int)((t1 - t0) * 10 / (2 * pings)) / 10,
+             (int)((t1 - t0) * 10 / (2 * pings)) % 10);
 
     t0 = MPI_Wtime_us();
-    for(int i = 0; i < REPS; i++){
-      if(rank == 0)
+    for(int i = 0; i < reps; i++){
+      if(rank == a)
         MPI_Send(big, BIG, MPI_BYTE, peer, 2, MPI_COMM_WORLD);
       else
         MPI_Recv(big, BIG, MPI_BYTE, peer, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -418,12 +423,22 @@ bench(void)
     MPI_Sendrecv(small, 1, MPI_BYTE, peer, 3, small, 1, MPI_BYTE, peer, 3,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     t1 = MPI_Wtime_us();
-    if(rank == 0 && t1 > t0)
-      printf("mpitest: 64KB stream bandwidth %d KB/s\n",
-             (int)((unsigned long)BIG * REPS / 1024 * 1000000 / (t1 - t0)));
+    if(rank == a && t1 > t0)
+      printf("mpitest: ranks %d-%d 64KB stream bandwidth %d KB/s\n", a, b,
+             (int)((unsigned long)BIG * reps / 1024 * 1000000 / (t1 - t0)));
   }
   MPI_Barrier(MPI_COMM_WORLD);
   free(big);
+}
+
+static void
+bench(void)
+{
+  if(size < 2)
+    return;
+  bench_pair(0, 1, 2000, 50);
+  if(size > 2)
+    bench_pair(0, size - 1, 200, 10);
 }
 
 int

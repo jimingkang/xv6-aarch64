@@ -3,6 +3,10 @@ project(feappv_cpp LANGUAGES CXX)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(OpenMP QUIET COMPONENTS CXX)
 option(FEAPPV_ENABLE_PETSC "Build the MPI/PETSc backend" OFF)
+option(FEAPPV_ENABLE_LIBMESH "Build the libMesh cantilever import benchmark" OFF)
+if(FEAPPV_ENABLE_LIBMESH AND NOT FEAPPV_ENABLE_PETSC)
+    message(FATAL_ERROR "FEAPPV_ENABLE_LIBMESH requires FEAPPV_ENABLE_PETSC")
+endif()
 
 add_library(feappv_elements
     elements/solid1d/bar1.cpp
@@ -40,7 +44,37 @@ target_include_directories(bar_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(truss_demo PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 include(CTest)
+if(FEAPPV_ENABLE_LIBMESH)
+    find_program(LIBMESH_CONFIG NAMES libmesh-config)
+    if(NOT LIBMESH_CONFIG)
+        message(FATAL_ERROR "Set LIBMESH_CONFIG to the libmesh-config from your MPI/PETSc libMesh installation")
+    endif()
+    execute_process(COMMAND "${LIBMESH_CONFIG}" --include
+        OUTPUT_VARIABLE libmesh_include OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE libmesh_include_result)
+    execute_process(COMMAND "${LIBMESH_CONFIG}" --ldflags --libs
+        OUTPUT_VARIABLE libmesh_link OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE libmesh_link_result)
+    if(NOT libmesh_include_result STREQUAL "0" OR NOT libmesh_link_result STREQUAL "0")
+        message(FATAL_ERROR "libmesh-config failed to report compile/link flags")
+    endif()
+    separate_arguments(libmesh_include UNIX_COMMAND "${libmesh_include}")
+    separate_arguments(libmesh_link UNIX_COMMAND "${libmesh_link}")
+    add_executable(shell_libmesh tests/shell_libmesh.cpp)
+    target_compile_options(shell_libmesh PRIVATE ${libmesh_include})
+    target_link_libraries(shell_libmesh PRIVATE
+        feappv_elements ${libmesh_link} MPI::MPI_CXX PkgConfig::PETSC)
+    if(BUILD_TESTING)
+        foreach(ranks IN ITEMS 1 2)
+            add_test(NAME shell_libmesh_${ranks}
+                COMMAND "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" ${ranks}
+                ${MPIEXEC_PREFLAGS} $<TARGET_FILE:shell_libmesh> ${MPIEXEC_POSTFLAGS}
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/meshes/mitc4_cantilever.msh"
+                -pc_type asm -pc_asm_overlap 2 -sub_pc_type ilu -sub_pc_factor_levels 2)
+        endforeach()
+    endif()
+endif()
 if(BUILD_TESTING)
+    add_executable(shell_serial_benchmark tests/shell_serial.cpp)
+    target_link_libraries(shell_serial_benchmark PRIVATE feappv_elements)
     add_executable(feappv_plot_benchmarks EXCLUDE_FROM_ALL output/pdf/plot_benchmarks.cpp)
     target_link_libraries(feappv_plot_benchmarks PRIVATE feappv_elements)
     add_executable(element_benchmarks tests/elements.cpp)
@@ -66,6 +100,13 @@ if(BUILD_TESTING)
         add_executable(shell_mpi_benchmark tests/shell_mpi.cpp)
         target_link_libraries(shell_mpi_benchmark PRIVATE
             shell_mpi_profile feappv_elements MPI::MPI_CXX PkgConfig::PETSC)
+        # Uses PETSc private GMRES/MPIAIJ headers from the PETSc source tree to dump Arnoldi data.
+        add_executable(bar_mpi_trace tests/bar_mpi_trace.cpp)
+        target_link_libraries(bar_mpi_trace PRIVATE feappv_elements MPI::MPI_CXX PkgConfig::PETSC)
+        add_test(NAME bar_mpi_trace
+            COMMAND "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" 2
+            ${MPIEXEC_PREFLAGS} $<TARGET_FILE:bar_mpi_trace> ${MPIEXEC_POSTFLAGS}
+            -fem_trace -pc_type none -ksp_gmres_classicalgramschmidt -ksp_norm_type unpreconditioned)
         foreach(ranks IN ITEMS 1 2)
             add_test(NAME shell_mpi_${ranks}
                 COMMAND "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" ${ranks}

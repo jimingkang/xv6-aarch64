@@ -26,6 +26,13 @@ need things xv6 did not have, so this directory set adds them:
 | `plate_locking_benchmark` | `tests/plate_locking.cpp` | `plate_locking_benchmark`, `plate_locking_benchmark --distorted` |
 | `shell_mpi_benchmark` | `tests/shell_mpi.cpp` + `tests/shell_mpi_profile.cpp` | `mpirun -np 4 shell_mpi_benchmark` (`-shell_benchmark`, `-shell_refined` for larger meshes) |
 | `bar_mpi_trace` | `tests/bar_mpi_trace.cpp` | `mpirun -np 2 bar_mpi_trace` (two-element bar, prints every rank's data, see below) |
+| `shell_serial_benchmark` | `tests/shell_serial.cpp` | `shell_serial_benchmark 16 8 - 1` (nx ny reference\|- [repetitions] [write_reference]) |
+
+`shell_mpi_benchmark` also takes `-shell_nx/-shell_ny`, `-shell_repetitions`,
+`-shell_progress` and `-shell_reference_write/-shell_reference_read FILE`,
+and checks the support-reaction balance (`MPI_BALANCE`). The same programs
+build natively on macOS against this MPI and PETSc (`make -C hostmpi`), and a
+job can put ranks on xv6 and on the Mac at once: see `readme_mpi_tcp.md`.
 
 `tests/shell_parallel.cpp` (OpenMP) is not built: there is no OpenMP
 runtime. `Model::set_element_threads(n)` with `n > 1` therefore reports
@@ -65,6 +72,12 @@ Flags that matter:
   `catch (...)` in `program/model.cpp` and `program/petsc_model.cpp` read
   `catch (const std::exception& xv6_error_)`. Those are the only edits to
   the fem sources. `std::exception_ptr` is always null.
+* **Files and clocks.** `<fstream>`: `ofstream` writes through the buffered
+  ostream to an `open(2)` descriptor; `ifstream` reads the whole file when
+  it is opened and parses integers, doubles (19 significant digits, then
+  `pow(10, e)`) and words. `<ctime>`: `std::clock()` is the monotonic clock,
+  as xv6 keeps no CPU-time account. `<sys/resource.h>`: `getrusage` fills only
+  `ru_maxrss`, with the program break in KB.
 * **Library.** `vector`, `array`, `string`, `string_view`, `algorithm`,
   `numeric`, `functional` (`std::function`, `hash`, comparators),
   `unordered_map`, `memory` (`unique_ptr`), `chrono` (`steady_clock` on
@@ -170,3 +183,42 @@ line by line, except where the floating-point evaluation differs:
   u = (0, 1/2, 5/6), reaction -1, as by hand; the numbers match a host run
   with real PETSc 3.25.4 except that the final true residual is 5.6e-16
   here (0 there). Full log: `doc/readme/bar_mpi_trace_xv6.log`.
+
+## Performance (2026-11-20)
+
+QEMU raspi3b (TCG, 4 vCPUs) on an iMac M4. The 16x8 shell is
+`shell_serial_benchmark 16 8 - 1` and
+`mpirun -np N shell_mpi_benchmark -shell_benchmark -shell_repetitions 1`
+(`MPI_TIMING` wall time of the PETSc solve).
+
+| Run | before | after |
+| --- | --- | --- |
+| serial, 16x8 | 126.6 s | 21.2 s |
+| MPI 1 rank, 16x8 | 134.1 s | 23.4 s |
+| MPI 2 ranks, 16x8 | 86.7 s | 13.3 s |
+| MPI 4 ranks, 16x8 | 61.1 s | 8.7 s |
+| MPI 1 rank, 4x2 | 6.77 s | 1.23 s |
+| MPI 4 ranks, 4x2 | 2.26 s | 0.49 s |
+
+98% of the time was the element loop, and a host profile showed it was
+mostly memcpy/memset of `Jet<24>` objects (4.8 KB each):
+
+* `user/ulib.c`: `memset` and `memmove` (and so `memcpy`) were byte loops.
+  They now move aligned 8-byte words, four at a time. Serial 16x8: 103.7 s to
+  23.5 s.
+* `elements/common/second_order.hpp`: `Jet` stores only the upper triangle of
+  the symmetric Hessian, packed (300 instead of 576 doubles), and the
+  operators loop over it. `differentiate()` expands it with `symmetric()`.
+  `a - b` no longer builds `-1 * b`. Serial 16x8: computing only the
+  triangle (still in a full array) took 126.6 s to 103.7 s before the libc
+  change; packing it took 23.5 s to 21.2 s after it. Results agree with the old
+  build to round-off (largest change in `finite_element_benchmarks`:
+  BEAM_AD step 1, 6e-13 absolute, now closer to the explicit BEAM line).
+
+With 4 ranks the element time (5.9 s) is 3.6 times faster than 1 rank, and
+the rest is the band-LU block-Jacobi solve and its 7 484 reductions.
+
+Native on the Mac (`build/hostmpi`, clang -O3, real Eigen), 16x8: serial
+0.80 s to 0.45 s, 1 rank 0.78 s to 0.45 s. The upstream build with Open MPI
+and PETSc 3.25.4 takes 0.85 s (1 rank) and 0.37 s (4 ranks).
+

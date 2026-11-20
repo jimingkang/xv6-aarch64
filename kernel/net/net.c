@@ -30,7 +30,7 @@ struct udp_port {
 static struct udp_port ports[NUDPPORT];
 #define NTCP 16
 #define TCP_BACKLOG_MAX 16
-#define TCP_RX_SIZE 2048
+#define TCP_RX_SIZE 8192
 #define TCP_TXQ_SIZE 8192
 #define TCP_CLOSED 0
 #define TCP_LISTEN 1
@@ -43,6 +43,12 @@ static struct udp_port ports[NUDPPORT];
 #define TCP_RST 0x04
 #define TCP_PSH 0x08
 #define TCP_ACK 0x10
+// Data segments in flight: a few MSS, so a peer that delays its ACKs (BSD
+// stacks such as QEMU's slirp ACK every second segment, or after 200 ms)
+// does not hold each segment for a delayed-ACK timeout.
+#define TCP_MSS   (NET_MTU - 40)
+#define TCP_TXWIN (4 * TCP_MSS)
+
 struct tcp_conn {
   struct spinlock lock;
   int state;
@@ -71,7 +77,7 @@ struct tcp_conn {
   uint32 tx_seq;
   uint8 tx_flags;
   int tx_len;
-  uchar tx[NET_MTU - 40];
+  uchar tx[TCP_TXWIN];        // unacknowledged data, from tx_seq on
   int txq_len;
   uchar txq[TCP_TXQ_SIZE];
   uint64 tx_deadline;
@@ -486,30 +492,51 @@ tcp_track_send_locked(struct tcp_conn *c, uint8 flags, void *data, int len)
   return len;
 }
 
-// Keep one segment in the retransmission slot, while allowing write(2) to
-// queue following bytes without waiting for a round-trip ACK.  Interactive
-// SSH otherwise pays a full RTT for every echoed character.
+// Move queued write(2) bytes into the send window (up to TCP_TXWIN bytes in
+// flight, one MSS per segment).  tx[] keeps them until they are ACKed, and
+// a retransmission timeout resends the whole window (go-back-N).
 static void
 tcp_start_queued_locked(struct tcp_conn *c)
 {
-  int n;
+  int sent = 0;
 
-  if(c->tx_unacked || c->tx_failed || c->txq_len == 0 ||
+  if(c->tx_failed || c->txq_len == 0 ||
      (c->state != TCP_ESTABLISHED && c->state != TCP_CLOSE_WAIT))
     return;
-  n = c->txq_len;
-  if(n > (int)sizeof(c->tx))
-    n = sizeof(c->tx);
-  if(tcp_track_send_locked(c, TCP_ACK | TCP_PSH, c->txq, n) < 0){
-    c->tx_failed = 1;
+  // A SYN or FIN in the retransmission slot goes first.
+  if(c->tx_unacked && (c->tx_flags & (TCP_SYN | TCP_FIN)))
+    return;
+  while(c->txq_len > 0 && c->tx_len < TCP_TXWIN){
+    int n = c->txq_len;
+    if(n > TCP_MSS)
+      n = TCP_MSS;
+    if(n > TCP_TXWIN - c->tx_len)
+      n = TCP_TXWIN - c->tx_len;
+    if(!c->tx_unacked){
+      c->tx_seq = c->snd_nxt;
+      c->tx_len = 0;
+      c->tx_flags = TCP_ACK | TCP_PSH;
+    }
+    memmove(c->tx + c->tx_len, c->txq, n);
+    // A frame the device could not take now is just a lost segment: it
+    // stays in tx[] and the retransmission timer sends it again.
+    tcp_send_at_locked(c, c->snd_nxt, TCP_ACK | TCP_PSH, c->tx + c->tx_len, n);
+    c->tx_len += n;
+    c->snd_nxt += n;
+    memmove(c->txq, c->txq + n, c->txq_len - n);
+    c->txq_len -= n;
+    sent = 1;
+    if(!c->tx_unacked){
+      c->tx_unacked = 1;
+      c->tx_retries = 0;
+      c->tx_deadline = workqueue_now() + 50;
+      queue_delayed_work(&net_wq, &tcp_retransmit_work, 50);
+    }
+  }
+  if(sent){
     wakeup(c);
     tcp_epollnotify(c);
-    return;
   }
-  memmove(c->txq, c->txq + n, c->txq_len - n);
-  c->txq_len -= n;
-  wakeup(c);
-  tcp_epollnotify(c);
 }
 
 static void
@@ -659,12 +686,31 @@ tcp_rx(struct net_device *dev, struct ethhdr *eth, struct iphdr *ip,
     }
     return;
   }
-  if((tcp->flags & TCP_ACK) && c->tx_unacked && ack >= c->snd_nxt){
-    c->tx_unacked = 0;
-    c->tx_retries = 0;
-    tcp_start_queued_locked(c);
-    wakeup(c);
-    tcp_epollnotify(c);
+  if((tcp->flags & TCP_ACK) && c->tx_unacked){
+    if(c->tx_flags & (TCP_SYN | TCP_FIN)){
+      if(ack >= c->snd_nxt){
+        c->tx_unacked = 0;
+        c->tx_retries = 0;
+        tcp_start_queued_locked(c);
+        wakeup(c);
+        tcp_epollnotify(c);
+      }
+    } else {
+      // Cumulative ACK: drop what it covers, then refill the window.
+      int acked = (int)(ack - c->tx_seq);
+      if(acked > 0 && acked <= c->tx_len){
+        memmove(c->tx, c->tx + acked, c->tx_len - acked);
+        c->tx_len -= acked;
+        c->tx_seq += acked;
+        c->tx_retries = 0;
+        c->tx_deadline = workqueue_now() + 50;
+        if(c->tx_len == 0)
+          c->tx_unacked = 0;
+        tcp_start_queued_locked(c);
+        wakeup(c);
+        tcp_epollnotify(c);
+      }
+    }
   }
   if((c->state == TCP_ESTABLISHED || c->state == TCP_CLOSE_WAIT) &&
      datalen > 0){
@@ -1556,8 +1602,13 @@ net_tcp_tick(void)
         }
       } else {
         c->tx_retries++;
-        tcp_send_at_locked(c, c->tx_seq, c->tx_flags,
-                           c->tx, c->tx_len);
+        if(c->tx_flags & (TCP_SYN | TCP_FIN))
+          tcp_send_at_locked(c, c->tx_seq, c->tx_flags, c->tx, c->tx_len);
+        else
+          // Go back N: resend every segment still unacknowledged.
+          for(int off = 0; off < c->tx_len; off += TCP_MSS)
+            tcp_send_at_locked(c, c->tx_seq + off, c->tx_flags, c->tx + off,
+                               c->tx_len - off < TCP_MSS ? c->tx_len - off : TCP_MSS);
         c->tx_deadline = now + 50;
       }
     }

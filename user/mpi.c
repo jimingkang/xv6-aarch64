@@ -1,4 +1,13 @@
-// mpi.c -- single-node MPI subset over shared memory (see user/include/mpi.h).
+// mpi.c -- MPI subset over shared memory and TCP (see user/include/mpi.h).
+//
+// The ranks of one node (one machine) are forked by MPI_Init and talk
+// through the shared-memory rings described below.  A job may span several
+// nodes (an xv6 board or QEMU guest and a macOS host, say): then every rank
+// also holds one TCP connection to every rank on the other nodes, and the
+// same 16-byte header + payload stream runs over it.  "Transport" below is
+// the byte-stream layer (chan_*) that hides which of the two a peer uses.
+// The same file builds natively on macOS/Linux with -DMPI_HOST (see
+// user/mpi_host.h), so both ends speak the same protocol.
 //
 // Layout of the region MPI_Init maps with MAP_SHARED|MAP_ANONYMOUS before it
 // forks the ranks (fork maps shared pages again instead of COW-copying them):
@@ -31,12 +40,20 @@
 // sleeper's re-check sees the data or the producer sees the flag.  Extra
 // semaphore counts only cause a spurious wake-up.
 
+#ifdef MPI_HOST
+#include "mpi_host.h"
+#else
 #include <uapi/types.h>
 #include <uapi/mman.h>
 #include <uapi/limits.h>
+#include <uapi/socket.h>
+#include <fcntl.h>
 #include "user/user.h"
 #include "user/sync.h"
 #include "user/include/mpi.h"
+uint32 inet_addr(const char *);
+uint16 htons(uint16);
+#endif
 
 #define RING_SIZE    16384U             // power of two
 #define RING_MASK    (RING_SIZE - 1)
@@ -54,6 +71,11 @@
 #define TAG_ALLGATHERV (-107)
 #define TAG_ALLTOALLV  (-108)
 #define TAG_GATHERV    (-109)
+#define TAG_BYE        (-110)
+
+#define SOCK_RX      65536              // per-peer receive staging buffer
+#define HELLO_MAGIC  0x49504d58         // "XMPI"
+#define MAX_NODES    8
 
 struct ring {
   uint head;                  // written by the producer only
@@ -74,7 +96,7 @@ struct shared {
   } sl[MPI_MAX_RANKS];
 };
 
-struct msghdr {
+struct mpi_msghdr {
   int tag;
   int len;
   int comm;
@@ -105,7 +127,7 @@ struct mpi_req {
   struct mpi_req *next;       // send queue of its destination, or posted list
   // send: header + payload streamed from the caller's buffer
   int dst;
-  struct msghdr h;
+  struct mpi_msghdr h;
   const char *sbuf;
   int off, total;
   // receive
@@ -128,6 +150,13 @@ static struct shared *shm;
 static uint shm_size;
 static struct ring *rings;
 static int me = 0, nranks = 1, initialized, finalized;
+// My node's ranks are lbase..lbase+nlocal-1 and share memory; lme = me-lbase.
+static int lbase = 0, nlocal = 1, lme = 0;
+// Ranks on other nodes: one TCP connection each, read into a staging buffer.
+static int nremote, closing;
+static int peerfd[MPI_MAX_RANKS];
+static char *rxbuf[MPI_MAX_RANKS];
+static uint rxoff[MPI_MAX_RANKS], rxlen[MPI_MAX_RANKS];
 static int seqno;
 static struct inmsg *incur[MPI_MAX_RANKS];   // per-source message in flight
 static struct inmsg *uq_head, *uq_tail;      // unexpected queue, arrival order
@@ -169,15 +198,24 @@ typesize(MPI_Datatype t)
   return sz;
 }
 
+static int
+is_local(int r)
+{
+  return r >= lbase && r < lbase + nlocal;
+}
+
 static struct ring *
 ring_of(int src, int dst)
 {
-  return &rings[src * nranks + dst];
+  return &rings[(src - lbase) * nlocal + (dst - lbase)];
 }
 
 static void
 wake(int r)
 {
+  if(!is_local(r))
+    return;
+  r -= lbase;
   if(__atomic_load_n(&shm->sl[r].sleeping, __ATOMIC_SEQ_CST))
     sync_signal(shm->bell[r], 1);
 }
@@ -232,6 +270,88 @@ ring_get(struct ring *r, char *p, uint n)
   }
   __atomic_store_n(&r->tail, tail + n, __ATOMIC_SEQ_CST);
   return n;
+}
+
+// ---------------------------------------------------------------------------
+// transport: a byte stream per ordered rank pair, over a ring or a socket
+
+static void peer_lost(int s);
+
+// Pull whatever the kernel has for peer s into its staging buffer.
+static void
+sock_fill(int s)
+{
+  if(peerfd[s] < 0)
+    return;
+  if(rxoff[s] == rxlen[s])
+    rxoff[s] = rxlen[s] = 0;
+  else if(rxoff[s] > SOCK_RX / 2){
+    memmove(rxbuf[s], rxbuf[s] + rxoff[s], rxlen[s] - rxoff[s]);
+    rxlen[s] -= rxoff[s];
+    rxoff[s] = 0;
+  }
+  if(rxlen[s] == SOCK_RX)
+    return;
+  int n = read(peerfd[s], rxbuf[s] + rxlen[s], SOCK_RX - rxlen[s]);
+  if(n > 0)
+    rxlen[s] += n;
+  else if(n == 0)
+    peer_lost(s);
+#ifdef MPI_HOST
+  else if(errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+    peer_lost(s);
+#endif
+}
+
+// Bytes from s that can be taken now (at least `want` are fetched if the
+// kernel has them).
+static uint
+chan_avail(int s, uint want)
+{
+  if(is_local(s))
+    return ring_used(ring_of(s, me));
+  if(rxlen[s] - rxoff[s] < want)
+    sock_fill(s);
+  return rxlen[s] - rxoff[s];
+}
+
+static uint
+chan_get(int s, char *p, uint n)
+{
+  if(is_local(s))
+    return ring_get(ring_of(s, me), p, n);
+  if(rxlen[s] == rxoff[s])
+    sock_fill(s);
+  uint have = rxlen[s] - rxoff[s];
+  if(n > have)
+    n = have;
+  if(p && n)
+    fastcopy(p, rxbuf[s] + rxoff[s], n);
+  rxoff[s] += n;
+  return n;
+}
+
+static uint
+chan_put(int d, const char *p, uint n)
+{
+  if(is_local(d))
+    return ring_put(ring_of(me, d), p, n);
+  if(peerfd[d] < 0 || n == 0)
+    return 0;
+  int w = write(peerfd[d], p, n);
+  if(w > 0)
+    return w;
+#ifdef MPI_HOST
+  if(w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+    peer_lost(d);
+#endif
+  return 0;
+}
+
+static uint
+chan_space(int d)
+{
+  return is_local(d) ? ring_space(ring_of(me, d)) : 1;
 }
 
 static int
@@ -321,20 +441,32 @@ check_abort(void)
     exit(1);
 }
 
+// A remote peer closed its connection.  During MPI_Finalize that is the
+// normal end (it has sent its goodbye); at any other time the job is gone.
+static void
+peer_lost(int s)
+{
+  close(peerfd[s]);
+  peerfd[s] = -1;
+  if(closing)
+    return;
+  fprintf(2, "mpi: rank %d: connection to rank %d lost\n", me, s);
+  PMPI_Abort(MPI_COMM_WORLD, 1);
+}
+
 // Drain whatever has arrived from src.  Returns 1 if anything moved.
 static int
 progress_src(int s)
 {
-  struct ring *r = ring_of(s, me);
   int moved = 0;
 
   for(;;){
     struct inmsg *m = incur[s];
     if(m == 0){
-      struct msghdr h;
-      if(ring_used(r) < HDR_SIZE)
+      struct mpi_msghdr h;
+      if(chan_avail(s, HDR_SIZE) < HDR_SIZE)
         break;
-      ring_get(r, (char *)&h, HDR_SIZE);
+      chan_get(s, (char *)&h, HDR_SIZE);
       moved = 1;
       m = malloc(sizeof(*m));
       if(m == 0){
@@ -371,9 +503,9 @@ progress_src(int s)
         uint want = m->cap - m->got;
         if(want > (uint)(m->len - m->got))
           want = m->len - m->got;
-        n = ring_get(r, m->buf + m->got, want);
+        n = chan_get(s, m->buf + m->got, want);
       } else {
-        n = ring_get(r, 0, m->len - m->got);  // truncated tail: discard
+        n = chan_get(s, 0, m->len - m->got);  // truncated tail: discard
       }
       if(n == 0)
         break;
@@ -403,7 +535,6 @@ progress_src(int s)
 static int
 progress_dst(int d)
 {
-  struct ring *r = ring_of(me, d);
   int moved = 0;
   struct mpi_req *q;
 
@@ -411,9 +542,9 @@ progress_dst(int d)
     while(q->off < q->total){
       uint n;
       if(q->off < HDR_SIZE)
-        n = ring_put(r, (const char *)&q->h + q->off, HDR_SIZE - q->off);
+        n = chan_put(d, (const char *)&q->h + q->off, HDR_SIZE - q->off);
       else
-        n = ring_put(r, q->sbuf + (q->off - HDR_SIZE), q->total - q->off);
+        n = chan_put(d, q->sbuf + (q->off - HDR_SIZE), q->total - q->off);
       if(n == 0)
         break;
       q->off += n;
@@ -453,9 +584,10 @@ has_work(void)
   for(int s = 0; s < nranks; s++){
     if(s == me)
       continue;
-    if(ring_used(ring_of(s, me)) >= (incur[s] ? 1 : HDR_SIZE))
+    uint want = incur[s] ? 1 : HDR_SIZE;
+    if(chan_avail(s, want) >= want)
       return 1;
-    if(sq_head[s] && ring_space(ring_of(me, s)) > 0)
+    if(sq_head[s] && chan_space(s) > 0)
       return 1;
   }
   return __atomic_load_n(&shm->aborted, __ATOMIC_ACQUIRE);
@@ -467,15 +599,26 @@ idle(int *spins)
 {
   check_abort();
   if(++*spins < SPIN_LIMIT){
-    if(nranks > NCPU)
+    if(nlocal > NCPU)
       sched_yield();
     return;
   }
   *spins = 0;
-  __atomic_store_n(&shm->sl[me].sleeping, 1, __ATOMIC_SEQ_CST);
+  if(nremote){
+    // Socket data rings no doorbell, so a rank with remote peers never
+    // sleeps on it.  It gives the CPU away instead, or waits in poll() on
+    // a host, where poll has microsecond-scale timeouts (xv6's has 100 ms).
+#ifdef MPI_HOST
+    host_poll_peers(peerfd, nranks, 1);
+#else
+    sched_yield();
+#endif
+    return;
+  }
+  __atomic_store_n(&shm->sl[lme].sleeping, 1, __ATOMIC_SEQ_CST);
   if(!has_work())
-    sync_wait(shm->bell[me]);
-  __atomic_store_n(&shm->sl[me].sleeping, 0, __ATOMIC_SEQ_CST);
+    sync_wait(shm->bell[lme]);
+  __atomic_store_n(&shm->sl[lme].sleeping, 0, __ATOMIC_SEQ_CST);
 }
 
 // ---------------------------------------------------------------------------
@@ -646,25 +789,270 @@ check_comm(MPI_Comm comm)
   return comm == MPI_COMM_WORLD && initialized && !finalized;
 }
 
+// ---------------------------------------------------------------------------
+// multi-node set-up: options, TCP connections between the nodes
+
+static int
+read_full(int fd, void *p, int n)
+{
+  char *c = p;
+  while(n > 0){
+    int k = read(fd, c, n);
+    if(k <= 0)
+      return -1;
+    c += k;
+    n -= k;
+  }
+  return 0;
+}
+
+static int
+write_full(int fd, const void *p, int n)
+{
+  const char *c = p;
+  while(n > 0){
+    int k = write(fd, c, n);
+    if(k <= 0)
+      return -1;
+    c += k;
+    n -= k;
+  }
+  return 0;
+}
+
+// "a,b,c" -> ints; returns the count or -1.
+static int
+parse_list(const char *t, int *out, int max)
+{
+  int n = 0;
+  while(*t){
+    if(n == max || *t < '0' || *t > '9')
+      return -1;
+    int v = 0;
+    while(*t >= '0' && *t <= '9')
+      v = v * 10 + (*t++ - '0');
+    out[n++] = v;
+    if(*t == ',')
+      t++;
+    else if(*t)
+      return -1;
+  }
+  return n;
+}
+
+// "ip:port,ip:port,..." (an entry may be "-" for a node that never listens).
+static int
+parse_hosts(char *t, char hosts[][16], int *ports, int max)
+{
+  int n = 0;
+  while(*t){
+    if(n == max)
+      return -1;
+    int k = 0;
+    hosts[n][0] = 0;
+    ports[n] = 0;
+    while(*t && *t != ':' && *t != ','){
+      if(k < 15)
+        hosts[n][k++] = *t;
+      t++;
+    }
+    hosts[n][k] = 0;
+    if(*t == ':'){
+      t++;
+      while(*t >= '0' && *t <= '9')
+        ports[n] = ports[n] * 10 + (*t++ - '0');
+    }
+    n++;
+    if(*t == ',')
+      t++;
+    else if(*t)
+      return -1;
+  }
+  return n;
+}
+
+static int
+tcp_connect_to(const char *host, int port)
+{
+#ifdef MPI_HOST
+  return host_connect(host, port);
+#else
+  struct sockaddr_in a;
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if(fd < 0)
+    return -1;
+  memset(&a, 0, sizeof(a));
+  a.sin_family = AF_INET;
+  a.sin_port = htons(port);
+  a.sin_addr.s_addr = inet_addr(host);
+  if(connect(fd, &a, sizeof(a)) < 0){
+    close(fd);
+    return -1;
+  }
+  return fd;
+#endif
+}
+
+static int
+tcp_listen_on(int port, int backlog)
+{
+#ifdef MPI_HOST
+  return host_listen(port, backlog);
+#else
+  return socket_listen(port, backlog);
+#endif
+}
+
+static int
+tcp_accept_on(int fd)
+{
+#ifdef MPI_HOST
+  return host_accept(fd);
+#else
+  return socket_accept(fd);
+#endif
+}
+
+// Connect this rank to every rank on the other nodes.  A rank on node k
+// connects to the ranks of nodes j < k (rank r of node j listens on
+// port_j + (r - base_j)) and accepts the ranks of nodes j > k, so the
+// highest node only ever connects out: that is the one to run behind NAT
+// (QEMU user networking).  Each connection starts with a hello
+// {magic, rank, world size}.
+static int
+net_setup(int nnodes, const int *sizes, int node, char hosts[][16], const int *ports)
+{
+  int base[MAX_NODES], later = 0, lfd = -1;
+
+  for(int j = 0, b = 0; j < nnodes; j++){
+    base[j] = b;
+    b += sizes[j];
+    if(j > node)
+      later += sizes[j];
+  }
+  if(later > 0){
+    if(ports[node] <= 0){
+      fprintf(2, "mpi: node %d needs a port in -mpi_hosts\n", node);
+      return -1;
+    }
+    if((lfd = tcp_listen_on(ports[node] + lme, later)) < 0){
+      fprintf(2, "mpi: rank %d: cannot listen on port %d\n", me, ports[node] + lme);
+      return -1;
+    }
+  }
+  for(int j = 0; j < node; j++){
+    for(int r = base[j]; r < base[j] + sizes[j]; r++){
+      int fd = -1;
+      for(int tries = 0; tries < 1200 && fd < 0; tries++){
+        if((fd = tcp_connect_to(hosts[j], ports[j] + (r - base[j]))) < 0)
+          usleep(100000);
+      }
+      if(fd < 0){
+        fprintf(2, "mpi: rank %d: cannot reach rank %d at %s:%d\n", me, r,
+                hosts[j], ports[j] + (r - base[j]));
+        return -1;
+      }
+      int hello[3] = { HELLO_MAGIC, me, nranks };
+      if(write_full(fd, hello, sizeof(hello)) < 0)
+        return -1;
+      peerfd[r] = fd;
+    }
+  }
+  for(int i = 0; i < later; i++){
+    int fd = tcp_accept_on(lfd), hello[3];
+    if(fd < 0 || read_full(fd, hello, sizeof(hello)) < 0)
+      return -1;
+    if(hello[0] != HELLO_MAGIC || hello[2] != nranks || hello[1] < 0 ||
+       hello[1] >= nranks || is_local(hello[1]) || peerfd[hello[1]] >= 0){
+      fprintf(2, "mpi: rank %d: bad hello (rank %d, world %d)\n", me, hello[1], hello[2]);
+      return -1;
+    }
+    peerfd[hello[1]] = fd;
+  }
+  if(lfd >= 0)
+    close(lfd);
+  for(int r = 0; r < nranks; r++){
+    if(peerfd[r] < 0)
+      continue;
+    if((rxbuf[r] = malloc(SOCK_RX)) == 0)
+      return -1;
+#ifdef MPI_HOST
+    host_tune_socket(peerfd[r]);
+#endif
+    fcntl(peerfd[r], F_SETFL, O_NONBLOCK);
+    nremote++;
+  }
+  return 0;
+}
+
 int
 PMPI_Init(int *argc, char ***argv)
 {
-  int n = 1;
+  int n = -1, node = 0, nnodes = 1, sizes[MAX_NODES], ports[MAX_NODES];
+  char hosts[MAX_NODES][16];
+  char *hostlist = 0;
 
   if(initialized)
     return mpi_err("MPI_Init", MPI_ERR_OTHER);
-  if(argc && argv && *argc >= 3 && strcmp((*argv)[1], "-np") == 0){
-    n = atoi((*argv)[2]);
-    (*argv)[2] = (*argv)[0];
-    *argv += 2;
-    *argc -= 2;
+  for(int r = 0; r < MPI_MAX_RANKS; r++)
+    peerfd[r] = -1;
+  // Strip the launcher options wherever they are:
+  //   -np N              ranks on this node
+  //   -mpi_nodes a,b,..  ranks on each node (node 0 first)
+  //   -mpi_node k        which node this is
+  //   -mpi_hosts h0:p0,h1:p1,..  where each node's ranks listen (base port)
+  if(argc && argv){
+    int k = 1;
+    for(int i = 1; i < *argc; i++){
+      char *a = (*argv)[i], *v = i + 1 < *argc ? (*argv)[i + 1] : 0;
+      if(v && strcmp(a, "-np") == 0)
+        n = atoi(v);
+      else if(v && strcmp(a, "-mpi_node") == 0)
+        node = atoi(v);
+      else if(v && strcmp(a, "-mpi_nodes") == 0){
+        if((nnodes = parse_list(v, sizes, MAX_NODES)) < 1){
+          fprintf(2, "mpi: bad -mpi_nodes %s\n", v);
+          return MPI_ERR_ARG;
+        }
+      } else if(v && strcmp(a, "-mpi_hosts") == 0)
+        hostlist = v;
+      else {
+        (*argv)[k++] = a;
+        continue;
+      }
+      i++;
+    }
+    (*argv)[k] = 0;
+    *argc = k;
   }
-  if(n < 1 || n > MPI_MAX_RANKS){
-    fprintf(2, "mpi: -np must be 1..%d\n", MPI_MAX_RANKS);
+  if(nnodes == 1){
+    if(n < 0)
+      n = 1;
+    sizes[0] = n;
+  } else {
+    if(node < 0 || node >= nnodes || (n >= 0 && n != sizes[node])){
+      fprintf(2, "mpi: -mpi_node %d does not fit -mpi_nodes\n", node);
+      return MPI_ERR_ARG;
+    }
+    n = sizes[node];
+    if(hostlist == 0 || parse_hosts(hostlist, hosts, ports, MAX_NODES) != nnodes){
+      fprintf(2, "mpi: -mpi_hosts needs one ip:port per node\n");
+      return MPI_ERR_ARG;
+    }
+  }
+  nranks = 0;
+  lbase = 0;
+  for(int j = 0; j < nnodes; j++){
+    if(j < node)
+      lbase += sizes[j];
+    nranks += sizes[j];
+  }
+  if(n < 1 || nranks > MPI_MAX_RANKS){
+    fprintf(2, "mpi: -np must be 1..%d in all\n", MPI_MAX_RANKS);
     return MPI_ERR_ARG;
   }
 
-  nranks = n;
+  nlocal = n;
   shm_size = PAGE + n * n * sizeof(struct ring);
   shm_size = (shm_size + PAGE - 1) & ~(PAGE - 1);
   shm = mmap(0, shm_size, PROT_READ | PROT_WRITE,
@@ -683,23 +1071,28 @@ PMPI_Init(int *argc, char ***argv)
   }
   shm->pids[0] = getpid();
 
-  me = 0;
+  lme = 0;
   for(int r = 1; r < n; r++){
     int pid = fork();
     if(pid < 0){
-      fprintf(2, "mpi: fork failed for rank %d\n", r);
+      fprintf(2, "mpi: fork failed for rank %d\n", lbase + r);
       initialized = 1;
       PMPI_Abort(MPI_COMM_WORLD, 1);
     }
     if(pid == 0){
-      me = r;
+      lme = r;
       break;
     }
     shm->pids[r] = pid;
   }
+  me = lbase + lme;
   if(n > 1)
-    sched_setaffinity(getpid(), 1U << (me % NCPU));
+    sched_setaffinity(getpid(), 1U << (lme % NCPU));
   initialized = 1;
+  if(nnodes > 1 && net_setup(nnodes, sizes, node, hosts, ports) < 0){
+    fprintf(2, "mpi: rank %d: could not connect the nodes\n", me);
+    PMPI_Abort(MPI_COMM_WORLD, 1);
+  }
   // Make sure every rank exists (and every pid is recorded) before user code.
   return PMPI_Barrier(MPI_COMM_WORLD);
 }
@@ -719,11 +1112,36 @@ PMPI_Finalize(void)
   if(!initialized || finalized)
     return mpi_err("MPI_Finalize", MPI_ERR_OTHER);
   rc = PMPI_Barrier(MPI_COMM_WORLD);
+  if(nremote){
+    // Goodbye on every connection: once a peer's goodbye is in, it will send
+    // nothing more, so closing cannot throw away unread data (which makes
+    // some stacks answer with a reset instead of a FIN).
+    struct mpi_req sq[MPI_MAX_RANKS], rq[MPI_MAX_RANKS];
+    char bye = 0, got[MPI_MAX_RANKS];
+    closing = 1;
+    for(int r = 0; r < nranks; r++){
+      if(is_local(r))
+        continue;
+      irecv_start(&rq[r], &got[r], 1, r, TAG_BYE);
+      isend_start(&sq[r], &bye, 1, r, TAG_BYE);
+    }
+    for(int r = 0; r < nranks; r++){
+      if(is_local(r))
+        continue;
+      req_wait(&sq[r]);
+      req_wait(&rq[r]);
+    }
+    for(int r = 0; r < nranks; r++){
+      if(peerfd[r] >= 0)
+        close(peerfd[r]);
+      peerfd[r] = -1;
+    }
+  }
   finalized = 1;
-  if(me == 0){
-    for(int r = 1; r < nranks; r++)
+  if(lme == 0){
+    for(int r = 1; r < nlocal; r++)
       waitpid(shm->pids[r], 0, 0);
-    for(int r = 0; r < nranks; r++)
+    for(int r = 0; r < nlocal; r++)
       sync_destroy(shm->bell[r]);
   }
   return rc;
@@ -735,11 +1153,15 @@ PMPI_Abort(MPI_Comm comm, int errorcode)
   (void)comm;
   if(shm){
     __atomic_store_n(&shm->aborted, 1, __ATOMIC_SEQ_CST);
-    for(int r = 0; r < nranks; r++){
-      if(r != me && shm->pids[r] > 0)
+    for(int r = 0; r < nlocal; r++){
+      if(r != lme && shm->pids[r] > 0)
         kill(shm->pids[r]);
     }
   }
+  // Remote ranks see the connections close and abort in turn.
+  for(int r = 0; r < nranks; r++)
+    if(peerfd[r] >= 0)
+      close(peerfd[r]);
   exit(errorcode ? errorcode : 1);
 }
 
@@ -764,7 +1186,12 @@ PMPI_Comm_size(MPI_Comm comm, int *size)
 int
 PMPI_Get_processor_name(char *name, int *resultlen)
 {
+#ifdef MPI_HOST
+  char s[MPI_MAX_PROCESSOR_NAME];
+  host_name(s, sizeof(s));
+#else
   const char *s = "xv6-rpi3";
+#endif
   int i;
   for(i = 0; s[i]; i++)
     name[i] = s[i];
@@ -1730,8 +2157,13 @@ PMPI_Waitsome(int incount, MPI_Request *requests, int *outcount, int *indices,
 // ---------------------------------------------------------------------------
 // MPI_x is an alias of PMPI_x, so a program can wrap MPI_x and call PMPI_x.
 
+#ifdef MPI_HOST
+// Mach-O has no aliases: user/mpi_host_alias.c has weak MPI_x -> PMPI_x.
+#define ALIAS(name)
+#else
 #define ALIAS(name) \
   extern __typeof(PMPI_##name) MPI_##name __attribute__((alias("PMPI_" #name)));
+#endif
 ALIAS(Init) ALIAS(Initialized) ALIAS(Finalize) ALIAS(Abort)
 ALIAS(Comm_rank) ALIAS(Comm_size) ALIAS(Get_processor_name) ALIAS(Type_size)
 ALIAS(Wtime) ALIAS(Wtick) ALIAS(Wtime_us)

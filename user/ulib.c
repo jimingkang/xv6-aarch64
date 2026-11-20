@@ -78,11 +78,32 @@ strnlen(const char *s, uint max)
 void*
 memset(void *dst, int c, uint n)
 {
-  char *cdst = (char *) dst;
-  int i;
-  for(i = 0; i < n; i++){
-    cdst[i] = c;
+  // Word stores once aligned: the C++ code zero-fills multi-KB objects
+  // (fem's Jet<24> is 4.8 KB) and a byte loop dominated its run time.
+  unsigned char *d = (unsigned char *) dst;
+  uint64 w = (unsigned char)c;
+  w |= w << 8;
+  w |= w << 16;
+  w |= w << 32;
+  while(n > 0 && ((uint64)d & 7)){
+    *d++ = c;
+    n--;
   }
+  while(n >= 32){
+    ((uint64 *)d)[0] = w;
+    ((uint64 *)d)[1] = w;
+    ((uint64 *)d)[2] = w;
+    ((uint64 *)d)[3] = w;
+    d += 32;
+    n -= 32;
+  }
+  while(n >= 8){
+    *(uint64 *)d = w;
+    d += 8;
+    n -= 8;
+  }
+  while(n-- > 0)
+    *d++ = c;
   return dst;
 }
 
@@ -292,17 +313,54 @@ long labs(long value) { return value < 0 ? -value : value; }
 void*
 memmove(void *vdst, const void *vsrc, int n)
 {
-  char *dst;
-  const char *src;
+  char *dst = vdst;
+  const char *src = vsrc;
 
-  dst = vdst;
-  src = vsrc;
-  if (src > dst) {
+  if(n <= 0 || dst == src)
+    return vdst;
+  // Copy forward when that cannot overwrite unread source bytes; 8-byte
+  // words (4 at a time) when both pointers share alignment.
+  if(dst < src || dst >= src + n){
+    if((((uint64)dst ^ (uint64)src) & 7) == 0){
+      while(n > 0 && ((uint64)dst & 7)){
+        *dst++ = *src++;
+        n--;
+      }
+      while(n >= 32){
+        uint64 a = ((const uint64 *)src)[0], b = ((const uint64 *)src)[1];
+        uint64 c = ((const uint64 *)src)[2], d = ((const uint64 *)src)[3];
+        ((uint64 *)dst)[0] = a;
+        ((uint64 *)dst)[1] = b;
+        ((uint64 *)dst)[2] = c;
+        ((uint64 *)dst)[3] = d;
+        dst += 32;
+        src += 32;
+        n -= 32;
+      }
+      while(n >= 8){
+        *(uint64 *)dst = *(const uint64 *)src;
+        dst += 8;
+        src += 8;
+        n -= 8;
+      }
+    }
     while(n-- > 0)
       *dst++ = *src++;
   } else {
     dst += n;
     src += n;
+    if((((uint64)dst ^ (uint64)src) & 7) == 0){
+      while(n > 0 && ((uint64)dst & 7)){
+        *--dst = *--src;
+        n--;
+      }
+      while(n >= 8){
+        dst -= 8;
+        src -= 8;
+        *(uint64 *)dst = *(const uint64 *)src;
+        n -= 8;
+      }
+    }
     while(n-- > 0)
       *--dst = *--src;
   }

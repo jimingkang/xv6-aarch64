@@ -1,7 +1,8 @@
 # MPI subset in user space
 
 `user/mpi.c` (linked into `libc.so`) and `user/include/mpi.h` give xv6
-programs a single-node MPI: one `MPI_COMM_WORLD`, blocking and non-blocking
+programs an MPI that forks the ranks of one node (and can join several
+nodes over TCP, see `readme_mpi_tcp.md`): one `MPI_COMM_WORLD`, blocking and non-blocking
 point-to-point, the common collectives, and integer and floating-point
 reductions. The library itself needs no kernel changes. Floating point needs
 the per-task FP/SIMD context described below.

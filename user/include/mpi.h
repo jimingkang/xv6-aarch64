@@ -1,8 +1,11 @@
 // mpi.h -- a small MPI subset for xv6-aarch64 user programs.
 //
-// Single node only: MPI_Init forks the ranks of MPI_COMM_WORLD from the
-// calling process and they talk through one MAP_SHARED|MAP_ANONYMOUS region
-// (one single-producer/single-consumer byte ring per ordered rank pair).
+// MPI_Init forks the ranks of this node from the calling process and they
+// talk through one MAP_SHARED|MAP_ANONYMOUS region (one single-producer/
+// single-consumer byte ring per ordered rank pair).  A job may also span
+// several nodes (-mpi_nodes/-mpi_node/-mpi_hosts, see
+// doc/readme/readme_mpi_tcp.md): ranks on different nodes use one TCP
+// connection per pair.  The same file builds on macOS (hostmpi/).
 // A rank that has nothing to do spins briefly, then sleeps on a per-rank
 // kernel semaphore (sync_create(SYNC_SEM)) that its peers signal.
 //
@@ -59,7 +62,7 @@ typedef struct {
 #define MPI_REQUEST_NULL  ((MPI_Request)0)
 #define MPI_IN_PLACE      ((void *)1)
 #define MPI_MAX_PROCESSOR_NAME 32
-#define MPI_MAX_RANKS     8
+#define MPI_MAX_RANKS     16
 
 // Datatype handle = (id << 8) | element size in bytes.
 #define MPI_CHAR            0x0101

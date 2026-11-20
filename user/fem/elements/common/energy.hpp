@@ -19,7 +19,7 @@ std::array<Jet<N>, N> variables(const Vector& u) {
 template <std::size_t N>
 Response differentiate(const Jet<N>& energy) {
     Response response{Vector(energy.gradient.begin(), energy.gradient.end()), {}};
-    for (const auto& row : energy.hessian) {
+    for (const auto& row : energy.symmetric()) {
         response.tangent.emplace_back(row.begin(), row.end());
     }
     return response;

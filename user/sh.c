@@ -11,7 +11,7 @@
 #define LIST  4
 #define BACK  5
 
-#define MAXARGS 10
+#define MAXARGS 32  // MPI jobs pass -mpi_nodes/-mpi_node/-mpi_hosts on top of PETSc options
 
 struct cmd {
   int type;

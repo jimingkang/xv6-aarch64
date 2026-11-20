@@ -1,0 +1,123 @@
+// File streams for xv6: std::ofstream writes through the buffered ostream to
+// an open(2) descriptor; std::ifstream reads the whole file at open time and
+// parses whitespace-separated integers, doubles and words with operator>>.
+#pragma once
+#include <__xv6_ostream>
+#include <string>
+#include <cmath>
+#include <__xv6_libc.h>
+
+extern "C" {
+int open(const char *, int, ...);
+int close(int);
+int read(int, void *, int);
+}
+
+namespace std {
+class ofstream : public ostream {
+  int fd_;
+  static int open_(const char *p) { return ::open(p, 0x001 | 0x200 | 0x400); }  // O_WRONLY|O_CREATE|O_TRUNC
+  explicit ofstream(int fd) : ostream(fd), fd_(fd) { if(fd < 0) setstate(failbit); }
+protected:
+  void sink(const char *s, long n) override { if(fd_ >= 0) ostream::sink(s, n); }
+public:
+  explicit ofstream(const char *p) : ofstream(open_(p)) {}
+  explicit ofstream(const string &p) : ofstream(open_(p.c_str())) {}
+  ofstream(const ofstream &) = delete;
+  ~ofstream() override { close(); }
+  bool is_open() const { return fd_ >= 0; }
+  void close() {
+    if(fd_ >= 0) { flush(); ::close(fd_); fd_ = -1; }
+  }
+};
+
+class ifstream : public ios {
+  string d_;
+  size_t p_ = 0;
+  bool open_ = false;
+  void load(const char *path) {
+    int fd = ::open(path, 0);
+    if(fd < 0) { setstate(failbit); return; }
+    open_ = true;
+    char buf[4096];
+    for(int n; (n = ::read(fd, buf, sizeof(buf))) > 0;) d_.append(buf, (size_t)n);
+    ::close(fd);
+  }
+  bool skip() {
+    while(p_ < d_.size() && (d_[p_] == ' ' || d_[p_] == '\n' || d_[p_] == '\t' || d_[p_] == '\r')) p_++;
+    if(p_ >= d_.size()) { setstate(failbit | eofbit); return false; }
+    return true;
+  }
+  static bool digit(char c) { return c >= '0' && c <= '9'; }
+  bool real(double &out) {
+    if(fail() || !skip()) return false;
+    size_t q = p_;
+    bool neg = false;
+    if(d_[q] == '+' || d_[q] == '-') neg = d_[q++] == '-';
+    if(d_.size() - q >= 3 && ::memcmp(d_.data() + q, "inf", 3) == 0) { p_ = q + 3; out = neg ? -HUGE_VAL : HUGE_VAL; return true; }
+    if(d_.size() - q >= 3 && ::memcmp(d_.data() + q, "nan", 3) == 0) { p_ = q + 3; out = NAN; return true; }
+    unsigned long long m = 0;
+    int ex = 0, nd = 0;
+    bool any = false;
+    for(; q < d_.size() && digit(d_[q]); q++, any = true)
+      if(nd < 19) { m = m * 10 + (d_[q] - '0'); if(m) nd++; } else ex++;
+    if(q < d_.size() && d_[q] == '.') {
+      for(q++; q < d_.size() && digit(d_[q]); q++, any = true)
+        if(nd < 19) { m = m * 10 + (d_[q] - '0'); if(m) nd++; ex--; }
+    }
+    if(!any) { setstate(failbit); return false; }
+    if(q < d_.size() && (d_[q] == 'e' || d_[q] == 'E')) {
+      size_t r = q + 1;
+      bool en = false;
+      if(r < d_.size() && (d_[r] == '+' || d_[r] == '-')) en = d_[r++] == '-';
+      if(r < d_.size() && digit(d_[r])) {
+        int e = 0;
+        for(; r < d_.size() && digit(d_[r]); r++) if(e < 100000) e = e * 10 + (d_[r] - '0');
+        ex += en ? -e : e;
+        q = r;
+      }
+    }
+    p_ = q;
+    double v = (double)m;
+    // Scale in two steps so 1e-320-style subnormals and 1e308 do not overflow early.
+    if(ex < -300) { v *= ::pow(10.0, -300); ex += 300; }
+    out = ex ? v * ::pow(10.0, ex) : v;
+    if(neg) out = -out;
+    return true;
+  }
+  bool integer(long long &out, bool allow_neg) {
+    if(fail() || !skip()) return false;
+    size_t q = p_;
+    bool neg = false;
+    if(d_[q] == '+' || (allow_neg && d_[q] == '-')) neg = d_[q++] == '-';
+    if(q >= d_.size() || !digit(d_[q])) { setstate(failbit); return false; }
+    unsigned long long v = 0;
+    for(; q < d_.size() && digit(d_[q]); q++) v = v * 10 + (d_[q] - '0');
+    p_ = q;
+    out = neg ? -(long long)v : (long long)v;
+    return true;
+  }
+public:
+  explicit ifstream(const char *p) { load(p); }
+  explicit ifstream(const string &p) { load(p.c_str()); }
+  bool is_open() const { return open_; }
+  void close() {}
+  ifstream &operator>>(double &x) { double v; if(real(v)) x = v; return *this; }
+  ifstream &operator>>(float &x) { double v; if(real(v)) x = (float)v; return *this; }
+  ifstream &operator>>(int &x) { long long v; if(integer(v, true)) x = (int)v; return *this; }
+  ifstream &operator>>(long &x) { long long v; if(integer(v, true)) x = (long)v; return *this; }
+  ifstream &operator>>(long long &x) { long long v; if(integer(v, true)) x = v; return *this; }
+  ifstream &operator>>(unsigned &x) { long long v; if(integer(v, false)) x = (unsigned)v; return *this; }
+  ifstream &operator>>(unsigned long &x) { long long v; if(integer(v, false)) x = (unsigned long)v; return *this; }
+  ifstream &operator>>(unsigned long long &x) { long long v; if(integer(v, false)) x = (unsigned long long)v; return *this; }
+  ifstream &operator>>(string &s) {
+    if(fail() || !skip()) return *this;
+    size_t q = p_;
+    while(q < d_.size() && d_[q] != ' ' && d_[q] != '\n' && d_[q] != '\t' && d_[q] != '\r') q++;
+    s.assign(d_.data() + p_, q - p_);
+    p_ = q;
+    return *this;
+  }
+};
+typedef ofstream fstream;
+}

@@ -159,3 +159,32 @@ done
 异步归约和点对点请求的完成时间按请求类型归类，混合与未知请求只计入 MPI 总时间。
 每次线性求解后显式重算 `R-K*delta`，这项校验在 KSP 分段计时之外，
 计入端到端墙钟。需要逐迭代残差曲线时，可在单独的诊断运行中加 `-ksp_monitor_true_residual`。
+
+### 从 Gmsh 网格运行 libMesh 壳悬臂
+
+`tests/meshes/mitc4_cantilever.geo` 定义了原 PETSc 悬臂的 16×8 QUAD4 网格。
+夹持边为 `CLAMP`（11），受载边为 `LOAD`（12），壳面为 `SHELL`（1）。
+仓库包含生成的 MSH 2.2 ASCII 文件。可用 Gmsh 重新生成。
+
+```sh
+gmsh tests/meshes/mitc4_cantilever.geo -2 -format msh2 \
+  -o tests/meshes/mitc4_cantilever.msh
+```
+
+使用启用了 Dirichlet 支持的 libMesh。libMesh 和本项目应使用兼容的 C++ ABI
+及同一 MPI/PETSc 安装。构建时可用 `-DLIBMESH_CONFIG=/path/to/libmesh-config`
+指定对应的配置脚本。
+
+```sh
+cmake -S . -B build-libmesh -DCMAKE_BUILD_TYPE=Release \
+  -DFEAPPV_ENABLE_PETSC=ON -DFEAPPV_ENABLE_LIBMESH=ON
+cmake --build build-libmesh --target shell_libmesh
+ctest --test-dir build-libmesh -R '^shell_libmesh_' --output-on-failure
+mpiexec -n 2 build-libmesh/shell_libmesh tests/meshes/mitc4_cantilever.msh \
+  -pc_type asm -pc_asm_overlap 2 -sub_pc_type ilu -sub_pc_factor_levels 2
+```
+
+libMesh 的 `DofMap` 生成节点自由度和齐次 Dirichlet 约束。
+适配程序把这些编号、约束和边载荷交给现有 PETSc 后端。
+`LIBMESH_CHECK` 逐载荷步输出两种建模方式的末端位移、竖向支座反力总和、
+全位移最大分量差及约束反力最大分量差。

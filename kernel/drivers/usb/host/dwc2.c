@@ -1772,26 +1772,71 @@ dwc2_cdc_xmit(void *packet, int len)
   return r;
 }
 
+// Bytes of the current frame already in rx_buf.  A bulk-IN transfer that
+// ends in NAK or an error may have moved some 64-byte packets first (QEMU's
+// DWC2 model reports the NAK of a retry after packets of a frame that was
+// still arriving); they belong to the frame, so the next transfer continues
+// behind them instead of overwriting them.
+static int rx_have;
+static int rx_armed_len;
+
+// Behind a hub (QEMU's usb-net on raspi3b) a multi-packet bulk IN moves one
+// 64-byte packet per 1 ms frame, so a 1.5 KB frame took ~25 ms.  There the
+// IRQ-driven transfer waits for the first packet only, and the rest of the
+// Ethernet frame is pulled with back-to-back split transfers (as TX does).
+static int
+rx_split_mode(void)
+{
+  return usb_address > 0 && usb_address < 128 && usb_route[usb_address].hub != 0;
+}
+
 static void
 arm_rx(void)
 {
   uint32 hcchar;
-  int len = 1536;
+  int len = rx_split_mode() && rx_have == 0 ? 64 : 1536 - rx_have;
   int packets = (len + 63) / 64;
 
   wr(HCINT(2), 0x3fff);
-  wr(HCINTMSK(2), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_NAK |
-                   HCINT_ERRORS);
+  // No NAK interrupt: the channel retries a NAKed bulk IN by itself, and
+  // an idle link would otherwise interrupt on every retry.
+  wr(HCINTMSK(2), HCINT_XFERCOMPL | HCINT_CHHLTD | HCINT_ERRORS);
   wr(HAINTMSK, rd(HAINTMSK) | (1U << 2));
-  cache_clean_invalidate_range(rx_buf, len);
-  wr(HCDMA(2), DWC2_DMA_BUS(rx_buf));
+  cache_clean_invalidate_range(rx_buf + rx_have, len);
+  wr(HCDMA(2), DWC2_DMA_BUS(rx_buf + rx_have));
   wr(HCTSIZ(2), HCTSIZ_XFERSIZE(len) | HCTSIZ_PKTCNT(packets) |
                  HCTSIZ_PID(bulk_in_toggle ? PID_DATA1 : PID_DATA0));
   hcchar = HCCHAR_DEVADDR(usb_address) | HCCHAR_EPNUM(2) |
            HCCHAR_EPTYPE(EPTYPE_BULK) | HCCHAR_MPS(64) |
            HCCHAR_EPDIR_IN;
   wr(HCCHAR(2), hcchar | HCCHAR_CHENA);
+  rx_armed_len = len;
   rx_armed = 1;
+}
+
+// Keep the whole packets an interrupted transfer moved.
+static void
+rx_keep_partial(void)
+{
+  uint32 left = rd(HCTSIZ(2)) & 0x7ffff;
+  int got = left <= (uint32)rx_armed_len ? rx_armed_len - (int)left : 0;
+  got &= ~63;
+  if(got > 0 && rx_have + got < 1536){
+    if((got / 64) & 1)
+      bulk_in_toggle ^= 1;
+    rx_have += got;
+  }
+}
+
+// Frames for usb0 are taken off channel 2 from a kworker when the channel
+// completes, so TCP/UDP receive works without anyone polling the device.
+static struct work_struct cdc_rx_work;
+
+static void
+dwc2_cdc_rx_work(struct work_struct *work)
+{
+  (void)work;
+  dwc2_cdc_poll();
 }
 
 void
@@ -1818,36 +1863,46 @@ dwc2_cdc_poll(void)
     dwc2_irq_pending &= ~(1U << 2);
 
     intr = rd(HCINT(2));
-    if(intr & HCINT_NAK){
-      halt_channel(2);
-      wr(HCINT(2), intr);
-      rx_armed = 0;
-      arm_rx();
-      release(&usb_lock);
-      return;
-    }
-    if(intr & HCINT_ERRORS){
-      halt_channel(2);
-      wr(HCINT(2), intr);
-      rx_armed = 0;
-      arm_rx();
-      release(&usb_lock);
-      return;
-    }
     if(!(intr & HCINT_XFERCOMPL)){
+      // Halted (error, or a NAK the channel gave up on) without finishing:
+      // keep what arrived and re-arm.  Returning without re-arming would
+      // leave channel 2 masked in HAINTMSK and stop receive for good.
+      { static int logs; if(logs++ < 8) printf("usbnet: rx channel halted hcint=%x\n", intr); }
+      halt_channel(2);
+      wr(HCINT(2), intr);
+      rx_keep_partial();
+      rx_armed = 0;
+      arm_rx();
       release(&usb_lock);
       return;
     }
 
     left = rd(HCTSIZ(2)) & 0x7ffff;
-    r = left <= 1536 ? 1536 - left : -1;
+    r = left <= (uint32)rx_armed_len ? rx_armed_len - (int)left : -1;
     wr(HCINT(2), intr);
     rx_armed = 0;
     cache_invalidate_range(rx_buf, 1536);
-    if(r > 0){
+    if(r >= 0){
       packets = (r + 63) / 64;
       if(packets & 1)
         bulk_in_toggle ^= 1;
+      if(r == 64 && rx_armed_len == 64 && rx_have == 0){
+        // A full first packet: the frame goes on.  Fetch the rest now; a
+        // short (or zero-length) packet ends it.
+        int more = channel_xfer(2, usb_address, 2, 1, EPTYPE_BULK, 64,
+                                rx_buf + 64, 1536 - 64,
+                                bulk_in_toggle ? PID_DATA1 : PID_DATA0, 20000);
+        cache_invalidate_range(rx_buf, 1536);
+        if(more >= 0){
+          if((more / 64 + 1) & 1)
+            bulk_in_toggle ^= 1;
+          r += more;
+        }
+      }
+      r += rx_have;
+    }
+    rx_have = 0;
+    if(r > 0){
       memmove(rx_deliver_buf, rx_buf, r);
       // usbnet_rx() may answer ARP synchronously through dwc2_cdc_xmit(). Do not
       // enter the network stack while holding the non-recursive USB lock.
@@ -1908,6 +1963,8 @@ dwc2_irq(void)
   dwc2_irq_pending |= channels;
   if(channels & (1U << 4))
     mt7601u_rx_irq();
+  if((channels & (1U << 2)) && usb_ready)
+    schedule_work(&cdc_rx_work);
   if((channels & (1U << 6)) && ch6_req)
     schedule_work(&ch6_req->work);
   if(channels & (1U << 7)){
@@ -1925,7 +1982,7 @@ dwc2_init(void)
 {
   uint32 p, id;
   int cfg = -1, total, off, idx, root_class, nport, port = 0;
-  int mt_found = 0, hid_found = 0;
+  int mt_found = 0, hid_found = 0, cdc_found = 0;
   int selected_subclass = 0, selected_protocol = 0, selected_interface = 0;
   int current_interface = -1, selected_interface_found = 0;
   uint16 vid, pid;
@@ -2219,6 +2276,12 @@ dwc2_init(void)
         mt_found = 1;
         break;
       }
+      // A CDC (class 2) device behind the hub: QEMU's usb-net, which
+      // raspi3b attaches to its built-in hub.  usbnet_attach() takes it.
+      if(root_class == 2){
+        cdc_found = 1;
+        break;
+      }
       // Most HID devices report class 0 in the device descriptor and put
       // class/subclass/protocol in their interface descriptor.
       memset(ctrl_buf, 0, sizeof(ctrl_buf));
@@ -2246,7 +2309,7 @@ dwc2_init(void)
       if(hid_found)
         break;
     }
-    if(!mt_found && !hid_found){
+    if(!mt_found && !hid_found && !cdc_found){
       printf("dwc2: no supported USB child on external hub ports\n");
       dwc2_start_hub_monitor();
       return;
@@ -2436,6 +2499,7 @@ dwc2_init(void)
 
   bulk_in_toggle = bulk_out_toggle = 0;
   rx_armed = 0;
+  rx_have = 0;
   usb_ready = 1;
   if(usbnet_attach(&usb_child) < 0){
     usb_ready = 0;
@@ -2459,6 +2523,7 @@ dwc2_probe(struct device *dev)
   }
   init_workqueue(&dwc2_hub_wq, "dwc2_hub_wq", 1);
   init_work(&hub_interrupt_rx.work, dwc2_hub_urb_work);
+  init_work(&cdc_rx_work, dwc2_cdc_rx_work);
   init_work(&dwc2_hub_event_work, dwc2_hub_event_worker);
   init_delayed_work(&dwc2_hub_retry_work, dwc2_hub_retry_worker);
   dwc2_hub_urb = usb_alloc_urb();
