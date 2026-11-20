@@ -25,6 +25,10 @@
 #define SBSDIO_WATERMARK             0x10008
 #define SBSDIO_DEVICE_CTL            0x10009
 #define SBSDIO_FUNC1_MESBUSYCTRL     0x1001d
+#define SBSDIO_FUNC1_FRAMECTRL       0x1000d
+#define SBSDIO_FUNC1_RFRAMEBCHI      0x1001b
+#define SBSDIO_FUNC1_RFRAMEBCLO      0x1001c
+#define SFC_RF_TERM                  0x02
 #define SBSDIO_SB_OFT_ADDR_MASK      0x07fff
 #define SBSDIO_SB_ACCESS_2_4B_FLAG   0x08000
 #define SBSDIO_SBWINDOW_MASK         0xffff8000U
@@ -1162,6 +1166,29 @@ brcmf_wpa_rx_locked(struct brcmf_bus_state *bus, uint8 *ether, int length)
   }
 }
 
+// Throw away the rest of the frame the card is sending on F2, as Linux's
+// brcmf_sdio_rxfail() does: terminate the read frame and wait until the
+// card's remaining byte count for it is zero.  Without this a frame the
+// host could not take (a header it could not parse, or one larger than
+// BRCMF_FRAME_MAX) leaves its tail in the FIFO, and every later read starts
+// in the middle of data: an endless run of "bad SDPCM header".
+static void
+brcmf_rx_terminate_locked(struct brcmf_bus_state *bus)
+{
+  uint8 value = SFC_RF_TERM, hi, lo;
+  brcmf_bus.rx_more = 0;
+  if(sdio_cmd52(brcmf_bus.f1, 1, SBSDIO_FUNC1_FRAMECTRL, &value) < 0)
+    return;
+  for(int tries = 0; tries < 200; tries++){
+    if(sdio_cmd52(brcmf_bus.f1, 0, SBSDIO_FUNC1_RFRAMEBCHI, &hi) < 0 ||
+       sdio_cmd52(brcmf_bus.f1, 0, SBSDIO_FUNC1_RFRAMEBCLO, &lo) < 0)
+      return;
+    if(hi == 0 && lo == 0)
+      return;
+    brcmf_delay_us(10);
+  }
+}
+
 // Read one firmware frame.  Firmware pads the first transfer to 64 bytes,
 // which lets the host discover the full frame length before reading the tail.
 // Returns 1 for a frame, 0 when no frame is pending, and -1 on corruption/I/O.
@@ -1224,8 +1251,12 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
     return 0;
   if((uint16)(length ^ check) != 0xffff ||
      length < SDPCM_HEADER_LEN || length > BRCMF_FRAME_MAX){
-    printf("brcmfmac: bad SDPCM header len=%d check=%x\n", length, check);
-    return -1;
+    static int logs;
+    if(logs++ < 8)
+      printf("brcmfmac: bad SDPCM header len=%d check=%x; frame dropped\n",
+             length, check);
+    brcmf_rx_terminate_locked(bus);
+    return 0;
   }
   if(length > 64){
     rest = length - 64;
@@ -1912,6 +1943,12 @@ brcmfmac_connect(char *ssid, char *passphrase)
   value = 0;
   if(brcmf_iovar(bus, "mpc", &value, sizeof(value), 1) < 0)
     printf("brcmfmac: warning: cannot disable mpc\n");
+  // Receive aggregation packs several frames into one superframe (seen as a
+  // 4 KB+ SDPCM frame under TCP bursts).  This driver reads one frame at a
+  // time, so ask the firmware not to glom.
+  value = 0;
+  if(brcmf_iovar(bus, "bus:rxglom", &value, sizeof(value), 1) < 0)
+    printf("brcmfmac: warning: cannot disable rx glom\n");
   memset(country, 0, sizeof(country));
   if(brcmf_iovar(bus, "country", country, sizeof(country), 0) == 0){
     memmove(&country_rev, country + 4, sizeof(country_rev));
