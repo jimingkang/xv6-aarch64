@@ -13,6 +13,7 @@
 #include <kernel/net.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <kernel/wifi_trace.h>
 
 // Broadcom function-1 backplane aperture.  The three SBADDR registers select
 // one 32 KiB backplane window; bit 15 in the CMD53 address selects 32-bit
@@ -172,6 +173,32 @@ static uint8 brcmf_nvram_raw[BRCMF_NVRAM_MAX];
 static uint8 brcmf_nvram_data[BRCMF_NVRAM_MAX];
 static uint32 brcmf_transfer_limit = BRCMF_IO_CHUNK;
 
+// WIFI_TRACE bookkeeping (include/kernel/wifi_trace.h).  The counters are
+// only read for trace lines, so unsynchronised updates are acceptable.
+extern volatile uint32 arasan_card_irq_count;
+static char *brcmf_trace_iovar;     // iovar name carried by the current dcmd
+static int brcmf_trace_in_dcmd;     // RX read while a dcmd waits for its reply
+static uint32 brcmf_trace_irqs;     // card IRQs already reported
+static int brcmf_trace_spurious;    // spurious polls since the last report
+static int wifi_trace_lines;
+
+int
+wifi_trace_budget(void)
+{
+  if(!WIFITRACE(1))
+    return 0;
+  if(WIFI_TRACE_LIMIT == 0)
+    return 1;
+  if(wifi_trace_lines > WIFI_TRACE_LIMIT)
+    return 0;
+  if(++wifi_trace_lines > WIFI_TRACE_LIMIT){
+    printf("wifi11: t=%d data-path trace limit %d reached (make WIFI_TRACE_LIMIT=0 for all)\n",
+           wifi_trace_ms(), WIFI_TRACE_LIMIT);
+    return 0;
+  }
+  return 1;
+}
+
 struct brcmf_bcdc_dcmd {
   uint32 cmd;
   uint32 len;
@@ -266,6 +293,11 @@ struct brcmf_bus_state {
   int ready;
   uint8 tx[BRCMF_FRAME_MAX];
   uint8 rx[BRCMF_FRAME_MAX];
+  // An SDIO superframe (several frames the firmware packed together) read
+  // whole; super_pos is the next subframe header in it.
+#define BRCMF_SUPER_MAX 16384
+  uint8 super[BRCMF_SUPER_MAX];
+  int super_len, super_pos;
   uint8 ctl[BRCMF_DCMD_MAX];
   uint8 iovar_buf[BRCMF_DCMD_MAX];
   uint8 wpa_tx[192];
@@ -633,6 +665,8 @@ brcmf_scan_cores(struct sdio_func *func, struct brcmf_chip *chip)
   chip->sdio = brcmf_find_core(chip, BCMA_CORE_SDIO_DEV, 0);
   if(chip->cc == 0 || chip->cr4 == 0 || chip->sdio == 0)
     return -1;
+  WTRACE(1, 4, "EROM: %d cores ChipCommon=%x SDIO=%x CR4=%x",
+         chip->ncores, chip->cc->base, chip->sdio->base, chip->cr4->base);
   return 0;
 }
 
@@ -660,6 +694,7 @@ brcmf_get_raminfo(struct sdio_func *func, struct brcmf_chip *chip)
     return -1;
   printf("brcmfmac: TCM RAM base=%x size=%d bytes banks=%d\n",
          chip->rambase, chip->ramsize, banks);
+  WTRACE(1, 4, "TCM base=%x size=%d banks=%d", chip->rambase, chip->ramsize, banks);
   return 0;
 }
 
@@ -740,6 +775,7 @@ brcmf_set_passive(struct sdio_func *func, struct brcmf_chip *chip)
       return -1;
   }
   printf("brcmfmac: CR4 halted; wireless cores held in reset\n");
+  WTRACE(1, 4, "set_passive: CR4 halted, D11 held in reset");
   return 0;
 }
 
@@ -749,6 +785,7 @@ brcmf_write_firmware(struct sdio_func *func, struct brcmf_chip *chip,
 {
   struct fat32_reader reader;
   uint32 offset = 0, verify;
+  int t0 = wifi_trace_ms();
 
   if(code->size < 4 || code->size > chip->ramsize ||
      fat32readerinit(&reader, code) < 0)
@@ -768,6 +805,10 @@ brcmf_write_firmware(struct sdio_func *func, struct brcmf_chip *chip,
                                 brcmf_io_buf, chunk) < 0)
       return -1;
     offset += chunk;
+    if((offset & 0x7fff) == 0 || offset == code->size)
+      WTRACE(2, 4, "BIN window %x: %d/%d bytes, CMD53 chunk=%d",
+             (chip->rambase + offset - 1) & 0xffff8000U, offset, code->size,
+             brcmf_transfer_limit);
     if((offset & 0xffff) == 0 || offset == code->size)
       printf("brcmfmac: firmware download %d/%d\n", offset, code->size);
   }
@@ -778,6 +819,9 @@ brcmf_write_firmware(struct sdio_func *func, struct brcmf_chip *chip,
     return -1;
   }
   printf("brcmfmac: firmware reset-vector=%x verified\n", *reset_vector);
+  WTRACE(1, 4, "BIN %d bytes -> TCM %x, %d windows, CMD53 chunk=%d, %d ms, reset vector=%x",
+         code->size, chip->rambase, (int)((code->size + 0x7fff) / 0x8000),
+         brcmf_transfer_limit, wifi_trace_ms() - t0, *reset_vector);
   return 0;
 }
 
@@ -859,6 +903,7 @@ brcmf_write_nvram(struct sdio_func *func, struct brcmf_chip *chip,
     return -1;
   printf("brcmfmac: NVRAM %d bytes written at %x token=%x\n",
          length, address, expected);
+  WTRACE(1, 4, "NVRAM %d bytes -> %x (RAM tail) token=%x", length, address, expected);
   return 0;
 }
 
@@ -872,6 +917,7 @@ brcmf_set_active(struct sdio_func *func, struct brcmf_chip *chip,
      brcmf_core_reset(func, chip->cr4, ARMCR4_BCMA_IOCTL_CPUHALT, 0, 0) < 0)
     return -1;
   printf("brcmfmac: CR4 released reset-vector=%x\n", reset_vector);
+  WTRACE(1, 4, "set_active: reset vector %x -> address 0, CR4 released", reset_vector);
   return 0;
 }
 
@@ -932,6 +978,9 @@ brcmf_start_f2(struct sdio_func *func, struct brcmf_chip *chip)
     chip->sdio->base + SDIO_CORE_TOSBMAILBOX, SMB_INT_ACK);
   printf("brcmfmac: F2 ready mailbox=%x protocol=%d\n", mailbox,
          (mailbox & HMB_DATA_VERSION_MASK) >> HMB_DATA_VERSION_SHIFT);
+  WTRACE(1, 5, "FWREADY mailbox=%x protocol=%d HOSTINTMASK=%x",
+         mailbox, (mailbox & HMB_DATA_VERSION_MASK) >> HMB_DATA_VERSION_SHIFT,
+         HOSTINTMASK);
   return 0;
 }
 
@@ -996,7 +1045,8 @@ brcmf_send_ether_locked(struct brcmf_bus_state *bus, void *frame, int length)
   // dropped by the firmware.  Frames read meanwhile carry the new tx_max
   // and are queued for NAPI.  Without credit after ~20 ms, drop this frame
   // (TCP resends it) rather than overrun the firmware.
-  for(int tries = 0; brcmf_bus.tx_credit_seen; tries++){
+  int tries = 0;
+  for(; brcmf_bus.tx_credit_seen; tries++){
     uint8 window = brcmf_bus.tx_max - brcmf_bus.tx_seq;
     if(window != 0 && (window & 0x80) == 0)
       break;
@@ -1011,6 +1061,10 @@ brcmf_send_ether_locked(struct brcmf_bus_state *bus, void *frame, int length)
       brcmf_delay_us(100);
   }
   brcmf_sdpcm_header(bus, brcmf_bus.tx, frame_len, SDPCM_DATA_CHANNEL);
+  WTRACE_DATA(10, "tx ch=2 len=%d type=%x seq=%d tx_max=%d window=%d credit-wait=%d",
+              wire_len, ((uint8*)frame)[12] << 8 | ((uint8*)frame)[13],
+              brcmf_bus.tx[4], brcmf_bus.tx_max,
+              (uint8)(brcmf_bus.tx_max - brcmf_bus.tx[4]), tries);
   return brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len);
 }
 
@@ -1064,6 +1118,7 @@ brcmf_wpa_send_m2_locked(struct brcmf_bus_state *bus, uint8 *m1, int m1len,
   if(brcmf_send_ether_locked(bus, frame, total) < 0)
     return -1;
   brcmf_bus.m2_sent++;
+  WTRACE(1, 7, "EAPOL M2 tx (SNonce, MIC, RSN IE %d bytes)", rsn_ie_len);
   printf("brcmfmac: sent WPA2 EAPOL M2 replay=%x%x%x%x rsn=%d%s\n",
          key[9], key[10], key[11], key[12], rsn_ie_len,
          brcmf_bus.assoc_rsn_ie_len ? " firmware" : " fallback");
@@ -1094,6 +1149,7 @@ brcmf_wpa_send_m4_locked(struct brcmf_bus_state *bus)
   if(brcmf_send_ether_locked(bus, frame, sizeof(frame)) < 0)
     return -1;
   printf("brcmfmac: sent WPA2 EAPOL M4\n");
+  WTRACE(1, 7, "EAPOL M4 tx");
   return 0;
 }
 
@@ -1144,6 +1200,7 @@ brcmf_wpa_rx_locked(struct brcmf_bus_state *bus, uint8 *ether, int length)
     int plain_len, pos, found = 0;
     printf("brcmfmac: received WPA2 EAPOL M3 key-info=%x data=%d\n",
            info, data_len);
+    WTRACE(1, 7, "EAPOL M3 rx key-info=%x key-data=%d (encrypted GTK)", info, data_len);
     memmove(received_mic, key + 77, 16);
     memset(key + 77, 0, 16);
     wpa_eapol_mic(brcmf_bus.ptk, eapol, 4 + body_len, calculated_mic);
@@ -1218,6 +1275,64 @@ brcmf_rx_terminate_locked(struct brcmf_bus_state *bus)
   }
 }
 
+// Next subframe of the superframe being taken apart, copied into rx[] so
+// the caller sees an ordinary frame.  Each subframe starts with its own
+// SDPCM header; they follow each other at 4-byte alignment (searched a
+// little further if the padding is larger).  1 for a frame, 0 when done.
+static int
+brcmf_super_next_locked(struct brcmf_bus_state *bus, uint8 *channel,
+                        uint8 **payload, int *payload_len)
+{
+  static int logs;
+  while(brcmf_bus.super_pos + SDPCM_HEADER_LEN <= brcmf_bus.super_len){
+    uint8 *h = brcmf_bus.super + brcmf_bus.super_pos;
+    uint16 len = h[0] | ((uint16)h[1] << 8);
+    uint16 chk = h[2] | ((uint16)h[3] << 8);
+    int found = 0;
+    if((uint16)(len ^ chk) == 0xffff && len >= SDPCM_HEADER_LEN &&
+       len <= BRCMF_FRAME_MAX && brcmf_bus.super_pos + len <= brcmf_bus.super_len)
+      found = 1;
+    if(!found){
+      // Look ahead up to 64 bytes for the next aligned header.
+      int skip;
+      for(skip = 4; skip <= 64; skip += 4){
+        int q = brcmf_bus.super_pos + skip;
+        if(q + SDPCM_HEADER_LEN > brcmf_bus.super_len)
+          break;
+        uint8 *g = brcmf_bus.super + q;
+        uint16 l2 = g[0] | ((uint16)g[1] << 8), c2 = g[2] | ((uint16)g[3] << 8);
+        if((uint16)(l2 ^ c2) == 0xffff && l2 >= SDPCM_HEADER_LEN &&
+           l2 <= BRCMF_FRAME_MAX && q + l2 <= brcmf_bus.super_len)
+          break;
+      }
+      if(skip > 64 || brcmf_bus.super_pos + skip + SDPCM_HEADER_LEN > brcmf_bus.super_len){
+        if(logs++ < 8)
+          printf("brcmfmac: superframe: no subframe header at %d of %d\n",
+                 brcmf_bus.super_pos, brcmf_bus.super_len);
+        break;
+      }
+      brcmf_bus.super_pos += skip;
+      continue;
+    }
+    int offset = h[7];
+    uint8 tx_max = h[9];
+    if((uint8)(tx_max - brcmf_bus.tx_seq) > 0x40)
+      tx_max = brcmf_bus.tx_seq + 2;
+    brcmf_bus.tx_max = tx_max;
+    brcmf_bus.tx_credit_seen = 1;
+    memmove(brcmf_bus.rx, h, len);
+    brcmf_bus.super_pos += (len + 3) & ~3;
+    if(offset < SDPCM_HEADER_LEN || offset > len)
+      continue;
+    *channel = brcmf_bus.rx[5] & 0x0f;
+    *payload = brcmf_bus.rx + offset;
+    *payload_len = len - offset;
+    return 1;
+  }
+  brcmf_bus.super_len = brcmf_bus.super_pos = 0;
+  return 0;
+}
+
 // Read one firmware frame.  Firmware pads the first transfer to 64 bytes,
 // which lets the host discover the full frame length before reading the tail.
 // Returns 1 for a frame, 0 when no frame is pending, and -1 on corruption/I/O.
@@ -1228,6 +1343,10 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   uint32 intstatus;
   uint16 length, check;
   int rest, rounded, offset;
+
+  if(brcmf_bus.super_len &&
+     brcmf_super_next_locked(bus, channel, payload, payload_len))
+    return 1;
 
   if(!brcmf_bus.rx_more){
     // As Linux's sdio_run_irqs() does, ask the card (CCCR INT_PENDING, one
@@ -1279,24 +1398,51 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   if(length == 0 && check == 0)
     return 0;
   if((uint16)(length ^ check) == 0xffff && length > BRCMF_FRAME_MAX){
-    // A valid header for a frame larger than the buffer (a superframe of
-    // several packets).  Read and drop the rest of it, so the next read
-    // starts at the next frame header; TCP resends what was in it.
+    // A superframe: read all of it, then hand out its subframes.  Its own
+    // header's data offset says where the first subframe starts.
     static int logs;
-    int left = ((length - 64) + 3) & ~3;
-    if(logs++ < 8)
-      printf("brcmfmac: dropped %d-byte superframe\n", length);
-    while(left > 0){
-      int n = left > BRCMF_FRAME_MAX - 64 ? BRCMF_FRAME_MAX - 64 : left;
-      if(brcmf_f2_transfer(bus, 0, brcmf_bus.rx + 64, n) < 0){
-        brcmf_rx_terminate_locked(bus);
-        return 0;
+    int total = (length + 3) & ~3;
+    if(total > BRCMF_SUPER_MAX){
+      // Too big even for the superframe buffer: read and drop it.
+      int left = total - 64;
+      if(logs++ < 8)
+        printf("brcmfmac: dropped %d-byte superframe\n", length);
+      while(left > 0){
+        int n = left > BRCMF_FRAME_MAX - 64 ? BRCMF_FRAME_MAX - 64 : left;
+        if(brcmf_f2_transfer(bus, 0, brcmf_bus.rx + 64, n) < 0){
+          brcmf_rx_terminate_locked(bus);
+          return 0;
+        }
+        left -= n;
       }
-      left -= n;
+      brcmf_bus.rx_more = 1;
+      return brcmf_rx_frame_locked(bus, channel, payload, payload_len);
     }
-    // Go straight on to the next frame: its interrupt bit was cleared
-    // above, so returning "nothing pending" could stall the queue.
+    memmove(brcmf_bus.super, brcmf_bus.rx, 64);
+    if(brcmf_f2_transfer(bus, 0, brcmf_bus.super + 64, total - 64) < 0){
+      brcmf_rx_terminate_locked(bus);
+      return 0;
+    }
+    {
+      uint8 tx_max = brcmf_bus.super[9];
+      if((uint8)(tx_max - brcmf_bus.tx_seq) > 0x40)
+        tx_max = brcmf_bus.tx_seq + 2;
+      brcmf_bus.tx_max = tx_max;
+      brcmf_bus.tx_credit_seen = 1;
+    }
+    if(logs++ < 4)
+      printf("brcmfmac: superframe len=%d chan=%x off=%d sub0 len=%d chan=%x\n",
+             length, brcmf_bus.super[5], brcmf_bus.super[7],
+             brcmf_bus.super[brcmf_bus.super[7]] |
+               (brcmf_bus.super[brcmf_bus.super[7] + 1] << 8),
+             brcmf_bus.super[brcmf_bus.super[7] + 5]);
+    brcmf_bus.super_len = length;
+    brcmf_bus.super_pos = brcmf_bus.super[7] >= SDPCM_HEADER_LEN &&
+                          brcmf_bus.super[7] < length ? brcmf_bus.super[7]
+                                                      : SDPCM_HEADER_LEN;
     brcmf_bus.rx_more = 1;
+    if(brcmf_super_next_locked(bus, channel, payload, payload_len))
+      return 1;
     return brcmf_rx_frame_locked(bus, channel, payload, payload_len);
   }
   if((uint16)(length ^ check) != 0xffff ||
@@ -1305,6 +1451,7 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
     if(logs++ < 8)
       printf("brcmfmac: bad SDPCM header len=%d check=%x; frame dropped\n",
              length, check);
+    WTRACE_DATA(9, "rx bad header len=%d check=%x: FRAMECTRL=RF_TERM", length, check);
     brcmf_rx_terminate_locked(bus);
     return 0;
   }
@@ -1333,6 +1480,11 @@ brcmf_rx_frame_locked(struct brcmf_bus_state *bus, uint8 *channel,
   *payload = brcmf_bus.rx + offset;
   *payload_len = length - offset;
   brcmf_bus.rx_more = 1;
+  if(!brcmf_trace_in_dcmd || WIFITRACE(2))
+    WTRACE_DATA(9, "rx ch=%d len=%d seq=%d tx_max=%d tx_seq=%d intstatus=%x%s",
+                *channel, length, brcmf_bus.rx[4], brcmf_bus.tx_max,
+                brcmf_bus.tx_seq, intstatus,
+                brcmf_trace_in_dcmd ? " (dcmd wait)" : "");
   return 1;
 }
 
@@ -1379,6 +1531,8 @@ brcmf_rx_dispatch_locked(struct brcmf_bus_state *bus)
           ((uint8*)&event->reason)[3];
         printf("brcmfmac: event type=%d status=%d reason=%d\n",
                event_type, status, reason);
+        WTRACE(1, 7, "event ch=1 type=%d status=%d reason=%d",
+               event_type, status, reason);
       }
     }
   } else if(channel == SDPCM_DATA_CHANNEL){
@@ -1399,8 +1553,11 @@ brcmf_rx_dispatch_locked(struct brcmf_bus_state *bus)
         printf("brcmfmac: received EAPOL frame len=%d key-info=%x%x\n",
                length, length >= 21 ? ether[19] : 0,
                length >= 21 ? ether[20] : 0);
-      if(type == 0x888e)
+      if(type == 0x888e){
         brcmf_bus.eapol_rx++;
+        WTRACE(1, 7, "EAPOL rx ch=2 len=%d key-info=%x", length,
+               length >= 21 ? ((int)ether[19] << 8 | ether[20]) : 0);
+      }
       if(type == 0x888e)
         brcmf_wpa_rx_locked(bus, ether, length);
       else if(brcmf_bus.handshake_done &&
@@ -1456,6 +1613,12 @@ brcmf_napi_poll(struct napi_struct *napi, int budget)
     napi_complete_done(napi, 0);
     return 0;
   }
+  if(WIFITRACE(1) && arasan_card_irq_count != brcmf_trace_irqs){
+    uint32 irqs = arasan_card_irq_count;
+    WTRACE_DATA(8, "irq DAT1 -> CARD_INT -> IRQ 62 x%d (total %d) -> napi_schedule(brcmf0_wq)",
+                (int)(irqs - brcmf_trace_irqs), (int)irqs);
+    brcmf_trace_irqs = irqs;
+  }
   acquire(&brcmf_bus.lock);
   brcmf_bus.polling = 1;
   while(work_done < budget){
@@ -1484,6 +1647,14 @@ brcmf_napi_poll(struct napi_struct *napi, int budget)
   finish_keys = brcmf_bus.keys_pending && !brcmf_bus.connect_active;
   spurious = work_done == 0 && brcmf_bus.rx_spurious;
   release(&brcmf_bus.lock);
+  if(spurious)
+    brcmf_trace_spurious++;
+  else if(work_done){
+    WTRACE_DATA(11, "napi frames=%d budget=%d drained=%d spurious-before=%d -> %s",
+                work_done, budget, drained, brcmf_trace_spurious,
+                drained ? "complete, CARD_INT re-enabled" : "budget used, re-queued");
+    brcmf_trace_spurious = 0;
+  }
 
   if(finish_keys && brcmf_finish_wpa_handshake(bus) < 0)
     printf("brcmfmac: asynchronous WPA2 rekey failed\n");
@@ -1619,25 +1790,38 @@ brcmf_dcmd(struct brcmf_bus_state *bus, uint32 command, void *data, int length,
     release(&brcmf_bus.lock);
     return -1;
   }
+  WTRACE(1, 6, "dcmd tx ch=0 id=%d cmd=%d%s%s %s len=%d seq=%d",
+         id, command, brcmf_trace_iovar ? " " : "",
+         brcmf_trace_iovar ? brcmf_trace_iovar : "", set ? "SET" : "GET",
+         length, brcmf_bus.tx[4]);
+  int t0 = wifi_trace_ms(), frames = 0;
+  (void)t0;
 
+  brcmf_trace_in_dcmd = 1;
   deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * 3;
   while(r_cntvct_el0() < deadline){
     int r = brcmf_rx_dispatch_locked(bus);
     if(r < 0){
+      brcmf_trace_in_dcmd = 0;
       release(&brcmf_bus.lock);
       return -1;
     }
+    if(r > 0)
+      frames++;
     if(brcmf_bus.ctl_len >= (int)sizeof(*reply) &&
        brcmf_bus.ctl_id == id)
       break;
     brcmf_delay_us(200);
   }
+  brcmf_trace_in_dcmd = 0;
   if(brcmf_bus.ctl_len < (int)sizeof(*reply) || brcmf_bus.ctl_id != id){
     printf("brcmfmac: BCDC command %d response timeout id=%d\n", command, id);
     release(&brcmf_bus.lock);
     return -1;
   }
   reply = (struct brcmf_bcdc_dcmd*)brcmf_bus.ctl;
+  WTRACE(1, 6, "dcmd rx ch=0 id=%d status=%d len=%d after %d ms, %d frames read",
+         id, reply->status, brcmf_bus.ctl_len, wifi_trace_ms() - t0, frames);
   if((reply->flags & BCDC_DCMD_ERROR) || reply->status != 0){
     // GET_BSSID returning NOTASSOCIATED is expected while an asynchronous
     // join is in progress; printing it forty times hides the useful event.
@@ -1675,11 +1859,14 @@ brcmf_iovar(struct brcmf_bus_state *bus, char *name, void *data, int length, int
   // is the actual name plus requested result capacity, not the whole local
   // scratch buffer (which would exceed BRCMF_DCMD_MAX after the BCDC header).
   total = namelen + length;
+  brcmf_trace_iovar = name;
   if(brcmf_dcmd(bus, set ? BRCMF_C_SET_VAR : BRCMF_C_GET_VAR,
                 buffer, total, set) < 0){
+    brcmf_trace_iovar = 0;
     release(&brcmf_bus.iovar_lock);
     return -1;
   }
+  brcmf_trace_iovar = 0;
   if(!set && data && length)
     memmove(data, buffer, length);
   release(&brcmf_bus.iovar_lock);
@@ -1838,6 +2025,8 @@ brcmf_control_plane_start(struct brcmf_bus_state *bus, struct sdio_func *func,
     return -1;
   }
   napi_enable(&brcmf_bus.napi);
+  WTRACE(1, 5, "wlan0 registered mac=%x:%x:%x:%x:%x:%x, NAPI weight 16 on brcmf0_wq",
+         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   arasan_sdio_irq_enable();
   printf("brcmfmac: SDIO DAT1 IRQ receive enabled\n");
   printf("brcmfmac: control plane ready\n");
@@ -1912,6 +2101,7 @@ brcmf_finish_wpa_handshake(struct brcmf_bus_state *bus)
   brcmf_bus.handshake_done = 1;
   release(&brcmf_bus.lock);
   printf("brcmfmac: WPA2 four-way handshake complete\n");
+  WTRACE(1, 7, "WPA2 done: PTK + GTK installed, handshake_done=1, data port open");
   return 1;
 }
 
@@ -2088,6 +2278,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
   network.length = ssid_len;
   memmove(network.value, ssid, ssid_len);
   printf("brcmfmac: associating with SSID %s (WPA2-PSK/AES)\n", ssid);
+  WTRACE(1, 7, "join SET_SSID %s (WPA2-PSK/AES, host EAPOL=%d)", ssid, host_eapol);
   brcmf_bus.eapol_rx = 0;
   if(brcmf_dcmd(bus, BRCMF_C_SET_SSID, &network, sizeof(network), 1) < 0){
     printf("brcmfmac: connect step SET_SSID failed\n");
@@ -2106,6 +2297,8 @@ brcmfmac_connect(char *ssid, char *passphrase)
        (bssid[0] | bssid[1] | bssid[2] | bssid[3] | bssid[4] | bssid[5])){
       if(!link_reported){
         printf("brcmfmac: 802.11 associated bssid=%x:%x:%x:%x:%x:%x\n",
+               bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+        WTRACE(1, 7, "GET_BSSID poll %d -> associated bssid=%x:%x:%x:%x:%x:%x", i + 1,
                bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
         link_reported = 1;
         brcmf_read_assoc_rsn_ie(bus);
@@ -2132,6 +2325,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
           return -1;
         }
         printf("brcmfmac: wlan0 IPv4 ready\n");
+        WTRACE(1, 7, "DHCP done: wlan0 IPv4 ready");
         // Power save off (PM_OFF), like "iw wlan0 set power_save off".  In
         // the firmware's default PM2 the AP holds frames for us until the
         // next beacon: ~100 ms on every packet to the Pi.
@@ -2139,8 +2333,10 @@ brcmfmac_connect(char *ssid, char *passphrase)
           uint32 pm = 0;
           if(brcmf_dcmd(bus, BRCMF_C_SET_PM, &pm, sizeof(pm), 1) < 0)
             printf("brcmfmac: warning: cannot turn power save off\n");
-          else
+          else {
             printf("brcmfmac: power save off\n");
+            WTRACE(1, 7, "SET_PM=0: power save off (no PM2 beacon buffering)");
+          }
         }
         brcmf_connect_watch_stop(bus);
         return 0;
@@ -2204,6 +2400,8 @@ brcmf_probe(struct sdio_func *func)
   chiprev = (chipid >> 16) & 0xf;
   printf("brcmfmac: ChipCommon chipid=%x chip=%x rev=%d pkg=%d\n",
          chipid, chipnum, chiprev, (chipid >> 20) & 0xf);
+  WTRACE(1, 3, "F1 window 18000000 + CMD53 @8000 -> CHIPID=%x chip=%x rev=%d",
+         chipid, chipnum, chiprev);
 
   // The SDIO product ID is not necessarily the ChipCommon chip number.
   // In particular, BCM4345 rev 6 is the BCM43455 used by Raspberry Pi 3B+.
@@ -2236,6 +2434,8 @@ brcmf_probe(struct sdio_func *func)
   else
     printf(" clm=none");
   printf(" bytes\n");
+  WTRACE(1, 3, "bootfs %s BIN=%d TXT=%d CLM=%d bytes", chip, code.size, nvram.size,
+         have_clm ? (int)clm.size : 0);
   printf("brcmfmac: backplane access ready; starting firmware loader\n");
 
   if(brcmf_scan_cores(func, &bc) < 0){
