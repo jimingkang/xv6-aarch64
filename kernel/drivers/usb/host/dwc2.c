@@ -244,7 +244,10 @@ struct hid_selection {
   uint16 pid;
   uint8 interface_number;
   uint8 protocol;
+  int mt7601;           // the device found is an MT7601U, not a HID device
 };
+
+static int is_mt7601(uint16, uint16);
 
 static inline uint32
 rd(uint32 off)
@@ -719,6 +722,17 @@ find_boot_input_below_hub(int hub_addr, int depth, struct hid_selection *sel)
            hub_addr, port, child_class, vid, pid, child_addr);
 
     memset(sel, 0, sizeof(*sel));
+    // An MT7601U behind a second hub: the Pi 3B+ puts its USB-A ports
+    // behind a USB2514 inside the board's own USB2514/LAN7800 hub.
+    if(is_mt7601(vid, pid)){
+      sel->found = 1;
+      sel->mt7601 = 1;
+      sel->address = child_addr;
+      sel->ep0_mps = ep0_mps;
+      sel->vid = vid;
+      sel->pid = pid;
+      return 1;
+    }
     if(config_has_boot_input(child_addr, sel)){
       sel->found = 1;
       sel->address = child_addr;
@@ -2264,6 +2278,11 @@ dwc2_init(void)
           ep0_mps = nested_hid.ep0_mps;
           vid = nested_hid.vid;
           pid = nested_hid.pid;
+          if(nested_hid.mt7601){
+            root_class = 0;
+            mt_found = 1;
+            break;
+          }
           root_class = 3;
           selected_subclass = 1;
           selected_protocol = nested_hid.protocol;
