@@ -1475,7 +1475,11 @@ net_tcp_read(int handle, uint64 uaddr, int maxlen, int nonblock)
     release(&c->lock);
     return -1;
   }
-  int was_full = c->rxlen >= TCP_RX_SIZE / 2;
+  // Window update when this read reopens a window that had (nearly)
+  // closed.  Compare the advertised window, not the buffer: on Wi-Fi it is
+  // capped at 2 KB, so rxlen never reaches TCP_RX_SIZE / 2 and the peer
+  // was left waiting for its persist timer (seconds to a minute).
+  int was_full = tcp_window(c) < TCP_MSS;
   memmove(c->rx, c->rx + n, c->rxlen - n);
   c->rxlen -= n;
   // The receive window is only 2 KB.  When the reader drains a buffer that
