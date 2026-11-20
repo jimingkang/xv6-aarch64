@@ -7,9 +7,54 @@
 #include <kernel/device.h>
 #include <kernel/usb.h>
 #include <kernel/fat32.h>
+#include <kernel/module.h>
+
+#ifndef MT7601U_CONFIG_TRACE
+#define MT7601U_CONFIG_TRACE 0
+#endif
+#ifndef MT7601U_DATA_TRACE
+#define MT7601U_DATA_TRACE 0
+#endif
+#if MT7601U_CONFIG_TRACE
+#define MT_CFG_LOG(...) printf("wifi-config: " __VA_ARGS__)
+#else
+#define MT_CFG_LOG(...) do { } while(0)
+#endif
+#if MT7601U_CONFIG_TRACE >= 2
+#define MT_REG_LOG(...) printf("wifi-reg: " __VA_ARGS__)
+#else
+#define MT_REG_LOG(...) do { } while(0)
+#endif
+#if MT7601U_DATA_TRACE
+#define MT_DATA_LOG(...) printf("wifi-data: " __VA_ARGS__)
+#else
+#define MT_DATA_LOG(...) do { } while(0)
+#endif
+#if MT7601U_DATA_TRACE >= 2
+#define MT_FRAME_LOG(...) printf("wifi-frame: " __VA_ARGS__)
+#else
+#define MT_FRAME_LOG(...) do { } while(0)
+#endif
+
+// Firmware is MT7601U.BIN on the FAT32 boot partition (the rpi3 tree has no
+// request_firmware()); fw_file keeps the tiny210 port's interface.
+struct fw_file { struct fat32_file f; uint32 size; };
+static int
+fw_open(const char *name, struct fw_file *f)
+{
+  (void)name;
+  if(fat32openroot("MT7601U BIN", &f->f) < 0)
+    return -1;
+  f->size = f->f.size;
+  return 0;
+}
+static int
+fw_pread(struct fw_file *f, uint32 off, void *buf, uint32 len)
+{
+  return fat32pread(&f->f, off, buf, len);
+}
 #include <kernel/net.h>
 #include <kernel/workqueue.h>
-#include <kernel/module.h>
 
 #define MT_VEND_MULTI_READ 7
 #define MT_VEND_DEV_MODE   1
@@ -79,9 +124,28 @@
 #define MT_RSN_IE_MAX             66
 #define MT_NET_FRAME_MAX          1600
 #define MT_WCID_AP                1
+#define MT_N_WCIDS                128
 
 #define MT_TXD_PKT_INFO_80211     (1U << 19)
 #define MT_TXD_PKT_INFO_WIV       (1U << 24)
+#define MT_TXD_INFO_QSEL_SHIFT    25
+#define MT_QSEL_MGMT              0
+#define MT_QSEL_EDCA              2
+
+// TX path experiment.  1: send 802.11 frames on bulk OUT EP4 (AC_BE) with
+// TXINFO QSEL=EDCA, as Linux mt7601u does for data and management frames.
+// 0: the previous path, OUT EP8 (the in-band MCU command endpoint) with
+// QSEL=MGMT.  Build with MT7601U_TX_EDCA_EP4=0 to compare.
+// A/B switch for commit 3977211 (clear the WCID address/attribute and
+// shared-key mode tables after the BBP table): 0 skips the clear.
+#ifndef MT7601U_WCID_CLEAR
+#define MT7601U_WCID_CLEAR 1
+#endif
+// rpi3: dwc2 records only the first bulk OUT endpoint (no bulk_out_eps[]),
+// so frames use the first OUT endpoint, the path the rpi3 driver used.
+#ifndef MT7601U_TX_EDCA_EP4
+#define MT7601U_TX_EDCA_EP4 0
+#endif
 
 enum mt7601u_link_state {
   MT_LINK_SCAN,
@@ -212,12 +276,24 @@ struct mt7601u_device {
   int lna_gain;
   uint8 mcu_seq;
   int endpoints_ready;
+  int ready;               // probe finished: RX ring armed, state machine queued
   uint32 rx_frames;
+  uint32 rx_mgmt, rx_datafr, rx_urbs;   // bring-up counters
+  uint32 rx_usb_err;                    // EP4 transfers that ended in an error
+  uint32 rx_ucast, rx_ucast_enc, rx_ucast_busy;  // data frames to our MAC: all,
+                                        // still encrypted, dropped (slot full)
   uint32 rx_bad;
   uint32 mgmt_frames;
   uint32 scan_seen;
+  uint32 scan_rounds;      // full 1..11 sweeps, for the join-timeout report
+  uint32 scan_rx_mark;     // rx_urbs / mgmt_frames at the start of this dwell
+  uint32 scan_mgmt_mark;
+  uint32 scan_dwell_logs;  // per-dwell report budget, reset by mt7601u_connect
   uint8 scan_channel;
+  uint8 target_channel;    // from the AP's DS Parameter Set IE
   int target_found;
+  char want_ssid[33];       // set by mt7601u_connect(); empty: scan only
+  int want_ssid_len;
   uint8 target_bssid[6];
   uint16 target_capability;
   uint8 target_rsn_ie[MT_RSN_IE_MAX];
@@ -267,6 +343,9 @@ static void mt7601u_state_worker(struct work_struct*);
 
 #define MT_STATE_SOON_JIFFIES       1
 #define MT_SCAN_DWELL_JIFFIES      50
+#ifndef MT7601U_SCAN_CHAN
+#define MT7601U_SCAN_CHAN 0        // nonzero: stay on this channel only
+#endif
 #define MT_RESPONSE_TIMEOUT_JIFFIES 100
 #define MT_WPA_TIMEOUT_JIFFIES     500
 
@@ -288,11 +367,15 @@ static int
 mt7601u_read32(struct usb_device *udev, uint16 reg, uint32 *value)
 {
   uint8 data[4];
-  if(udev->ops->control(udev, 0xc0, MT_VEND_MULTI_READ,
-                        0, reg, data, sizeof(data)) < 0)
+  int r = udev->ops->control(udev, 0xc0, MT_VEND_MULTI_READ,
+                             0, reg, data, sizeof(data));
+  if(r < 0){
+    MT_REG_LOG("read reg=%x failed=%d\n", reg, r);
     return -1;
+  }
   *value = (uint32)data[0] | ((uint32)data[1] << 8) |
            ((uint32)data[2] << 16) | ((uint32)data[3] << 24);
+  MT_REG_LOG("read reg=%x value=%x\n", reg, *value);
   return 0;
 }
 
@@ -312,8 +395,12 @@ mt7601u_write32_req(struct usb_device *udev, uint8 request,
   if(udev->ops->control(udev, 0x40, request, value & 0xffff,
                         reg, 0, 0) < 0 ||
      udev->ops->control(udev, 0x40, request, value >> 16,
-                        reg + 2, 0, 0) < 0)
+                        reg + 2, 0, 0) < 0){
+    MT_REG_LOG("write request=%x reg=%x value=%x failed\n",
+               request, reg, value);
     return -1;
+  }
+  MT_REG_LOG("write request=%x reg=%x value=%x\n", request, reg, value);
   return 0;
 }
 
@@ -347,14 +434,16 @@ mt7601u_rmw(struct usb_device *udev, uint16 reg, uint32 clear, uint32 set)
 }
 
 static int
-mt7601u_dma_fw_chunk(struct usb_device *udev, struct fat32_file *file,
+mt7601u_dma_fw_chunk(struct usb_device *udev, struct fw_file *file,
                      uint32 file_offset, uint32 length, uint32 destination)
 {
   uint32 info, value, padded = (length + 3) & ~3U;
   int r;
 
+  MT_CFG_LOG("firmware chunk file-off=%d len=%d destination=%x padded=%d ep=%d\n",
+             file_offset, length, destination, padded, udev->bulk_out_ep);
   memset(mt_fw_buf, 0, padded + 8);
-  if(fat32pread(file, file_offset, mt_fw_buf + MT_DMA_HDR_LEN,
+  if(fw_pread(file, file_offset, mt_fw_buf + MT_DMA_HDR_LEN,
                 length) != (int)length)
     return -1;
   // TXINFO: DMA packet, destination CPU_TX_PORT (2), payload length.
@@ -386,7 +475,7 @@ mt7601u_dma_fw_chunk(struct usb_device *udev, struct fat32_file *file,
 }
 
 static int
-mt7601u_dma_fw_range(struct usb_device *udev, struct fat32_file *file,
+mt7601u_dma_fw_range(struct usb_device *udev, struct fw_file *file,
                      uint32 file_offset, uint32 length, uint32 destination,
                      char *name)
 {
@@ -408,15 +497,18 @@ mt7601u_dma_fw_range(struct usb_device *udev, struct fat32_file *file,
 }
 
 static int
-mt7601u_load_firmware(struct usb_device *udev, struct fat32_file *file)
+mt7601u_load_firmware(struct usb_device *udev, struct fw_file *file)
 {
   struct mt7601u_fw_header header;
   uint8 ivb[MT_MCU_IVB_SIZE];
   uint32 value, ilm_payload;
 
-  if(fat32pread(file, 0, &header, sizeof(header)) != sizeof(header) ||
-     fat32pread(file, sizeof(header), ivb, sizeof(ivb)) != sizeof(ivb))
+  if(fw_pread(file, 0, &header, sizeof(header)) != sizeof(header) ||
+     fw_pread(file, sizeof(header), ivb, sizeof(ivb)) != sizeof(ivb))
     return -1;
+  MT_CFG_LOG("firmware begin ilm=%d dlm=%d ivb=%d bulk-out=EP%d\n",
+             header.ilm_len, header.dlm_len, MT_MCU_IVB_SIZE,
+             udev->bulk_out_ep);
   if(mt7601u_write32(udev, MT_USB_DMA_CFG,
                      MT_USB_DMA_CFG_RX_BULK_EN |
                      MT_USB_DMA_CFG_TX_BULK_EN) < 0)
@@ -463,6 +555,7 @@ mt7601u_load_firmware(struct usb_device *udev, struct fat32_file *file)
     mt7601u_delay_ms(10);
     if(mt7601u_read32(udev, MT_MCU_COM_REG0, &value) == 0 && value == 1){
       printf("mt7601u: MCU firmware running\n");
+      MT_CFG_LOG("firmware end COM_REG0=%x\n", value);
       return 0;
     }
   }
@@ -515,6 +608,8 @@ mt7601u_efuse_read_block(struct usb_device *udev, uint16 address, uint8 *data)
 static int
 mt7601u_read_eeprom(struct mt7601u_device *dev)
 {
+  MT_CFG_LOG("eFuse read begin bytes=%d blocks=%d\n",
+             MT7601U_EEPROM_SIZE, MT7601U_EEPROM_SIZE / 16);
   for(int offset = 0; offset < MT7601U_EEPROM_SIZE; offset += 16)
     if(mt7601u_efuse_read_block(dev->udev, offset,
                                 dev->eeprom + offset) < 0){
@@ -550,6 +645,8 @@ mt7601u_read_eeprom(struct mt7601u_device *dev)
   printf("mt7601u: permanent mac=%x:%x:%x:%x:%x:%x\n",
          dev->mac[0], dev->mac[1], dev->mac[2], dev->mac[3],
          dev->mac[4], dev->mac[5]);
+  MT_CFG_LOG("eFuse read end country=%x freq-offset=%d\n",
+             dev->country, dev->freq_offset);
   return 0;
 }
 
@@ -568,6 +665,9 @@ mt7601u_mcu_command(struct mt7601u_device *dev, uint8 command,
     if(seq == 0)
       seq = ++dev->mcu_seq & 0xf;
   }
+  MT_CFG_LOG("MCU command begin cmd=%d seq=%d payload=%d wait=%d tx=EP%d rx=EP%d\n",
+             command, seq, length, wait_response,
+             dev->udev->bulk_out_ep, dev->udev->bulk_in_ep2);
   memset(mt_mcu_buf, 0, total);
   memmove(mt_mcu_buf + MT_DMA_HDR_LEN, payload, length);
   info = (1U << 30) | (2U << 27) | ((uint32)command << 20) |
@@ -579,8 +679,10 @@ mt7601u_mcu_command(struct mt7601u_device *dev, uint8 command,
   if(dev->udev->ops->bulk(dev->udev, dev->udev->bulk_out_ep, 0,
                           mt_mcu_buf, total) != total)
     return -1;
-  if(!wait_response)
+  if(!wait_response){
+    MT_CFG_LOG("MCU command end cmd=%d no-response\n", command);
     return 0;
+  }
   memset(mt_mcu_resp, 0, sizeof(mt_mcu_resp));
   int got = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_in_ep2, 1,
                                  mt_mcu_resp, sizeof(mt_mcu_resp));
@@ -591,6 +693,8 @@ mt7601u_mcu_command(struct mt7601u_device *dev, uint8 command,
              ((uint32)mt_mcu_resp[3] << 24);
   if(((response >> 16) & 0xf) != seq || ((response >> 20) & 0xf) != 0)
     return -1;
+  MT_CFG_LOG("MCU command end cmd=%d seq=%d response=%x bytes=%d\n",
+             command, seq, response, got);
   return 0;
 }
 
@@ -654,6 +758,11 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
   struct usb_device *udev = dev->udev;
   uint32 mac_status;
 
+  MT_CFG_LOG("full init begin MAC=%d BBP=%d RF=%d WCID=%d\n",
+             sizeof(mt_mac_init) / sizeof(mt_mac_init[0]),
+             sizeof(mt_bbp_init) / sizeof(mt_bbp_init[0]),
+             sizeof(mt_rf_init) / sizeof(mt_rf_init[0]), MT_N_WCIDS);
+
   for(uint i = 0; i < sizeof(mt_mac_init) / sizeof(mt_mac_init[0]); i++)
     if(mt7601u_write32(udev, mt_mac_init[i].reg,
                        mt_mac_init[i].value) < 0){
@@ -676,8 +785,29 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
              i, mt_bbp_init[i].reg);
       return -1;
     }
-  printf("mt7601u: BBP register table initialized (%d entries)\n",
-         sizeof(mt_bbp_init) / sizeof(mt_bbp_init[0]));
+  // Linux mt7601u_init_hardware() (and the rpi3-BCM43430 driver): after the
+  // BBP table, clear the WCID address table (all ff), the shared-key mode
+  // registers, and set every WCID attribute to 1 (pairwise, no cipher,
+  // BSS 0). Power-up contents are undefined; a stray BSS index or key mode
+  // in these tables makes the MAC pick the wrong key or drop data frames,
+  // which is why some boots got no data at all after the handshake.
+#if MT7601U_WCID_CLEAR
+  for(int i = 0; i < MT_N_WCIDS; i++)
+    if(mt7601u_write32(udev, 0x1800 + i * 8, 0xffffffff) < 0 ||
+       mt7601u_write32(udev, 0x1800 + i * 8 + 4, 0x00ffffff) < 0)
+      return -1;
+  for(int i = 0; i < 4; i++)
+    if(mt7601u_write32(udev, 0xb000 + i * 4, 0) < 0)
+      return -1;
+  for(int i = 0; i < MT_N_WCIDS * 2; i++)
+    if(mt7601u_write32(udev, 0xa800 + i * 4, 1) < 0)
+      return -1;
+#else
+  printf("mt7601u: WCID/key table clear skipped (MT7601U_WCID_CLEAR=0)\n");
+#endif
+  printf("mt7601u: BBP register table initialized (%d entries)%s\n",
+         sizeof(mt_bbp_init) / sizeof(mt_bbp_init[0]),
+         MT7601U_WCID_CLEAR ? "; WCID/key tables cleared" : "");
 
   for(uint i = 0; i < sizeof(mt_rf_init) / sizeof(mt_rf_init[0]); i++)
     if(mt7601u_rf_write(udev, mt_rf_init[i].bank,
@@ -711,6 +841,8 @@ mt7601u_full_hw_init(struct mt7601u_device *dev)
      mt7601u_write32(udev, MT_MAC_SYS_CTRL, 0x0c) < 0)
     return -1;
   printf("mt7601u: RF calibration complete; bulk endpoints ready\n");
+  MT_CFG_LOG("full init end MAC_SYS_CTRL=0c endpoints-ready=%d\n",
+             dev->endpoints_ready);
   return 0;
 }
 
@@ -754,6 +886,73 @@ mt_mac_equal(uint8 *a, uint8 *b)
 
 // Submit one raw 802.11 frame through the MT7601U packet-DMA format:
 // TXINFO, TXWI, MPDU, four-byte alignment padding, and a trailing zero word.
+// Read and discard TX status entries (Linux mt7601u_tx_stat: TX_STAT_FIFO_EXT
+// then TX_STAT_FIFO until the valid bit clears). Left unread, the FIFO fills
+// after a handful of frames and the MAC stops taking new ones.
+#define MT_TX_STAT_FIFO     0x1718
+#define MT_TX_STAT_FIFO_EXT 0x1798
+static int tx_stat_logged;
+static void
+mt7601u_tx_stat_drain(struct mt7601u_device *dev)
+{
+  uint32 ext, stat;
+  int n = 0;
+  for(; n < 64; n++){
+    if(mt7601u_read32(dev->udev, MT_TX_STAT_FIFO_EXT, &ext) < 0 ||
+       mt7601u_read32(dev->udev, MT_TX_STAT_FIFO, &stat) < 0 ||
+       !(stat & 1))
+      break;
+    if(MT7601U_DATA_TRACE && tx_stat_logged < 24){
+      tx_stat_logged++;
+      MT_DATA_LOG("tx-status=%x ext=%x result=%s\n", stat, ext,
+                  (stat >> 5) & 1 ? "acked" : "not-acked");
+    }
+  }
+}
+
+// Bulk OUT endpoint for WLAN frames (see MT7601U_TX_EDCA_EP4).
+static int
+mt7601u_wlan_tx_ep(struct mt7601u_device *dev)
+{
+#if MT7601U_TX_EDCA_EP4
+  for(int i = 0; i < dev->udev->n_bulk_out; i++)
+    if(dev->udev->bulk_out_eps[i] == 4)
+      return 4;
+#endif
+  return dev->udev->bulk_out_ep;
+}
+
+// When the chip NAKs a WLAN frame, show which part of its TX path is off.
+// TX_STAT_FIFO is read last: reading it pops an entry.
+static int tx_fail_dumps;
+static void
+mt7601u_tx_fail_dump(struct mt7601u_device *dev, int ep, uint32 info)
+{
+  static const struct { uint16 reg; char *name; } regs[] = {
+    { 0x0208, "WPDMA_GLO_CFG" },
+    { 0x0404, "PBF_CFG" },
+    { 0x0238, "USB_DMA_CFG" },
+    { 0x1004, "MAC_SYS_CTRL" },
+    { 0x0730, "MCU_COM_REG0" },
+    { 0x1798, "TX_STAT_FIFO_EXT" },
+    { 0x1718, "TX_STAT_FIFO" },
+  };
+  uint32 value;
+  if(tx_fail_dumps >= 3)
+    return;
+  tx_fail_dumps++;
+  printf("mt7601u: TX stall dump #%d: EP%d txinfo=%x\n",
+         tx_fail_dumps, ep, info);
+  for(int i = 0; i < (int)(sizeof(regs) / sizeof(regs[0])); i++){
+    if(mt7601u_read32(dev->udev, regs[i].reg, &value) == 0)
+      printf("mt7601u:   %s(%x)=%x\n", regs[i].name, regs[i].reg, value);
+    else
+      printf("mt7601u:   %s(%x) read failed\n", regs[i].name, regs[i].reg);
+  }
+}
+
+static int tx_path_logged;
+
 static int
 mt7601u_tx_raw(struct mt7601u_device *dev, uint8 *frame, int frame_len,
                uint8 wcid, int hardware_iv)
@@ -781,13 +980,36 @@ mt7601u_tx_raw(struct mt7601u_device *dev, uint8 *frame, int frame_len,
   txwi->len_ctl = frame_len;      // MPDU byte count, packet id zero
   memmove(mt_tx_buf + MT_DMA_HDR_LEN + MT_TXWI_SIZE, frame, frame_len);
 
-  result = dev->udev->ops->bulk(dev->udev, dev->udev->bulk_out_ep, 0,
-                                mt_tx_buf, total);
+  // OUT #0 (0x08), as the RPi version used; OUT #5 (0x09) NAKed from the
+  // first frame on the Tiny210. After each frame the TX status FIFO is
+  // drained (mt7601u_tx_stat_drain): the MAC stops transmitting, and the
+  // endpoint NAKs for good, once that FIFO is full.
+  int ep = mt7601u_wlan_tx_ep(dev);
+  int qsel = ep != dev->udev->bulk_out_ep ? MT_QSEL_EDCA : MT_QSEL_MGMT;
+  info |= (uint32)qsel << MT_TXD_INFO_QSEL_SHIFT;
+  mt_put32(mt_tx_buf, info);
+  if(!tx_path_logged){
+    tx_path_logged = 1;
+    printf("mt7601u: WLAN TX path EP%d qsel=%s\n", ep,
+           qsel == MT_QSEL_EDCA ? "EDCA" : "MGMT");
+  }
+  MT_FRAME_LOG("tx 802.11 fc=%x mpdu=%d wcid=%d hw-iv=%d usb=EP%d bytes=%d\n",
+               frame_len >= 2 ? mt_get16(frame) : 0, frame_len, wcid,
+               hardware_iv, ep, total);
+  result = dev->udev->ops->bulk(dev->udev, ep, 0, mt_tx_buf, total);
+  if(result == total)
+    mt7601u_tx_stat_drain(dev);
   if(result != total){
     printf("mt7601u: TX bulk failed result=%d expected=%d mpdu=%d wcid=%d hwiv=%d\n",
            result, total, frame_len, wcid, hardware_iv);
+    mt7601u_tx_fail_dump(dev, ep, info);
+    // A full status FIFO also stops the MAC; drain it on failure too, or
+    // one stall would block every later frame.
+    mt7601u_tx_stat_drain(dev);
     return -1;
   }
+  MT_DATA_LOG("tx-complete EP%d usb-bytes=%d mpdu=%d\n",
+              ep, total, frame_len);
   return 0;
 }
 
@@ -829,16 +1051,15 @@ mt7601u_send_assoc(struct mt7601u_device *dev)
 {
   static const uint8 rates[] = { 0x82, 0x84, 0x8b, 0x96,
                                   0x0c, 0x12, 0x18, 0x24 };
-  static const char ssid[] = "TP-Link_B114";
   uint8 frame[192];
   int n = mt7601u_build_mgmt_header(dev, frame, 0x0000);
   uint16 capability = dev->target_capability & 0x0531;
   capability |= 0x0001;           // ESS
   mt_put16(frame + n, capability); n += 2;
   mt_put16(frame + n, 10); n += 2; // listen interval
-  frame[n++] = 0;
-  frame[n++] = sizeof(ssid) - 1;
-  memmove(frame + n, ssid, sizeof(ssid) - 1); n += sizeof(ssid) - 1;
+  frame[n++] = 0;                  // SSID element: the network wifi_connect() asked for
+  frame[n++] = dev->want_ssid_len;
+  memmove(frame + n, dev->want_ssid, dev->want_ssid_len); n += dev->want_ssid_len;
   frame[n++] = 1;
   frame[n++] = sizeof(rates);
   memmove(frame + n, rates, sizeof(rates)); n += sizeof(rates);
@@ -927,8 +1148,10 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
                          iv, sizeof(iv)) < 0 ||
      mt7601u_read32(dev->udev, 0xa800 + MT_WCID_AP * 4, &attr) < 0)
     return -1;
-  // AES-CCMP cipher mode 4 and pairwise-key flag.
-  attr = (attr & ~0x0fU) | (4U << 1) | 1U;
+  // AES-CCMP cipher mode 4 and pairwise-key flag, BSS index 0. Written
+  // absolutely, not read-modify-write: a stale register read (seen on the
+  // RPi as 0x11009) must not leak unrelated bits into the attribute.
+  attr = (4U << 1) | 1U;
   if(mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, attr) < 0)
     return -1;
 
@@ -937,8 +1160,11 @@ mt7601u_install_ccmp_keys(struct mt7601u_device *dev)
   if(mt7601u_write_bytes(dev->udev, shared, key, sizeof(key)) < 0 ||
      mt7601u_read32(dev->udev, 0xb000, &mode) < 0)
     return -1;
-  mode &= ~(0xfU << (4 * dev->gtk_index));
-  mode |= 4U << (4 * dev->gtk_index);
+  // BSS 0 owns the low 16 bits (4 key slots x 4 bits); only the current
+  // GTK slot is valid.
+  mode = 4U << (4 * dev->gtk_index);
+  printf("mt7601u: keys installed: PTK wcid=%d attr=%x, GTK idx=%d skey-mode=%x\n",
+         MT_WCID_AP, attr, dev->gtk_index, mode);
   return mt7601u_write32(dev->udev, 0xb000, mode);
 }
 
@@ -1057,6 +1283,8 @@ mt7601u_set_channel(struct mt7601u_device *dev, int channel)
     {0x99,0x99,0x09,0x52}, {0x33,0x33,0x0b,0x52},
   };
   uint8 gain = 0x37 - dev->lna_gain;
+  MT_CFG_LOG("set-channel begin old=%d new=%d gain=%d\n",
+             dev->scan_channel, channel, gain);
   if(channel < 1 || channel > 14)
     return -1;
   for(int i = 0; i < 4; i++)
@@ -1074,6 +1302,7 @@ mt7601u_set_channel(struct mt7601u_device *dev, int channel)
     return -1;
   mt7601u_delay_ms(2);
   dev->scan_channel = channel;
+  MT_CFG_LOG("set-channel end channel=%d\n", channel);
   return 0;
 }
 
@@ -1092,6 +1321,41 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
     return;
   subtype = (fc >> 4) & 0xf;
   dev->mgmt_frames++;
+  // Non-beacon management frames addressed to us: shows auth/assoc
+  // responses, deauth reasons and retransmissions (retry bit = the AP
+  // did not see our ACK for the previous copy).
+  if(subtype != 8 && mt_mac_equal(frame + 4, dev->mac))
+    MT_DATA_LOG("rx-mgmt subtype=%d retry=%d seq=%d from=%x:%x:%x len=%d body=%x %x %x\n",
+                subtype, !!(fc & 0x0800), mt_get16(frame + 22) >> 4,
+                frame[13], frame[14], frame[15], length,
+                length >= 26 ? mt_get16(frame + 24) : 0,
+                length >= 28 ? mt_get16(frame + 26) : 0,
+                length >= 30 ? mt_get16(frame + 28) : 0);
+
+  // Deauthentication (12) / disassociation (10) from our AP (from the
+  // rpi3-BCM43430 driver): the AP dropped our state (reason 4 inactivity,
+  // 6/7 class 2/3 frame, 15 four-way timeout). Re-authenticate with the
+  // same BSS; wlan0 stays registered, data waits for the new handshake.
+  if((subtype == 12 || subtype == 10) && length >= 26 &&
+     mt_mac_equal(frame + 4, dev->mac) &&
+     mt_mac_equal(frame + 10, dev->target_bssid)){
+    printf("mt7601u: %s from AP reason=%d (link_state=%d handshake=%d)\n",
+           subtype == 12 ? "deauthentication" : "disassociation",
+           mt_get16(frame + 24), dev->link_state, dev->handshake_done);
+    if(dev->link_state >= MT_LINK_AUTH_SENT){
+      dev->handshake_done = 0;
+      dev->handshake_started = 0;
+      memset(dev->anonce, 0, sizeof(dev->anonce));
+      memset(dev->snonce, 0, sizeof(dev->snonce));
+      memset(dev->ptk, 0, sizeof(dev->ptk));
+      dev->link_state = MT_LINK_AUTH_PENDING;
+      dev->link_retries = 0;
+      dev->state_deadline = workqueue_now() + MT_STATE_SOON_JIFFIES;
+      mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
+      printf("mt7601u: reconnecting\n");
+    }
+    return;
+  }
 
   // Open-System Authentication response (transaction 2).
   if(subtype == 11 && length >= 30 &&
@@ -1225,11 +1489,10 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
            security_name[ap->security]);
     dev->scan_seen++;
   }
-  static const char target_ssid[] = "TP-Link_B114";
-  if(!dev->target_found && ssid_len == sizeof(target_ssid) - 1){
+  if(dev->want_ssid_len && !dev->target_found && ssid_len == dev->want_ssid_len){
     int match = 1;
     for(int i = 0; i < ssid_len; i++)
-      if(ssid[i] != (uint8)target_ssid[i]){
+      if(ssid[i] != (uint8)dev->want_ssid[i]){
         match = 0;
         break;
       }
@@ -1240,6 +1503,7 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
       uint32 bssid1 = (uint32)ap->bssid[4] |
         ((uint32)ap->bssid[5] << 8);
       dev->target_found = 1;
+      dev->target_channel = ap->channel;
       memmove(dev->target_bssid, ap->bssid, 6);
       dev->target_capability = ap->capability;
       dev->target_rsn_ie_len = ap->rsn_ie_len;
@@ -1260,10 +1524,10 @@ mt7601u_rx_mgmt(struct mt7601u_device *dev, uint8 *frame, int length)
                          bssid1) < 0 ||
          mt7601u_write32(dev->udev, 0xa800 + MT_WCID_AP * 4, 0) < 0)
         printf("mt7601u: warning: cannot program target BSSID\n");
-      printf("mt7601u: target TP-Link_B114 found bssid=%x:%x:%x:%x:%x:%x channel=%d %s driver=WPA2-v3\n",
-             ap->bssid[0], ap->bssid[1], ap->bssid[2], ap->bssid[3],
+      printf("mt7601u: target %s found bssid=%x:%x:%x:%x:%x:%x channel=%d %s (radio on %d)\n",
+             dev->want_ssid, ap->bssid[0], ap->bssid[1], ap->bssid[2], ap->bssid[3],
              ap->bssid[4], ap->bssid[5], ap->channel,
-             security_name[ap->security]);
+             security_name[ap->security], dev->scan_channel);
     }
   }
 }
@@ -1280,10 +1544,32 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
   fc = mt_get16(frame);
   if(((fc >> 2) & 3) != 2)
     return;
+  int to_me = mt_mac_equal(frame + 4, dev->mac);
+  if(to_me && dev->handshake_done){
+    dev->rx_ucast++;
+    MT_FRAME_LOG("rx unicast fc=%x len=%d rxinfo=%x src=%x:%x:%x:%x:%x:%x\n",
+                 fc, length, rxinfo, frame[16], frame[17], frame[18],
+                 frame[19], frame[20], frame[21]);
+  }
+  if(dev->handshake_done)
+    MT_FRAME_LOG("rx data fc=%x len=%d rxinfo=%x a1=%x:%x:%x:%x:%x:%x\n",
+                 fc, length, rxinfo, frame[4], frame[5], frame[6],
+                 frame[7], frame[8], frame[9]);
   if(((fc >> 4) & 8) != 0)
     header += 2; // QoS control
   if(rxinfo & (1U << 14))
     header += 2; // hardware L2 padding
+  // Hardware-decrypted CCMP frames (RXINFO DECRYPT) keep the Protected bit
+  // and the 8-byte CCMP header (PN, key id) in front of the LLC/SNAP header;
+  // the MIC is already removed. Skip it, as Linux mt76 does.
+  if(fc & 0x4000){
+    if(!(rxinfo & (1U << 16))){
+      if(to_me)
+        dev->rx_ucast_enc++;
+      return;      // still encrypted: no key for it
+    }
+    header += 8;
+  }
   if(header + 8 > length)
     return;
   llc = frame + header;
@@ -1295,6 +1581,8 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
     mt7601u_rx_eapol(dev, llc + 8, length - header - 8);
     return;
   }
+  if(dev->handshake_done && dev->net_rx_len != 0 && to_me)
+    dev->rx_ucast_busy++;
   if(!dev->handshake_done || dev->net_rx_len != 0 ||
      length - header > MT_NET_FRAME_MAX - 6)
     return;
@@ -1307,12 +1595,15 @@ mt7601u_rx_data(struct mt7601u_device *dev, uint8 *frame, int length,
   dev->net_rx[13] = type;
   memmove(dev->net_rx + 14, llc + 8, length - header - 8);
   dev->net_rx_len = 14 + length - header - 8;
+  MT_DATA_LOG("rx-decapsulate ethertype=%x ethernet-bytes=%d to-me=%d\n",
+              type, dev->net_rx_len, to_me);
 }
 
 static void
 mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
 {
   int offset = 0;
+  MT_FRAME_LOG("rx-aggregate usb-bytes=%d\n", length);
   while(offset + 8 + MT_RXWI_SIZE + 4 <= length){
     uint8 *segment = data + offset;
     uint16 dma_len = mt_get16(segment);
@@ -1330,16 +1621,47 @@ mt7601u_rx_parse(struct mt7601u_device *dev, uint8 *data, int length)
     mpdu_len = (ctl >> 16) & 0xfff;
     frame = rxwi + MT_RXWI_SIZE;
     available = segment_len - 4 - MT_RXWI_SIZE - 4;
+    MT_FRAME_LOG("rx-segment off=%d dma=%d mpdu=%d rxinfo=%x available=%d\n",
+                 offset, dma_len, mpdu_len, rxinfo, available);
     if(mpdu_len <= 0 || mpdu_len > available ||
        (rxinfo & (MT_RXINFO_CRCERR | MT_RXINFO_ICVERR |
                   MT_RXINFO_MICERR))){
       dev->rx_bad++;
+      MT_DATA_LOG("rx-drop rxinfo=%x crc=%d icv=%d mic=%d mpdu=%d avail=%d fc=%x\n",
+                  rxinfo, !!(rxinfo & MT_RXINFO_CRCERR),
+                  !!(rxinfo & MT_RXINFO_ICVERR),
+                  !!(rxinfo & MT_RXINFO_MICERR), mpdu_len, available,
+                  mpdu_len > 1 && mpdu_len <= available ? mt_get16(frame) : 0);
     } else {
       dev->rx_frames++;
-      if(((mt_get16(frame) >> 2) & 3) == 0)
+      // Who sent it and with which sequence number: tells real traffic
+      // (sequence numbers advance) from a stale buffer replayed by the
+      // host side (same sequence number again and again).
+      if(MT7601U_DATA_TRACE && mpdu_len >= 24 &&
+         (dev->rx_frames <= 30 || (dev->rx_frames & 63) == 0))
+        MT_DATA_LOG("rx-frame #%d fc=%x from=%x:%x:%x seq=%d len=%d\n",
+                    dev->rx_frames, mt_get16(frame), frame[13], frame[14],
+                    frame[15], mt_get16(frame + 22) >> 4, mpdu_len);
+      if(((mt_get16(frame) >> 2) & 3) == 0){
+        // RXWI PHY fields (Linux struct mt7601u_rxwi): snr, gain (LNA in
+        // bits 7:6, VGA in 5:0) and the measured carrier frequency offset
+        // of frames from the AP we are joining.  Linux uses freq_off to
+        // trim the crystal (mt7601u_phy_freq_cal); this driver does not.
+        static int phy_logged;
+        if(MT7601U_DATA_TRACE && phy_logged < 40 && mpdu_len >= 16 &&
+           mt_mac_equal(frame + 10, dev->target_bssid)){
+          phy_logged++;
+          MT_DATA_LOG("rx-phy from-ap subtype=%d snr=%d gain=%x lna=%d vga=%d freq_off=%d rate=%x\n",
+                      (mt_get16(frame) >> 4) & 0xf, rxwi[16], rxwi[18],
+                      rxwi[18] >> 6, rxwi[18] & 0x3f, (int)(signed char)rxwi[19],
+                      mt_get16(rxwi + 10));
+        }
+        dev->rx_mgmt++;
         mt7601u_rx_mgmt(dev, frame, mpdu_len);
-      else
+      } else {
+        dev->rx_datafr++;
         mt7601u_rx_data(dev, frame, mpdu_len, rxinfo);
+      }
     }
     offset += segment_len;
   }
@@ -1362,13 +1684,19 @@ mt7601u_service(int service_rx, int service_state)
                                             dev->udev->bulk_in_ep,
                                             &rx_data);
     if(got >= 0){
+      dev->rx_urbs++;
       rx_done = 1;
+      MT_FRAME_LOG("rx-completion EP%d bytes=%d buffer=%x urb-count=%d\n",
+                  dev->udev->bulk_in_ep, got, (uint)rx_data, dev->rx_urbs);
       if(got > 0)
         mt7601u_rx_parse(dev, rx_data, got);
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
                                   rx_data, MT_RX_BUF_SIZE);
     } else if(got == -1 && rx_data) {
       rx_done = 1;
+      dev->rx_usb_err++;
+      MT_DATA_LOG("rx-completion EP%d error buffer=%x errors=%d\n",
+                  dev->udev->bulk_in_ep, (uint)rx_data, dev->rx_usb_err);
       // Return a failed request's buffer to the ring; the remaining queued
       // buffers kept the endpoint live while this completion was handled.
       dev->udev->ops->bulk_rx_arm(dev->udev, dev->udev->bulk_in_ep,
@@ -1383,7 +1711,21 @@ mt7601u_service(int service_rx, int service_state)
     }
   }
 
-  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
+  if(service_state && dev->link_state == MT_LINK_AUTH_PENDING &&
+     dev->target_channel >= 1 && dev->target_channel <= 14 &&
+     dev->scan_channel != dev->target_channel){
+    // A beacon from a neighbouring channel can be heard while the radio is
+    // tuned 1-2 channels away (from the rpi3-BCM43430 driver). Associating
+    // there "works" but the link is weak: few frames, DHCP offers lost.
+    // Tune to the AP's own channel first, then authenticate.
+    printf("mt7601u: tuning to AP channel %d (radio on %d)\n",
+           dev->target_channel, dev->scan_channel);
+    if(mt7601u_set_channel(dev, dev->target_channel) < 0){
+      printf("mt7601u: channel switch to %d failed\n", dev->target_channel);
+      dev->target_channel = 0;      // authenticate where we are
+    }
+    dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
+  } else if(service_state && dev->link_state == MT_LINK_AUTH_PENDING){
     if(dev->link_retries >= 3){
       printf("mt7601u: authentication timeout\n");
       dev->link_state = MT_LINK_SCAN;
@@ -1401,6 +1743,9 @@ mt7601u_service(int service_rx, int service_state)
     }
   } else if(service_state && dev->link_state == MT_LINK_AUTH_SENT){
     if((long)(now - dev->state_deadline) >= 0){
+      // The frame has been on the air for a while now: report whether the
+      // AP acknowledged it (the drain right after the USB write is too early).
+      mt7601u_tx_stat_drain(dev);
       dev->link_state = MT_LINK_AUTH_PENDING;
       dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
     }
@@ -1422,6 +1767,9 @@ mt7601u_service(int service_rx, int service_state)
     }
   } else if(service_state && dev->link_state == MT_LINK_ASSOC_SENT){
     if((long)(now - dev->state_deadline) >= 0){
+      // The frame has been on the air for a while now: report whether the
+      // AP acknowledged it (the drain right after the USB write is too early).
+      mt7601u_tx_stat_drain(dev);
       dev->link_state = MT_LINK_ASSOC_PENDING;
       dev->state_deadline = now + MT_STATE_SOON_JIFFIES;
     }
@@ -1444,8 +1792,23 @@ mt7601u_service(int service_rx, int service_state)
   // to increment a counter.
   if(service_state && !dev->target_found &&
      (long)(now - dev->scan_deadline) >= 0){
-    int next = dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1;
-    if(mt7601u_set_channel(dev, next) < 0)
+    int next = MT7601U_SCAN_CHAN ? MT7601U_SCAN_CHAN :
+               (dev->scan_channel >= 11 ? 1 : dev->scan_channel + 1);
+    if(next == 1)
+      dev->scan_rounds++;
+    // Per-dwell receive report: a deaf receiver after re-tuning shows up as
+    // rx=0 on every channel, a missing AP as rx>0 but no beacon from it.
+    if(dev->scan_dwell_logs < 33){
+      dev->scan_dwell_logs++;
+      printf("mt7601u: scan ch%d dwell usb-rx=%d mgmt=%d aps=%d\n",
+             dev->scan_channel, dev->rx_urbs - dev->scan_rx_mark,
+             dev->mgmt_frames - dev->scan_mgmt_mark, dev->scan_seen);
+    }
+    dev->scan_rx_mark = dev->rx_urbs;
+    dev->scan_mgmt_mark = dev->mgmt_frames;
+    // MT7601U_SCAN_CHAN: already there; re-tuning (VCO calibration) every
+    // dwell would only make the radio deaf for a moment.
+    if(next != dev->scan_channel && mt7601u_set_channel(dev, next) < 0)
       printf("mt7601u: channel switch to %d failed\n", next);
     dev->scan_deadline = now + MT_SCAN_DWELL_JIFFIES;
   }
@@ -1460,15 +1823,17 @@ mt7601u_service(int service_rx, int service_state)
   if(register_needed){
     if(register_netdev(&dev->netdev) == 0){
       dev->net_registered = 1;
-      printf("mt7601u: wlan1 registered mac=%x:%x:%x:%x:%x:%x\n",
+      printf("mt7601u: wlan0 registered mac=%x:%x:%x:%x:%x:%x\n",
              dev->mac[0], dev->mac[1], dev->mac[2], dev->mac[3],
              dev->mac[4], dev->mac[5]);
     } else {
       printf("mt7601u: cannot register wlan1\n");
     }
   }
-  if(deliver)
+  if(deliver){
+    MT_DATA_LOG("deliver ethernet bytes=%d -> net_rx_dev(wlan0)\n", deliver);
     net_rx_dev(&dev->netdev, dev->net_rx, deliver);
+  }
   return rx_done;
 }
 
@@ -1482,6 +1847,7 @@ static int
 mt7601u_napi_poll(struct napi_struct *napi, int budget)
 {
   int done = 0;
+  MT_FRAME_LOG("NAPI poll begin budget=%d\n", budget);
   while(done < budget){
     int one = mt7601u_service(1, 0);
     if(one == 0)
@@ -1490,6 +1856,7 @@ mt7601u_napi_poll(struct napi_struct *napi, int budget)
   }
   if(done < budget)
     napi_complete_done(napi, done);
+  MT_FRAME_LOG("NAPI poll end done=%d completed=%d\n", done, done < budget);
   return done;
 }
 
@@ -1530,8 +1897,17 @@ mt7601u_state_worker(struct work_struct *work)
 void
 mt7601u_rx_irq(void)
 {
-  if(mt7601u.used)
+  // Before the probe has finished, every EHCI IRQ is one of the probe's own
+  // control transfers and NAPI is not enabled yet: nothing to schedule.
+  static uint32 irq_count;
+  if(mt7601u.used && mt7601u.ready){
+    // One line per IRQ floods the console; log the first few, then one
+    // summary line every 256 interrupts.
+    irq_count++;
+    if(irq_count <= 4 || (irq_count & 255) == 0)
+      MT_DATA_LOG("EHCI IRQ -> napi_schedule (#%d)\n", irq_count);
     napi_schedule(&mt7601u.napi);
+  }
 }
 
 void
@@ -1560,6 +1936,9 @@ mt7601u_net_xmit(struct net_device *netdev, void *packet, int length)
   result = mt7601u_send_llc(dev, ether, type, ether + 14,
                             length - 14, 1);
   release(&dev->lock);
+  MT_DATA_LOG("net-xmit ethertype=%x len=%d dst=%x:%x:%x:%x:%x:%x result=%d\n",
+              type, length, ether[0], ether[1], ether[2], ether[3],
+              ether[4], ether[5], result);
   return result;
 }
 
@@ -1577,6 +1956,7 @@ mt7601u_basic_hw_init(struct mt7601u_device *dev)
 {
   struct usb_device *udev = dev->udev;
   uint32 value, mac0, mac1;
+  MT_CFG_LOG("basic init begin: enable WLAN clock/PLL and USB bulk DMA\n");
   if(mt7601u_read32(udev, MT_WLAN_FUN_CTRL, &value) < 0 ||
      mt7601u_write32(udev, MT_WLAN_FUN_CTRL,
                      value | MT_WLAN_FUN_CTRL_EN) < 0 ||
@@ -1597,7 +1977,8 @@ mt7601u_basic_hw_init(struct mt7601u_device *dev)
     return -1;
   mac0 = (uint32)dev->mac[0] | ((uint32)dev->mac[1] << 8) |
          ((uint32)dev->mac[2] << 16) | ((uint32)dev->mac[3] << 24);
-  mac1 = (uint32)dev->mac[4] | ((uint32)dev->mac[5] << 8);
+  // Bits 23:16 = UNICAST_TO_ME mask, 0xff as Linux mt7601u_set_macaddr().
+  mac1 = (uint32)dev->mac[4] | ((uint32)dev->mac[5] << 8) | (0xffU << 16);
   if(mt7601u_write32(udev, MT_MAC_ADDR_DW0, mac0) < 0 ||
      mt7601u_write32(udev, MT_MAC_ADDR_DW1, mac1) < 0)
     return -1;
@@ -1617,20 +1998,23 @@ mt7601u_basic_hw_init(struct mt7601u_device *dev)
   }
   printf("mt7601u: MAC/BBP/RF bootstrap ready; rx-ep=%d data, %d MCU\n",
          udev->bulk_in_ep, udev->bulk_in_ep2);
+  MT_CFG_LOG("basic init end USB_DMA_CFG=%x MAC=%x:%x\n",
+             MT_USB_DMA_CFG_RX_BULK_EN | MT_USB_DMA_CFG_TX_BULK_EN |
+             (1U << 21) | (0x80U << 8) | 0x20, mac1, mac0);
   return 0;
 }
 
 static int
-mt7601u_validate_firmware(struct fat32_file *file)
+mt7601u_validate_firmware(struct fw_file *file)
 {
   struct mt7601u_fw_header header;
   uint32 expected;
-  if(fat32openroot("MT7601U BIN", file) < 0){
-    printf("mt7601u: firmware MT7601U.BIN missing on bootfs\n");
+  if(fw_open("mt7601u.bin", file) < 0){
+    printf("mt7601u: firmware mt7601u.bin missing\n");
     return -1;
   }
   if(file->size < sizeof(header) ||
-     fat32pread(file, 0, &header, sizeof(header)) != sizeof(header))
+     fw_pread(file, 0, &header, sizeof(header)) != sizeof(header))
     return -1;
   expected = sizeof(header) + header.ilm_len + header.dlm_len;
   if(header.ilm_len <= MT_MCU_IVB_SIZE || expected != file->size){
@@ -1647,11 +2031,15 @@ mt7601u_validate_firmware(struct fat32_file *file)
 static int
 mt7601u_probe(struct usb_device *udev)
 {
-  struct fat32_file firmware;
+  struct fw_file firmware;
   if(mt7601u.used)
     return -1;
   memset(&mt7601u, 0, sizeof(mt7601u));
   initlock(&mt7601u.lock, "mt7601u");
+  MT_CFG_LOG("probe begin addr=%d vid:pid=%x:%x bulk-in=%d,%d bulk-out=%d mps=%d\n",
+             udev->address, udev->vendor, udev->product,
+             udev->bulk_in_ep, udev->bulk_in_ep2, udev->bulk_out_ep,
+             udev->bulk_out_max_packet);
   if(mt7601u_read32(udev, MT_ASIC_VERSION, &mt7601u.asic_rev) < 0 ||
      mt7601u_read32(udev, MT_MAC_CSR0, &mt7601u.mac_rev) < 0){
     printf("mt7601u: USB vendor register read failed\n");
@@ -1667,6 +2055,7 @@ mt7601u_probe(struct usb_device *udev)
   printf("mt7601u: driver WPA2-v4 (M1 timeout recovery)\n");
   if(mt7601u_validate_firmware(&firmware) < 0)
     return -1;
+  MT_CFG_LOG("probe phase=firmware-load\n");
   if(mt7601u_load_firmware(udev, &firmware) < 0){
     printf("mt7601u: MCU firmware load failed\n");
     return -1;
@@ -1678,6 +2067,7 @@ mt7601u_probe(struct usb_device *udev)
   mt7601u.udev = udev;
   mt7601u.firmware_size = firmware.size;
   mt7601u.mcu_running = 1;
+  MT_CFG_LOG("probe phase=eFuse/basic/MCU/full-hardware\n");
   if(mt7601u_read_eeprom(&mt7601u) < 0 ||
      mt7601u_basic_hw_init(&mt7601u) < 0 ||
      mt7601u_mcu_channel_init(&mt7601u) < 0 ||
@@ -1692,10 +2082,9 @@ mt7601u_probe(struct usb_device *udev)
     return -1;
   }
   mt7601u.scan_deadline = workqueue_now() + MT_SCAN_DWELL_JIFFIES;
-  // PBKDF2 is intentionally done during probe rather than from the 100-ms
-  // timer interrupt that receives EAPOL M1.
-  wpa_pbkdf2("Minghua123", "TP-Link_B114", mt7601u.pmk);
-  mt7601u.netdev.dev.name = "wlan1";
+  // The network to join comes from wifi_connect() (mt7601u_connect); until
+  // then the state machine only scans and lists access points.
+  mt7601u.netdev.dev.name = "wlan1";     // wlan0 is the on-board brcmfmac
   mt7601u.netdev.dev.parent = &udev->dev;
   mt7601u.netdev.ops = &mt7601u_netdev_ops;
   mt7601u.netdev.priv = &mt7601u;
@@ -1703,17 +2092,23 @@ mt7601u_probe(struct usb_device *udev)
   memmove(mt7601u.netdev.mac, mt7601u.mac, 6);
   napi_enable(&mt7601u.napi);
   udev->dev.driver_data = &mt7601u;
+  MT_CFG_LOG("probe phase=rx-ring EP%d requests=%d bytes-each=%d\n",
+             udev->bulk_in_ep, MT_RX_REQUESTS, MT_RX_BUF_SIZE);
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
     for(int i = 0; i < MT_RX_REQUESTS; i++)
       if(udev->ops->bulk_rx_arm(udev, udev->bulk_in_ep,
                                mt_rx_buf[i], MT_RX_BUF_SIZE) < 0)
         printf("mt7601u: RX request %d submission failed\n", i);
   if(udev->ops->bulk_rx_arm && udev->ops->bulk_rx_complete)
-    printf("mt7601u: EP%d receive uses DWC2 IRQ with %d buffers\n",
+    printf("mt7601u: EP%d receive uses USB host IRQ with %d buffers\n",
            udev->bulk_in_ep, MT_RX_REQUESTS);
   queue_delayed_work(&mt7601u_wq, &mt7601u.state_work,
                      MT_SCAN_DWELL_JIFFIES);
+  __sync_synchronize();
+  mt7601u.ready = 1;
   printf("mt7601u: transport and MCU ready; SoftMAC initialization pending\n");
+  MT_CFG_LOG("probe end initial-channel=%d state-work-delay=%d\n",
+             mt7601u.scan_channel, MT_SCAN_DWELL_JIFFIES);
   return 0;
 }
 
@@ -1751,12 +2146,106 @@ mt7601u_driver_init(void)
   usb_register_driver(&mt7601u_driver);
 }
 
-// Order 3: needs the bootfs firmware files (rootdev_init() mounts
-// bootfs) and dwc2's enumeration.
+// Order 3: needs the bootfs firmware file (rootdev_init() mounts bootfs)
+// and dwc2's enumeration.
 late_initcall_ord("mt7601u", mt7601u_driver_init, 3);
+
+// 1 when a dongle has been probed (wifi_connect then joins with it).
+int
+mt7601u_present(void)
+{
+  return mt7601u.used;
+}
 
 void
 mt7601u_driver_exit(void)
 {
   usb_unregister_driver(&mt7601u_driver);
+}
+
+// wifi_connect(ssid, passphrase): derive the PMK here (PBKDF2, 4096 rounds,
+// too slow for interrupt context), aim the scan state machine at `ssid`,
+// and wait up to `timeout_ms` for the 4-way handshake. 0 when associated
+// and keyed, -1 otherwise (no such network, wrong passphrase, no device).
+int
+mt7601u_connect(const char *ssid, const char *passphrase, int timeout_ms)
+{
+  struct mt7601u_device *dev = &mt7601u;
+  int n = strlen(ssid);
+  if(n == 0 || n > 32)
+    return -1;
+  // The probe sets `used` before eFuse and the MAC/BBP/RF/WCID tables, which
+  // take tens of seconds with traces on.  Start the join timeout only once
+  // the probe has finished, instead of spending it on initialization.
+  {
+    uint64 freq = (uint64)r_cntfrq_el0();
+    uint64 wait_end = r_cntvct_el0() + freq * 60;
+    if(dev->used && !dev->ready)
+      printf("mt7601u: adapter still initializing; join waits for it\n");
+    while(dev->used && !dev->ready && r_cntvct_el0() < wait_end){
+      acquire(&tickslock);
+      sleep(&ticks, &tickslock);
+      release(&tickslock);
+    }
+  }
+  if(!dev->used || !dev->ready)
+    return -1;
+  // A retry for the network we are already joining must not restart the
+  // join: the state machine keeps running after a timed-out wifi_connect(),
+  // and resetting it here threw away a link that was about to complete.
+  acquire(&dev->lock);
+  int same = dev->want_ssid_len == n && memcmp(dev->want_ssid, ssid, n) == 0;
+  if(same && dev->handshake_done){
+    release(&dev->lock);
+    printf("mt7601u: already associated with %s\n", dev->want_ssid);
+    return 0;
+  }
+  int in_progress = same && dev->target_found;
+  release(&dev->lock);
+  if(!in_progress){
+    uint8 pmk[32];
+    wpa_pbkdf2((char*)passphrase, (char*)ssid, pmk);
+    acquire(&dev->lock);
+    memmove(dev->pmk, pmk, sizeof(pmk));
+    memmove(dev->want_ssid, ssid, n);
+    dev->want_ssid[n] = 0;
+    dev->want_ssid_len = n;
+    dev->target_found = 0;
+    dev->handshake_done = 0;
+    dev->link_state = MT_LINK_SCAN;
+    dev->scan_rounds = 0;
+    dev->scan_dwell_logs = 0;
+    release(&dev->lock);
+    mod_delayed_work(&mt7601u_wq, &dev->state_work, MT_STATE_SOON_JIFFIES);
+    printf("mt7601u: joining %s\n", dev->want_ssid);
+  } else {
+    printf("mt7601u: %s: join already in progress, waiting\n", dev->want_ssid);
+  }
+  uint64 hz = (uint64)r_cntfrq_el0();
+  uint64 end = r_cntvct_el0() + hz * timeout_ms / 1000;
+  int extended = 0;
+  for(;;){
+    if(dev->handshake_done)
+      return 0;
+    uint64 now = r_cntvct_el0();
+    if(now >= end){
+      // AP found late in the window: give auth/assoc/WPA2 15 s more, once.
+      if(dev->target_found && !extended){
+        extended = 1;
+        end = now + hz * 15;
+        printf("mt7601u: %s found late; waiting 15 s more for the handshake\n",
+               dev->want_ssid);
+        continue;
+      }
+      break;
+    }
+    acquire(&tickslock);
+    sleep(&ticks, &tickslock);     // let the workqueue and RX run
+    release(&tickslock);
+  }
+  printf("mt7601u: %s: no handshake within %d ms (state %d, found %d, channel %d, "
+         "sweeps %d, mgmt frames %d, usb rx %d)\n", dev->want_ssid, timeout_ms,
+         dev->link_state, dev->target_found, dev->scan_channel, dev->scan_rounds,
+         dev->mgmt_frames, dev->rx_urbs);
+  return -1;
 }

@@ -105,6 +105,15 @@ sys_wifi_connect(void)
   // BCM43455 control requests and MT7601U scans are both bounded polling
   // transactions.  Do not let timer-driven USB channel changes stretch a
   // FullMAC BCDC response past its deadline.
+  // A plugged-in MT7601U dongle (wlan1) is tried first, then the on-board
+  // BCM43430 (wlan0).  The interface that joins gets its address by DHCP.
+  if(mt7601u_present()){
+    struct net_device *dev;
+    if(mt7601u_connect(ssid, passphrase, 30000) == 0 &&
+       (dev = netdev_find("wlan1")) != 0 && net_dhcp_dev(dev) == 0)
+      return 0;
+    printf("wifi: MT7601U join failed; trying the on-board Wi-Fi\n");
+  }
   mt7601u_pause(1);
   result = brcmfmac_connect(ssid, passphrase);
   mt7601u_pause(0);
