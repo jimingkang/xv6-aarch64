@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1397" viewBox="0 0 1400 1397" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<title>SDIO Wi-Fi 时序图 ②：连接 AP、WPA2 四次握手、DHCP</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1400" height="1397" fill="#fff"/>
+<text x="700.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi 时序图 ②：连接 AP、WPA2 四次握手、DHCP</text>
+<text x="700.0" y="58.0" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">brcmfmac_connect() 跑在 /bin/wifi 进程里，同步等待每个 BCDC 回复；EAPOL 帧由 DAT1 中断 → brcmf0_wq 的 NAPI 收进来</text>
+<path d="M40.0,80.0 L74.0,80.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="82.0" y="84.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">函数调用</text>
+<path d="M156.0,80.0 L190.0,80.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<text x="198.0" y="84.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">返回 / 回复</text>
+<path d="M291.3,80.0 L325.3,80.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<text x="333.3" y="84.0" font-size="11.5" fill="#0969da" font-weight="normal" text-anchor="start">SDIO 命令（CMD52/53）</text>
+<path d="M491.0,80.0 L525.0,80.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<text x="533.0" y="84.0" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">SDPCM 帧（BCDC 控制/数据）</text>
+<path d="M718.8,80.0 L752.8,80.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="760.8" y="84.0" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">中断 / 调度</text>
+<path d="M854.1,80.0 L888.1,80.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<text x="896.1" y="84.0" font-size="11.5" fill="#8250df" font-weight="normal" text-anchor="start">802.11 空口</text>
+<path d="M992.2,80.0 L1026.2,80.0" fill="none" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<text x="1034.2" y="84.0" font-size="11.5" fill="#bc4c00" font-weight="normal" text-anchor="start">定时 / 看门狗</text>
+<rect x="77.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="172.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">/bin/wifi</text>
+<text x="172.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">user/wifi.c</text>
+<rect x="341.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#fbefff" stroke="#8250df" stroke-width="1.4"/>
+<text x="436.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">brcmfmac_connect</text>
+<text x="436.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">/bin/wifi 的内核态</text>
+<rect x="605.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#ffebe9" stroke="#cf222e" stroke-width="1.4"/>
+<text x="700.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">brcmf0_wq</text>
+<text x="700.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">NAPI / state_work</text>
+<rect x="869.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="964.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">CYW43455 固件</text>
+<text x="964.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">CR4 + D11</text>
+<rect x="1133.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#fbefff" stroke="#8250df" stroke-width="1.4"/>
+<text x="1228.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">AP</text>
+<text x="1228.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">WPA2-PSK / DHCP</text>
+<path d="M172.0,148 V1377.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M436.0,148 V1377.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M700.0,148 V1377.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M964.0,148 V1377.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1228.0,148 V1377.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<rect x="44.0" y="169.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="186.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">准备：重置接口、订阅事件、设置安全参数（全部是 brcmf_dcmd / brcmf_iovar 同步往返）</text>
+<path d="M175.0,221.0 L433.0,221.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="183.0" cy="212.0" r="8.5" fill="#333"/>
+<text x="183.0" y="216.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">1</text>
+<text x="198.0" y="215.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">wifi_connect(ssid, psk) → sys_wifi_connect</text>
+<path d="M439.0,254.0 L961.0,254.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="245.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="249.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="462.0" y="248.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">DOWN / UP · event_msgs · mpc=0 · bus:rxglom=0 · country</text>
+<path d="M439.0,287.0 L961.0,287.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="278.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="282.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">3</text>
+<text x="462.0" y="281.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SET_INFRA=1 · SET_AUTH=0（open）· SET_WSEC=AES · bsscfg:wpa_auth=WPA2_PSK</text>
+<path d="M438.0,301.0 L462.0,301.0 L462.0,319.0 L440.0,319.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="476.0" cy="303.0" r="8.5" fill="#333"/>
+<text x="476.0" y="307.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">4</text>
+<text x="490.0" y="307.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">wpa_pbkdf2(psk, ssid, 4096 轮) → 32 B PMK（不打印）</text>
+<path d="M439.0,354.0 L961.0,354.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="345.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="349.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<text x="462.0" y="348.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SET_WSEC_PMK</text>
+<path d="M961.0,387.0 L439.0,387.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="447.0" cy="378.0" r="8.5" fill="#57606a"/>
+<text x="447.0" y="382.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">6</text>
+<text x="462.0" y="381.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">不支持（firmware 7.45 无内置 supplicant）→ host_eapol = 1</text>
+<rect x="44.0" y="398.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="415.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">加入网络：固件自己扫描 / 认证 / 关联</text>
+<path d="M439.0,450.0 L961.0,450.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="441.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="445.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<text x="462.0" y="444.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SET_SSID(ssid)</text>
+<path d="M439.0,483.0 L697.0,483.0" fill="none" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<circle cx="447.0" cy="474.0" r="8.5" fill="#bc4c00"/>
+<text x="447.0" y="478.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="462.0" y="477.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_connect_watch_start：state_work 每 5 tick（50 ms），10 s 截止</text>
+<path d="M967.0,516.0 L1225.0,516.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="507.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="511.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">9</text>
+<text x="990.0" y="510.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">probe req / 802.11 open auth / assoc req（含 RSN IE）</text>
+<path d="M1225.0,549.0 L967.0,549.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="540.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="544.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">10</text>
+<text x="990.0" y="543.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">auth resp / assoc resp</text>
+<path d="M961.0,582.0 L703.0,582.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="711.0" cy="573.0" r="8.5" fill="#cf222e"/>
+<text x="711.0" y="577.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">11</text>
+<text x="726.0" y="576.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">event 帧（ch1）→ DAT1 → IRQ 62 → NAPI 打印 type/status/reason</text>
+<path d="M439.0,615.0 L961.0,615.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="606.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="610.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">12</text>
+<text x="462.0" y="609.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">GET_BSSID（循环 ≤ 40 次）</text>
+<path d="M961.0,648.0 L439.0,648.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="447.0" cy="639.0" r="8.5" fill="#57606a"/>
+<text x="447.0" y="643.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">13</text>
+<text x="462.0" y="642.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">-17 未关联 …… 之后返回 AP 的 BSSID</text>
+<path d="M439.0,681.0 L961.0,681.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="672.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="676.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">14</text>
+<text x="462.0" y="675.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">GET assoc_info / assoc_req_ies → 取出固件实际发出的 RSN IE</text>
+<rect x="44.0" y="692.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="709.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">WPA2 四次握手（固件不做，主机做 supplicant；EAPOL 走 ch2 数据通道）</text>
+<path d="M1225.0,744.0 L967.0,744.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="735.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="739.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">15</text>
+<text x="990.0" y="738.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">EAPOL M1（ANonce）</text>
+<path d="M961.0,777.0 L703.0,777.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="711.0" cy="768.0" r="8.5" fill="#cf222e"/>
+<text x="711.0" y="772.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">16</text>
+<text x="726.0" y="771.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">ch2 数据帧，type 0x888e → DAT1 IRQ → NAPI</text>
+<path d="M702.0,791.0 L726.0,791.0 L726.0,809.0 L704.0,809.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="740.0" cy="793.0" r="8.5" fill="#333"/>
+<text x="740.0" y="797.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">17</text>
+<text x="754.0" y="797.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_wpa_rx_locked：生成 SNonce，PTK = PRF(PMK, MAC, Nonce)，算 MIC</text>
+<path d="M703.0,844.0 L961.0,844.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="711.0" cy="835.0" r="8.5" fill="#1a7f37"/>
+<text x="711.0" y="839.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">18</text>
+<text x="726.0" y="838.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">EAPOL M2（RSN IE 必须与关联请求逐字节相同）</text>
+<path d="M967.0,877.0 L1225.0,877.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="868.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="872.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">19</text>
+<text x="990.0" y="871.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">M2</text>
+<path d="M1225.0,910.0 L967.0,910.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="901.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="905.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">20</text>
+<text x="990.0" y="904.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">EAPOL M3（加密的 GTK）</text>
+<path d="M961.0,943.0 L703.0,943.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="711.0" cy="934.0" r="8.5" fill="#cf222e"/>
+<text x="711.0" y="938.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">21</text>
+<text x="726.0" y="937.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">M3 → NAPI</text>
+<path d="M702.0,957.0 L726.0,957.0 L726.0,975.0 L704.0,975.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="740.0" cy="959.0" r="8.5" fill="#333"/>
+<text x="740.0" y="963.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">22</text>
+<text x="754.0" y="963.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">校验 MIC，AES key unwrap 出 GTK → keys_pending = 1</text>
+<path d="M439.0,1010.0 L961.0,1010.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="1001.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="1005.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">23</text>
+<text x="462.0" y="1004.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_finish_wpa_handshake：bsscfg:wsec_key 装 PTK（pairwise）、GTK（group）</text>
+<path d="M439.0,1043.0 L961.0,1043.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="1034.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="1038.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">24</text>
+<text x="462.0" y="1037.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">EAPOL M4 → handshake_done = 1（之后才允许普通数据收发）</text>
+<path d="M967.0,1076.0 L1225.0,1076.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="975.0" cy="1067.0" r="8.5" fill="#8250df"/>
+<text x="975.0" y="1071.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">25</text>
+<text x="990.0" y="1070.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">M4</text>
+<path d="M438.0,1090.0 L462.0,1090.0 L462.0,1108.0 L440.0,1108.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="476.0" cy="1092.0" r="8.5" fill="#333"/>
+<text x="476.0" y="1096.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">26</text>
+<text x="490.0" y="1096.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">500 ms：netdev_poll_one 排空 RX，等 AP 打开受控端口</text>
+<rect x="44.0" y="1121.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="1138.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">IP 配置与收尾</text>
+<path d="M439.0,1173.0 L1225.0,1173.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="1164.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="1168.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">27</text>
+<text x="462.0" y="1167.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">net_dhcp_dev(wlan0)：Discover / Request（经 xmit → F2 → 空口，各重试 3 次）</text>
+<path d="M1225.0,1206.0 L439.0,1206.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="447.0" cy="1197.0" r="8.5" fill="#57606a"/>
+<text x="447.0" y="1201.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">28</text>
+<text x="462.0" y="1200.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">Offer / Ack → 地址、掩码、网关、DNS；加直连/默认路由与 ARP</text>
+<path d="M439.0,1239.0 L961.0,1239.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="447.0" cy="1230.0" r="8.5" fill="#1a7f37"/>
+<text x="447.0" y="1234.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">29</text>
+<text x="462.0" y="1233.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">BRCMF_C_SET_PM = 0（PM_OFF，关省电）</text>
+<rect x="317.2" y="1255.0" width="1029.6" height="42.0" rx="5" fill="#fff1e5" stroke="#bc4c00" stroke-width="1"/>
+<text x="327.2" y="1272.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">为什么关省电：默认 PM2 下 AP 把发给 Pi 的帧缓存到下一个 beacon，每包约 100 ms</text>
+<text x="327.2" y="1288.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">（Mac ↔ Pi 的 MPI ping-pong 单程实测 121 ms）；关掉后恢复正常</text>
+<path d="M439.0,1328.0 L697.0,1328.0" fill="none" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<circle cx="447.0" cy="1319.0" r="8.5" fill="#bc4c00"/>
+<text x="447.0" y="1323.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">30</text>
+<text x="462.0" y="1322.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_connect_watch_stop()：同步取消 state_work</text>
+<path d="M433.0,1361.0 L175.0,1361.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="183.0" cy="1352.0" r="8.5" fill="#57606a"/>
+<text x="183.0" y="1356.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">31</text>
+<text x="198.0" y="1355.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">返回 0 → 打印 “wifi: associated”</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToxZjhlYjJhMS04MGQ0LTQ5NTYtOTJhZS0yNjc3MmUwYjUzNGUAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaL7pe1qhqCH4cIg1H9cv3SsAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo1MjgwYzI4Ni1kM2FiLTRhNmUtYmZhNi1kNTdmMjE5N2IwZTNscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo4gPlD/LyIRC1e3hL+zviyQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggsaQbXIxooqMA7FzqozW3iJjdyF+Ax2rQ6JJgzCTRBj6kZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaJX+iv1kHRWCq4+yffbLxV0AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIOMqJO/Sg2zyQ4nbx3ElXE+nRUITT4GvKOFvRPh69A1kZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GVNYZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjFmOGViMmExLTgwZDQtNDk1Ni05MmFlLTI2NzcyZTBiNTM0ZS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjlkZGM4MTM1LTdhYWQtNDI3OC1hZDA4LWZlNjQzMjNhNjhlM3JjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCxpBtcjGiiowDsXOqjNbeImN3IX4DHatDokmDMJNEGPqJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg7o4rNHt4oDVL7Ha213sSQcs6tVRPw4XrmHHy31N3WuCiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggZ+U3Mf+N3+oiDw4iCrR3A9rwXOfiTjTXPL6kSn1MwS50Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQEpMg+RM2UqUoXxOB2Q8msbvQFuZcWy34M21Uvl9nsvbzIbktjo7BlcKAutl/IrpAK+Uc7MZYalclkQMDpdJCOg=</c2pa:manifest></metadata></svg>

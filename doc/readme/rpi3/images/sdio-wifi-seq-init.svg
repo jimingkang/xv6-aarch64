@@ -1,0 +1,221 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1663" viewBox="0 0 1400 1663" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<title>SDIO Wi-Fi 时序图 ①：从上电到 wlan0 注册（brcmf_probe）</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1400" height="1663" fill="#fff"/>
+<text x="700.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi 时序图 ①：从上电到 wlan0 注册（brcmf_probe）</text>
+<text x="700.0" y="58.0" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">按代码执行顺序；同一条竖线上越往下越晚。CMD52/53 实际都经过 SDIO core → Arasan host 发出，图中直接画到芯片以省空间</text>
+<path d="M40.0,80.0 L74.0,80.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="82.0" y="84.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">函数调用</text>
+<path d="M156.0,80.0 L190.0,80.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<text x="198.0" y="84.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">返回 / 回复</text>
+<path d="M291.3,80.0 L325.3,80.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<text x="333.3" y="84.0" font-size="11.5" fill="#0969da" font-weight="normal" text-anchor="start">SDIO 命令（CMD52/53）</text>
+<path d="M491.0,80.0 L525.0,80.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<text x="533.0" y="84.0" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">SDPCM 帧（BCDC 控制/数据）</text>
+<path d="M718.8,80.0 L752.8,80.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="760.8" y="84.0" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">中断 / 调度</text>
+<path d="M854.1,80.0 L888.1,80.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<text x="896.1" y="84.0" font-size="11.5" fill="#8250df" font-weight="normal" text-anchor="start">802.11 空口</text>
+<path d="M992.2,80.0 L1026.2,80.0" fill="none" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<text x="1034.2" y="84.0" font-size="11.5" fill="#bc4c00" font-weight="normal" text-anchor="start">定时 / 看门狗</text>
+<rect x="47.0" y="100.0" width="174.6" height="48.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="134.3" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">bootfs FAT32</text>
+<text x="134.3" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">microSD / sdhost</text>
+<rect x="235.6" y="100.0" width="174.6" height="48.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="322.9" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">xv6 启动</text>
+<text x="322.9" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">main() CPU0</text>
+<rect x="424.1" y="100.0" width="174.6" height="48.0" rx="7" fill="#fbefff" stroke="#8250df" stroke-width="1.4"/>
+<text x="511.4" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">brcmfmac</text>
+<text x="511.4" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_probe</text>
+<rect x="612.7" y="100.0" width="174.6" height="48.0" rx="7" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="700.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO core</text>
+<text x="700.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">sdio.c</text>
+<rect x="801.3" y="100.0" width="174.6" height="48.0" rx="7" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="888.6" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">Arasan host</text>
+<text x="888.6" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_sdio.c</text>
+<rect x="989.9" y="100.0" width="174.6" height="48.0" rx="7" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="1077.1" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">CYW43455 SDIO</text>
+<text x="1077.1" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">F0 / F1 / F2</text>
+<rect x="1178.4" y="100.0" width="174.6" height="48.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="1265.7" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">CR4 固件</text>
+<text x="1265.7" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">BCM43455.BIN</text>
+<path d="M134.3,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M322.9,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M511.4,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M700.0,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M888.6,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1077.1,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1265.7,148 V1643.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<rect x="44.0" y="169.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="186.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">阶段 1  host 初始化与 SDIO 枚举（400 kHz，1-bit）</text>
+<path d="M325.9,221.0 L885.6,221.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="333.9" cy="212.0" r="8.5" fill="#333"/>
+<text x="333.9" y="216.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">1</text>
+<text x="348.9" y="215.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">arasan_sdio_driver_init() → platform 匹配 → arasan_probe()</text>
+<path d="M890.6,235.0 L914.6,235.0 L914.6,267.0 L892.6,267.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="928.6" cy="237.0" r="8.5" fill="#333"/>
+<text x="928.6" y="241.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="942.6" y="241.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">gpio_init()：GPIO34–39 ALT3、上拉；CONTROL1.SRST_HC 复位；</text>
+<text x="942.6" y="256.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">mailbox 取 EMMC 基准时钟 → 400 kHz</text>
+<path d="M885.6,302.0 L703.0,302.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="711.0" cy="293.0" r="8.5" fill="#333"/>
+<text x="711.0" y="297.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">3</text>
+<text x="726.0" y="296.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">mmc_add_host() → sdio_scan_host()</text>
+<path d="M703.0,335.0 L1074.1,335.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="326.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="330.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">4</text>
+<text x="726.0" y="329.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD0 复位</text>
+<path d="M703.0,368.0 L1074.1,368.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="359.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="363.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<text x="726.0" y="362.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD5(arg 0) 查询 IO OCR</text>
+<path d="M1074.1,401.0 L703.0,401.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="711.0" cy="392.0" r="8.5" fill="#57606a"/>
+<text x="711.0" y="396.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">6</text>
+<text x="726.0" y="395.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">R4：OCR、function 数 = 3</text>
+<path d="M703.0,434.0 L1074.1,434.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="425.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="429.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<text x="726.0" y="428.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD5(OCR) 反复发，直到 IORDY（bit31）= 1</text>
+<path d="M703.0,467.0 L1074.1,467.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="458.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="462.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="726.0" y="461.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD3 取 RCA → CMD7 选中卡</text>
+<path d="M703.0,500.0 L1074.1,500.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="491.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="495.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">9</text>
+<text x="726.0" y="494.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 读 CCCR / FBR / CIS → vendor 0x02d0、device 0xa9a6</text>
+<path d="M703.0,533.0 L1074.1,533.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="711.0" cy="524.0" r="8.5" fill="#0969da"/>
+<text x="711.0" y="528.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">10</text>
+<text x="726.0" y="527.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 写 CCCR Bus Interface = 4-bit</text>
+<path d="M703.0,566.0 L885.6,566.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="711.0" cy="557.0" r="8.5" fill="#333"/>
+<text x="711.0" y="561.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">11</text>
+<text x="726.0" y="560.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">set_bus_width(4)；probe 返回后 arasan_set_clock(25 MHz)</text>
+<path d="M697.0,599.0 L325.9,599.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="333.9" cy="590.0" r="8.5" fill="#57606a"/>
+<text x="333.9" y="594.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">12</text>
+<text x="348.9" y="593.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">device_add(sdio0:1 / :2 / :3)，等待驱动匹配</text>
+<rect x="44.0" y="610.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="627.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">阶段 2  bootfs 可读后，brcmfmac 匹配并识别芯片</text>
+<path d="M319.9,662.0 L137.3,662.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="145.3" cy="653.0" r="8.5" fill="#333"/>
+<text x="145.3" y="657.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">13</text>
+<text x="160.3" y="656.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">rootdev_init() / fat32mount()</text>
+<path d="M325.9,695.0 L508.4,695.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="333.9" cy="686.0" r="8.5" fill="#333"/>
+<text x="333.9" y="690.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">14</text>
+<text x="348.9" y="689.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmfmac_driver_init() → sdio_match → brcmf_probe(F1)</text>
+<path d="M514.4,728.0 L1074.1,728.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="719.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="723.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">15</text>
+<text x="537.4" y="722.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 CCCR IO_ENABLE |= F1，轮询 IO_READY</text>
+<path d="M514.4,761.0 L1074.1,761.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="752.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="756.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">16</text>
+<text x="537.4" y="755.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 F1 CHIPCLKCSR = ALP_AVAIL_REQ，等 ALP_AVAIL</text>
+<path d="M514.4,794.0 L1074.1,794.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="785.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="789.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">17</text>
+<text x="537.4" y="788.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52×3 设窗口 0x18000000 → CMD53 F1 读 CHIPID</text>
+<path d="M1074.1,827.0 L514.4,827.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="522.4" cy="818.0" r="8.5" fill="#57606a"/>
+<text x="522.4" y="822.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">18</text>
+<text x="537.4" y="821.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">0x15264345 → chip 0x4345 rev 6 = BCM43455</text>
+<path d="M508.4,860.0 L137.3,860.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="145.3" cy="851.0" r="8.5" fill="#333"/>
+<text x="145.3" y="855.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">19</text>
+<text x="160.3" y="854.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">fat32openroot：BCM43455.BIN / .TXT / .CLM</text>
+<path d="M137.3,893.0 L508.4,893.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="145.3" cy="884.0" r="8.5" fill="#57606a"/>
+<text x="145.3" y="888.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">20</text>
+<text x="160.3" y="887.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">文件句柄（流式读，不整块载入内存）</text>
+<rect x="44.0" y="904.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="921.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">阶段 3  经 F1 backplane 下载固件（25 MHz，CMD53 ≤ transfer_limit）</text>
+<path d="M514.4,956.0 L1074.1,956.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="947.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="951.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">21</text>
+<text x="537.4" y="950.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_scan_cores：读 EROM → ChipCommon / SDIO / CR4 / D11 基址</text>
+<path d="M514.4,989.0 L1074.1,989.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="980.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="984.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">22</text>
+<text x="537.4" y="983.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_get_raminfo：CR4 bank 寄存器 → TCM base 0x198000、大小</text>
+<path d="M514.4,1022.0 L1262.7,1022.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1013.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1017.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">23</text>
+<text x="537.4" y="1016.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_set_passive：halt CR4，D11 保持复位</text>
+<path d="M514.4,1055.0 L1074.1,1055.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1046.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1050.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">24</text>
+<text x="537.4" y="1049.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_write_firmware：BIN 分块写 TCM（每 32 KB 换一次窗口），回读校验 reset vector</text>
+<rect x="426.6" y="1071.0" width="735.4" height="42.0" rx="5" fill="#fff1e5" stroke="#bc4c00" stroke-width="1"/>
+<text x="436.6" y="1088.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">实机：512/256/128 B 的 CMD53 出现 data CRC 错 → 每次减半重试，64 B 稳定</text>
+<text x="436.6" y="1104.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">日志：brcmfmac: CMD53 retry with max-chunk=…</text>
+<path d="M514.4,1144.0 L1074.1,1144.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1135.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1139.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">25</text>
+<text x="537.4" y="1138.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_write_nvram：TXT → NUL 分隔 + 长度/反码 token，写 RAM 尾部</text>
+<path d="M514.4,1177.0 L1262.7,1177.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1168.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1172.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">26</text>
+<text x="537.4" y="1171.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_set_active：reset vector 写到地址 0，释放 CR4</text>
+<path d="M1267.7,1191.0 L1291.7,1191.0 L1291.7,1209.0 L1269.7,1209.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="1305.7" cy="1193.0" r="8.5" fill="#333"/>
+<text x="1305.7" y="1197.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">27</text>
+<text x="1255.7" y="1197.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="end">固件开始运行：初始化 SDIO core、D11、射频</text>
+<rect x="44.0" y="1222.0" width="1312.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="1239.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">阶段 4  打开 F2，建立 SDPCM / BCDC 控制面</text>
+<path d="M514.4,1274.0 L1074.1,1274.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1265.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1269.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">28</text>
+<text x="537.4" y="1268.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CHIPCLKCSR |= FORCE_HT；TOSBMAILBOXDATA = SDPCM 协议版本 4</text>
+<path d="M514.4,1307.0 L1074.1,1307.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1298.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1302.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">29</text>
+<text x="537.4" y="1301.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CCCR IO_ENABLE |= F2（固件起来后才 ready）</text>
+<path d="M514.4,1340.0 L1074.1,1340.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1331.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1335.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">30</text>
+<text x="537.4" y="1334.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">HOSTINTMASK；WATERMARK = 0x60；DEVICE_CTL；MESBUSYCTRL = 0xd0</text>
+<path d="M1262.7,1373.0 L514.4,1373.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="522.4" cy="1364.0" r="8.5" fill="#57606a"/>
+<text x="522.4" y="1368.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">31</text>
+<text x="537.4" y="1367.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">TOHOSTMAILBOXDATA：FWREADY / DEVREADY（每 1 ms 轮询，最多 3 s）</text>
+<path d="M514.4,1406.0 L1262.7,1406.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="522.4" cy="1397.0" r="8.5" fill="#1a7f37"/>
+<text x="522.4" y="1401.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">32</text>
+<text x="537.4" y="1400.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SMB_INT_ACK；BCDC GET_VAR &quot;ver&quot;（SDPCM ch0，CMD53 F2）</text>
+<path d="M1262.7,1439.0 L514.4,1439.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="522.4" cy="1430.0" r="8.5" fill="#57606a"/>
+<text x="522.4" y="1434.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">33</text>
+<text x="537.4" y="1433.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">回复：固件版本字符串（按 req id 匹配）</text>
+<path d="M514.4,1472.0 L1262.7,1472.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="522.4" cy="1463.0" r="8.5" fill="#1a7f37"/>
+<text x="522.4" y="1467.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">34</text>
+<text x="537.4" y="1466.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">clmload（1 KB 一块）· GET &quot;cur_etheraddr&quot; · BRCMF_C_UP</text>
+<path d="M508.4,1505.0 L325.9,1505.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="333.9" cy="1496.0" r="8.5" fill="#333"/>
+<text x="333.9" y="1500.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">35</text>
+<text x="348.9" y="1499.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">register_netdev(wlan0)</text>
+<path d="M514.4,1538.0 L1074.1,1538.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="522.4" cy="1529.0" r="8.5" fill="#0969da"/>
+<text x="522.4" y="1533.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">36</text>
+<text x="537.4" y="1532.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">sdio_claim_irq：CMD52 CCCR INT_ENABLE = master | F1</text>
+<path d="M514.4,1571.0 L885.6,1571.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="522.4" cy="1562.0" r="8.5" fill="#333"/>
+<text x="522.4" y="1566.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">37</text>
+<text x="537.4" y="1565.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">napi_enable() · arasan_sdio_irq_enable()：IRPT_EN = CARD_INT</text>
+<rect x="238.0" y="1587.0" width="358.3" height="42.0" rx="5" fill="#dafbe1" stroke="#1a7f37" stroke-width="1"/>
+<text x="248.0" y="1604.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">之后：/init → /bin/wifi 发起连接（见连接时序图）</text>
+<text x="248.0" y="1620.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">所有上行帧都由 DAT1 中断驱动（见运行时收发时序图）</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTo3YmJlYzc3YS1jNjY5LTQzOTUtYmM4Mi1lN2U5YmI5Zjc0MmYAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaPKxw7wNjLs+qBFbOFq65ikAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo1YzY5NTJlZC05ZjYyLTQxNDgtYmI1MS02ZGMzMDM5Y2VlNGFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoCSzJJeRJn9xht7MPdEKzgQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggYJ2ycpazPURTHPZXt2/sdE6V+OKmGTJrrG0qDHKw+dGkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaKKrh3dwAKe8+rj9l3GDEvsAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIBo8Lx+0/CSPC/KWo1E6S4rxbHhfG1W/I/xaoG73QxxDZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GWM9Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjdiYmVjNzdhLWM2NjktNDM5NS1iYzgyLWU3ZTliYjlmNzQyZi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjEwMDg5M2JhLTk0NDItNDMyYi1iNTlkLTdiYmNkZmY0N2VhOHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCBgnbJylrM9RFMc9le3b+x0TpX44qYZMmusbSoMcrD50aJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggMNaGNbz0KEGgu61HDQxRM/7TVeQx43sz5bZijBgdw82iY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg0w9Qu0BAoERTmDPQjOnT3VJRoPX8OZiezOwvYUaCyjh0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQACJSh3LjXdpkR3HVpX5R6VzJ2PlmqLMmyOCmUYrWDt+4LOP+QwD3by/OS2q0sUwkXq3kcpk/phrr/KQxr/fblQ=</c2pa:manifest></metadata></svg>

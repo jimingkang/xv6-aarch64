@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1060" viewBox="0 0 1400 1060" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<title>SDIO Wi-Fi 硬件连接</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1400" height="1060" fill="#fff"/>
+<text x="700.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi 硬件连接：BCM2837 Arasan EMMC ⇄ GPIO34–39 ⇄ CYW43455，以及中断与时钟</text>
+<text x="700.0" y="58.0" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">外置 SD 卡（启动盘）和板载 Wi-Fi 是两个不同的控制器、两组不同的 GPIO；Wi-Fi 固件文件却放在 SD 卡的 bootfs 上</text>
+<rect x="30.0" y="80.0" width="720.0" height="640.0" rx="12" fill="#fbfcfd" stroke="#0969da" stroke-width="2"/>
+<text x="46.0" y="104.0" font-size="15" fill="#0969da" font-weight="bold" text-anchor="start">BCM2837 SoC（外设物理基址 0x3f000000）</text>
+<rect x="50.0" y="118.0" width="300.0" height="92.0" rx="7" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="60.0" y="137.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">Cortex-A53 × 4（xv6）</text>
+<text x="60.0" y="154.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">devintr()：gic_iar() 读到 irq 62</text>
+<text x="60.0" y="169.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ arasan_sdio_irq() 顶半部</text>
+<text x="60.0" y="185.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">brcmf0_wq kworker 做 CMD52/53</text>
+<rect x="50.0" y="226.0" width="300.0" height="92.0" rx="7" fill="#ffebe9" stroke="#cf222e" stroke-width="1.4"/>
+<text x="60.0" y="245.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">中断控制器</text>
+<text x="60.0" y="262.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">SDIO_IRQ = 62（memlayout.h）</text>
+<text x="60.0" y="277.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">BCM2837 pending-2 bit 30</text>
+<text x="60.0" y="293.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">电平触发：源不清，IRQ 不停</text>
+<rect x="50.0" y="334.0" width="300.0" height="78.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="60.0" y="353.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">VideoCore 邮箱 @0x3f00b880</text>
+<text x="60.0" y="370.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">属性通道 8：GET_CLOCK_RATE(EMMC)</text>
+<text x="60.0" y="385.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">→ Arasan 基准时钟（mailbox_clock）</text>
+<rect x="380.0" y="118.0" width="350.0" height="330.0" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="1.6"/>
+<text x="392.0" y="140.0" font-size="14" fill="#1f2328" font-weight="bold" text-anchor="start">Arasan EMMC / SDHCI @0x3f300000</text>
+<text x="394.0" y="162.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x04 BLKSIZECNT</text>
+<text x="520.0" y="162.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">块大小（≤512）| 块数 1</text>
+<text x="394.0" y="190.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x08 ARG1</text>
+<text x="520.0" y="190.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52/CMD53 32 位参数</text>
+<text x="394.0" y="218.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x0c CMDTM</text>
+<text x="520.0" y="218.0" font-size="10.8" fill="#1f2328" font-weight="normal" text-anchor="start">命令号&lt;&lt;24、响应类型、ISDATA、读方向</text>
+<text x="394.0" y="246.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x10 RESP0</text>
+<text x="520.0" y="246.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">R5 响应：标志位 + 读到的字节</text>
+<text x="394.0" y="274.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x20 DATA</text>
+<text x="520.0" y="274.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">PIO 数据口，32 位一次</text>
+<text x="394.0" y="302.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x24 STATUS</text>
+<text x="520.0" y="302.0" font-size="10.9" fill="#1f2328" font-weight="normal" text-anchor="start">CMD/DAT_INHIBIT、READ/WRITE_AVAIL</text>
+<text x="394.0" y="330.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x28 CONTROL0</text>
+<text x="520.0" y="330.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">bit1 = 4-bit 总线</text>
+<text x="394.0" y="358.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x2c CONTROL1</text>
+<text x="520.0" y="358.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">时钟分频/使能、SRST_CMD/DATA 复位</text>
+<text x="394.0" y="386.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x30 INTERRUPT</text>
+<text x="520.0" y="386.0" font-size="9.2" fill="#1f2328" font-weight="normal" text-anchor="start">CMD_DONE、DATA_DONE、bit8 CARD_INT、错误</text>
+<text x="394.0" y="414.0" font-size="11.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0x38 IRPT_EN</text>
+<text x="520.0" y="414.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">只开 CARD_INT 才会产生 IRQ 62</text>
+<text x="394.0" y="444.0" font-size="11.2" fill="#cf222e" font-weight="normal" text-anchor="start">arasan_request()：无 DMA，CPU 逐字搬运</text>
+<rect x="380.0" y="466.0" width="350.0" height="236.0" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="392.0" y="488.0" font-size="14" fill="#1f2328" font-weight="bold" text-anchor="start">GPIO @0x3f200000（gpio_init）</text>
+<text x="392.0" y="508.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start">GPFSEL3/4：GPIO34–39 设成 ALT3（=SD1，Arasan）</text>
+<text x="392.0" y="526.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start">上拉：GPPUD=2 → GPPUDCLK1 写 0xf8（GPIO35–39）</text>
+<text x="392.0" y="544.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start">GPIO34（CLK）不加上下拉</text>
+<rect x="392.0" y="556.0" width="326.0" height="134.0" rx="6" fill="#fff" stroke="#cf222e" stroke-width="1"/>
+<text x="402.0" y="576.0" font-size="12" fill="#cf222e" font-weight="bold" text-anchor="start">实机踩坑（已修）</text>
+<text x="402.0" y="595.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">原来误写 GPPUDCLK0，把 GPIO3–7 拉高，DAT1 浮空；</text>
+<text x="402.0" y="612.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">每次打开 CARD_INT 都立刻“来中断”，约 5 万次/秒，</text>
+<text x="402.0" y="629.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf0_wq 占满一个 CPU。改为 GPPUDCLK1 后正常。</text>
+<text x="402.0" y="646.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">另：仍会偶发“假中断”（CCCR INT_PENDING=0），</text>
+<text x="402.0" y="663.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">NAPI 遇到时把 IRQ 关 1 tick（10 ms）再开。</text>
+<rect x="50.0" y="430.0" width="300.0" height="92.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="60.0" y="449.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">BCM SDHOST @0x3f202000</text>
+<text x="60.0" y="466.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">GPIO48–53；sdhost.c</text>
+<text x="60.0" y="481.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">外置 microSD：FAT32 bootfs + fs.img</text>
+<text x="60.0" y="497.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">和 Wi-Fi 不是同一个控制器</text>
+<rect x="50.0" y="540.0" width="300.0" height="162.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="60.0" y="559.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">microSD 卡 bootfs（FAT32）</text>
+<text x="60.0" y="576.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">kernel8-xv6_wifi.img、config.txt</text>
+<text x="60.0" y="591.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">BCM43455.BIN  芯片 CR4 固件代码</text>
+<text x="60.0" y="607.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">BCM43455.TXT  NVRAM 板级参数</text>
+<text x="60.0" y="622.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">BCM43455.CLM  法规/信道/功率库</text>
+<text x="60.0" y="638.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">（Pi 3B 用 BCM43430.*）</text>
+<text x="60.0" y="653.5" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">brcmf_probe 用 fat32openroot 读</text>
+<path d="M200.0,522.0 L200.0,540.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#as)"/>
+<path d="M200.0,210.0 L200.0,226.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<path d="M380.0,300.0 L350.0,300.0" fill="none" stroke="#cf222e" stroke-width="1.8" marker-end="url(#ar)"/>
+<text x="352.0" y="292.0" font-size="10" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<path d="M350.0,372.0 L380.0,372.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#as)"/>
+<path d="M555.0,448.0 L555.0,466.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<rect x="1040.0" y="80.0" width="330.0" height="640.0" rx="12" fill="#fffdf7" stroke="#bc4c00" stroke-width="2"/>
+<text x="1054.0" y="104.0" font-size="15" fill="#bc4c00" font-weight="bold" text-anchor="start">CYW43455 模块（Pi 3B+）</text>
+<text x="1054.0" y="122.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">金属屏蔽罩下；Pi 3B 为 BCM43430</text>
+<rect x="1056.0" y="140.0" width="298.0" height="108.0" rx="7" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="1066.0" y="159.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">SDIO 从设备接口</text>
+<text x="1066.0" y="176.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">F0 CCCR、F1 backplane、F2 FIFO</text>
+<text x="1066.0" y="191.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">电压协商 CMD5（IO OCR）</text>
+<text x="1066.0" y="206.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">RCA 由 CMD3 分配，CMD7 选中</text>
+<text x="1066.0" y="221.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">DAT1 低电平 = 中断请求（4-bit 模式下在</text>
+<text x="1066.0" y="236.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">数据块之间的“中断周期”采样）</text>
+<rect x="1056.0" y="266.0" width="298.0" height="92.0" rx="7" fill="#ffebe9" stroke="#cf222e" stroke-width="1.4"/>
+<text x="1066.0" y="285.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">SDIO device core 中断逻辑</text>
+<text x="1066.0" y="302.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">INTSTATUS &amp; HOSTINTMASK ≠ 0</text>
+<text x="1066.0" y="317.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">→ 拉低 DAT1，直到主机写 1 清除</text>
+<text x="1066.0" y="332.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">（所以必须先清再 drain F2）</text>
+<rect x="1056.0" y="376.0" width="298.0" height="72.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="1066.0" y="395.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">WL_REG_ON / 32 kHz LPO</text>
+<text x="1066.0" y="412.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">芯片上电与低频时钟由板级电路提供；</text>
+<text x="1066.0" y="427.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">当前 xv6 代码不操作 WL_REG_ON</text>
+<rect x="1056.0" y="466.0" width="298.0" height="80.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="1066.0" y="485.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">BT 部分（本驱动不用）</text>
+<text x="1066.0" y="502.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">蓝牙走 UART（GPIO30–33），</text>
+<text x="1066.0" y="517.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">与 SDIO Wi-Fi 无关</text>
+<rect x="1056.0" y="564.0" width="298.0" height="140.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="1066.0" y="583.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">CR4 + TCM + D11 + 射频</text>
+<text x="1066.0" y="600.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">见架构图：固件在芯片里跑 802.11</text>
+<text x="1066.0" y="615.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">天线（PCB 陶瓷天线）</text>
+<text x="1066.0" y="630.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start"></text>
+<text x="1066.0" y="645.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">主机只负责：下载固件、交换 SDPCM 帧</text>
+<rect x="730.0" y="159.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,168.0 L1040.0,168.0" fill="none" stroke="#333" stroke-width="1.8"/>
+<rect x="1032.0" y="159.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="163.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO34 · SD1_CLK</text>
+<text x="752.0" y="183.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">时钟 400 kHz → 25 MHz（无上下拉）</text>
+<rect x="730.0" y="199.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,208.0 L1040.0,208.0" fill="none" stroke="#333" stroke-width="1.8"/>
+<rect x="1032.0" y="199.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="203.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO35 · SD1_CMD</text>
+<text x="752.0" y="223.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">CMD0/5/3/7/52/53 + 48 位响应（上拉）</text>
+<rect x="730.0" y="239.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,248.0 L1040.0,248.0" fill="none" stroke="#1a7f37" stroke-width="1.8"/>
+<rect x="1032.0" y="239.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="243.0" font-size="11.5" fill="#1a7f37" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO36 · SD1_DAT0</text>
+<text x="752.0" y="263.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">数据 bit0（忙信号）（上拉）</text>
+<rect x="730.0" y="279.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,288.0 L1040.0,288.0" fill="none" stroke="#cf222e" stroke-width="2.6"/>
+<rect x="1032.0" y="279.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="283.0" font-size="11.5" fill="#cf222e" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO37 · SD1_DAT1</text>
+<text x="752.0" y="303.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">数据 bit1 + 卡中断（上拉）</text>
+<rect x="730.0" y="319.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,328.0 L1040.0,328.0" fill="none" stroke="#1a7f37" stroke-width="1.8"/>
+<rect x="1032.0" y="319.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="323.0" font-size="11.5" fill="#1a7f37" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO38 · SD1_DAT2</text>
+<text x="752.0" y="343.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">数据 bit2（上拉）</text>
+<rect x="730.0" y="359.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<path d="M742.0,368.0 L1040.0,368.0" fill="none" stroke="#1a7f37" stroke-width="1.8"/>
+<rect x="1032.0" y="359.0" width="12.0" height="18.0" rx="2" fill="#fff" stroke="#9a6700" stroke-width="1"/>
+<text x="752.0" y="363.0" font-size="11.5" fill="#1a7f37" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">GPIO39 · SD1_DAT3</text>
+<text x="752.0" y="383.0" font-size="10.8" fill="#57606a" font-weight="normal" text-anchor="start">数据 bit3（上拉）</text>
+<text x="890.0" y="140.0" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="middle">板上走线（4-bit SDIO）</text>
+<path d="M1056.0,330.0 L1048.0,330.0" fill="none" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M1048.0,330.0 L1048.0,424.0 L744.0,424.0" fill="none" stroke="#cf222e" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="752.0" y="442.0" font-size="11" fill="#cf222e" font-weight="bold" text-anchor="start">DAT1 低 → INTERRUPT.CARD_INT(bit8) → IRQ 62</text>
+<rect x="30.0" y="742.0" width="660.0" height="300.0" rx="10" fill="#f6f8fa" stroke="#57606a" stroke-width="1.2"/>
+<text x="46.0" y="766.0" font-size="13.5" fill="#1f2328" font-weight="bold" text-anchor="start">上电后的总线参数变化（arasan_probe → mmc_add_host → sdio_scan_host）</text>
+<rect x="40.0" y="776.0" width="640.0" height="26.0" rx="3" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="46.0" y="794.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">阶段</text>
+<text x="176.0" y="794.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">时钟</text>
+<text x="256.0" y="794.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">位宽</text>
+<text x="336.0" y="794.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">说明</text>
+<text x="46.0" y="828.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">host 复位</text>
+<text x="176.0" y="828.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">—</text>
+<text x="256.0" y="828.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">—</text>
+<text x="336.0" y="828.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CONTROL1.SRST_HC；IRPT_EN=0；数据超时 0xe</text>
+<text x="46.0" y="862.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">枚举</text>
+<text x="176.0" y="862.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">400 kHz</text>
+<text x="256.0" y="862.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">1-bit</text>
+<text x="336.0" y="862.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD0 → CMD5 循环到 IORDY → CMD3 → CMD7</text>
+<text x="46.0" y="896.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">读 CCCR/FBR/CIS</text>
+<text x="176.0" y="896.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">400 kHz</text>
+<text x="256.0" y="896.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">1→4-bit</text>
+<text x="336.0" y="896.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 读厂商/设备 ID，写 Bus Interface 选 4-bit</text>
+<text x="46.0" y="930.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">运行</text>
+<text x="176.0" y="930.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">25 MHz</text>
+<text x="256.0" y="930.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">4-bit</text>
+<text x="336.0" y="930.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">arasan_set_clock(SDIO_DATA_CLOCK)；理论 12.5 MB/s</text>
+<text x="46.0" y="964.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">固件下载</text>
+<text x="176.0" y="964.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">25 MHz</text>
+<text x="256.0" y="964.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">4-bit</text>
+<text x="336.0" y="964.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD53 单块 ≤512 B；CRC 错就把块减半（实测 64 B 稳）</text>
+<text x="46.0" y="998.0" font-size="11.5" fill="#1f2328" font-weight="bold" text-anchor="start">F2 收发</text>
+<text x="176.0" y="998.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">25 MHz</text>
+<text x="256.0" y="998.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">4-bit</text>
+<text x="336.0" y="998.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">同一 transfer_limit 切块；FIFO 地址不自增</text>
+<rect x="710.0" y="742.0" width="660.0" height="300.0" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="1.2"/>
+<text x="726.0" y="766.0" font-size="13.5" fill="#cf222e" font-weight="bold" text-anchor="start">一次“有帧到达”的中断链（硬件 → 软件）</text>
+<text x="726.0" y="794.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">① 固件把帧放进 F2 FIFO，置 INTSTATUS.FRAME_IND（bit6）</text>
+<text x="726.0" y="818.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">② SDIO device core：INTSTATUS &amp; HOSTINTMASK ≠ 0 → 拉低 DAT1</text>
+<text x="726.0" y="842.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">③ Arasan 在中断周期采样 DAT1 → INTERRUPT.CARD_INT = 1</text>
+<text x="726.0" y="866.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">④ IRPT_EN.CARD_INT = 1 → BCM2837 IRQ 62 → CPU 进 el1 IRQ 向量</text>
+<text x="726.0" y="890.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">⑤ devintr() → arasan_sdio_irq()：IRPT_EN=0 屏蔽、写 1 清 CARD_INT、</text>
+<text x="726.0" y="914.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">     pending=1 → brcmfmac_sdio_irq() → napi_schedule(&amp;bus-&gt;napi)</text>
+<text x="726.0" y="938.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">⑥ brcmf0_wq 里 brcmf_napi_poll：CMD52 读 CCCR INT_PENDING，</text>
+<text x="726.0" y="962.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">     CMD53 读并写 1 清 INTSTATUS，再 CMD53 读 F2 直到空</text>
+<text x="726.0" y="986.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">⑦ 清掉后 DAT1 释放；napi_complete_done → arasan_sdio_irq_complete()</text>
+<text x="726.0" y="1010.0" font-size="11.8" fill="#1f2328" font-weight="normal" text-anchor="start">     重新打开 CARD_INT（假中断则延迟 1 tick 再开）</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpkNTM4OWI0Yy04YmIxLTQzMmEtODZlZS0zODYxMDEwMzQzZjkAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaMwfrk4OMWT39DP99MzNdGMAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpkZmVhYWE1Mi1hYWQ4LTRkZmYtYjQwNS03YzJjMzgwMWU3ZjlscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo65r2RylwcuKN5QIIZ2PxLgAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggdQByftohGqx9/ihME6+5iEA8FNahftfEPPTVI7PCUrOkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaBBCQrwSKQpawID31o6F0FEAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIKsK5SiCwviV8I533G9Qhq1DAAXeGbLpQlleGKxJN4V3ZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GWewZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmQ1Mzg5YjRjLThiYjEtNDMyYS04NmVlLTM4NjEwMTAzNDNmOS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjMwYjIwOTFjLTMwODgtNDk4MC05OGQxLTQ0ZGFmOGY1NmMzOHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCB1AHJ+2iEarH3+KEwTr7mIQDwU1qF+18Q89NUjs8JSs6JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggU2AFfEpLXNAwFlXpAG1SYPsUoNfJhTSmmtbDQJR3Z/6iY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggVdA/bWRA+R896NMgCbhmIRRjQC2kRPyXNG9s927jZsh0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQApDK5kSK6OgdEbRi5ttu5sDOWFF+qAKkenkMemPiK4O9RIF//oOUwY0y3qI5vQixZK7jjafoJT2sFWjyPLEA5g=</c2pa:manifest></metadata></svg>

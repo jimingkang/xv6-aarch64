@@ -1,0 +1,259 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1137" viewBox="0 0 1400 1137" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<title>SDIO Wi-Fi 函数调用链</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1400" height="1137" fill="#fff"/>
+<text x="700.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi 函数调用链：初始化 · 连接 · 发送 · 接收</text>
+<rect x="330.0" y="50.0" width="14.0" height="14.0" rx="3" fill="#fff" stroke="#9a6700" stroke-width="2"/>
+<text x="350.0" y="62.0" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start">Arasan host（arasan_sdio.c）</text>
+<rect x="567.3" y="50.0" width="14.0" height="14.0" rx="3" fill="#fff" stroke="#0969da" stroke-width="2"/>
+<text x="587.3" y="62.0" font-size="12" fill="#0969da" font-weight="normal" text-anchor="start">SDIO core（sdio.c）</text>
+<rect x="744.1" y="50.0" width="14.0" height="14.0" rx="3" fill="#fff" stroke="#8250df" stroke-width="2"/>
+<text x="764.1" y="62.0" font-size="12" fill="#8250df" font-weight="normal" text-anchor="start">brcmfmac.c</text>
+<rect x="863.3" y="50.0" width="14.0" height="14.0" rx="3" fill="#fff" stroke="#bc4c00" stroke-width="2"/>
+<text x="883.3" y="62.0" font-size="12" fill="#bc4c00" font-weight="normal" text-anchor="start">WPA2（wpa_crypto.c / 主机握手）</text>
+<rect x="1115.0" y="50.0" width="14.0" height="14.0" rx="3" fill="#fff" stroke="#1a7f37" stroke-width="2"/>
+<text x="1135.0" y="62.0" font-size="12" fill="#1a7f37" font-weight="normal" text-anchor="start">网络栈（net.c）</text>
+<rect x="24.0" y="80.0" width="664.0" height="649.0" rx="10" fill="#fff" stroke="#0969da" stroke-width="1.6"/>
+<rect x="24.0" y="80.0" width="664.0" height="30.0" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="1.6"/>
+<text x="36.0" y="101.0" font-size="14.5" fill="#1f2328" font-weight="bold" text-anchor="start">① 初始化（启动时，CPU0）</text>
+<text x="676.0" y="101.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="end">main.c → … → brcmf_probe</text>
+<text x="40.0" y="132.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">main()</text>
+<text x="424.0" y="132.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">启动 CPU0，此时还没有进程</text>
+<path d="M46.0,137.0 V147.0 H55.0" fill="none" stroke="#afb8c1"/>
+<text x="58.0" y="151.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_bus_init()</text>
+<text x="424.0" y="151.0" font-size="10.6" fill="#57606a" font-weight="normal" text-anchor="start">注册 sdio_bus（vendor/device/function 匹配）</text>
+<path d="M46.0,156.0 V166.0 H55.0" fill="none" stroke="#afb8c1"/>
+<text x="58.0" y="170.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_sdio_driver_init()</text>
+<text x="424.0" y="170.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">platform device + driver</text>
+<path d="M64.0,175.0 V185.0 H73.0" fill="none" stroke="#afb8c1"/>
+<text x="76.0" y="189.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_probe(dev)</text>
+<path d="M82.0,194.0 V204.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="208.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">gpio_init()</text>
+<text x="424.0" y="208.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">GPIO34–39 ALT3，35–39 上拉</text>
+<path d="M82.0,213.0 V223.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="227.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mailbox_clock() → arasan_set_clock(400 kHz)</text>
+<path d="M82.0,232.0 V242.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="246.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mmc_add_host(&amp;arasan.mmc)</text>
+<path d="M100.0,251.0 V261.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="265.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_scan_host(host)</text>
+<text x="424.0" y="265.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CMD0 → CMD5×N → CMD3 → CMD7</text>
+<path d="M118.0,270.0 V280.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="284.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">cmd52_host() / read_cis_id()</text>
+<text x="424.0" y="284.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CCCR、FBR、CIS：0x02d0/0xa9a6</text>
+<path d="M118.0,289.0 V299.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="303.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">set_bus_width(4) · device_add(sdio0:1/2/3)</text>
+<path d="M82.0,308.0 V318.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="322.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_set_clock(25 MHz)</text>
+<path d="M46.0,327.0 V337.0 H55.0" fill="none" stroke="#afb8c1"/>
+<text x="58.0" y="341.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rootdev_init() / fat32mount()</text>
+<text x="424.0" y="341.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">bootfs 可读（固件在上面）</text>
+<path d="M46.0,346.0 V356.0 H55.0" fill="none" stroke="#afb8c1"/>
+<text x="58.0" y="360.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmfmac_driver_init() → sdio_register_driver()</text>
+<path d="M64.0,365.0 V375.0 H73.0" fill="none" stroke="#afb8c1"/>
+<text x="76.0" y="379.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_match() → sdio_probe() → brcmf_probe(F1)</text>
+<path d="M82.0,384.0 V394.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="398.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_enable_func(F1) · brcmf_clock_prepare()</text>
+<text x="424.0" y="398.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CCCR IO_ENABLE；ALP 时钟</text>
+<path d="M82.0,403.0 V413.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="417.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_backplane_read32(CHIPID)</text>
+<text x="424.0" y="417.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">0x4345 rev 6 → BCM43455</text>
+<path d="M82.0,422.0 V432.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="436.0" font-size="11.0" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_load_firmware(BIN/TXT) · fat32openroot(CLM)</text>
+<path d="M82.0,441.0 V451.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="455.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_scan_cores() → brcmf_erom_desc/regaddr</text>
+<text x="424.0" y="455.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">EROM：CC/SDIO/CR4/D11</text>
+<path d="M82.0,460.0 V470.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="474.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_get_raminfo()</text>
+<text x="424.0" y="474.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">TCM base 0x198000</text>
+<path d="M82.0,479.0 V489.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="493.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_set_passive() → core_disable/core_reset</text>
+<text x="424.0" y="493.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">halt CR4</text>
+<path d="M82.0,498.0 V508.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="512.0" font-size="10.5" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_write_firmware() → brcmf_backplane_transfer()</text>
+<text x="424.0" y="512.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">32 KB 窗口切块</text>
+<path d="M82.0,517.0 V527.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="531.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_prepare_nvram() → brcmf_write_nvram()</text>
+<text x="424.0" y="531.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">RAM 尾部 + token</text>
+<path d="M82.0,536.0 V546.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="550.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_set_active(reset_vector)</text>
+<text x="424.0" y="550.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">释放 CR4</text>
+<path d="M82.0,555.0 V565.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="569.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_start_f2()</text>
+<text x="424.0" y="569.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">HT 时钟，协议 4，F2，等 FWREADY</text>
+<path d="M82.0,574.0 V584.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="588.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_alloc_bus()</text>
+<text x="424.0" y="588.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">brcmf0_wq · napi(16) · state/irq_work</text>
+<path d="M82.0,593.0 V603.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="607.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_control_plane_start()</text>
+<path d="M100.0,612.0 V622.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="626.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_iovar(&quot;ver&quot;) · brcmf_download_clm()</text>
+<text x="424.0" y="626.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">BCDC 首次往返</text>
+<path d="M100.0,631.0 V641.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="645.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_iovar(&quot;cur_etheraddr&quot;) · brcmf_dcmd(UP)</text>
+<text x="424.0" y="645.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">MAC</text>
+<path d="M100.0,650.0 V660.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="664.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">register_netdev(wlan0)</text>
+<path d="M100.0,669.0 V679.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="683.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_claim_irq(F1) · napi_enable()</text>
+<text x="424.0" y="683.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CCCR INT_ENABLE</text>
+<path d="M100.0,688.0 V698.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="702.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_sdio_irq_enable()</text>
+<text x="424.0" y="702.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">IRPT_EN = CARD_INT</text>
+<rect x="712.0" y="80.0" width="664.0" height="478.0" rx="10" fill="#fff" stroke="#8250df" stroke-width="1.6"/>
+<rect x="712.0" y="80.0" width="664.0" height="30.0" rx="10" fill="#fbefff" stroke="#8250df" stroke-width="1.6"/>
+<text x="724.0" y="101.0" font-size="14.5" fill="#1f2328" font-weight="bold" text-anchor="start">② 连接 AP（/bin/wifi 进程上下文）</text>
+<text x="1364.0" y="101.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="end">brcmfmac_connect</text>
+<text x="728.0" y="132.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">/bin/wifi → wifi_connect(ssid, psk)</text>
+<text x="1122.0" y="132.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">用户态</text>
+<path d="M734.0,137.0 V147.0 H743.0" fill="none" stroke="#afb8c1"/>
+<text x="746.0" y="151.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sys_wifi_connect() → brcmfmac_connect()</text>
+<text x="1122.0" y="151.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">kernel/net/sysnet.c</text>
+<path d="M752.0,156.0 V166.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="170.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd(DOWN) · brcmf_dcmd(UP)</text>
+<text x="1122.0" y="170.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">清掉旧状态</text>
+<path d="M752.0,175.0 V185.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="189.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_iovar(&quot;event_msgs&quot;)</text>
+<text x="1122.0" y="189.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">订阅 join/auth/link 事件</text>
+<path d="M752.0,194.0 V204.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="208.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_iovar(&quot;mpc&quot;=0 · &quot;bus:rxglom&quot;=0 · &quot;country&quot;)</text>
+<path d="M752.0,213.0 V223.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="227.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd(SET_INFRA · SET_AUTH · SET_WSEC=AES)</text>
+<path d="M752.0,232.0 V242.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="246.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_bsscfg_iovar_int(&quot;wpa_auth&quot; · &quot;sup_wpa&quot;)</text>
+<text x="1122.0" y="246.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">sup_wpa 不支持</text>
+<path d="M752.0,251.0 V261.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="265.0" font-size="11.3" fill="#bc4c00" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">wpa_pbkdf2(psk, ssid) → PMK</text>
+<text x="1122.0" y="265.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">wpa_crypto.c</text>
+<path d="M752.0,270.0 V280.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="284.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd(SET_WSEC_PMK)</text>
+<text x="1122.0" y="284.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">失败 → host_eapol=1</text>
+<path d="M752.0,289.0 V299.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="303.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd(SET_SSID) · brcmf_connect_watch_start()</text>
+<text x="1122.0" y="303.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">10 s 截止</text>
+<path d="M752.0,308.0 V318.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="322.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for ≤40：brcmf_dcmd(GET_BSSID)</text>
+<text x="1122.0" y="322.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">-17 = 尚未关联</text>
+<path d="M770.0,327.0 V337.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="341.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_read_assoc_rsn_ie()</text>
+<text x="1122.0" y="341.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">M2 要原样带 RSN IE</text>
+<path d="M770.0,346.0 V356.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="360.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">〔NAPI 中〕brcmf_wpa_rx_locked(M1/M3)</text>
+<path d="M788.0,365.0 V375.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="379.0" font-size="11.3" fill="#bc4c00" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_wpa_send_m2_locked()</text>
+<text x="1122.0" y="379.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">SNonce、PTK、MIC</text>
+<path d="M788.0,384.0 V394.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="398.0" font-size="11.3" fill="#bc4c00" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">M3：校验 MIC，AES unwrap GTK</text>
+<text x="1122.0" y="398.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">keys_pending = 1</text>
+<path d="M770.0,403.0 V413.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="417.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_finish_wpa_handshake()</text>
+<path d="M788.0,422.0 V432.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="436.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_install_ccmp_key(PTK) · (GTK)</text>
+<text x="1122.0" y="436.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">bsscfg:wsec_key</text>
+<path d="M788.0,441.0 V451.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="455.0" font-size="11.3" fill="#bc4c00" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_wpa_send_m4_locked()</text>
+<text x="1122.0" y="455.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">handshake_done = 1</text>
+<path d="M770.0,460.0 V470.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="474.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">500 ms：netdev_poll_one() 排空</text>
+<text x="1122.0" y="474.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">等 AP 开端口</text>
+<path d="M770.0,479.0 V489.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="493.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">net_dhcp_dev(wlan0)</text>
+<text x="1122.0" y="493.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">Discover/Request ×3</text>
+<path d="M770.0,498.0 V508.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="512.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd(SET_PM = 0)</text>
+<text x="1122.0" y="512.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">关省电：去掉 ~100 ms 延迟</text>
+<path d="M770.0,517.0 V527.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="531.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_connect_watch_stop()</text>
+<rect x="24.0" y="749.0" width="664.0" height="307.0" rx="10" fill="#fff" stroke="#1a7f37" stroke-width="1.6"/>
+<rect x="24.0" y="749.0" width="664.0" height="30.0" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.6"/>
+<text x="36.0" y="770.0" font-size="14.5" fill="#1f2328" font-weight="bold" text-anchor="start">③ 发送（调用者上下文：TCP 定时器 / write 系统调用）</text>
+<text x="676.0" y="770.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="end">TX</text>
+<text x="40.0" y="801.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">net_tcp_write() / net_udp_send() / net_icmp_send()</text>
+<text x="474.0" y="801.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">kernel/net/net.c</text>
+<path d="M46.0,806.0 V816.0 H55.0" fill="none" stroke="#afb8c1"/>
+<text x="58.0" y="820.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">tcp_start_queued_locked() → tcp_send_at_locked()</text>
+<text x="474.0" y="820.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">≤ 4×MSS 在途</text>
+<path d="M64.0,825.0 V835.0 H73.0" fill="none" stroke="#afb8c1"/>
+<text x="76.0" y="839.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">net_output_path() · arp_lookup()</text>
+<text x="474.0" y="839.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">路由 + 下一跳 MAC</text>
+<path d="M64.0,844.0 V854.0 H73.0" fill="none" stroke="#afb8c1"/>
+<text x="76.0" y="858.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">netdev_xmit_on(dev) → ops-&gt;start_xmit</text>
+<path d="M82.0,863.0 V873.0 H91.0" fill="none" stroke="#afb8c1"/>
+<text x="94.0" y="877.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmfmac_xmit(netdev, frame, len)</text>
+<text x="474.0" y="877.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">未 handshake_done → -1</text>
+<path d="M100.0,882.0 V892.0 H109.0" fill="none" stroke="#afb8c1"/>
+<text x="112.0" y="896.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">acquire(bus-&gt;lock) · brcmf_send_ether_locked()</text>
+<text x="474.0" y="896.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">🔒 自旋锁</text>
+<path d="M118.0,901.0 V911.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="915.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">填 BCDC 头 flags=0x20 + 以太网帧</text>
+<path d="M118.0,920.0 V930.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="934.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">while 无信用：brcmf_rx_dispatch_locked()</text>
+<text x="474.0" y="934.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">≤200×100 µs</text>
+<path d="M118.0,939.0 V949.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="953.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_sdpcm_header(ch=2, seq=tx_seq++)</text>
+<path d="M118.0,958.0 V968.0 H127.0" fill="none" stroke="#afb8c1"/>
+<text x="130.0" y="972.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_f2_transfer(write, wire_len)</text>
+<path d="M136.0,977.0 V987.0 H145.0" fill="none" stroke="#afb8c1"/>
+<text x="148.0" y="991.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_set_backplane_window(cc_base)</text>
+<text x="474.0" y="991.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">3×CMD52</text>
+<path d="M136.0,996.0 V1006.0 H145.0" fill="none" stroke="#afb8c1"/>
+<text x="148.0" y="1010.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_cmd53(F2, W, 固定地址) × ⌈len/limit⌉</text>
+<path d="M154.0,1015.0 V1025.0 H163.0" fill="none" stroke="#afb8c1"/>
+<text x="166.0" y="1029.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mmc_request_sync() → arasan_request()</text>
+<text x="474.0" y="1029.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">💤 request_lock</text>
+<rect x="712.0" y="749.0" width="664.0" height="364.0" rx="10" fill="#fff" stroke="#cf222e" stroke-width="1.6"/>
+<rect x="712.0" y="749.0" width="664.0" height="30.0" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="1.6"/>
+<text x="724.0" y="770.0" font-size="14.5" fill="#1f2328" font-weight="bold" text-anchor="start">④ 接收（IRQ 顶半部 → brcmf0_wq 下半部）</text>
+<text x="1364.0" y="770.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="end">RX</text>
+<text x="728.0" y="801.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">IRQ 62 → el1 向量 → devintr()</text>
+<text x="1152.0" y="801.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">硬中断</text>
+<path d="M734.0,806.0 V816.0 H743.0" fill="none" stroke="#afb8c1"/>
+<text x="746.0" y="820.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arasan_sdio_irq()</text>
+<text x="1152.0" y="820.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">IRPT_EN=0，清 CARD_INT</text>
+<path d="M752.0,825.0 V835.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="839.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmfmac_sdio_irq() → napi_schedule()</text>
+<text x="1152.0" y="839.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">queue_work(brcmf0_wq)</text>
+<text x="728.0" y="858.0" font-size="11.3" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf0_wq kworker → napi_workfn()</text>
+<text x="1152.0" y="858.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">内核线程，可睡眠</text>
+<path d="M734.0,863.0 V873.0 H743.0" fill="none" stroke="#afb8c1"/>
+<text x="746.0" y="877.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_napi_poll(napi, budget=16)</text>
+<text x="1152.0" y="877.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">🔒 bus-&gt;lock</text>
+<path d="M752.0,882.0 V892.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="896.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_rx_dispatch_locked()</text>
+<text x="1152.0" y="896.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">每轮 1 帧</text>
+<path d="M770.0,901.0 V911.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="915.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_rx_frame_locked()</text>
+<path d="M788.0,920.0 V930.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="934.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sdio_int_pending() → INTSTATUS 读+清</text>
+<text x="1152.0" y="934.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CMD52 + CMD53</text>
+<path d="M788.0,939.0 V949.0 H797.0" fill="none" stroke="#afb8c1"/>
+<text x="800.0" y="953.0" font-size="11.3" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_f2_transfer(read, 64) + 余下</text>
+<text x="1152.0" y="953.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">tx_max = byte9</text>
+<path d="M770.0,958.0 V968.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="972.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ch0 → ctl[] · ch1 → printf · ch2 ↓</text>
+<path d="M770.0,977.0 V987.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="991.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">EAPOL → brcmf_wpa_rx_locked() · 其他 → net_rxq</text>
+<text x="1152.0" y="991.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">4 槽</text>
+<path d="M752.0,996.0 V1006.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="1010.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">出队 → release → net_rx_dev(dev, frame)</text>
+<text x="1152.0" y="1010.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">放锁再进协议栈</text>
+<path d="M770.0,1015.0 V1025.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="1029.0" font-size="11.3" fill="#1a7f37" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">arp_rx() / tcp_rx() / UDP / ICMP / DHCP</text>
+<path d="M752.0,1034.0 V1044.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="1048.0" font-size="11.3" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">keys_pending → brcmf_finish_wpa_handshake()</text>
+<text x="1152.0" y="1048.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">AP 重新换钥</text>
+<path d="M752.0,1053.0 V1063.0 H761.0" fill="none" stroke="#afb8c1"/>
+<text x="764.0" y="1067.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">napi_complete_done() → arasan_sdio_irq_complete()</text>
+<text x="1152.0" y="1067.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">重开 CARD_INT</text>
+<path d="M770.0,1072.0 V1082.0 H779.0" fill="none" stroke="#afb8c1"/>
+<text x="782.0" y="1086.0" font-size="11.3" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">假中断：queue_delayed_work(irq_work, 1 tick)</text>
+<text x="1152.0" y="1086.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">10 ms 后再开</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpkNTBiYjgxYS1jZjkyLTQxNmYtYTQyZS0zNjlmNTIzMTcyYjIAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaB/3QI3F35SopnC93y7URFgAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo5MDViNDIzMC02OThkLTQ4MWYtOGVjNy05NTdmZWJmOTE3NTBscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoLO4l8qi+LG9s4Lk9/d1bPQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggrPFGVcBnLM86N3zmrZhkD7PCRphL5PdIu8kHj4zURaykZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaCaBmWCN4NH/Yx6H90b0ukYAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIHIdXe/VoqbAFL/M1AYhhsPn6SzY2YOD0a1lcD1g54hsZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GYI7Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmQ1MGJiODFhLWNmOTItNDE2Zi1hNDJlLTM2OWY1MjMxNzJiMi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjU1ZDA4ZjJjLTYxY2UtNGUxOC05YzQ1LTMzOWU1NjRmZjI2N3JjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCs8UZVwGcszzo3fOatmGQPs8JGmEvk90i7yQePjNRFrKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg2uS8NImXjK7uTQsRrApNhbhah07jr4KxBZ9dDo/q8kaiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggGqbH/JmL84QDUc6QJ8L4H4ggnxX+OcTk/c/vK1AJBnF0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQKj+K5dLuyo53GzPPksrtgJ0wkVY8WHx/G4VEmTAYxLjHJ4JsXsCbLsmeBtaf9uJ+MBa0kz8S8Wk8SbxBDk3JGA=</c2pa:manifest></metadata></svg>

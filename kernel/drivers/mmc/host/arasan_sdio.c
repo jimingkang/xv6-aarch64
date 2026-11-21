@@ -9,6 +9,7 @@
 #include <kernel/device.h>
 #include <kernel/sdio.h>
 #include <kernel/module.h>
+#include <kernel/wifi_trace.h>
 
 #define EMMC_BASE       (PERIPHERAL_BASE + 0x00300000UL)
 #define GPIO_BASE       (PERIPHERAL_BASE + 0x00200000UL)
@@ -80,6 +81,8 @@ static uint32 clock_message[16] __attribute__((aligned(64)));
 static struct device *arasan_device;
 static struct device_driver *arasan_driver;
 static volatile int arasan_card_irq_pending;
+// Card interrupts taken by the top half (WIFI_TRACE step 8; read by NAPI).
+volatile uint32 arasan_card_irq_count;
 
 static inline volatile uint32 *
 reg(uint64 base, uint32 offset)
@@ -211,6 +214,8 @@ arasan_set_clock(struct mmc_host *mmc, uint32 hz)
     return -1;
   wr(EMMC_CONTROL1, c1 | C1_CLK_EN);
   delay_us(1000);
+  WTRACE(1, 1, "arasan clock %d Hz (base %d / divider %x)", hz,
+         host->base_clock, (c1 >> 8) & 0xff);
   return 0;
 }
 
@@ -224,6 +229,7 @@ arasan_set_bus_width(struct mmc_host *mmc, int width)
   else
     c0 &= ~C0_4BIT;
   wr(EMMC_CONTROL0, c0);
+  WTRACE(1, 2, "arasan bus width %d-bit (CONTROL0=%x)", width, c0);
   return 0;
 }
 
@@ -326,6 +332,8 @@ static int
 arasan_probe(struct device *dev)
 {
   gpio_init();
+  WTRACE(1, 1, "arasan probe EMMC=%p GPIO34-39 ALT3 pull-up 35-39 (GPPUDCLK1=0xf8)",
+         (void*)EMMC_BASE);
   wr(EMMC_CONTROL1, rd(EMMC_CONTROL1) | C1_SRST_HC);
   if(wait_mask(EMMC_CONTROL1, C1_SRST_HC, 0, 1000000) < 0){
     printf("arasan-sdio: host reset failed\n");
@@ -378,6 +386,7 @@ arasan_sdio_irq_enable(void)
   arasan_card_irq_pending = 0;
   wr(EMMC_INTERRUPT, INT_CARD_INT);
   wr(EMMC_IRPT_EN, INT_CARD_INT);
+  WTRACE(1, 5, "arasan IRPT_EN=CARD_INT: DAT1 card interrupt -> IRQ %d enabled", SDIO_IRQ);
 }
 
 void
@@ -390,6 +399,7 @@ arasan_sdio_irq(void)
     wr(EMMC_IRPT_EN, 0);
     wr(EMMC_INTERRUPT, INT_CARD_INT);
     arasan_card_irq_pending = 1;
+    arasan_card_irq_count++;
     brcmfmac_sdio_irq();
   }
 }

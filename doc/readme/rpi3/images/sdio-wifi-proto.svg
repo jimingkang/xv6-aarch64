@@ -1,0 +1,304 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1610" viewBox="0 0 1400 1610" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<title>SDIO Wi-Fi 通信协议分层</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1400" height="1610" fill="#fff"/>
+<text x="700.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi 通信过程：CMD52 / CMD53 → F1 backplane 窗口 → F2 SDPCM 帧 → BCDC → 以太网</text>
+<text x="700.0" y="58.0" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">每一层都把上一层整个塞进自己的“载荷”；主机看到的所有内容最终都是 Arasan 上的一条 CMD52 或 CMD53</text>
+<rect x="24.0" y="74.0" width="1352.0" height="300.0" rx="10" fill="#fff" stroke="#d0d7de" stroke-width="1.2"/>
+<text x="40.0" y="100.0" font-size="16" fill="#1f2328" font-weight="bold" text-anchor="start">A. 两条 SDIO 命令（参数写进 Arasan ARG1，命令号写 CMDTM）</text>
+<text x="40.0" y="120.0" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start">sdio.c：cmd52_host() / sdio_cmd53()；响应 R5 的 bit 15..8 是状态，(resp &amp; 0xcb00) ≠ 0 视为出错</text>
+<text x="40.0" y="166.0" font-size="15" fill="#0969da" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">CMD52</text>
+<text x="40.0" y="184.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">单字节读写</text>
+<text x="1332.0" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1080.5" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1044.5" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="1008.6" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="793.0" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="757.0" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="433.6" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="397.7" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="361.7" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="325.8" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="253.9" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="218.0" y="148.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="200.0" y="153.0" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="218.0" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">R/W</text>
+<rect x="235.9" y="153.0" width="107.8" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="289.8" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">功能号 FN</text>
+<rect x="343.8" y="153.0" width="35.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="361.7" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">RAW</text>
+<rect x="379.7" y="153.0" width="35.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="397.7" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">0</text>
+<rect x="415.6" y="153.0" width="610.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="721.1" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">寄存器地址（17 位，0..0x1ffff）</text>
+<rect x="1026.6" y="153.0" width="35.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1044.5" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">0</text>
+<rect x="1062.5" y="153.0" width="287.5" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="1206.2" y="173.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">写入的字节 / 读时为 0</text>
+<text x="200.0" y="206.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">例：sdio_int_pending() = CMD52 读 F0 地址 0x05（CCCR INT_PENDING）→ 参数 0x00000a00；brcmf_set_backplane_window() = 3 次 CMD52 写 F1 0x1000a/b/c</text>
+<text x="40.0" y="260.0" font-size="15" fill="#1a7f37" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">CMD53</text>
+<text x="40.0" y="278.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">块 / 字节流</text>
+<text x="1332.0" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="1080.5" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">7</text>
+<text x="1044.5" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">8</text>
+<text x="1008.6" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">9</text>
+<text x="793.0" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="757.0" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">16</text>
+<text x="433.6" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">25</text>
+<text x="397.7" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">26</text>
+<text x="361.7" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">27</text>
+<text x="325.8" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">28</text>
+<text x="253.9" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">30</text>
+<text x="218.0" y="242.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="200.0" y="247.0" width="35.9" height="30" fill="#ffebe9" stroke="#57606a"/>
+<text x="218.0" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">R/W</text>
+<rect x="235.9" y="247.0" width="107.8" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="289.8" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">功能号 FN</text>
+<rect x="343.8" y="247.0" width="35.9" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="361.7" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">BLK=0</text>
+<rect x="379.7" y="247.0" width="35.9" height="30" fill="#fbefff" stroke="#57606a"/>
+<text x="397.7" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">OP</text>
+<rect x="415.6" y="247.0" width="610.9" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="721.1" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">寄存器地址（17 位）</text>
+<rect x="1026.6" y="247.0" width="323.4" height="30" fill="#dafbe1" stroke="#57606a"/>
+<text x="1188.3" y="267.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">字节数（512 写成 0）</text>
+<text x="200.0" y="302.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">BLK=0：本工程只用 byte 模式、单个数据块，一次最多 512 B（Arasan BLKSIZECNT = len | 1&lt;&lt;16），数据由 CPU 经 EMMC_DATA 逐字 PIO 搬运。</text>
+<text x="200.0" y="321.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">OP=1 地址自增：F1 访问 backplane 内存/寄存器；OP=0 地址固定：F2 FIFO（brcmf_f2_transfer 每块都写同一个地址）。</text>
+<text x="200.0" y="340.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">实机 512/256/128 B 出现 data CRC 错 → brcmf_backplane_transfer 把 brcmf_transfer_limit 逐次减半，64 B 稳定后 F1、F2 都按它切块。</text>
+<rect x="24.0" y="388.0" width="1352.0" height="270.0" rx="10" fill="#fff" stroke="#d0d7de" stroke-width="1.2"/>
+<text x="40.0" y="414.0" font-size="16" fill="#1f2328" font-weight="bold" text-anchor="start">B. Function 1：用 17 位 SDIO 地址访问 32 位 backplane 地址（32 KB 滑动窗口）</text>
+<text x="40.0" y="434.0" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start">brcmf_set_backplane_window(addr) + brcmf_backplane_read32/write32/transfer</text>
+<text x="1332.0" y="458.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">0</text>
+<text x="828.9" y="458.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">14</text>
+<text x="793.0" y="458.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">15</text>
+<text x="218.0" y="458.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">31</text>
+<rect x="200.0" y="463.0" width="610.9" height="30" fill="#ddf4ff" stroke="#57606a"/>
+<text x="505.5" y="483.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">窗口号：addr &amp; 0xffff8000 → 写 F1 0x1000a(bit15) / 0x1000b(bit23..16) / 0x1000c(bit31..24)</text>
+<rect x="810.9" y="463.0" width="539.1" height="30" fill="#fff8c5" stroke="#57606a"/>
+<text x="1080.5" y="483.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle">窗口内偏移 addr &amp; 0x7fff</text>
+<text x="40.0" y="480.0" font-size="13" fill="#0969da" font-weight="bold" text-anchor="start">backplane</text>
+<text x="40.0" y="496.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">32 位地址</text>
+<path d="M1080.9,500.0 L1080.9,524.0" fill="none" stroke="#9a6700" stroke-width="1.8" marker-end="url(#ay)"/>
+<rect x="809.5" y="526.0" width="540.5" height="30.0" rx="4" fill="#fff8c5" stroke="#9a6700" stroke-width="1"/>
+<text x="1079.8" y="546.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">CMD53 地址 = 偏移 | 0x8000（SBSDIO_SB_ACCESS_2_4B_FLAG）</text>
+<rect x="40.0" y="568.0" width="322.0" height="80.0" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="50.0" y="586.0" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">读芯片 ID</text>
+<text x="50.0" y="603.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ChipCommon CHIPID 0x18000000</text>
+<text x="50.0" y="620.0" font-size="9.7" fill="#1f2328" font-weight="normal" text-anchor="start">窗口 HIGH=0x18 MID=0x00 LOW=0x00；CMD53 F1 读 4 B @0x8000</text>
+<text x="50.0" y="637.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">→ 0x15264345：chip 0x4345 rev 6 = BCM43455</text>
+<rect x="374.0" y="568.0" width="322.0" height="80.0" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="384.0" y="586.0" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">下载固件</text>
+<text x="384.0" y="603.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">TCM 0x198000 起，BIN 文件</text>
+<text x="384.0" y="620.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">每块 = min(0x8000 - 偏移, transfer_limit)；</text>
+<text x="384.0" y="637.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">跨 32 KB 边界就重设窗口</text>
+<rect x="708.0" y="568.0" width="322.0" height="80.0" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="718.0" y="586.0" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">读中断状态</text>
+<text x="718.0" y="603.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">SDIO core + 0x20 INTSTATUS</text>
+<text x="718.0" y="620.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_backplane_read32 → 写回同值清除（W1C）</text>
+<text x="718.0" y="637.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">mailbox：TOHOSTMAILBOXDATA +0x4c</text>
+<rect x="1042.0" y="568.0" width="322.0" height="80.0" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1"/>
+<text x="1052.0" y="586.0" font-size="12.5" fill="#1f2328" font-weight="bold" text-anchor="start">F2 也借用窗口</text>
+<text x="1052.0" y="603.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">cc_base（ChipCommon 基址）</text>
+<text x="1052.0" y="620.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_f2_transfer 先设窗口 = cc_base，</text>
+<text x="1052.0" y="637.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">CMD53 FN=2 地址 (cc_base&amp;0x7fff)|0x8000，OP=0</text>
+<rect x="24.0" y="672.0" width="1352.0" height="470.0" rx="10" fill="#fff" stroke="#d0d7de" stroke-width="1.2"/>
+<text x="40.0" y="698.0" font-size="16" fill="#1f2328" font-weight="bold" text-anchor="start">C. Function 2：每次 CMD53 读写的都是 SDPCM 帧（12 B 头 + 载荷，总长补齐到 4 的倍数）</text>
+<text x="40.0" y="718.0" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start">TX：brcmf_sdpcm_header(p, len, channel)   RX：brcmf_rx_frame_locked() 解析   channel = byte5 &amp; 0x0f</text>
+<rect x="200.0" y="736.0" width="191.7" height="40" fill="#ddf4ff" stroke="#57606a"/>
+<text x="295.8" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">长度 len</text>
+<text x="295.8" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 0–1，含头</text>
+<rect x="391.7" y="736.0" width="191.7" height="40" fill="#ddf4ff" stroke="#57606a"/>
+<text x="487.5" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">~len 校验</text>
+<text x="487.5" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 2–3</text>
+<rect x="583.3" y="736.0" width="95.8" height="40" fill="#fff8c5" stroke="#57606a"/>
+<text x="631.2" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">seq</text>
+<text x="631.2" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 4，tx_seq++</text>
+<rect x="679.2" y="736.0" width="95.8" height="40" fill="#fbefff" stroke="#57606a"/>
+<text x="727.1" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">channel</text>
+<text x="727.1" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 5</text>
+<rect x="775.0" y="736.0" width="95.8" height="40" fill="#eaeef2" stroke="#57606a"/>
+<text x="822.9" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">next len</text>
+<text x="822.9" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 6</text>
+<rect x="870.8" y="736.0" width="95.8" height="40" fill="#dafbe1" stroke="#57606a"/>
+<text x="918.8" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">data offset</text>
+<text x="918.8" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 7 = 12</text>
+<rect x="966.7" y="736.0" width="95.8" height="40" fill="#eaeef2" stroke="#57606a"/>
+<text x="1014.6" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">flow ctl</text>
+<text x="1014.6" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 8</text>
+<rect x="1062.5" y="736.0" width="95.8" height="40" fill="#ffebe9" stroke="#57606a"/>
+<text x="1110.4" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">tx_max</text>
+<text x="1110.4" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 9 信用</text>
+<rect x="1158.3" y="736.0" width="191.7" height="40" fill="#eaeef2" stroke="#57606a"/>
+<text x="1254.2" y="751.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">保留</text>
+<text x="1254.2" y="766.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">byte 10–11</text>
+<text x="40.0" y="760.0" font-size="14" fill="#8250df" font-weight="bold" text-anchor="start">SDPCM 头</text>
+<text x="40.0" y="778.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">12 字节</text>
+<text x="200.0" y="796.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">• len ^ ~len 必须 = 0xffff，否则是坏头；len 0 + check 0 表示“FIFO 里没有帧”。</text>
+<text x="200.0" y="814.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">• tx_max 只在固件→主机的帧里有意义：主机允许使用的最大序号；主机发送前检查 (uint8)(tx_max − tx_seq) ∈ [1, 0x7f]。</text>
+<rect x="40.0" y="844.0" width="432.0" height="220.0" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<rect x="40.0" y="844.0" width="432.0" height="28.0" rx="8" fill="#ddf4ff" stroke="#8c959f" stroke-width="1"/>
+<text x="50.0" y="863.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">channel 0 · 控制</text>
+<text x="462.0" y="863.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_dcmd() / brcmf_iovar()</text>
+<text x="50.0" y="894.0" font-size="11" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[SDPCM 12B] +</text>
+<rect x="50.0" y="902.0" width="74.9" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="87.5" y="917.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">cmd</text>
+<text x="87.5" y="932.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">4 B</text>
+<rect x="124.9" y="902.0" width="74.9" height="34" fill="#ddf4ff" stroke="#57606a"/>
+<text x="162.4" y="917.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">len</text>
+<text x="162.4" y="932.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">4 B</text>
+<rect x="199.8" y="902.0" width="74.9" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="237.3" y="917.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">flags</text>
+<text x="237.3" y="932.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">4 B</text>
+<rect x="274.7" y="902.0" width="74.9" height="34" fill="#ffebe9" stroke="#57606a"/>
+<text x="312.2" y="917.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">status</text>
+<text x="312.2" y="932.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">4 B</text>
+<rect x="349.6" y="902.0" width="112.4" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="405.8" y="917.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">载荷 …</text>
+<text x="405.8" y="932.0" font-size="9.5" fill="#57606a" font-weight="normal" text-anchor="middle">6 B</text>
+<text x="50.0" y="964.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">flags = 请求 id&lt;&lt;16 | SET(0x02) ；回复 ERROR(0x01)</text>
+<text x="50.0" y="982.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">GET_VAR/SET_VAR(262/263) 载荷 = &quot;iovar 名\0&quot; + 值</text>
+<text x="50.0" y="1000.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">回复靠 id 匹配：中间插进来的事件/数据帧照常分流</text>
+<text x="50.0" y="1030.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start">例：iovar &quot;bus:rxglom&quot;=0（关闭接收聚合）</text>
+<text x="50.0" y="1048.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="start">例：BRCMF_C_SET_PM(86)=0（连上后关省电）</text>
+<rect x="486.0" y="844.0" width="432.0" height="220.0" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<rect x="486.0" y="844.0" width="432.0" height="28.0" rx="8" fill="#fbefff" stroke="#8c959f" stroke-width="1"/>
+<text x="496.0" y="863.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">channel 1 · 事件</text>
+<text x="908.0" y="863.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_rx_dispatch_locked() 打印</text>
+<text x="496.0" y="894.0" font-size="11" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[SDPCM 12B] +</text>
+<rect x="496.0" y="902.0" width="120.2" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="556.1" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">以太网头 14</text>
+<rect x="616.2" y="902.0" width="85.8" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="659.1" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">bcmeth 10</text>
+<rect x="702.0" y="902.0" width="206.0" height="34" fill="#fbefff" stroke="#57606a"/>
+<text x="805.0" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">brcm_event_msg …</text>
+<text x="496.0" y="964.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">以太类型 0x886c；event_type/status/reason 为大端</text>
+<text x="496.0" y="982.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">例：SET_SSID 结果、LINK、PSK_SUP</text>
+<text x="496.0" y="1000.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">只打印，用来诊断关联失败</text>
+<text x="496.0" y="1030.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">bcmeth = subtype/length/OUI/usr_subtype</text>
+<rect x="932.0" y="844.0" width="432.0" height="220.0" rx="8" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<rect x="932.0" y="844.0" width="432.0" height="28.0" rx="8" fill="#dafbe1" stroke="#8c959f" stroke-width="1"/>
+<text x="942.0" y="863.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">channel 2 · 数据</text>
+<text x="1354.0" y="863.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">brcmf_send_ether_locked() / NAPI</text>
+<text x="942.0" y="894.0" font-size="11" fill="#8250df" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">[SDPCM 12B] +</text>
+<rect x="942.0" y="902.0" width="53.2" height="34" fill="#fff8c5" stroke="#57606a"/>
+<text x="968.6" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">BCDC 4B</text>
+<rect x="995.2" y="902.0" width="79.7" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1035.0" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">dst 6</text>
+<rect x="1074.9" y="902.0" width="79.7" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1114.8" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">src 6</text>
+<rect x="1154.6" y="902.0" width="39.9" height="34" fill="#dafbe1" stroke="#57606a"/>
+<text x="1174.6" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">type</text>
+<rect x="1194.5" y="902.0" width="159.5" height="34" fill="#eaeef2" stroke="#57606a"/>
+<text x="1274.3" y="924.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle">IP/ARP/EAPOL …</text>
+<text x="942.0" y="964.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">BCDC flags = 2&lt;&lt;4（版本 2），data_offset×4 为额外跳过</text>
+<text x="942.0" y="982.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">type 0x888e → EAPOL（WPA2 握手，主机自己处理）</text>
+<text x="942.0" y="1000.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">其他类型且 handshake_done → 4 槽 net_rxq → net_rx_dev</text>
+<text x="942.0" y="1030.0" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="start">发送前必须 handshake_done，否则 xmit 直接返回 -1</text>
+<text x="942.0" y="1048.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">帧长 &gt;1600 B 的数据帧不进队列</text>
+<text x="40.0" y="1130.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">event / data 帧可能出现在控制回复之前：brcmf_dcmd 发出请求后循环调用 brcmf_rx_dispatch_locked，按 channel 分流，直到看到 ctl_id == 自己的 id（最长 3 s）。</text>
+<rect x="24.0" y="1156.0" width="1352.0" height="260.0" rx="10" fill="#fff" stroke="#d0d7de" stroke-width="1.2"/>
+<text x="40.0" y="1182.0" font-size="16" fill="#1f2328" font-weight="bold" text-anchor="start">D. 读一个 F2 帧：brcmf_rx_frame_locked()（先读 64 B 拿到长度，再读剩余）</text>
+<rect x="36.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.2"/>
+<text x="110.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">CMD52 读 CCCR</text>
+<text x="110.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">INT_PENDING bit1？</text>
+<text x="110.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle">否 → 假中断，返回 0</text>
+<rect x="203.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#ddf4ff" stroke="#8c959f" stroke-width="1.2"/>
+<text x="277.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">F1 读 INTSTATUS</text>
+<text x="277.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">&amp; HOSTINTMASK</text>
+<text x="277.0" y="1260.0" font-size="9.2" fill="#57606a" font-weight="normal" text-anchor="middle">写 1 清；HOST_INT 读 mailbox</text>
+<rect x="370.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.2"/>
+<text x="444.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">FRAME_IND 或</text>
+<text x="444.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">rx_more？</text>
+<text x="444.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle">都没有 → 返回 0</text>
+<rect x="537.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#dafbe1" stroke="#8c959f" stroke-width="1.2"/>
+<text x="611.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">CMD53 F2 读 64 B</text>
+<text x="611.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">取 len / ~len</text>
+<text x="611.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle">0/0 → FIFO 空</text>
+<rect x="704.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#fff8c5" stroke="#8c959f" stroke-width="1.2"/>
+<text x="778.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">校验 len</text>
+<text x="778.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace"></text>
+<text x="778.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle"></text>
+<rect x="871.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#dafbe1" stroke="#8c959f" stroke-width="1.2"/>
+<text x="945.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">读余下 len-64</text>
+<text x="945.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">补齐 4 字节</text>
+<text x="945.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle"></text>
+<rect x="1038.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#fbefff" stroke="#8c959f" stroke-width="1.2"/>
+<text x="1112.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">解析头</text>
+<text x="1112.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">ch=b5&amp;0xf  off=b7</text>
+<text x="1112.0" y="1260.0" font-size="8.5" fill="#57606a" font-weight="normal" text-anchor="middle">tx_max = b9（&gt;0x40 超前则夹紧）</text>
+<rect x="1205.0" y="1206.0" width="148.0" height="70.0" rx="6" fill="#dafbe1" stroke="#8c959f" stroke-width="1.2"/>
+<text x="1279.0" y="1226.0" font-size="11.8" fill="#1f2328" font-weight="bold" text-anchor="middle">rx_more = 1</text>
+<text x="1279.0" y="1243.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">返回 1</text>
+<text x="1279.0" y="1260.0" font-size="10.3" fill="#57606a" font-weight="normal" text-anchor="middle">下一轮直接读，不等中断位</text>
+<path d="M184.0,1241.0 L203.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M351.0,1241.0 L370.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M518.0,1241.0 L537.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M685.0,1241.0 L704.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M852.0,1241.0 L871.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M1019.0,1241.0 L1038.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M1186.0,1241.0 L1205.0,1241.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M778.0,1276.0 L778.0,1306.0" fill="none" stroke="#cf222e" stroke-width="1.4" marker-end="url(#ar)"/>
+<rect x="620.0" y="1308.0" width="340.0" height="96.0" rx="6" fill="#ffebe9" stroke="#cf222e" stroke-width="1"/>
+<text x="632.0" y="1328.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">len^check ≠ 0xffff 或 len &lt; 12：坏头</text>
+<text x="632.0" y="1344.5" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">  → brcmf_rx_terminate_locked：F1 FRAMECTRL=RF_TERM(0x02)，</text>
+<text x="632.0" y="1361.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">     等 RFRAMEBC 归零，丢掉这一帧</text>
+<text x="632.0" y="1377.5" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">len &gt; 4096（superframe，多帧聚合）：分块读完丢弃，</text>
+<text x="632.0" y="1394.0" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start">  rx_more=1 递归读下一帧（TCP 会重传；已 iovar bus:rxglom=0）</text>
+<text x="40.0" y="1308.0" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start">为什么先清 INTSTATUS 再读 FIFO：</text>
+<text x="40.0" y="1328.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">INTSTATUS 是电平源；不清，重新打开 CARD_INT</text>
+<text x="40.0" y="1345.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">会立刻再进中断，brcmf0_wq 空转。</text>
+<text x="40.0" y="1362.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">清掉后新到的帧会再次置位，所以不会丢。</text>
+<text x="40.0" y="1379.0" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start">同理：一旦读到帧就 rx_more=1 继续读空 FIFO。</text>
+<text x="980.0" y="1328.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">返回值约定：1 = 拿到一帧，0 = 没有帧，-1 = I/O 错</text>
+<text x="980.0" y="1348.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">调用者：NAPI poll、brcmf_dcmd 等回复、</text>
+<text x="980.0" y="1366.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">        发送端等信用时（顺便把帧收进 net_rxq）</text>
+<rect x="24.0" y="1430.0" width="1352.0" height="166.0" rx="10" fill="#fff" stroke="#d0d7de" stroke-width="1.2"/>
+<text x="40.0" y="1456.0" font-size="16" fill="#1f2328" font-weight="bold" text-anchor="start">E. SDPCM 发送信用（流控）：brcmf_send_ether_locked() 发送前的等待</text>
+<rect x="60.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#eaeef2" stroke="#8c959f" stroke-width="1"/>
+<text x="83.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">35</text>
+<rect x="106.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#eaeef2" stroke="#8c959f" stroke-width="1"/>
+<text x="129.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">36</text>
+<rect x="152.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#dafbe1" stroke="#8c959f" stroke-width="1"/>
+<text x="175.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">37</text>
+<rect x="198.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#dafbe1" stroke="#8c959f" stroke-width="1"/>
+<text x="221.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">38</text>
+<rect x="244.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#dafbe1" stroke="#8c959f" stroke-width="1"/>
+<text x="267.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">39</text>
+<rect x="290.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="313.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3a</text>
+<rect x="336.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="359.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3b</text>
+<rect x="382.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="405.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3c</text>
+<rect x="428.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="451.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3d</text>
+<rect x="474.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="497.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3e</text>
+<rect x="520.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="543.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">3f</text>
+<rect x="566.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="589.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">40</text>
+<rect x="612.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="635.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">41</text>
+<rect x="658.0" y="1492.0" width="46.0" height="30.0" rx="0" fill="#fff" stroke="#8c959f" stroke-width="1"/>
+<text x="681.0" y="1512.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">42</text>
+<path d="M175.0,1550.0 L175.0,1524.0" fill="none" stroke="#0969da" stroke-width="1.5" marker-end="url(#ab)"/>
+<text x="175.0" y="1565.0" font-size="11" fill="#0969da" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">tx_seq = 0x37</text>
+<path d="M313.0,1550.0 L313.0,1524.0" fill="none" stroke="#cf222e" stroke-width="1.5" marker-end="url(#ar)"/>
+<text x="313.0" y="1565.0" font-size="11" fill="#cf222e" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">tx_max = 0x3a</text>
+<text x="60.0" y="1585.0" font-size="11" fill="#57606a" font-weight="normal" text-anchor="start">灰 = 已发；绿 = 还能发 3 帧（window = 0x3a − 0x37 = 3）</text>
+<text x="760.0" y="1496.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">window = (uint8)(tx_max − tx_seq)；window ≠ 0 且 &lt; 0x80 才发送。</text>
+<text x="760.0" y="1515.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">没信用：调用 brcmf_rx_dispatch_locked() 读固件上行帧（带新的 tx_max），</text>
+<text x="760.0" y="1534.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">   读到的数据帧放进 4 槽 net_rxq 留给 NAPI；没帧就等 100 µs。</text>
+<text x="760.0" y="1553.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">200 次（约 20 ms）仍无信用 → 丢掉这帧，返回 -1，靠 TCP 重传。</text>
+<text x="760.0" y="1572.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">修复前不看 tx_max，突发 TCP 时固件静默丢帧 → 连接卡住。</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToxNmYwZjA2OS1jNjNmLTQ1MjUtYTAxMy1jOWFiN2YwNmI5ZjQAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaDxzyB5wBjJQo0Hjf+Z5GIUAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDplYjFjMWJiNy0zYWE0LTQzZWQtYjdiMy02MTU4MDYwYjg4YjBscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo9JuPGAPx9+w4Id6RCsf0JQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgggXy503FMRJ73jJKZOToVW2o2ipKx7v67RHoRgKyo+9ukZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaOixGYgp4lC6eJpFgGnwWbEAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYILmT5LUxY6qpD1Tdeap/6Yw4PoPHVUkCNW2ubQ1XRMKyZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GZuVZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjE2ZjBmMDY5LWM2M2YtNDUyNS1hMDEzLWM5YWI3ZjA2YjlmNC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjRjOGIwOGU5LTc3M2EtNGNhNi05ZmY4LTBmMWMwNGY5NjY3ZHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCBfLnTcUxEnveMkpk5OhVbajaKkrHu/rtEehGArKj726JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggOj0GQI/nkvjwVSlvGbAUC3yzJIazCD3g/gQWICWWmGyiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgggvFlIyB5hCShfu18uqVxy7vSEVbOh9lycIXwY6JlBlV0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQDdNc8ZHf3OVg4+uQ8/LKbGkXJoB2nWGv7drRh22ALqBOhzcFPCdr6GgOhNfYAoeu3WzzDmHzEzr/d2qGldmFV0=</c2pa:manifest></metadata></svg>

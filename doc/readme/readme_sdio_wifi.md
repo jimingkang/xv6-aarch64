@@ -8,10 +8,11 @@ Internet 数据收发的完整路径。
 
 - `kernel/drivers/base/device.c`：bus/device/driver 核心；
 - `kernel/drivers/mmc/host/arasan_sdio.c`：BCM2837 Arasan SDHCI host；
-- `kernel/drivers/mmc/core/sdio.c`、`kernel/sdio.h`：最小 MMC/SDIO core；
+- `kernel/drivers/mmc/core/sdio.c`、`include/kernel/sdio.h`：最小 MMC/SDIO core；
 - `kernel/drivers/net/wireless/brcmfmac.c`：Broadcom FullMAC 驱动；
 - `kernel/drivers/net/wireless/wpa_crypto.c`：WPA2-PSK 密码学；
-- `kernel/net/net.c`、`kernel/net.h`：`net_device`、Ethernet、ARP、IPv4、UDP、ICMP、DHCP；
+- `kernel/net/net.c`、`include/kernel/net.h`：`net_device`、Ethernet、ARP、IPv4、
+  UDP、TCP、ICMP、DHCP、路由和 NAPI；
 - `kernel/net/sysnet.c`：用户态网络系统调用入口；
 - `user/wifi.c`：读取 `/etc/wifi.conf` 并请求连接；
 - `user/init.c`：开机自动执行 `/bin/wifi`。
@@ -657,11 +658,11 @@ QEMU `raspi3b` 不模拟 BCM43455，只能回归内核启动、总线核心以�
 | `kernel/drivers/base/device.c`, `kernel/device.h` | bus/device/driver 注册与绑定 |
 | `kernel/drivers/mmc/host/sdhost.c` | 外置 SD memory card、bootfs 与 FS.IMG |
 | `kernel/drivers/mmc/host/arasan_sdio.c` | 板载 Wi-Fi 的 Arasan SDIO host |
-| `kernel/drivers/mmc/core/sdio.c`, `kernel/sdio.h` | MMC/SDIO core、Function、CMD52/CMD53 |
+| `kernel/drivers/mmc/core/sdio.c`, `include/kernel/sdio.h` | MMC/SDIO core、Function、CMD52/CMD53 |
 | `kernel/drivers/net/wireless/brcmfmac.c` | backplane、firmware、SDPCM、BCDC、WPA2、收发 |
 | `kernel/drivers/net/wireless/wpa_crypto.c` | PBKDF2、PTK、MIC、AES unwrap |
 | `kernel/fs/fat/fat32.c` | bootfs firmware 和 FS.IMG 文件访问 |
-| `kernel/net/net.c`, `kernel/net.h` | net_device、Ethernet、ARP、IPv4、DHCP、ICMP |
+| `kernel/net/net.c`, `include/kernel/net.h` | net_device、Ethernet、ARP、IPv4、UDP、TCP、DHCP、ICMP、NAPI |
 | `kernel/core/workqueue.c`, `kernel/workqueue.h` | 命名 workqueue、有序 delayed work 与 kworker |
 | `kernel/core/proc.c`, `kernel/proc.h` | `kthread_create()` 和内核线程调度上下文 |
 | `kernel/net/sysnet.c` | `wifi_connect` 系统调用 |

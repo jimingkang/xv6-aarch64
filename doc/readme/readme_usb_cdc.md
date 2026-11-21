@@ -12,7 +12,8 @@
 - 从 QEMU `usb-net` 的 RNDIS/CDC 复合设备中选择 CDC-ECM 配置；
 - 启用 CDC data interface 的 alternate setting 1；
 - 通过 EP2 Bulk-OUT 发送 Ethernet frame，通过 EP2 Bulk-IN 接收；
-- 将 USB Ethernet 接到 `kernel/net/net.c` 的 ARP/IPv4/UDP 协议栈。
+- 以 `struct net_device` 注册 USB Ethernet，并接入 `kernel/net/net.c` 的
+  ARP/IPv4/ICMP/UDP/TCP 协议栈。
 
 QEMU 的设备同时公布 RNDIS 和 CDC 两套配置。当前驱动选择 CDC-ECM，因此不需要 RNDIS 的 encapsulated command、OID 和 packet-message 封装。这是“CDC/RNDIS 复合 USB 网卡的 CDC 模式”，还不是一个可连接任意纯 RNDIS 网卡的完整 RNDIS 协议实现。
 
@@ -31,12 +32,16 @@ main()
        -> SET_CONFIGURATION(1)
        -> SET_INTERFACE(interface=1, alternate=1)
        -> SET_ETHERNET_PACKET_FILTER
-       -> net_set_xmit(usbnet_xmit)
+       -> usb_netdev.ops = &usbnet_ops
+       -> register_netdev(&usb_netdev)
 ```
 
 `usbnet_xmit()` 使用 host channel 1 同步执行 Bulk-OUT。RX 使用 host channel 2；它不会在 NAK 后立即取消事务，而是保持通道挂起，等待设备收到 Ethernet frame 后由 DWC2 自动重试。timer IRQ 中的 `usbnetpoll()` 只检查完成状态。
 
-收到帧后必须先释放 `usb_lock` 再调用 `net_rx()`。原因是 ARP request 会在 `net_rx()` 中同步生成 ARP reply，reply 又通过 `usbnet_xmit()` 获取同一把锁；持锁调用会造成递归 acquire panic。交付前先把 DMA buffer 复制到独立 buffer，避免重新挂起 RX 后覆盖协议栈正在处理的数据。
+收到帧后必须先释放 USB 控制器锁，再调用 `usbnet_rx()`，由它进一步调用
+`net_rx_dev(&usb_netdev, packet, len)`。原因是 ARP request 可能在协议栈中同步生成 ARP
+reply，reply 又通过 `usbnet_xmit()` 获取控制器锁；持锁交付会造成递归 acquire panic。
+交付前先把 DMA buffer 复制到独立 buffer，避免重新挂起 RX 后覆盖协议栈正在处理的数据。
 
 ## QEMU 启动与测试
 

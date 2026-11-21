@@ -6,6 +6,7 @@
 #include <kernel/defs.h>
 #include <kernel/device.h>
 #include <kernel/sdio.h>
+#include <kernel/wifi_trace.h>
 
 #define CMD0   0
 #define CMD3   3
@@ -223,8 +224,13 @@ sdio_enable_func(struct sdio_func *func)
   timeout = (uint64)r_cntfrq_el0() * 3;
   do {
     if(cmd52_host(func->host, 0, 0, CCCR_IO_READY, &ready) == 0 &&
-       (ready & (1U << func->function)))
+       (ready & (1U << func->function))){
+      WTRACE(1, func->function == 1 ? 3 : 5,
+             "sdio CMD52 CCCR IO_ENABLE=%x -> IO_READY=%x: F%d ready after %d us",
+             enable, ready, func->function,
+             (int)((r_cntvct_el0() - start) * 1000000 / r_cntfrq_el0()));
       return 0;
+    }
     asm volatile("yield" ::: "memory");
   } while(r_cntvct_el0() - start < timeout);
   return -1;
@@ -238,6 +244,7 @@ sdio_claim_irq(struct sdio_func *func)
                              CCCR_INT_ENABLE, &enable) < 0)
     return -1;
   enable |= 1U | (1U << func->function); // master + this function
+  WTRACE(1, 5, "sdio CMD52 CCCR INT_ENABLE=%x (master + F%d)", enable, func->function);
   return cmd52_host(func->host, 0, 1, CCCR_INT_ENABLE, &enable);
 }
 
@@ -333,6 +340,7 @@ sdio_scan_host(struct mmc_host *host)
   if(mmc_command(host, CMD5, 0, MMC_RSP_R4, &ocr) < 0)
     return -1;
   count = (ocr >> 28) & 7;
+  WTRACE(1, 2, "sdio CMD0 reset; CMD5 arg=0 -> OCR=%x functions=%d", ocr, count);
   if(count == 0)
     return -1;
   // Keep issuing the operational CMD5 until the card sets IORDY (bit 31).
@@ -343,6 +351,8 @@ sdio_scan_host(struct mmc_host *host)
       return -1;
     if(response & (1U << 31)){
       ready = 1;
+      WTRACE(1, 2, "sdio CMD5 arg=%x -> R4=%x IORDY after %d tries",
+             ocr & 0x00ffffff, response, retry + 1);
       break;
     }
   }
@@ -354,10 +364,12 @@ sdio_scan_host(struct mmc_host *host)
   host->ocr = ocr;
   if(mmc_command(host, CMD7, (uint32)host->rca << 16, MMC_RSP_R1, 0) < 0)
     return -1;
+  WTRACE(1, 2, "sdio CMD3 -> RCA=%x; CMD7 select card", host->rca);
 
   if(cmd52_host(host, 0, 0, CCCR_BUS_INTERFACE, &byte) == 0){
     byte = (byte & ~3U) | 2U;
     cmd52_host(host, 0, 1, CCCR_BUS_INTERFACE, &byte);
+    WTRACE(1, 2, "sdio CMD52 F0 CCCR BUS_INTERFACE=%x (4-bit)", byte);
     if(host->ops->set_bus_width)
       host->ops->set_bus_width(host, 4);
   }
@@ -399,6 +411,8 @@ sdio_scan_host(struct mmc_host *host)
       f->cis = cis;
       if(read_cis_id(host, fn, cis, &f->vendor, &f->device) < 0)
         continue;
+      WTRACE(1, 2, "sdio CMD52 FBR%d class=%x CIS=%x -> vendor=%x device=%x",
+             fn, f->class, cis, f->vendor, f->device);
       make_func_name(function_names[host_index][fn - 1], host_index, fn);
       f->dev.name = function_names[host_index][fn - 1];
       f->dev.id = fn;

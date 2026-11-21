@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1697" viewBox="0 0 1680 1697" font-family="PingFang SC, Noto Sans CJK SC, WenQuanYi Zen Hei, Microsoft YaHei, sans-serif" font-size="13">
+<title>SDIO Wi-Fi TCP/IP 完整收发：从 AP 到 socket，再回到空口</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#bc4c00"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#57606a"/></marker>
+</defs>
+<rect width="1680" height="1697" fill="#fff"/>
+<text x="840.0" y="34.0" font-size="21" fill="#1f2328" font-weight="bold" text-anchor="middle">SDIO Wi-Fi TCP/IP 完整收发：从 AP 到 socket，再回到空口</text>
+<text x="840.0" y="58.0" font-size="12.5" fill="#57606a" font-weight="normal" text-anchor="middle">展开详细步骤图的 7–11：建链前提 → DAT1 中断 → NAPI 解封装 → TCP 状态机 → 信用流控发送 → 重开中断</text>
+<path d="M40.0,80.0 L74.0,80.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="82.0" y="84.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">函数调用</text>
+<path d="M156.0,80.0 L190.0,80.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<text x="198.0" y="84.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">返回 / 回复</text>
+<path d="M291.3,80.0 L325.3,80.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<text x="333.3" y="84.0" font-size="11.5" fill="#0969da" font-weight="normal" text-anchor="start">SDIO 命令（CMD52/53）</text>
+<path d="M491.0,80.0 L525.0,80.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<text x="533.0" y="84.0" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">SDPCM 帧（BCDC 控制/数据）</text>
+<path d="M718.8,80.0 L752.8,80.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="760.8" y="84.0" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">中断 / 调度</text>
+<path d="M854.1,80.0 L888.1,80.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<text x="896.1" y="84.0" font-size="11.5" fill="#8250df" font-weight="normal" text-anchor="start">802.11 空口</text>
+<path d="M992.2,80.0 L1026.2,80.0" fill="none" stroke="#bc4c00" stroke-width="1.6" marker-end="url(#ao)"/>
+<text x="1034.2" y="84.0" font-size="11.5" fill="#bc4c00" font-weight="normal" text-anchor="start">定时 / 看门狗</text>
+<rect x="59.3" y="100.0" width="190.0" height="48.0" rx="7" fill="#f6f8fa" stroke="#57606a" stroke-width="1.4"/>
+<text x="154.3" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">用户进程 / socket</text>
+<text x="154.3" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">read · write · epoll</text>
+<rect x="287.9" y="100.0" width="190.0" height="48.0" rx="7" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.4"/>
+<text x="382.9" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">TCP / IPv4</text>
+<text x="382.9" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">kernel/net/net.c</text>
+<rect x="516.4" y="100.0" width="190.0" height="48.0" rx="7" fill="#ddf4ff" stroke="#0969da" stroke-width="1.4"/>
+<text x="611.4" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">net_device</text>
+<text x="611.4" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">wlan0 · netdev_xmit_on</text>
+<rect x="745.0" y="100.0" width="190.0" height="48.0" rx="7" fill="#fbefff" stroke="#8250df" stroke-width="1.4"/>
+<text x="840.0" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">brcmfmac</text>
+<text x="840.0" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">SDPCM / BCDC</text>
+<rect x="973.6" y="100.0" width="190.0" height="48.0" rx="7" fill="#ffebe9" stroke="#cf222e" stroke-width="1.4"/>
+<text x="1068.6" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">brcmf0_wq</text>
+<text x="1068.6" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">NAPI · budget 16</text>
+<rect x="1202.1" y="100.0" width="190.0" height="48.0" rx="7" fill="#fff8c5" stroke="#9a6700" stroke-width="1.4"/>
+<text x="1297.1" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">Arasan SDIO</text>
+<text x="1297.1" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">CMD52/53 · IRQ 62</text>
+<rect x="1430.7" y="100.0" width="190.0" height="48.0" rx="7" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.4"/>
+<text x="1525.7" y="120.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="middle">CYW43455 / AP</text>
+<text x="1525.7" y="137.0" font-size="10.5" fill="#57606a" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">F2 FIFO ⇄ 802.11</text>
+<path d="M154.3,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M382.9,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M611.4,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M840.0,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1068.6,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1297.1,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<path d="M1525.7,148 V1677.0" stroke="#afb8c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+<rect x="44.0" y="169.0" width="1592.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="186.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">步骤 7｜运行前提：关联、WPA2 和 DHCP 已建立 wlan0</text>
+<path d="M157.3,221.0 L837.0,221.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="165.3" cy="212.0" r="8.5" fill="#333"/>
+<text x="165.3" y="216.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">1</text>
+<text x="180.3" y="215.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">/bin/wifi → brcmfmac_connect(SSID, PSK)</text>
+<path d="M843.0,254.0 L1522.7,254.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="851.0" cy="245.0" r="8.5" fill="#8250df"/>
+<text x="851.0" y="249.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">2</text>
+<text x="866.0" y="248.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SET_SSID → 802.11 认证/关联 → WPA2 M1–M4</text>
+<path d="M842.0,268.0 L866.0,268.0 L866.0,286.0 L844.0,286.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="880.0" cy="270.0" r="8.5" fill="#333"/>
+<text x="880.0" y="274.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">3</text>
+<text x="894.0" y="274.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">PTK / GTK 安装完成；handshake_done = 1；普通 ch2 数据口开放</text>
+<path d="M837.0,321.0 L385.9,321.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="393.9" cy="312.0" r="8.5" fill="#1a7f37"/>
+<text x="393.9" y="316.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">4</text>
+<text x="408.9" y="315.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">net_dhcp_dev(wlan0) → IP / 掩码 / 网关 / DNS / ARP / 路由</text>
+<path d="M843.0,354.0 L1522.7,354.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="851.0" cy="345.0" r="8.5" fill="#1a7f37"/>
+<text x="851.0" y="349.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">5</text>
+<text x="866.0" y="348.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">BRCMF_C_SET_PM = 0：关闭 PM2，避免 AP 缓存下行帧</text>
+<rect x="51.4" y="370.0" width="1577.1" height="42.0" rx="5" fill="#dafbe1" stroke="#1a7f37" stroke-width="1"/>
+<text x="61.4" y="387.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">此后 TCP 栈处理的是以太网帧；CYW43455 固件在下方负责 802.11、CCMP、重试和速率控制。</text>
+<text x="61.4" y="403.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">接收和发送都使用 SDIO Function 2（F2 FIFO）；Function 1 用于寄存器 / INTSTATUS。</text>
+<rect x="44.0" y="421.0" width="1592.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="438.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">步骤 8｜硬件接收：AP 帧进入 F2 FIFO，DAT1 产生 IRQ 62</text>
+<path d="M1522.7,473.0 L1300.1,473.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="1308.1" cy="464.0" r="8.5" fill="#8250df"/>
+<text x="1308.1" y="468.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">6</text>
+<text x="1275.8" y="467.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">AP TCP 段 → 802.11/CCMP 解密 → 以太网帧 → SDPCM ch2 进 F2 FIFO</text>
+<path d="M1522.7,506.0 L1300.1,506.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="1308.1" cy="497.0" r="8.5" fill="#cf222e"/>
+<text x="1308.1" y="501.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">7</text>
+<text x="1316.7" y="500.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">INTSTATUS.FRAME_IND 置位，DAT1 拉低 → CARD_INT → IRQ 62</text>
+<path d="M1299.1,520.0 L1323.1,520.0 L1323.1,538.0 L1301.1,538.0" fill="none" stroke="#cf222e" stroke-width="1.5" marker-end="url(#ar)"/>
+<circle cx="1337.1" cy="522.0" r="8.5" fill="#cf222e"/>
+<text x="1337.1" y="526.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">8</text>
+<text x="1287.1" y="526.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="end">arasan_sdio_irq()：屏蔽 IRPT_EN.CARD_INT，写 1 清 host 中断（顶半部不发 CMD）</text>
+<path d="M1294.1,573.0 L843.0,573.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="851.0" cy="564.0" r="8.5" fill="#cf222e"/>
+<text x="851.0" y="568.3" font-size="11.5" fill="#fff" font-weight="bold" text-anchor="middle">9</text>
+<text x="866.0" y="567.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmfmac_sdio_irq()</text>
+<path d="M843.0,606.0 L1065.6,606.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="851.0" cy="597.0" r="8.5" fill="#cf222e"/>
+<text x="851.0" y="601.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">10</text>
+<text x="866.0" y="600.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">napi_schedule() → queue_work(brcmf0_wq)</text>
+<rect x="965.7" y="622.0" width="516.2" height="26.0" rx="5" fill="#fff1e5" stroke="#bc4c00" stroke-width="1"/>
+<text x="975.7" y="639.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">中断只把收包工作移交给可睡眠 worker；IRQ 上下文不获取 bus-&gt;lock，也不做 CMD52/53。</text>
+<rect x="44.0" y="657.0" width="1592.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="674.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">步骤 9｜NAPI 拆包：SDPCM/BCDC → Ethernet → IPv4 → TCP</text>
+<path d="M1070.6,690.0 L1094.6,690.0 L1094.6,708.0 L1072.6,708.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="1108.6" cy="692.0" r="8.5" fill="#333"/>
+<text x="1108.6" y="696.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">11</text>
+<text x="1122.6" y="696.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmf_napi_poll(budget = 16) 获取 bus-&gt;lock；一次批量排空多帧</text>
+<path d="M1071.6,743.0 L1294.1,743.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="1079.6" cy="734.0" r="8.5" fill="#0969da"/>
+<text x="1079.6" y="738.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">12</text>
+<text x="1094.6" y="737.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52 读 CCCR INT_PENDING；CMD53 F1 读/清 INTSTATUS</text>
+<path d="M1071.6,776.0 L1294.1,776.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="1079.6" cy="767.0" r="8.5" fill="#0969da"/>
+<text x="1079.6" y="771.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">13</text>
+<text x="1094.6" y="770.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD53 F2 先读 64 B，再读 len - 64（按 transfer_limit 切块）</text>
+<path d="M1294.1,809.0 L1071.6,809.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="1079.6" cy="800.0" r="8.5" fill="#57606a"/>
+<text x="1079.6" y="804.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">14</text>
+<text x="1094.6" y="803.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SDPCM：len / channel=2 / tx_max；BCDC + Ethernet frame</text>
+<path d="M1070.6,823.0 L1094.6,823.0 L1094.6,841.0 L1072.6,841.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="1108.6" cy="825.0" r="8.5" fill="#333"/>
+<text x="1108.6" y="829.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">15</text>
+<text x="1122.6" y="829.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">更新 tx_max；去 SDPCM/BCDC 头；以太网帧入 net_rxq[4]；release(bus-&gt;lock)</text>
+<path d="M1065.6,876.0 L614.4,876.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="622.4" cy="867.0" r="8.5" fill="#1a7f37"/>
+<text x="622.4" y="871.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">16</text>
+<text x="637.4" y="870.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">net_rx_dev(wlan0, frame, len)</text>
+<path d="M608.4,909.0 L385.9,909.0" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#ag)"/>
+<circle cx="393.9" cy="900.0" r="8.5" fill="#1a7f37"/>
+<text x="393.9" y="904.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">17</text>
+<text x="408.9" y="903.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">EtherType 0x0800 → IPv4 校验 / proto=6 → tcp_rx()</text>
+<path d="M384.9,923.0 L408.9,923.0 L408.9,941.0 L386.9,941.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="422.9" cy="925.0" r="8.5" fill="#333"/>
+<text x="422.9" y="929.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">18</text>
+<text x="436.9" y="929.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">校验 TCP checksum；按四元组查 tcp_conn；状态机 / ACK / 窗口 / 乱序缓存≤6段</text>
+<path d="M379.9,976.0 L157.3,976.0" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#as)"/>
+<circle cx="165.3" cy="967.0" r="8.5" fill="#57606a"/>
+<text x="165.3" y="971.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">19</text>
+<text x="180.3" y="970.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">数据入 socket RX buffer → wakeup() + tcp_epollnotify() → read/epoll 可见</text>
+<rect x="280.0" y="992.0" width="891.4" height="42.0" rx="5" fill="#ddf4ff" stroke="#0969da" stroke-width="1"/>
+<text x="290.0" y="1009.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">对新数据、重复段、乱序段和 FIN，tcp_rx() 会生成当前 rcv_nxt 的 ACK，立即进入下面步骤 10。</text>
+<text x="290.0" y="1025.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">rx_more=1 时 worker 不等新中断，继续读 F2，直到 FIFO 空或用完 budget。</text>
+<rect x="44.0" y="1043.0" width="1592.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="1060.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">步骤 10｜TCP 发送：用户数据或 RX 路径产生的 ACK 汇合到 wlan0</text>
+<path d="M157.3,1095.0 L379.9,1095.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="165.3" cy="1086.0" r="8.5" fill="#333"/>
+<text x="165.3" y="1090.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">20</text>
+<text x="180.3" y="1089.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">write(fd) → socket f_op-&gt;write → net_tcp_write()（入 txq）</text>
+<path d="M384.9,1109.0 L408.9,1109.0 L408.9,1127.0 L386.9,1127.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="422.9" cy="1111.0" r="8.5" fill="#333"/>
+<text x="422.9" y="1115.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">21</text>
+<text x="436.9" y="1115.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">tcp_start_queued_locked / tcp_send_at_locked：组 TCP + IPv4 + Ethernet；设 seq/ack/window/checksum</text>
+<path d="M385.9,1162.0 L608.4,1162.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="393.9" cy="1153.0" r="8.5" fill="#333"/>
+<text x="393.9" y="1157.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">22</text>
+<text x="408.9" y="1156.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">netdev_xmit_on(wlan0, frame) → ops-&gt;start_xmit</text>
+<path d="M614.4,1195.0 L837.0,1195.0" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="622.4" cy="1186.0" r="8.5" fill="#333"/>
+<text x="622.4" y="1190.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">23</text>
+<text x="637.4" y="1189.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">brcmfmac_xmit：handshake_done 检查 → acquire(bus-&gt;lock)</text>
+<path d="M842.0,1209.0 L866.0,1209.0 L866.0,1227.0 L844.0,1227.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="880.0" cy="1211.0" r="8.5" fill="#333"/>
+<text x="880.0" y="1215.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">24</text>
+<text x="894.0" y="1215.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">加 BCDC 头（flags=0x20）+ SDPCM 头（seq=tx_seq++，ch=2），4 B 对齐</text>
+<rect x="737.1" y="1245.0" width="522.2" height="42.0" rx="5" fill="#fff8c5" stroke="#9a6700" stroke-width="1"/>
+<text x="747.1" y="1262.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">SDIO 信用：window = (uint8)(tx_max - tx_seq)；0 或 ≥ 0x80 表示暂无可发配额。</text>
+<text x="747.1" y="1278.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">无信用时主动读取一个 F2 上行帧以获取新 tx_max；最多等约 20 ms，超时丢帧由 TCP 重传。</text>
+<path d="M843.0,1318.0 L1294.1,1318.0" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+<circle cx="851.0" cy="1309.0" r="8.5" fill="#0969da"/>
+<text x="851.0" y="1313.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">25</text>
+<text x="866.0" y="1312.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">CMD52×3 设 backplane 窗口 → CMD53 F2 分块写入</text>
+<path d="M1300.1,1351.0 L1522.7,1351.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="1308.1" cy="1342.0" r="8.5" fill="#8250df"/>
+<text x="1308.1" y="1346.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">26</text>
+<text x="1323.1" y="1345.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">固件取帧 → 802.11 封装 / CCMP / MAC 重试 → AP → 对端</text>
+<path d="M842.0,1365.0 L866.0,1365.0 L866.0,1383.0 L844.0,1383.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="880.0" cy="1367.0" r="8.5" fill="#333"/>
+<text x="880.0" y="1371.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">27</text>
+<text x="894.0" y="1371.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">release(bus-&gt;lock) → start_xmit 返回；TCP 保留未确认数据供超时重传</text>
+<rect x="44.0" y="1396.0" width="1592.0" height="24.0" rx="4" fill="#eaeef2" stroke="#d0d7de" stroke-width="1"/>
+<text x="54.0" y="1413.0" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">步骤 11｜排空与重新开中断：在吞吐与 IRQ 风暴之间收敛</text>
+<path d="M1070.6,1429.0 L1094.6,1429.0 L1094.6,1447.0 L1072.6,1447.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="1108.6" cy="1431.0" r="8.5" fill="#333"/>
+<text x="1108.6" y="1435.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">28</text>
+<text x="1122.6" y="1435.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">FIFO 已空且 work_done &lt; 16 → napi_complete_done()</text>
+<path d="M1071.6,1482.0 L1294.1,1482.0" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ar)"/>
+<circle cx="1079.6" cy="1473.0" r="8.5" fill="#cf222e"/>
+<text x="1079.6" y="1477.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">29</text>
+<text x="1094.6" y="1476.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">arasan_sdio_irq_complete() → 重开 IRPT_EN.CARD_INT</text>
+<path d="M1070.6,1496.0 L1094.6,1496.0 L1094.6,1514.0 L1072.6,1514.0" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#a)"/>
+<circle cx="1108.6" cy="1498.0" r="8.5" fill="#333"/>
+<text x="1108.6" y="1502.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">30</text>
+<text x="1122.6" y="1502.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">若 budget=16 已用完：保持 NAPI scheduled，继续 worker 轮询，不先重开中断</text>
+<rect x="965.7" y="1532.0" width="577.8" height="42.0" rx="5" fill="#fff1e5" stroke="#bc4c00" stroke-width="1"/>
+<text x="975.7" y="1549.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">假中断：INT_PENDING 没有 F1 pending 时，queue_delayed_work(irq_work, 1)，10 ms 后再重开。</text>
+<text x="975.7" y="1565.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">这避免 CARD_INT 假触发把 CPU 打满；真实帧最多增加 1 tick 延迟。</text>
+<path d="M1522.7,1605.0 L1300.1,1605.0" fill="none" stroke="#8250df" stroke-width="1.6" stroke-dasharray="7 4" marker-end="url(#ap)"/>
+<circle cx="1308.1" cy="1596.0" r="8.5" fill="#8250df"/>
+<text x="1308.1" y="1600.3" font-size="10" fill="#fff" font-weight="bold" text-anchor="middle">31</text>
+<text x="1291.9" y="1599.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">下一个 TCP ACK / 数据帧 到达 → 再次 DAT1 / IRQ 62，回到步骤 8</text>
+<rect x="280.0" y="1621.0" width="1120.0" height="42.0" rx="5" fill="#fbefff" stroke="#8250df" stroke-width="1"/>
+<text x="290.0" y="1638.0" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">上下文与串行化：IRQ 顶半部只屏蔽+调度；brcmf0_wq 可睡眠；发送者、NAPI、dcmd 用 bus-&gt;lock 串行 F1/F2；</text>
+<text x="290.0" y="1654.0" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">每条 SDIO 请求再经 mmc_request_sync / host-&gt;request_lock 串行到 Arasan 控制器。</text>
+</svg>

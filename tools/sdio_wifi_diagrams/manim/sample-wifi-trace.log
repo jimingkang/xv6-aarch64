@@ -1,0 +1,123 @@
+# SAMPLE — 示例日志，不是实机记录。
+# 按 WIFI_TRACE=1 的格式串和代码执行顺序写出，数值（时间、长度、序号、核心地址、文件大小）是示意值。
+# 在 Pi 3B+ 上用 `make WIFI_TRACE=1` 抓真实串口日志后，用 SDIO_WIFI_LOG=真实日志 重新渲染动画。
+wifi1: t=1012 arasan probe EMMC=0xffffff803f300000 GPIO34-39 ALT3 pull-up 35-39 (GPPUDCLK1=0xf8)
+wifi1: t=1014 arasan clock 400000 Hz (base 200000000 / divider 0)
+wifi2: t=1016 sdio CMD0 reset; CMD5 arg=0 -> OCR=90ff8000 functions=3
+wifi2: t=1019 sdio CMD5 arg=ff8000 -> R4=90ff8000 IORDY after 2 tries
+wifi2: t=1020 sdio CMD3 -> RCA=1; CMD7 select card
+wifi2: t=1021 sdio CMD52 F0 CCCR BUS_INTERFACE=82 (4-bit)
+wifi2: t=1021 arasan bus width 4-bit (CONTROL0=2)
+wifi2: t=1025 sdio CMD52 FBR1 class=0 CIS=10f0 -> vendor=2d0 device=a9a6
+wifi2: t=1029 sdio CMD52 FBR2 class=0 CIS=1100 -> vendor=2d0 device=a9a6
+wifi2: t=1033 sdio CMD52 FBR3 class=2 CIS=1110 -> vendor=2d0 device=a9a6
+wifi1: t=1036 arasan clock 25000000 Hz (base 200000000 / divider 8)
+wifi3: t=1840 sdio CMD52 CCCR IO_ENABLE=2 -> IO_READY=2: F1 ready after 180 us
+wifi3: t=1843 F1 window 18000000 + CMD53 @8000 -> CHIPID=15264345 chip=4345 rev=6
+wifi3: t=1861 bootfs BCM43455 BIN=616000 TXT=2074 CLM=14400 bytes
+wifi4: t=1872 EROM: 7 cores ChipCommon=18000000 SDIO=18002000 CR4=18003000
+wifi4: t=1874 TCM base=198000 size=819200 banks=5
+wifi4: t=1880 set_passive: CR4 halted, D11 held in reset
+wifi4: t=3490 BIN 616000 bytes -> TCM 198000, 19 windows, CMD53 chunk=64, 1610 ms, reset vector=b83ef198
+wifi4: t=3502 NVRAM 2052 bytes -> 264dfc (RAM tail) token=fbfe0401
+wifi4: t=3505 set_active: reset vector b83ef198 -> address 0, CR4 released
+wifi5: t=3561 sdio CMD52 CCCR IO_ENABLE=6 -> IO_READY=6: F2 ready after 52000 us
+wifi5: t=3563 FWREADY mailbox=40008 protocol=4 HOSTINTMASK=200000f0
+wifi6: t=3570 dcmd tx ch=0 id=1 cmd=262 ver GET len=259 seq=0
+wifi6: t=3573 dcmd rx ch=0 id=1 status=0 len=275 after 3 ms, 1 frames read
+wifi6: t=3575 dcmd tx ch=0 id=2 cmd=263 clmload SET len=1044 seq=1
+wifi6: t=3581 dcmd rx ch=0 id=2 status=0 len=16 after 6 ms, 1 frames read
+wifi6: t=3583 dcmd tx ch=0 id=3 cmd=263 clmload SET len=1044 seq=2
+wifi6: t=3589 dcmd rx ch=0 id=3 status=0 len=16 after 6 ms, 1 frames read
+wifi6: t=3640 dcmd tx ch=0 id=16 cmd=263 clmload SET len=114 seq=15
+wifi6: t=3644 dcmd rx ch=0 id=16 status=0 len=16 after 4 ms, 1 frames read
+wifi6: t=3646 dcmd tx ch=0 id=17 cmd=262 cur_etheraddr GET len=20 seq=16
+wifi6: t=3648 dcmd rx ch=0 id=17 status=0 len=36 after 2 ms, 1 frames read
+wifi6: t=3650 dcmd tx ch=0 id=18 cmd=2 SET len=0 seq=17
+wifi6: t=3659 dcmd rx ch=0 id=18 status=0 len=16 after 9 ms, 1 frames read
+wifi5: t=3661 sdio CMD52 CCCR INT_ENABLE=3 (master + F1)
+wifi5: t=3662 wlan0 registered mac=b8:27:eb:12:34:56, NAPI weight 16 on brcmf0_wq
+wifi5: t=3662 arasan IRPT_EN=CARD_INT: DAT1 card interrupt -> IRQ 62 enabled
+wifi6: t=5210 dcmd tx ch=0 id=19 cmd=3 SET len=0 seq=18
+wifi6: t=5214 dcmd rx ch=0 id=19 status=0 len=16 after 4 ms, 1 frames read
+wifi6: t=5215 dcmd tx ch=0 id=20 cmd=2 SET len=0 seq=19
+wifi6: t=5228 dcmd rx ch=0 id=20 status=0 len=16 after 13 ms, 1 frames read
+wifi6: t=5250 dcmd tx ch=0 id=21 cmd=262 event_msgs GET len=27 seq=20
+wifi6: t=5252 dcmd rx ch=0 id=21 status=0 len=43 after 2 ms, 1 frames read
+wifi6: t=5253 dcmd tx ch=0 id=22 cmd=263 event_msgs SET len=27 seq=21
+wifi6: t=5255 dcmd rx ch=0 id=22 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5256 dcmd tx ch=0 id=23 cmd=263 mpc SET len=8 seq=22
+wifi6: t=5258 dcmd rx ch=0 id=23 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5259 dcmd tx ch=0 id=24 cmd=263 bus:rxglom SET len=15 seq=23
+wifi6: t=5261 dcmd rx ch=0 id=24 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5262 dcmd tx ch=0 id=25 cmd=262 country GET len=20 seq=24
+wifi6: t=5264 dcmd rx ch=0 id=25 status=0 len=28 after 2 ms, 1 frames read
+wifi6: t=5266 dcmd tx ch=0 id=26 cmd=20 SET len=4 seq=25
+wifi6: t=5268 dcmd rx ch=0 id=26 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5269 dcmd tx ch=0 id=27 cmd=22 SET len=4 seq=26
+wifi6: t=5271 dcmd rx ch=0 id=27 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5272 dcmd tx ch=0 id=28 cmd=134 SET len=4 seq=27
+wifi6: t=5274 dcmd rx ch=0 id=28 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5275 dcmd tx ch=0 id=29 cmd=263 bsscfg:wpa_auth SET len=24 seq=28
+wifi6: t=5277 dcmd rx ch=0 id=29 status=0 len=16 after 2 ms, 1 frames read
+wifi6: t=5278 dcmd tx ch=0 id=30 cmd=263 bsscfg:sup_wpa SET len=23 seq=29
+wifi6: t=5280 dcmd rx ch=0 id=30 status=-23 len=16 after 2 ms, 1 frames read
+wifi6: t=5410 dcmd tx ch=0 id=31 cmd=268 SET len=68 seq=30
+wifi6: t=5412 dcmd rx ch=0 id=31 status=-23 len=16 after 2 ms, 1 frames read
+wifi7: t=5413 join SET_SSID TP-Link_B114 (WPA2-PSK/AES, host EAPOL=1)
+wifi6: t=5413 dcmd tx ch=0 id=32 cmd=26 SET len=36 seq=31
+wifi6: t=5416 dcmd rx ch=0 id=32 status=0 len=16 after 3 ms, 1 frames read
+wifi6: t=5417 dcmd tx ch=0 id=33 cmd=23 GET len=6 seq=32
+wifi6: t=5419 dcmd rx ch=0 id=33 status=-17 len=16 after 2 ms, 1 frames read
+wifi8: t=5690 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 1) -> napi_schedule(brcmf0_wq)
+wifi9: t=5691 rx ch=1 len=112 seq=0 tx_max=33 tx_seq=33 intstatus=40
+wifi7: t=5691 event ch=1 type=3 status=0 reason=0
+wifi9: t=5692 rx ch=1 len=112 seq=1 tx_max=33 tx_seq=33 intstatus=0
+wifi7: t=5692 event ch=1 type=7 status=0 reason=0
+wifi11: t=5693 napi frames=2 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
+wifi8: t=5694 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 2) -> napi_schedule(brcmf0_wq)
+wifi9: t=5695 rx ch=2 len=133 seq=2 tx_max=34 tx_seq=33 intstatus=40
+wifi7: t=5695 EAPOL rx ch=2 len=113 key-info=8a
+wifi10: t=5712 tx ch=2 len=136 type=888e seq=33 tx_max=34 window=1 credit-wait=0
+wifi7: t=5713 EAPOL M2 tx (SNonce, MIC, RSN IE 22 bytes)
+wifi11: t=5713 napi frames=1 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
+wifi8: t=5719 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 3) -> napi_schedule(brcmf0_wq)
+wifi9: t=5720 rx ch=2 len=189 seq=3 tx_max=35 tx_seq=34 intstatus=40
+wifi7: t=5720 EAPOL rx ch=2 len=169 key-info=13ca
+wifi7: t=5721 EAPOL M3 rx key-info=13ca key-data=56 (encrypted GTK)
+wifi11: t=5722 napi frames=1 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
+wifi6: t=5729 dcmd tx ch=0 id=34 cmd=23 GET len=6 seq=34
+wifi6: t=5731 dcmd rx ch=0 id=34 status=0 len=22 after 2 ms, 1 frames read
+wifi7: t=5731 GET_BSSID poll 2 -> associated bssid=50:d4:f7:aa:b1:14
+wifi6: t=5733 dcmd tx ch=0 id=35 cmd=263 bsscfg:wsec_key SET len=187 seq=35
+wifi6: t=5736 dcmd rx ch=0 id=35 status=0 len=16 after 3 ms, 1 frames read
+wifi6: t=5737 dcmd tx ch=0 id=36 cmd=263 bsscfg:wsec_key SET len=187 seq=36
+wifi6: t=5740 dcmd rx ch=0 id=36 status=0 len=16 after 3 ms, 1 frames read
+wifi10: t=5741 tx ch=2 len=116 type=888e seq=37 tx_max=39 window=2 credit-wait=0
+wifi7: t=5741 EAPOL M4 tx
+wifi7: t=5742 WPA2 done: PTK + GTK installed, handshake_done=1, data port open
+wifi10: t=6250 tx ch=2 len=360 type=800 seq=38 tx_max=40 window=2 credit-wait=0
+wifi8: t=6262 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 4) -> napi_schedule(brcmf0_wq)
+wifi9: t=6263 rx ch=2 len=364 seq=6 tx_max=41 tx_seq=39 intstatus=40
+wifi11: t=6264 napi frames=1 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
+wifi10: t=6266 tx ch=2 len=360 type=800 seq=39 tx_max=41 window=2 credit-wait=0
+wifi8: t=6275 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 5) -> napi_schedule(brcmf0_wq)
+wifi9: t=6276 rx ch=2 len=364 seq=7 tx_max=42 tx_seq=40 intstatus=40
+wifi11: t=6277 napi frames=1 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
+wifi7: t=6278 DHCP done: wlan0 IPv4 ready
+wifi6: t=6279 dcmd tx ch=0 id=37 cmd=86 SET len=4 seq=40
+wifi6: t=6282 dcmd rx ch=0 id=37 status=0 len=16 after 3 ms, 1 frames read
+wifi7: t=6282 SET_PM=0: power save off (no PM2 beacon buffering)
+wifi8: t=9104 irq DAT1 -> CARD_INT -> IRQ 62 x3 (total 8) -> napi_schedule(brcmf0_wq)
+wifi9: t=9105 rx ch=2 len=80 seq=8 tx_max=50 tx_seq=41 intstatus=40
+wifi9: t=9106 rx ch=2 len=1474 seq=9 tx_max=50 tx_seq=41 intstatus=0
+wifi9: t=9108 rx ch=2 len=1474 seq=10 tx_max=50 tx_seq=41 intstatus=0
+wifi11: t=9109 napi frames=3 budget=16 drained=1 spurious-before=2 -> complete, CARD_INT re-enabled
+wifi10: t=9110 tx ch=2 len=72 type=800 seq=41 tx_max=50 window=9 credit-wait=0
+wifi10: t=9112 tx ch=2 len=1476 type=800 seq=42 tx_max=50 window=8 credit-wait=0
+wifi10: t=9113 tx ch=2 len=1476 type=800 seq=43 tx_max=50 window=7 credit-wait=0
+wifi10: t=9115 tx ch=2 len=1476 type=800 seq=44 tx_max=45 window=1 credit-wait=0
+wifi10: t=9119 tx ch=2 len=1476 type=800 seq=45 tx_max=47 window=2 credit-wait=31
+wifi8: t=9121 irq DAT1 -> CARD_INT -> IRQ 62 x1 (total 9) -> napi_schedule(brcmf0_wq)
+wifi9: t=9122 rx ch=2 len=80 seq=11 tx_max=48 tx_seq=46 intstatus=40
+wifi11: t=9123 napi frames=1 budget=16 drained=1 spurious-before=0 -> complete, CARD_INT re-enabled
