@@ -50,8 +50,10 @@
 #include <kernel/mm.h>
 #include <kernel/mbox.h>
 #include <kernel/camsensor.h>
+#include <kernel/videodev2.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <uapi/poll.h>
 
 #define UNICAM_BASE   (PERIPHERAL_BASE + 0x801000UL)   // CSI1
 #define UNICAM_CLKGATE (PERIPHERAL_BASE + 0x802004UL)  // CSI1 lane clocks
@@ -171,17 +173,10 @@ _Static_assert(CAM_BUFFER_COUNT * CAM_SLOT_BYTES + PGSIZE <= CAMDMA_SIZE,
 
 enum cam_state { CAM_IDLE, CAM_WARMUP, CAM_STREAMING, CAM_ARMED,
                  CAM_CAPTURE, CAM_DONE };
-enum cam_buffer_state { CAM_BUF_FREE, CAM_BUF_NEXT, CAM_BUF_ACTIVE,
-                        CAM_BUF_DONE, CAM_BUF_USER };
-
-struct cam_buffer {
-  enum cam_buffer_state state;
-  uint sequence;
-  uint64 timestamp_us;
-};
 
 struct cam_file {
   int held_slot;
+  int stream_requested;
 };
 
 static struct {
@@ -207,14 +202,14 @@ static struct {
   int open_count;
   int active_slot;            // slot currently receiving pixels, -1 for dummy
   int next_slot;              // slot latched by the next FS, -1 for dummy
-  struct cam_buffer buffers[CAM_BUFFER_COUNT];
-  int doneq[CAM_BUFFER_COUNT];
-  int done_head;
-  int done_count;
+  struct vb2_queue queue;      // Linux videobuf2-style DMA buffer ownership
+  int test_pattern;
   int initialized;
   struct workqueue wq;
   struct delayed_work poll_work; // IRQ watchdog/fallback, never busy-waits caller
 } cam;
+
+static struct video_device unicam_vdev;
 
 static int camera_bind(void);
 static void cam_stream_stop(void);
@@ -377,10 +372,7 @@ set_image_buffer(uint32 pa, uint32 bytes)
 static int
 free_slot_locked(void)
 {
-  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
-    if(cam.buffers[i].state == CAM_BUF_FREE)
-      return i;
-  return -1;
+  return vb2_find_free(&cam.queue);
 }
 
 static void
@@ -403,7 +395,8 @@ queue_slot_locked(void)
     return -1;
   }
   set_image_buffer(FRAME_PA(slot), cam.frame_bytes);
-  cam.buffers[slot].state = CAM_BUF_NEXT;
+  if(vb2_buffer_queue(&cam.queue, slot) < 0)
+    return -1;
   cam.next_slot = slot;
   if(cam.active_slot < 0)
     cam.state = CAM_ARMED;
@@ -411,35 +404,10 @@ queue_slot_locked(void)
 }
 
 static void
-done_push_locked(int slot)
-{
-  if(cam.done_count >= CAM_BUFFER_COUNT)
-    panic("unicam doneq");
-  cam.doneq[(cam.done_head + cam.done_count) % CAM_BUFFER_COUNT] = slot;
-  cam.done_count++;
-}
-
-static int
-done_pop_locked(void)
-{
-  int slot;
-
-  if(cam.done_count == 0)
-    return -1;
-  slot = cam.doneq[cam.done_head];
-  cam.done_head = (cam.done_head + 1) % CAM_BUFFER_COUNT;
-  cam.done_count--;
-  cam.buffers[slot].state = CAM_BUF_USER;
-  return slot;
-}
-
-static void
 release_slot_locked(int slot)
 {
-  if(slot < 0 || slot >= CAM_BUFFER_COUNT ||
-     cam.buffers[slot].state != CAM_BUF_USER)
+  if(vb2_buffer_release(&cam.queue, slot) < 0)
     return;
-  cam.buffers[slot].state = CAM_BUF_FREE;
   // If the receiver had to park because both slots were full, make the
   // returned slot the next capture without waiting for another read().
   if(cam.streaming && cam.next_slot < 0)
@@ -556,10 +524,9 @@ unicam_service(int from_irq)
     if(cam.active_slot >= 0){
       int slot = cam.active_slot;
       cam.active_slot = -1;
-      cam.buffers[slot].state = CAM_BUF_DONE;
-      cam.buffers[slot].sequence = cam.frame_ends;
-      cam.buffers[slot].timestamp_us = now_us();
-      done_push_locked(slot);
+      if(vb2_buffer_done(&cam.queue, slot, cam.frame_bytes,
+                         cam.frame_ends, now_us()) < 0)
+        panic("unicam vb2 done");
       cam.done_us = now_us();
       cam.state = CAM_DONE;
       wake = 1;
@@ -573,7 +540,8 @@ unicam_service(int from_irq)
       int slot = cam.next_slot;
       cam.next_slot = -1;
       cam.active_slot = slot;
-      cam.buffers[slot].state = CAM_BUF_ACTIVE;
+      if(vb2_buffer_active(&cam.queue, slot) < 0)
+        panic("unicam vb2 active");
       cam.state = CAM_CAPTURE;
       if(queue_slot_locked() < 0)
         cam.state = CAM_CAPTURE;
@@ -588,7 +556,7 @@ unicam_service(int from_irq)
     }
   }
   if(wake)
-    wakeup(&cam.done_count);
+    wakeup(&cam.queue.done_count);
   release(&cam.lock);
   return 1;
 }
@@ -607,7 +575,7 @@ unicam_poll_work(struct work_struct *work)
   acquire(&cam.lock);
   active = cam.state != CAM_IDLE;
   if(active)
-    wakeup(&cam.done_count);
+    wakeup(&cam.queue.done_count);
   release(&cam.lock);
   if(active)
     queue_delayed_work(&cam.wq, &cam.poll_work, 1);
@@ -656,9 +624,7 @@ cam_stream_stop(void)
   cam.sensor->ops->stream_off(cam.sensor);
   acquire(&cam.lock);
   cam.active_slot = cam.next_slot = -1;
-  cam.done_head = cam.done_count = 0;
-  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
-    cam.buffers[i].state = CAM_BUF_FREE;
+  vb2_queue_cancel(&cam.queue);
   release(&cam.lock);
   unicam_stop();
   cam_power_off();
@@ -691,9 +657,7 @@ cam_stream_start(void)
   cam.frame_starts = cam.frame_ends = cam.irqs = cam.spurious =
     cam.sta_seen = cam.irq_reported = 0;
   cam.active_slot = cam.next_slot = -1;
-  cam.done_head = cam.done_count = 0;
-  for(int i = 0; i < CAM_BUFFER_COUNT; i++)
-    cam.buffers[i].state = CAM_BUF_FREE;
+  vb2_queue_cancel(&cam.queue);
   cam.warm_deadline = r_cntvct_el0() +
     (uint64)r_cntfrq_el0() * CAM_WARMUP_MS / 1000;
   cam.state = CAM_WARMUP;
@@ -727,7 +691,7 @@ cam_stream_start(void)
   acquire(&cam.lock);
   while(cam.state != CAM_STREAMING && r_cntvct_el0() < deadline &&
         !myproc()->killed)
-    sleep(&cam.done_count, &cam.lock);
+    sleep(&cam.queue.done_count, &cam.lock);
   int settled = cam.state == CAM_STREAMING;
   release(&cam.lock);
   if(!settled){
@@ -757,13 +721,14 @@ cam_grab(struct cam_frame_hdr *hdr, int *slotp)
   // Buffer programming and CAM_ARMED publication are one critical section.
   // The spinlock disables the local IRQ and serializes a CSI IRQ on another
   // CPU; dsb in set_image_buffer() orders MMIO before the state is visible.
-  if(cam.done_count == 0 && cam.next_slot < 0 && cam.active_slot < 0)
+  if(vb2_done_count(&cam.queue) == 0 && cam.next_slot < 0 &&
+     cam.active_slot < 0)
     queue_slot_locked();
-  while(cam.done_count == 0 && r_cntvct_el0() < deadline &&
+  while(vb2_done_count(&cam.queue) == 0 && r_cntvct_el0() < deadline &&
         !myproc()->killed)
-    sleep(&cam.done_count, &cam.lock);
+    sleep(&cam.queue.done_count, &cam.lock);
   st = cam.state;
-  slot = done_pop_locked();
+  slot = vb2_dqbuf(&cam.queue);
   if(slot >= 0 && cam.irqs > 0 && !cam.irq_reported){
     cam.irq_reported = 1;
     report_irq = 1;
@@ -799,9 +764,9 @@ cam_grab(struct cam_frame_hdr *hdr, int *slotp)
   hdr->bytesperline = cam.mode->bytesperline;
   hdr->format = cam.mode->format;
   hdr->data_bytes = cam.frame_bytes;
-  hdr->sequence = cam.buffers[slot].sequence;
+  hdr->sequence = cam.queue.bufs[slot].sequence;
   hdr->reserved = slot;
-  hdr->timestamp_us = cam.buffers[slot].timestamp_us;
+  hdr->timestamp_us = cam.queue.bufs[slot].timestamp_us;
   *slotp = slot;
   return 0;
 }
@@ -896,6 +861,24 @@ camrelease(struct file *f)
 
 // "pattern=N" selects a sensor test pattern for later captures.  The value
 // is checked and cached by the sensor (set_ctrl) and applied at stream_on.
+// cam.busy is held by the caller.
+static int
+cam_set_test_pattern_locked(int value)
+{
+  int r;
+
+  if(cam.sensor == 0){
+    printf("camera: retrying sensor probe on control request\n");
+    if(camera_bind() < 0)
+      return -1;
+  }
+  r = cam.sensor->ops->set_ctrl ?
+      cam.sensor->ops->set_ctrl(cam.sensor, CAM_CTRL_TEST_PATTERN, value) : -1;
+  if(r == 0)
+    cam.test_pattern = value;
+  return r;
+}
+
 static int
 camwrite(struct file *f, int user_src, uint64 src, int n)
 {
@@ -914,17 +897,292 @@ camwrite(struct file *f, int user_src, uint64 src, int n)
   if(buf[i] != 0 && buf[i] != '\n')
     return -1;
   acquiresleep(&cam.busy);            // never change controls mid-capture
-  if(cam.sensor == 0){
-    printf("camera: retrying sensor probe on control request\n");
-    if(camera_bind() < 0){
+  r = cam_set_test_pattern_locked(value);
+  releasesleep(&cam.busy);
+  return r < 0 ? -1 : n;
+}
+
+static uint32
+cam_v4l2_pixfmt(uint32 format)
+{
+  switch(format){
+  case CAM_FMT_SBGGR10P: return V4L2_PIX_FMT_SBGGR10P;
+  case CAM_FMT_SGBRG10P: return V4L2_PIX_FMT_SGBRG10P;
+  case CAM_FMT_SGRBG10P: return V4L2_PIX_FMT_SGRBG10P;
+  case CAM_FMT_SRGGB10P: return V4L2_PIX_FMT_SRGGB10P;
+  default: return 0;
+  }
+}
+
+static void
+cam_fill_format(struct v4l2_format *fmt, const struct cam_mode *mode)
+{
+  memset(fmt, 0, sizeof(*fmt));
+  fmt->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if(mode){
+    fmt->pix.width = mode->width;
+    fmt->pix.height = mode->height;
+    fmt->pix.pixelformat = cam_v4l2_pixfmt(mode->format);
+    fmt->pix.field = V4L2_FIELD_NONE;
+    fmt->pix.bytesperline = mode->bytesperline;
+    fmt->pix.sizeimage = mode->bytesperline * mode->height;
+  }
+}
+
+static void
+cam_fill_v4l2_buffer(struct v4l2_buffer *b, int slot)
+{
+  struct vb2_buffer *vb = &cam.queue.bufs[slot];
+
+  memset(b, 0, sizeof(*b));
+  b->index = slot;
+  b->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  b->memory = V4L2_MEMORY_MMAP;
+  b->offset = vb->offset;
+  b->length = vb->length;
+  b->bytesused = vb->bytesused;
+  b->sequence = vb->sequence;
+  b->timestamp_us = vb->timestamp_us;
+  if(vb->state == VB2_BUF_STATE_QUEUED ||
+     vb->state == VB2_BUF_STATE_ACTIVE)
+    b->flags |= V4L2_BUF_FLAG_QUEUED;
+  if(vb->state == VB2_BUF_STATE_DONE || vb->state == VB2_BUF_STATE_USER)
+    b->flags |= V4L2_BUF_FLAG_DONE;
+  if(myproc()->vm->camera_mapped)
+    b->flags |= V4L2_BUF_FLAG_MAPPED;
+}
+
+// Linux-style V4L2 capture control.  The ioctl names and object lifecycle are
+// familiar to V4L2 programs; the command numbers are the compact xv6 UAPI
+// values declared in uapi/videodev2.h.
+static int
+camioctl(struct file *f, uint64 cmd, uint64 arg)
+{
+  struct cam_file *cf = f->private_data;
+  int r = -1;
+
+  if(cf == 0)
+    return -1;
+  switch(cmd){
+  case VIDIOC_QUERYCAP: {
+    struct v4l2_capability cap;
+    memset(&cap, 0, sizeof(cap));
+    safestrcpy(cap.driver, "bcm2835-unicam", sizeof(cap.driver));
+    safestrcpy(cap.card, "xv6 CSI camera", sizeof(cap.card));
+    safestrcpy(cap.bus_info, "platform:unicam-csi1", sizeof(cap.bus_info));
+    cap.version = (1U << 16);
+    cap.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE |
+                      V4L2_CAP_STREAMING;
+    cap.capabilities = cap.device_caps | V4L2_CAP_DEVICE_CAPS;
+    return either_copyout(1, arg, &cap, sizeof(cap));
+  }
+  case VIDIOC_ENUM_FMT: {
+    struct v4l2_fmtdesc d;
+    if(either_copyin(&d, 1, arg, sizeof(d)) < 0 ||
+       d.type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+      return -1;
+    acquiresleep(&cam.busy);
+    if(cam.sensor == 0)
+      camera_bind();
+    if(cam.sensor == 0 || d.index >= (uint32)cam.sensor->nmodes){
       releasesleep(&cam.busy);
       return -1;
     }
+    uint32 index = d.index;
+    const struct cam_mode *mode = &cam.sensor->modes[index];
+    memset(&d, 0, sizeof(d));
+    d.index = index;
+    d.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    d.pixelformat = cam_v4l2_pixfmt(mode->format);
+    safestrcpy(d.description, mode->name, sizeof(d.description));
+    releasesleep(&cam.busy);
+    return either_copyout(1, arg, &d, sizeof(d));
   }
-  r = cam.sensor->ops->set_ctrl ?
-      cam.sensor->ops->set_ctrl(cam.sensor, CAM_CTRL_TEST_PATTERN, value) : -1;
-  releasesleep(&cam.busy);
-  return r < 0 ? -1 : n;
+  case VIDIOC_G_FMT: {
+    struct v4l2_format fmt;
+    acquiresleep(&cam.busy);
+    if(cam.sensor == 0)
+      camera_bind();
+    cam_fill_format(&fmt, cam.mode);
+    releasesleep(&cam.busy);
+    return fmt.pix.sizeimage ? either_copyout(1, arg, &fmt, sizeof(fmt)) : -1;
+  }
+  case VIDIOC_S_FMT: {
+    struct v4l2_format fmt;
+    if(either_copyin(&fmt, 1, arg, sizeof(fmt)) < 0 ||
+       fmt.type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+      return -1;
+    acquiresleep(&cam.busy);
+    if(cam.sensor == 0)
+      camera_bind();
+    if(cam.sensor == 0 || cam.streaming)
+      goto fmt_out;
+    // V4L2 S_FMT is a negotiation: if the exact request is unavailable,
+    // return the current/default mode rather than rejecting it.
+    r = 0;
+    for(int i = 0; i < cam.sensor->nmodes; i++){
+      const struct cam_mode *m = &cam.sensor->modes[i];
+      if(m->width == fmt.pix.width && m->height == fmt.pix.height &&
+         (!fmt.pix.pixelformat ||
+          cam_v4l2_pixfmt(m->format) == fmt.pix.pixelformat)){
+        cam.mode = m;
+        cam.frame_bytes = m->bytesperline * m->height;
+        r = 0;
+        break;
+      }
+    }
+fmt_out:
+    cam_fill_format(&fmt, cam.mode);
+    releasesleep(&cam.busy);
+    if(either_copyout(1, arg, &fmt, sizeof(fmt)) < 0)
+      return -1;
+    return r;
+  }
+  case VIDIOC_REQBUFS: {
+    struct v4l2_requestbuffers req;
+    if(either_copyin(&req, 1, arg, sizeof(req)) < 0 ||
+       req.type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+       req.memory != V4L2_MEMORY_MMAP)
+      return -1;
+    req.count = CAM_BUFFER_COUNT;
+    req.capabilities = V4L2_BUF_CAP_SUPPORTS_MMAP;
+    return either_copyout(1, arg, &req, sizeof(req));
+  }
+  case VIDIOC_QUERYBUF: {
+    struct v4l2_buffer b;
+    if(either_copyin(&b, 1, arg, sizeof(b)) < 0 ||
+       b.type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+       b.memory != V4L2_MEMORY_MMAP || b.index >= CAM_BUFFER_COUNT)
+      return -1;
+    acquire(&cam.lock);
+    cam_fill_v4l2_buffer(&b, b.index);
+    release(&cam.lock);
+    return either_copyout(1, arg, &b, sizeof(b));
+  }
+  case VIDIOC_QBUF: {
+    struct v4l2_buffer b;
+    if(either_copyin(&b, 1, arg, sizeof(b)) < 0 ||
+       b.type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
+       b.memory != V4L2_MEMORY_MMAP || b.index >= CAM_BUFFER_COUNT)
+      return -1;
+    acquire(&cam.lock);
+    // Before STREAMON Linux applications queue every freshly allocated
+    // buffer.  This fixed DMA pool is already available, so that first QBUF
+    // is an ownership declaration and needs no state transition.  After a
+    // DQBUF it returns the userspace-owned slot to the capture queue.
+    if(cf->held_slot >= 0){
+      if(cf->held_slot != (int)b.index){
+        release(&cam.lock);
+        return -1;
+      }
+      release_slot_locked(cf->held_slot);
+      cf->held_slot = -1;
+    } else if(cam.queue.bufs[b.index].state != VB2_BUF_STATE_DEQUEUED){
+      release(&cam.lock);
+      return -1;
+    }
+    release(&cam.lock);
+    return 0;
+  }
+  case VIDIOC_DQBUF: {
+    struct v4l2_buffer b;
+    struct cam_frame_hdr hdr;
+    int slot = -1;
+    if(cf->held_slot >= 0)
+      return -1;
+    acquiresleep(&cam.busy);
+    if((cam.sensor == 0 && camera_bind() < 0) ||
+       (!cam.streaming && cam_stream_start() < 0) ||
+       cam_grab(&hdr, &slot) < 0){
+      releasesleep(&cam.busy);
+      return -1;
+    }
+    acquire(&cam.lock);
+    cam_fill_v4l2_buffer(&b, slot);
+    release(&cam.lock);
+    cf->held_slot = slot;
+    releasesleep(&cam.busy);
+    if(either_copyout(1, arg, &b, sizeof(b)) < 0){
+      acquire(&cam.lock);
+      release_slot_locked(slot);
+      release(&cam.lock);
+      cf->held_slot = -1;
+      return -1;
+    }
+    return 0;
+  }
+  case VIDIOC_STREAMON: {
+    uint32 type;
+    if(either_copyin(&type, 1, arg, sizeof(type)) < 0 ||
+       type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+      return -1;
+    acquiresleep(&cam.busy);
+    if((cam.sensor || camera_bind() == 0) &&
+       (cam.streaming || cam_stream_start() == 0)){
+      acquire(&cam.lock);
+      if(cam.next_slot < 0 && cam.active_slot < 0)
+        queue_slot_locked();
+      release(&cam.lock);
+      cf->stream_requested = 1;
+      r = 0;
+    }
+    releasesleep(&cam.busy);
+    return r;
+  }
+  case VIDIOC_STREAMOFF: {
+    uint32 type;
+    if(either_copyin(&type, 1, arg, sizeof(type)) < 0 ||
+       type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+      return -1;
+    acquiresleep(&cam.busy);
+    if(cf->held_slot >= 0){
+      acquire(&cam.lock);
+      release_slot_locked(cf->held_slot);
+      release(&cam.lock);
+      cf->held_slot = -1;
+    }
+    cam_stream_stop();
+    cf->stream_requested = 0;
+    releasesleep(&cam.busy);
+    return 0;
+  }
+  case VIDIOC_G_CTRL: {
+    struct v4l2_control ctrl;
+    if(either_copyin(&ctrl, 1, arg, sizeof(ctrl)) < 0 ||
+       ctrl.id != V4L2_CID_TEST_PATTERN)
+      return -1;
+    ctrl.value = cam.test_pattern;
+    return either_copyout(1, arg, &ctrl, sizeof(ctrl));
+  }
+  case VIDIOC_S_CTRL: {
+    struct v4l2_control ctrl;
+    if(either_copyin(&ctrl, 1, arg, sizeof(ctrl)) < 0 ||
+       ctrl.id != V4L2_CID_TEST_PATTERN)
+      return -1;
+    acquiresleep(&cam.busy);
+    r = cam_set_test_pattern_locked(ctrl.value);
+    releasesleep(&cam.busy);
+    return r;
+  }
+  default:
+    return -1;
+  }
+}
+
+static int
+campoll(struct file *f, int events)
+{
+  int ready = 0;
+
+  if(f->private_data == 0)
+    return POLLERR;
+  acquire(&cam.lock);
+  if((events & POLLIN) && vb2_done_count(&cam.queue))
+    ready |= POLLIN;
+  if(cam.initialized && cam.sensor == 0)
+    ready |= POLLERR;
+  release(&cam.lock);
+  return ready;
 }
 
 // One more/fewer /dev/video0 mapping in this address space.  camread() uses
@@ -1041,17 +1299,13 @@ camera_bind(void)
 void
 camera_init(void)
 {
-  static struct device video_device = {
-    .name = "unicam-video0",
-    .class = "video4linux",
-    .devnode = "video0",
-    .dev_major = CAMERA,
-  };
   static struct file_operations fops = {
     .open = camopen,
     .fread = camread,
     .fwrite = camwrite,
     .release = camrelease,
+    .poll = campoll,
+    .ioctl = camioctl,
     .mmap = cammmap,
   };
 
@@ -1062,19 +1316,25 @@ camera_init(void)
   init_delayed_work(&cam.poll_work, unicam_poll_work);
   cam.state = CAM_IDLE;
   cam.active_slot = cam.next_slot = -1;
+  if(vb2_queue_init(&cam.queue, CAM_BUFFER_COUNT, CAM_SLOT_BYTES) < 0){
+    printf("unicam: cannot initialize videobuf2 queue\n");
+    return;
+  }
   // IRQ 39 is the primary receive-completion path.  The delayed worker keeps
   // captures functional if a board does not route the legacy CSI interrupt;
   // unicam_irq() masks a genuinely stuck/spurious line after 100 assertions.
   cam.irq_off = 0;
   bcm2837_disable_irq(CSI1_IRQ);
-  printf("camera: driver multi-sensor-v1 gpio-sccb-v10 unicam-irq-v3 "
-         "double-buffer mmap\n");
-  if(register_chrdev(CAMERA, "video0", &fops) < 0){
-    printf("unicam: cannot register /dev/video0\n");
-    return;
-  }
-  if(device_register(&video_device) < 0){
-    printf("unicam: cannot register video0 device object\n");
+  printf("camera: driver v4l2-csi-v1 gpio-sccb-v10 unicam-irq-v3 "
+         "videobuf2 mmap\n");
+  unicam_vdev.name = "unicam-video0";
+  unicam_vdev.devnode = "video0";
+  unicam_vdev.major = CAMERA;
+  unicam_vdev.minor = 0;
+  unicam_vdev.fops = &fops;
+  video_set_drvdata(&unicam_vdev, &cam);
+  if(video_register_device(&unicam_vdev) < 0){
+    printf("unicam: cannot register video_device /dev/video0\n");
     return;
   }
   if(camera_bind() == 0)

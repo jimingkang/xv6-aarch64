@@ -1,0 +1,14 @@
+mpitest: rank 1 of 4, pid 11413, cpu -1
+mpitest: rank 0 of 4, pid 11411, cpu -1
+mpitest: ring ok
+mpitest: large head-to-head exchange ok
+mpitest: tag/source matching, probe, self-send ok
+mpitest: collectives ok
+mpitest: pi ~= 3.141592603510 (4 ranks, 135 us)
+mpitest: integer pi reduce ok
+mpitest: non-blocking Isend/Irecv/Wait/Test/Waitany ok
+mpitest: double pi ~= 3.141592653589 (4 ranks, 363 us)
+mpitest: MPI_DOUBLE/MPI_FLOAT reductions, MPI_Wtime ok
+mpitest: 8B ping-pong one-way latency 1.6 us
+mpitest: 64KB stream bandwidth 1596009 KB/s
+mpitest: all tests passed

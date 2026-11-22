@@ -1,11 +1,16 @@
-# 树莓派摄像头驱动：OV5647 + Unicam CSI-2
+# 树莓派摄像头驱动：Linux V4L2/UVC 风格分层 + Unicam CSI-2
 
 硬件：Raspberry Pi 3B+，Camera Module v1.3（OmniVision OV5647），接在板载 CAMERA 排线口（CSI1）。
 
 路线：由 ARM 直接驱动，不经过 GPU 固件的摄像头栈（`start_x.elf`、MMAL/VCHIQ）。
 内核自己完成 I2C 配置传感器、开电源与时钟、用 Unicam 接收 MIPI CSI-2 数据并 DMA 到内存；
 用户态 `camshot` 把原始 Bayer 数据转换成 BMP 或基线 JPEG。这与 Linux 主线的
-`bcm2835-unicam` + `ov5647` 驱动是同一种结构，本驱动的寄存器配置也都取自这两个 Linux 驱动。
+`bcm2835-unicam` + sensor subdev 是同一种硬件结构；字符设备、缓冲队列和 ioctl
+则采用 Linux `uvcvideo`/V4L2 常见的 `video_device + videobuf2` 分层。
+
+这里“UVC 风格”指软件接口和缓冲生命周期，不是把 CSI 摄像头伪装成 USB 设备。
+UVC（USB Video Class）的探测、描述符、等时/批量 URB 只适用于 USB 摄像头；
+IMX219/OV5647 的像素仍通过 MIPI CSI-2 进入 Unicam，不能经过 USB UVC 协议栈。
 
 当前状态：OV5647 已在 Pi 3 真机完成 SCCB 探测、CSI-2/Unicam RAW10 采集和测试彩图 BMP 输出；
 已验证的真机路径使用轮询完成帧。当前版本进一步加入 CSI1 IRQ 主路径、10 ms watchdog、DMA
@@ -18,6 +23,9 @@
 | `kernel/mbox.[ch]` | 新增。共享的固件 property mailbox（带锁）：电源域、扩展 GPIO、时钟频率 | `raspberrypi-firmware.c` |
 | `kernel/i2c.[ch]` | 新增。BSC I2C 主机，轮询方式；BSC0 切到 GPIO 44/45 | `i2c-bcm2835.c` |
 | `kernel/camsensor.h` | 新增。传感器接口：`struct camsensor`、`sensor_ops`、`cam_mode`、`camsensor_bus` | V4L2 subdev（`v4l2_subdev_ops`） |
+| `include/kernel/videodev2.h`、`kernel/drivers/media/v4l2-core/v4l2-dev.c` | `struct video_device`，统一注册字符设备、devtmpfs 和 sysfs class | `drivers/media/v4l2-core/v4l2-dev.c` |
+| `kernel/drivers/media/common/videobuf2-core.c` | DMA 槽的 DEQUEUED/QUEUED/ACTIVE/DONE/USER 状态与完成队列 | `drivers/media/common/videobuf2-core.c` |
+| `include/uapi/videodev2.h` | 精简 V4L2 capture ABI：格式、buffer、control、`VIDIOC_*` | `include/uapi/linux/videodev2.h` |
 | `kernel/drivers/media/i2c/ov5647.c` | 新增。`sensor_ops` 的一个实现：上电、读芯片 ID、640x480 RAW10 寄存器表、开关数据流、测试图 | `drivers/media/i2c/ov5647.c` |
 | `kernel/drivers/media/platform/unicam.c` | 新增。桥接驱动：CSI1 接收器、CAM1 时钟、帧状态机、中断、`/dev/video0`；只通过 `sensor_ops` 访问传感器 | `bcm2835-unicam.c` |
 | `kernel/camera.h` | 新增。内核与用户程序共用的帧头格式和常量 | — |
@@ -35,7 +43,13 @@
 ```text
 user:   camshot ── open/read("/dev/video0") ──┐
                                               │ struct cam_frame_hdr + RAW10
-kernel: unicam.c  /dev/video0 读一次 = 拍一帧 ◄┘     （桥接驱动）
+kernel: video_device + file_operations ◄──────────────┘
+          │ VIDIOC_* / read / mmap / poll
+          ▼
+        videobuf2：DMA 槽所有权与完成队列
+          │ queue / active / done / dequeue
+          ▼
+        unicam.c：CSI-2 bridge + DMA engine
           ├─ mbox.c    电源域 UNICAM1
           ├─ CM_CAM1   CSI 的 "lp" 时钟 100 MHz
           ├─ sensor_ops ──► ov5647.c ── i2c.c ── BSC0 (GPIO 44/45) ── 传感器 0x36
@@ -45,6 +59,41 @@ kernel: unicam.c  /dev/video0 读一次 = 拍一帧 ◄┘     （桥接驱动�
                   ▼
                CAMDMA：物理 0x07200000，非缓存映射
 ```
+
+## 1.0 Linux UVC/V4L2 风格的软件分层
+
+重构后 `/dev/video0` 的调用链为：
+
+```text
+open/ioctl/read/mmap/poll
+          │
+          ▼
+struct video_device (v4l2-dev.c)
+          │ fops
+          ▼
+Unicam bridge ───────► struct camsensor / sensor_ops ─► IMX219 或 OV5647
+      │
+      ▼
+struct vb2_queue
+ DEQUEUED → QUEUED → ACTIVE → DONE → USER
+      ▲                                  │
+      └────────────── QBUF ──────────────┘
+```
+
+`video_register_device()` 负责把 `unicam-video0` 同时放入字符设备表、
+`/dev/video0` 和 `/sys/class/video4linux`。Unicam 驱动不再自行调用
+`register_chrdev()`/`device_register()`。
+
+`struct vb2_queue` 管两个固定的 512 KiB 物理连续 DMA 槽。FS 到来时把
+`QUEUED` 槽变成 `ACTIVE`；FE 中断调用 `vb2_buffer_done()` 填入序号、时间戳和
+`bytesused`，再唤醒 `poll()`/`DQBUF`；用户完成处理后以 `QBUF` 归还。
+旧版 `read(struct cam_frame_hdr + RAW10)` 和 header-only mmap dequeue 继续可用，
+所以 `camshot`、`camserver` 不必同时迁移。
+
+当前实现支持的精简 ioctl 是：`QUERYCAP`、`ENUM_FMT`、`G/S_FMT`、
+`REQBUFS`、`QUERYBUF`、`QBUF/DQBUF`、`STREAMON/OFF` 和测试图控制
+`G/S_CTRL`。结构体和语义采用 V4L2 名称；ioctl 数值是 xv6 的固定编码，
+并不承诺与 Linux 二进制 ABI 兼容。
 
 ## 1.1 传感器接口：sensor_ops
 

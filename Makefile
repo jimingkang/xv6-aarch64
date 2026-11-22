@@ -122,6 +122,8 @@ DRIVER_BLOCK_OBJS = \
 
 DRIVER_MEDIA_OBJS = \
   $K/drivers/firmware/mbox.o \
+  $K/drivers/media/v4l2-core/v4l2-dev.o \
+  $K/drivers/media/common/videobuf2-core.o \
   $K/drivers/media/i2c/i2c.o \
   $K/drivers/media/i2c/imx219.o \
   $K/drivers/media/i2c/ov5647.o \
