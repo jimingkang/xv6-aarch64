@@ -1,18 +1,18 @@
 // The rules of synchronized, one at a time.
 //
-//  1. Reentrancy: a thread may re-enter a monitor it already holds
-//     (recursion count in the thin lock word).
+//  1. Reentrancy: a thread may re-enter a monitor it already holds.
 //  2. An exception thrown inside synchronized still releases the monitor
-//     (the compiler's "any" handler runs monitorexit and rethrows).
+//     (javac's "any" exception-table entry runs monitorexit and rethrows;
+//     for ACC_SYNCHRONIZED methods the VM unlocks while unwinding).
 //  3. return inside synchronized runs monitorexit first.
 //  4. wait()/notify() without owning the monitor throw
 //     IllegalMonitorStateException.
-//  5. static synchronized locks the class object, not an instance.
+//  5. static synchronized locks the Class object, not an instance.
 
 class Account {
   int balance;
 
-  synchronized void deposit(int v) { balance = balance + v; }
+  synchronized void deposit(int v) { balance += v; }
 
   synchronized void depositTwice(int v) {   // re-enters this monitor
     deposit(v);
@@ -20,22 +20,28 @@ class Account {
   }
 
   synchronized int withdraw(int v) {
-    if (v > balance) throw new RuntimeException();
-    balance = balance - v;
-    return balance;                         // monitorexit before ret
+    if (v > balance) throw new IllegalStateException("insufficient funds");
+    balance -= v;
+    return balance;
   }
 
   int depth(int n) {
     synchronized (this) {
-      if (n == 0) return 0;
-      return 1 + depth(n - 1);              // nested re-entry n times
+      if (n == 0) return 0;                 // monitorexit, then ireturn
+      return 1 + depth(n - 1);
+    }
+  }
+
+  void blockThrows() {
+    synchronized (this) {
+      throw new RuntimeException("thrown inside synchronized block");
     }
   }
 }
 
 class Registry {
   static int created;
-  static synchronized void register() { created = created + 1; }
+  static synchronized void register() { created++; }
 }
 
 class Bumper extends Thread {
@@ -50,7 +56,7 @@ class Bumper extends Thread {
 }
 
 public class SyncRules {
-  public static void main(String[] args) {
+  public static void main(String[] args) throws InterruptedException {
     Account a = new Account();
 
     a.depositTwice(5);
@@ -59,14 +65,19 @@ public class SyncRules {
 
     try {
       a.withdraw(1000);
-    } catch (RuntimeException e) {
-      System.out.println("2. withdraw threw " + e + " ...");
+    } catch (IllegalStateException e) {
+      System.out.println("2. synchronized method threw: " + e.getMessage());
     }
-    // if the monitor had leaked, this other thread would block forever
+    try {
+      a.blockThrows();
+    } catch (RuntimeException e) {
+      System.out.println("   synchronized block threw: " + e.getMessage());
+    }
+    // if either monitor had leaked, this thread would block forever
     Bumper t = new Bumper(a);
     t.start();
     t.join();
-    System.out.println("   ...and another thread could still lock it: balance=" + a.balance);
+    System.out.println("   ...another thread could still lock it: balance=" + a.balance);
 
     System.out.println("3. withdraw(3) returned " + a.withdraw(3));
 
@@ -74,7 +85,7 @@ public class SyncRules {
     try {
       o.notify();
     } catch (IllegalMonitorStateException e) {
-      System.out.println("4. notify() without the lock -> IllegalMonitorStateException");
+      System.out.println("4. notify() without the lock -> " + e);
     }
     try {
       o.wait();
@@ -87,6 +98,6 @@ public class SyncRules {
     b1.start(); b2.start();
     b1.join(); b2.join();
     System.out.println("5. static synchronized register() count = " + Registry.created + " (expected 3000)");
-    System.out.println("   balance = " + a.balance + " (expected " + (10 + 3000 - 3) + ")");
+    System.out.println("   balance = " + a.balance + " (expected 3007)");
   }
 }

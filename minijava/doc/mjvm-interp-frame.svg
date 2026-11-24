@@ -1,0 +1,270 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1520" viewBox="0 0 1400 1520" font-family="WenQuanYi Zen Hei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+</defs>
+<rect width="1400" height="1520" fill="#fff"/>
+<text x="700.0" y="34" font-size="22" fill="#1f2328" font-weight="bold" text-anchor="middle">mjvm 解释器：invoke() 的 C 栈帧布局 + 取指/分派循环 + 异常路径</text>
+<text x="700.0" y="58" font-size="13" fill="#57606a" font-weight="normal" text-anchor="middle">以 Worker.run() → c.incBlock() 为例，快照时刻：incBlock 执行到 pc=6 monitorenter 之前（代码见 minijava/jvm/mjvm.c）</text>
+<rect x="24" y="78" width="640" height="1110" rx="10" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+<text x="38" y="102" font-size="15" fill="#57606a" font-weight="bold" text-anchor="start">① C 栈（一个 Java 线程 = 一个 xv6 内核线程，栈向下长）</text>
+<text x="38" y="120" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="start">n_thread_start(): vm_alloc(512KB) 作栈 → plat_thread_start → thread_clone(thread_main, nt, stack)</text>
+<rect x="40" y="136" width="300" height="186" rx="8" fill="#fbefff" stroke="#8250df" stroke-width="1.5"/>
+<text x="52" y="158" font-size="13" fill="#8250df" font-weight="bold" text-anchor="start">Thread *t（每线程一个，mjvm.c:119）</text>
+<text x="52" y="182" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">id        = 2   (thin lock 里记它)</text>
+<text x="52" y="201" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">park      = sync_create(SEM)  ParkEvent</text>
+<text x="52" y="220" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">exc       = 待抛异常 (Object*)</text>
+<text x="52" y="239" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">depth     = invoke 递归深度 (≤600)</text>
+<text x="52" y="258" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">bytecodes = 已执行字节码数</text>
+<text x="52" y="277" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">entry     = Worker.run()V</text>
+<text x="52" y="296" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">next      = 监视器队列链接</text>
+<rect x="354" y="136" width="294" height="186" rx="8" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="366" y="158" font-size="13" fill="#1f2328" font-weight="bold" text-anchor="start">thread_main(t)</text>
+<text x="366" y="182" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">args[0].a = t-&gt;obj;</text>
+<text x="366" y="203" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rc = invoke(t, t-&gt;entry, args, &amp;r);</text>
+<text x="366" y="224" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rc &lt; 0 → print_exception</text>
+<text x="366" y="245" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">thread_finish(t): 锁 t-&gt;obj,</text>
+<text x="366" y="266" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  alive = 0; notifyAll → join() 醒</text>
+<text x="366" y="287" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">plat_thread_exit() → texit</text>
+<path d="M340,226 L354,226" fill="none" stroke="#8250df" stroke-width="1.5" marker-end="url(#ap)"/>
+<rect x="40" y="340" width="608" height="320" rx="8" fill="#fff" stroke="#0969da" stroke-width="1.8"/>
+<rect x="40" y="340" width="608" height="30" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.8"/>
+<text x="52" y="360" font-size="13.5" fill="#0969da" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">invoke(t, Worker.run, args, &amp;r)</text>
+<text x="636" y="360" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="end">max_locals=3 max_stack=2</text>
+<text x="54" y="390" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start">Slot locals[max_locals+1]   (4 个 8 字节槽)</text>
+<rect x="54" y="398" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="113.0" y="412.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<rect x="54" y="420" width="118" height="28" fill="#fff8c5" stroke="#57606a"/>
+<text x="113.0" y="437.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">Worker@…</text>
+<rect x="172" y="398" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="231.0" y="412.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[1]</text>
+<rect x="172" y="420" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<text x="231.0" y="437.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">i = k</text>
+<rect x="290" y="398" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="349.0" y="412.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[2]</text>
+<rect x="290" y="420" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<text x="349.0" y="437.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="408" y="398" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="467.0" y="412.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[3]</text>
+<rect x="408" y="420" width="118" height="28" fill="#f6f8fa" stroke="#57606a"/>
+<text x="467.0" y="437.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">(+1 备用)</text>
+<text x="54" y="470" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start">Slot stack[max_stack+2]   (4 个槽)  ← 操作数栈，向右长</text>
+<rect x="54" y="478" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="113.0" y="492.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<rect x="54" y="500" width="118" height="28" fill="#dafbe1" stroke="#57606a"/>
+<text x="113.0" y="517.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">Counts@… (=c)</text>
+<rect x="172" y="478" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="231.0" y="492.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[1]</text>
+<rect x="172" y="500" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<rect x="290" y="478" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="349.0" y="492.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[2]</text>
+<rect x="290" y="500" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<rect x="408" y="478" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="467.0" y="492.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[3]</text>
+<rect x="408" y="500" width="118" height="28" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M182,564 L182,532" fill="none" stroke="#cf222e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="190" y="562" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">sp（指向下一个空槽）</text>
+<text x="54" y="590" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">pc  = 31   ipc = 28</text>
+<text x="354" y="590" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">op  = 0xb6 invokevirtual #31</text>
+<text x="54" y="610" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">cls = Worker  cp = Worker.cp</text>
+<text x="354" y="610" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">syncobj = 0（run 非 synchronized）</text>
+<text x="54" y="642" font-size="11.5" fill="#0969da" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">28: invokevirtual #31 → args0 = sp - argslots(1) = &amp;stack[0]</text>
+<rect x="40" y="726" width="608" height="326" rx="8" fill="#fff" stroke="#0969da" stroke-width="1.8"/>
+<rect x="40" y="726" width="608" height="30" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.8"/>
+<text x="52" y="746" font-size="13.5" fill="#0969da" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">invoke(t, Counts.incBlock, args0, &amp;r)</text>
+<text x="636" y="746" font-size="11.5" fill="#57606a" font-weight="normal" text-anchor="end">max_locals=3 max_stack=3</text>
+<text x="54" y="776" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start">Slot locals[max_locals+1]   (4 个 8 字节槽)</text>
+<rect x="54" y="784" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="113.0" y="798.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<rect x="54" y="806" width="118" height="28" fill="#dafbe1" stroke="#57606a"/>
+<text x="113.0" y="823.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">Counts@…</text>
+<rect x="172" y="784" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="231.0" y="798.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[1]</text>
+<rect x="172" y="806" width="118" height="28" fill="#fff8c5" stroke="#57606a"/>
+<text x="231.0" y="823.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock 对象</text>
+<rect x="290" y="784" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="349.0" y="798.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[2]</text>
+<rect x="290" y="806" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<text x="349.0" y="823.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">(handler 用 e)</text>
+<rect x="408" y="784" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="467.0" y="798.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[3]</text>
+<rect x="408" y="806" width="118" height="28" fill="#f6f8fa" stroke="#57606a"/>
+<text x="467.0" y="823.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">(+1 备用)</text>
+<text x="54" y="856" font-size="12" fill="#1f2328" font-weight="bold" text-anchor="start">Slot stack[max_stack+2]   (5 个槽)  ← 操作数栈，向右长</text>
+<rect x="54" y="864" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="113.0" y="878.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[0]</text>
+<rect x="54" y="886" width="118" height="28" fill="#fff8c5" stroke="#57606a"/>
+<text x="113.0" y="903.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock 对象</text>
+<rect x="172" y="864" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="231.0" y="878.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[1]</text>
+<rect x="172" y="886" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<rect x="290" y="864" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="349.0" y="878.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[2]</text>
+<rect x="290" y="886" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<rect x="408" y="864" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="467.0" y="878.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[3]</text>
+<rect x="408" y="886" width="118" height="28" fill="#fff" stroke="#57606a"/>
+<rect x="526" y="864" width="118" height="22" fill="#eaeef2" stroke="#57606a"/>
+<text x="585.0" y="878.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[4]</text>
+<rect x="526" y="886" width="118" height="28" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M182,950 L182,918" fill="none" stroke="#cf222e" stroke-width="2" marker-end="url(#ar)"/>
+<text x="190" y="948" font-size="11.5" fill="#cf222e" font-weight="normal" text-anchor="start">sp（指向下一个空槽）</text>
+<text x="54" y="976" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">pc  = 7    ipc = 6</text>
+<text x="354" y="976" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">op  = 0xc2 monitorenter</text>
+<text x="54" y="996" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">cls = Counts  cp = Counts.cp</text>
+<text x="354" y="996" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">code = m-&gt;code (28 B)</text>
+<text x="54" y="1016" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">syncobj = 0（同步块不靠它）</text>
+<text x="354" y="1016" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ret → 调用者的 Slot r</text>
+<path d="M54,514 L46,514 L46,820 L54,820" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#ag)"/>
+<text x="58" y="684" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">memcpy(locals, args0, argslots)：实参从调用者的操作数栈复制成被调者 locals[0..]</text>
+<text x="58" y="702" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">调用者 sp 先退回 args0；返回后 *sp++ = r 把返回值压回调用者栈</text>
+<text x="48" y="1080" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· locals / stack 都是 C 的 VLA（变长数组），活在 invoke() 自己的 C 栈帧里：</text>
+<text x="48" y="1101" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">  Java 调用一层 = C 递归一层；栈帧大小 ≈ 8×(max_locals+max_stack+3) 字节 + C 寄存器保存区。</text>
+<text x="48" y="1122" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· Slot 是 8 字节 union {j,i,a,p}：int/引用 占 1 槽，long/double 占 2 槽（PUSHJ: sp += 2）。</text>
+<text x="48" y="1143" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· 本地方法 (m-&gt;native)：直接 m-&gt;native(t, args, ret)，不建 Java 帧。</text>
+<text x="48" y="1164" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· 深度 &gt; 600 → StackOverflowError（16KB 用户栈不够，所以 Java 线程跑在 512KB 的 clone 栈上）。</text>
+<rect x="684" y="78" width="692" height="1110" rx="10" fill="#fff" stroke="#1f2328" stroke-width="1.5"/>
+<text x="698" y="102" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">② invoke() 的执行流程（mjvm.c:1536–1920）</text>
+<rect x="708" y="112" width="644" height="66" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+<text x="720" y="132" font-size="13" fill="#57606a" font-weight="bold" text-anchor="start">入口：native？栈溢出？</text>
+<text x="720" y="154" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">if(m-&gt;native){ m-&gt;native(t,args,ret); return t-&gt;exc ? -1 : 0; }</text>
+<text x="720" y="172" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">if(++t-&gt;depth &gt; 600) → throw StackOverflowError, return -1</text>
+<path d="M1030.0,178 L1030.0,194" fill="none" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="708" y="194" width="644" height="84" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="720" y="214" font-size="13" fill="#0969da" font-weight="bold" text-anchor="start">建帧</text>
+<text x="720" y="236" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Slot locals[m-&gt;max_locals+1]; Slot stack[m-&gt;max_stack+2];</text>
+<text x="720" y="254" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">Slot *sp = stack;  pc = 0;  cp = cls-&gt;cp;  code = m-&gt;code;</text>
+<text x="720" y="272" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">memset(locals,0,…); memcpy(locals, args, 8*m-&gt;argslots);</text>
+<path d="M1030.0,278 L1030.0,294" fill="none" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="708" y="294" width="644" height="66" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+<text x="720" y="314" font-size="13" fill="#9a6700" font-weight="bold" text-anchor="start">ACC_SYNCHRONIZED 方法：VM 自己加锁（incSafe 走这里）</text>
+<text x="720" y="336" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">syncobj = (flags &amp; ACC_STATIC) ? cls-&gt;mirror : locals[0].a;</text>
+<text x="720" y="354" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">monitor_enter(t, syncobj);   // static 锁 Class 对象</text>
+<path d="M1030.0,360 L1030.0,376" fill="none" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="708" y="376" width="644" height="470" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+<text x="720" y="398" font-size="13" fill="#1a7f37" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">for(;;){  ipc = pc;  op = U1();  t-&gt;bytecodes++;  switch(op){ … }  }</text>
+<text x="720" y="418" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">ipc = 本条指令地址（跳转偏移、异常表查找都用它）；U1()/U2() 从 code[pc++] 取操作数</text>
+<rect x="720" y="434" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="450.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">aload_n / iload_n</text>
+<rect x="888" y="434" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="451" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">(sp++)-&gt;j = locals[n].j</text>
+<rect x="720" y="463" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="479.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">astore_n / istore_n</text>
+<rect x="888" y="463" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="480" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">locals[n].j = (--sp)-&gt;j</text>
+<rect x="720" y="492" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="508.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">dup / iconst_1 / iadd</text>
+<rect x="888" y="492" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="509" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">*sp = sp[-1]; sp++   PUSHI(POPI()+POPI())</text>
+<rect x="720" y="521" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="537.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">getfield #idx</text>
+<rect x="888" y="521" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="538" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">f = resolve_field(t,cls,idx)  ← cp[idx].resolved 缓存</text>
+<rect x="888" y="550" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="567" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">o = POPA(); NULLCHK(o); push FIELDS(o)[f-&gt;index]   volatile→LDAR</text>
+<rect x="720" y="579" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="595.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">putfield #idx</text>
+<rect x="888" y="579" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="596" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">v = POP; o = POPA(); FIELDS(o)[f-&gt;index] = v   volatile→STLR</text>
+<rect x="720" y="608" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="624.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">goto / if_icmp*</text>
+<rect x="888" y="608" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="625" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">pc = ipc + S2()</text>
+<rect x="720" y="637" width="168" height="26" fill="#fff" stroke="#57606a"/>
+<text x="804.0" y="653.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">invokevirtual #idx</text>
+<rect x="888" y="637" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="654" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">rm = resolve_method; target = recv-&gt;cls-&gt;vtable[rm-&gt;vindex]</text>
+<rect x="888" y="666" width="452" height="26" fill="#fff" stroke="#57606a"/>
+<text x="896" y="683" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sp = args0; invoke(t,target,args0,&amp;r) ← C 递归；&lt;0 → goto exception</text>
+<rect x="720" y="695" width="168" height="26" fill="#fff8c5" stroke="#57606a"/>
+<text x="804.0" y="711.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">monitorenter</text>
+<rect x="888" y="695" width="452" height="26" fill="#fff8c5" stroke="#57606a"/>
+<text x="896" y="712" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">o = POPA(); NULLCHK(o); monitor_enter(t, o)</text>
+<rect x="720" y="724" width="168" height="26" fill="#fff8c5" stroke="#57606a"/>
+<text x="804.0" y="740.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">monitorexit</text>
+<rect x="888" y="724" width="452" height="26" fill="#fff8c5" stroke="#57606a"/>
+<text x="896" y="741" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">o = POPA(); monitor_exit(t, o)   不是 owner → IMSE</text>
+<rect x="720" y="753" width="168" height="26" fill="#ffebe9" stroke="#57606a"/>
+<text x="804.0" y="769.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">athrow / THROW()</text>
+<rect x="888" y="753" width="452" height="26" fill="#ffebe9" stroke="#57606a"/>
+<text x="896" y="770" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">t-&gt;exc = e;  goto exception</text>
+<rect x="720" y="782" width="168" height="26" fill="#ddf4ff" stroke="#57606a"/>
+<text x="804.0" y="798.96" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">ireturn / return</text>
+<rect x="888" y="782" width="452" height="26" fill="#ddf4ff" stroke="#57606a"/>
+<text x="896" y="799" font-size="11" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">*ret = *--sp;  syncobj? monitor_exit;  depth--;  return 0</text>
+<text x="720" y="832" font-size="12" fill="#1a7f37" font-weight="bold" text-anchor="start">break; → continue（回到循环顶，取下一条）</text>
+<path d="M1352,828 L1364,828 L1364,392 L1352,392" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#ag)"/>
+<rect x="708" y="868" width="644" height="210" rx="8" fill="#ffebe9" stroke="#cf222e" stroke-width="1.8"/>
+<text x="720" y="890" font-size="13" fill="#cf222e" font-weight="bold" text-anchor="start">exception:   (athrow、THROW()、被调者 invoke 返回 -1 都跳到这里)</text>
+<text x="720" y="914" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">e = t-&gt;exc;  h = find_handler(t, m, ipc, e);</text>
+<text x="720" y="932" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  // 遍历 m-&gt;exc[]: start ≤ ipc &lt; end 且 (type==0 &quot;any&quot; 或 instanceof)</text>
+<rect x="720" y="954" width="302.0" height="112" rx="8" fill="#fff" stroke="#1a7f37" stroke-width="1"/>
+<text x="730" y="974" font-size="12.5" fill="#1a7f37" font-weight="bold" text-anchor="start">找到 handler (h ≥ 0)</text>
+<text x="730" y="996" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">t-&gt;exc = 0;</text>
+<text x="730" y="1013" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">sp = stack;   // 清空操作数栈</text>
+<text x="730" y="1030" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">PUSHA(e); pc = h;</text>
+<text x="730" y="1047" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">continue;   → 回到循环</text>
+<rect x="1030.0" y="954" width="310.0" height="112" rx="8" fill="#fff" stroke="#cf222e" stroke-width="1"/>
+<text x="1040.0" y="974" font-size="12.5" fill="#cf222e" font-weight="bold" text-anchor="start">本方法没有 handler</text>
+<text x="1040.0" y="996" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">record_frame(e, m, ipc); // 栈轨迹</text>
+<text x="1040.0" y="1013" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">if(syncobj) monitor_exit(t, syncobj);</text>
+<text x="1040.0" y="1030" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">depth--;  return -1;</text>
+<text x="1040.0" y="1047" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">→ 调用者 goto exception，继续找</text>
+<path d="M700,766 L692,766 L692,888 L708,888" fill="none" stroke="#cf222e" stroke-width="2" marker-end="url(#ar)"/>
+<path d="M720,1028 L712,1028 L712,406 L720,406" fill="none" stroke="#1a7f37" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#ag)"/>
+<rect x="24" y="1206" width="1352" height="294" rx="10" fill="#fff" stroke="#1f2328" stroke-width="1.5"/>
+<text x="38" y="1230" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">③ 帧里的指针指向的堆数据（vm_alloc 分配，无 GC）</text>
+<rect x="44" y="1250" width="390" height="236" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+<text x="56" y="1272" font-size="13" fill="#0969da" font-weight="bold" text-anchor="start">Method  Counts.incBlock()V   (mjvm.c:61)</text>
+<text x="56" y="1296" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">flags      = 0x0001 PUBLIC (incSafe: 0x0021)</text>
+<text x="56" y="1315" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">max_stack  = 3     max_locals = 3</text>
+<text x="56" y="1334" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">code_len   = 28    code → aload_0 getfield …</text>
+<text x="56" y="1353" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">argslots   = 1 (this)   rettype = V</text>
+<text x="56" y="1372" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">vindex     = vtable 下标</text>
+<text x="56" y="1391" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">nexc = 2   exc[]:</text>
+<text x="56" y="1410" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  {start=7,  end=19, handler=22, type=0 any}</text>
+<text x="56" y="1429" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  {start=22, end=25, handler=22, type=0 any}</text>
+<text x="56" y="1448" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">native     = 0</text>
+<rect x="450" y="1250" width="420" height="236" rx="8" fill="#fbefff" stroke="#8250df" stroke-width="1.5"/>
+<text x="462" y="1272" font-size="13" fill="#8250df" font-weight="bold" text-anchor="start">Class  Counts   (mjvm.c:85)</text>
+<text x="462" y="1296" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">cp[] : CPEntry {tag, a, b, v, resolved}</text>
+<text x="462" y="1315" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  #15 Fieldref Counts.lock  → resolved = Field*</text>
+<text x="462" y="1334" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  #28 Fieldref blockSafe    → resolved = Field*</text>
+<text x="462" y="1353" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  首次 resolve_field/method 后缓存（acquire/release）</text>
+<text x="462" y="1372" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">vtable[] : Method*，invokevirtual 按 vindex 取</text>
+<text x="462" y="1391" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">ninst = 5 个实例槽     statics[] = 静态字段</text>
+<text x="462" y="1410" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">mirror → java.lang.Class 对象</text>
+<text x="462" y="1429" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">         static synchronized / 类初始化锁 锁它</text>
+<text x="462" y="1448" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">state / init_thread : JVMS §5.5 初始化状态</text>
+<rect x="886" y="1250" width="470" height="236" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+<text x="898" y="1272" font-size="13" fill="#1a7f37" font-weight="bold" text-anchor="start">Object 布局：头 16 字节 + FIELDS(o)[]</text>
+<rect x="900" y="1286" width="50" height="26" fill="#eaeef2" stroke="#57606a"/>
+<text x="925.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">cls</text>
+<rect x="950" y="1286" width="54" height="26" fill="#eaeef2" stroke="#57606a"/>
+<text x="977.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1004" y="1286" width="64" height="26" fill="#fff" stroke="#57606a"/>
+<text x="1036.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[0] racy</text>
+<rect x="1068" y="1286" width="56" height="26" fill="#fff" stroke="#57606a"/>
+<text x="1096.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[1] vol</text>
+<rect x="1124" y="1286" width="60" height="26" fill="#fff" stroke="#57606a"/>
+<text x="1154.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[2] safe</text>
+<rect x="1184" y="1286" width="80" height="26" fill="#fff" stroke="#57606a"/>
+<text x="1224.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[3] blkSafe</text>
+<rect x="1264" y="1286" width="62" height="26" fill="#fff" stroke="#57606a"/>
+<text x="1295.0" y="1302.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">[4] lock</text>
+<text x="900" y="1328" font-size="11.5" fill="#1a7f37" font-weight="normal" text-anchor="start">Counts@…（this）</text>
+<path d="M1294,1312 L1294,1346 L946,1346 L946,1360" fill="none" stroke="#1a7f37" stroke-width="1.5" marker-end="url(#ag)"/>
+<rect x="900" y="1362" width="52" height="26" fill="#eaeef2" stroke="#57606a"/>
+<text x="926.0" y="1378.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">cls</text>
+<rect x="952" y="1362" width="120" height="26" fill="#fff8c5" stroke="#57606a"/>
+<text x="1012.0" y="1378.78" font-size="10.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock (mark word)</text>
+<text x="1082" y="1380" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">java.lang.Object（锁对象，无字段）</text>
+<text x="900" y="1412" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">lock 字的三种状态（低 2 位是标签）:</text>
+<text x="900" y="1429" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  0                               无锁</text>
+<text x="900" y="1446" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  (tid&lt;&lt;32)|(rec&lt;&lt;2)|01           thin：CAS 一次 (LDAXR/STXR)</text>
+<text x="900" y="1463" font-size="11.2" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">  ObjectMonitor* | 10             inflated：owner/rec/entry/wait 队列</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTo2MWFjYmYwNS05NzYyLTQ5NDgtOTM3Zi1iZTk1OWI2MTUwMjgAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaJhM2cQ4CF6202mFcMo+6YAAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDplN2ZkMTFhMC0yODU2LTQyM2YtYTA1NC0zYTdlYjliMjY0MmRscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoN/caD84yK2GbywaoRlpSTwAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggvMPPSkddOl+j4thG/QSVO71AC1XM7CjBQOmhxYutpzekZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaP3Pyimq1Jv0Gh3c2UoEm/UAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIK3IAKrSCsp+jVVbX7DrhfsGVXKhiWmhd0mz9huJ791gZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GZbMZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjYxYWNiZjA1LTk3NjItNDk0OC05MzdmLWJlOTU5YjYxNTAyOC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmVmM2EzNWE4LWZhMWEtNGIyNC04N2NjLWQ0YTc2YTg3NmY5OXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCC8w89KR106X6Pi2Eb9BJU7vUALVczsKMFA6aHFi62nN6JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg8DPlJe54NVGl8JF3M12Dq26gAjvzw8xCBa+vb59c6LuiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg6PVolBuNK9Fd3nccXbqPvbiSafPpopLld6iDc63xJlh0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQIQc5CMwol0wHCbxLnZzanVEtS6SLXDf0DHwvYsAAZQ52FRWjCA8HWXRARSe1kLPDFOB9eO2AqXOGEcyOZM3fGc=</c2pa:manifest></metadata></svg>

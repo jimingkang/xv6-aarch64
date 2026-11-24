@@ -1,0 +1,574 @@
+===== javap -c -v -p Counts  (mjavac 生成)
+  Compiled from "Counter.java"
+public class Counts
+  minor version: 0
+  major version: 49
+  flags: (0x0021) ACC_PUBLIC, ACC_SUPER
+  this_class: #2                          // Counts
+  super_class: #4                         // java/lang/Object
+  interfaces: 0, fields: 5, methods: 5, attributes: 1
+Constant pool:
+   #1 = Utf8               Counts
+   #2 = Class              #1             // Counts
+   #3 = Utf8               java/lang/Object
+   #4 = Class              #3             // java/lang/Object
+   #5 = Utf8               Code
+   #6 = Utf8               SourceFile
+   #7 = Utf8               Counter.java
+   #8 = Utf8               <init>
+   #9 = Utf8               ()V
+  #10 = NameAndType        #8:#9          // "<init>":()V
+  #11 = Methodref          #4.#10         // java/lang/Object."<init>":()V
+  #12 = Utf8               lock
+  #13 = Utf8               Ljava/lang/Object;
+  #14 = NameAndType        #12:#13        // lock:Ljava/lang/Object;
+  #15 = Fieldref           #2.#14         // Counts.lock:Ljava/lang/Object;
+  #16 = Utf8               racy
+  #17 = Utf8               I
+  #18 = NameAndType        #16:#17        // racy:I
+  #19 = Fieldref           #2.#18         // Counts.racy:I
+  #20 = Utf8               vol
+  #21 = NameAndType        #20:#17        // vol:I
+  #22 = Fieldref           #2.#21         // Counts.vol:I
+  #23 = Utf8               safe
+  #24 = NameAndType        #23:#17        // safe:I
+  #25 = Fieldref           #2.#24         // Counts.safe:I
+  #26 = Utf8               blockSafe
+  #27 = NameAndType        #26:#17        // blockSafe:I
+  #28 = Fieldref           #2.#27         // Counts.blockSafe:I
+  #29 = Utf8               incRacy
+  #30 = Utf8               incVolatile
+  #31 = Utf8               incSafe
+  #32 = Utf8               incBlock
+{
+  public int racy;
+    descriptor: I
+    flags: (0x0001) ACC_PUBLIC
+
+  public volatile int vol;
+    descriptor: I
+    flags: (0x0041) ACC_PUBLIC, ACC_VOLATILE
+
+  public int safe;
+    descriptor: I
+    flags: (0x0001) ACC_PUBLIC
+
+  public int blockSafe;
+    descriptor: I
+    flags: (0x0001) ACC_PUBLIC
+
+  public java.lang.Object lock;
+    descriptor: Ljava/lang/Object;
+    flags: (0x0001) ACC_PUBLIC
+
+  public Counts();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=3, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #11                 // Method java/lang/Object."<init>":()V
+         4: aload_0
+         5: new           #4                  // class java/lang/Object
+         8: dup
+         9: invokespecial #11                 // Method java/lang/Object."<init>":()V
+        12: putfield      #15                 // Field lock:Ljava/lang/Object;
+        15: return
+
+  public void incRacy();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=3, locals=1, args_size=1
+         0: aload_0
+         1: aload_0
+         2: getfield      #19                 // Field racy:I
+         5: iconst_1
+         6: iadd
+         7: putfield      #19                 // Field racy:I
+        10: return
+
+  public void incVolatile();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=3, locals=1, args_size=1
+         0: aload_0
+         1: aload_0
+         2: getfield      #22                 // Field vol:I
+         5: iconst_1
+         6: iadd
+         7: putfield      #22                 // Field vol:I
+        10: return
+
+  public synchronized void incSafe();
+    descriptor: ()V
+    flags: (0x0021) ACC_PUBLIC, ACC_SYNCHRONIZED
+    Code:
+      stack=3, locals=1, args_size=1
+         0: aload_0
+         1: aload_0
+         2: getfield      #25                 // Field safe:I
+         5: iconst_1
+         6: iadd
+         7: putfield      #25                 // Field safe:I
+        10: return
+
+  public void incBlock();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=3, locals=3, args_size=1
+         0: aload_0
+         1: getfield      #15                 // Field lock:Ljava/lang/Object;
+         4: dup
+         5: astore_1
+         6: monitorenter
+         7: aload_0
+         8: aload_0
+         9: getfield      #28                 // Field blockSafe:I
+        12: iconst_1
+        13: iadd
+        14: putfield      #28                 // Field blockSafe:I
+        17: aload_1
+        18: monitorexit
+        19: goto          27
+        22: astore_2
+        23: aload_1
+        24: monitorexit
+        25: aload_2
+        26: athrow
+        27: return
+      Exception table:
+         from    to  target type
+             7    19    22   any
+            22    25    22   any
+}
+SourceFile: "Counter.java"
+===== javap -c -v -p Worker  (mjavac 生成)
+  Compiled from "Counter.java"
+public class Worker extends java.lang.Thread
+  minor version: 0
+  major version: 49
+  flags: (0x0021) ACC_PUBLIC, ACC_SUPER
+  this_class: #2                          // Worker
+  super_class: #4                         // java/lang/Thread
+  interfaces: 0, fields: 3, methods: 2, attributes: 1
+Constant pool:
+   #1 = Utf8               Worker
+   #2 = Class              #1             // Worker
+   #3 = Utf8               java/lang/Thread
+   #4 = Class              #3             // java/lang/Thread
+   #5 = Utf8               Code
+   #6 = Utf8               SourceFile
+   #7 = Utf8               Counter.java
+   #8 = Utf8               <init>
+   #9 = Utf8               ()V
+  #10 = NameAndType        #8:#9          // "<init>":()V
+  #11 = Methodref          #4.#10         // java/lang/Thread."<init>":()V
+  #12 = Utf8               c
+  #13 = Utf8               LCounts;
+  #14 = NameAndType        #12:#13        // c:LCounts;
+  #15 = Fieldref           #2.#14         // Worker.c:LCounts;
+  #16 = Utf8               n
+  #17 = Utf8               I
+  #18 = NameAndType        #16:#17        // n:I
+  #19 = Fieldref           #2.#18         // Worker.n:I
+  #20 = Utf8               locked
+  #21 = Utf8               Z
+  #22 = NameAndType        #20:#21        // locked:Z
+  #23 = Fieldref           #2.#22         // Worker.locked:Z
+  #24 = Utf8               Counts
+  #25 = Class              #24            // Counts
+  #26 = Utf8               incSafe
+  #27 = NameAndType        #26:#9         // incSafe:()V
+  #28 = Methodref          #25.#27        // Counts.incSafe:()V
+  #29 = Utf8               incBlock
+  #30 = NameAndType        #29:#9         // incBlock:()V
+  #31 = Methodref          #25.#30        // Counts.incBlock:()V
+  #32 = Utf8               incRacy
+  #33 = NameAndType        #32:#9         // incRacy:()V
+  #34 = Methodref          #25.#33        // Counts.incRacy:()V
+  #35 = Utf8               incVolatile
+  #36 = NameAndType        #35:#9         // incVolatile:()V
+  #37 = Methodref          #25.#36        // Counts.incVolatile:()V
+  #38 = Utf8               (LCounts;IZ)V
+  #39 = Utf8               run
+{
+  public Counts c;
+    descriptor: LCounts;
+    flags: (0x0001) ACC_PUBLIC
+
+  public int n;
+    descriptor: I
+    flags: (0x0001) ACC_PUBLIC
+
+  public boolean locked;
+    descriptor: Z
+    flags: (0x0001) ACC_PUBLIC
+
+  public Worker(Counts, int, boolean);
+    descriptor: (LCounts;IZ)V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=2, locals=4, args_size=4
+         0: aload_0
+         1: invokespecial #11                 // Method java/lang/Thread."<init>":()V
+         4: aload_0
+         5: aload_1
+         6: putfield      #15                 // Field c:LCounts;
+         9: aload_0
+        10: iload_2
+        11: putfield      #19                 // Field n:I
+        14: aload_0
+        15: iload_3
+        16: putfield      #23                 // Field locked:Z
+        19: return
+
+  public void run();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=2, locals=3, args_size=1
+         0: aload_0
+         1: getfield      #23                 // Field locked:Z
+         4: ifeq          40
+         7: iconst_0
+         8: istore_1
+         9: iload_1
+        10: aload_0
+        11: getfield      #19                 // Field n:I
+        14: if_icmpge     37
+        17: aload_0
+        18: getfield      #15                 // Field c:LCounts;
+        21: invokevirtual #28                 // Method Counts.incSafe:()V
+        24: aload_0
+        25: getfield      #15                 // Field c:LCounts;
+        28: invokevirtual #31                 // Method Counts.incBlock:()V
+        31: iinc          1, 1
+        34: goto          9
+        37: goto          70
+        40: iconst_0
+        41: istore_2
+        42: iload_2
+        43: aload_0
+        44: getfield      #19                 // Field n:I
+        47: if_icmpge     70
+        50: aload_0
+        51: getfield      #15                 // Field c:LCounts;
+        54: invokevirtual #34                 // Method Counts.incRacy:()V
+        57: aload_0
+        58: getfield      #15                 // Field c:LCounts;
+        61: invokevirtual #37                 // Method Counts.incVolatile:()V
+        64: iinc          2, 1
+        67: goto          42
+        70: return
+}
+SourceFile: "Counter.java"
+===== javap -c -v -p Counter  (mjavac 生成)
+  Compiled from "Counter.java"
+public class Counter
+  minor version: 0
+  major version: 49
+  flags: (0x0021) ACC_PUBLIC, ACC_SUPER
+  this_class: #2                          // Counter
+  super_class: #4                         // java/lang/Object
+  interfaces: 0, fields: 0, methods: 3, attributes: 1
+Constant pool:
+   #1 = Utf8               Counter
+   #2 = Class              #1             // Counter
+   #3 = Utf8               java/lang/Object
+   #4 = Class              #3             // java/lang/Object
+   #5 = Utf8               Code
+   #6 = Utf8               SourceFile
+   #7 = Utf8               Counter.java
+   #8 = Utf8               <init>
+   #9 = Utf8               ()V
+  #10 = NameAndType        #8:#9          // "<init>":()V
+  #11 = Methodref          #4.#10         // java/lang/Object."<init>":()V
+  #12 = Utf8               Worker
+  #13 = Class              #12            // Worker
+  #14 = Utf8               (LCounts;IZ)V
+  #15 = NameAndType        #8:#14         // "<init>":(LCounts;IZ)V
+  #16 = Methodref          #13.#15        // Worker."<init>":(LCounts;IZ)V
+  #17 = Utf8               java/lang/Thread
+  #18 = Class              #17            // java/lang/Thread
+  #19 = Utf8               start
+  #20 = NameAndType        #19:#9         // start:()V
+  #21 = Methodref          #18.#20        // java/lang/Thread.start:()V
+  #22 = Utf8               join
+  #23 = NameAndType        #22:#9         // join:()V
+  #24 = Methodref          #18.#23        // java/lang/Thread.join:()V
+  #25 = Utf8               java/lang/System
+  #26 = Class              #25            // java/lang/System
+  #27 = Utf8               out
+  #28 = Utf8               Ljava/io/PrintStream;
+  #29 = NameAndType        #27:#28        // out:Ljava/io/PrintStream;
+  #30 = Fieldref           #26.#29        // java/lang/System.out:Ljava/io/PrintStream;
+  #31 = Utf8               interrupted
+  #32 = String             #31            // interrupted
+  #33 = Utf8               java/io/PrintStream
+  #34 = Class              #33            // java/io/PrintStream
+  #35 = Utf8               println
+  #36 = Utf8               (Ljava/lang/String;)V
+  #37 = NameAndType        #35:#36        // println:(Ljava/lang/String;)V
+  #38 = Methodref          #34.#37        // java/io/PrintStream.println:(Ljava/lang/String;)V
+  #39 = Utf8               java/lang/InterruptedException
+  #40 = Class              #39            // java/lang/InterruptedException
+  #41 = Utf8               Counts
+  #42 = Class              #41            // Counts
+  #43 = Methodref          #42.#10        // Counts."<init>":()V
+  #44 = Utf8               phase
+  #45 = NameAndType        #44:#14        // phase:(LCounts;IZ)V
+  #46 = Methodref          #2.#45         // Counter.phase:(LCounts;IZ)V
+  #47 = Utf8               java/lang/StringBuilder
+  #48 = Class              #47            // java/lang/StringBuilder
+  #49 = Methodref          #48.#10        // java/lang/StringBuilder."<init>":()V
+  #50 = Utf8               4 threads x
+  #51 = String             #50            // 4 threads x
+  #52 = Utf8               append
+  #53 = Utf8               (Ljava/lang/String;)Ljava/lang/StringBuilder;
+  #54 = NameAndType        #52:#53        // append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+  #55 = Methodref          #48.#54        // java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+  #56 = Utf8               (I)Ljava/lang/StringBuilder;
+  #57 = NameAndType        #52:#56        // append:(I)Ljava/lang/StringBuilder;
+  #58 = Methodref          #48.#57        // java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+  #59 = Utf8                increments, expected
+  #60 = String             #59            //  increments, expected
+  #61 = Utf8               toString
+  #62 = Utf8               ()Ljava/lang/String;
+  #63 = NameAndType        #61:#62        // toString:()Ljava/lang/String;
+  #64 = Methodref          #48.#63        // java/lang/StringBuilder.toString:()Ljava/lang/String;
+  #65 = Utf8               racy
+  #66 = Utf8               I
+  #67 = NameAndType        #65:#66        // racy:I
+  #68 = Fieldref           #42.#67        // Counts.racy:I
+  #69 = Utf8               racy             =
+  #70 = String             #69            // racy             =
+  #71 = Utf8                  <-- lost
+  #72 = String             #71            //    <-- lost
+  #73 = Utf8                updates
+  #74 = String             #73            //  updates
+  #75 = Utf8               vol
+  #76 = NameAndType        #75:#66        // vol:I
+  #77 = Fieldref           #42.#76        // Counts.vol:I
+  #78 = Utf8               volatile         =
+  #79 = String             #78            // volatile         =
+  #80 = Utf8                (volatile is not atomic)
+  #81 = String             #80            //  (volatile is not atomic)
+  #82 = Utf8               synchronized m() =
+  #83 = String             #82            // synchronized m() =
+  #84 = Utf8               safe
+  #85 = NameAndType        #84:#66        // safe:I
+  #86 = Fieldref           #42.#85        // Counts.safe:I
+  #87 = Utf8               synchronized {}  =
+  #88 = String             #87            // synchronized {}  =
+  #89 = Utf8               blockSafe
+  #90 = NameAndType        #89:#66        // blockSafe:I
+  #91 = Fieldref           #42.#90        // Counts.blockSafe:I
+  #92 = Utf8               main
+  #93 = Utf8               ([Ljava/lang/String;)V
+{
+  public Counter();
+    descriptor: ()V
+    flags: (0x0001) ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #11                 // Method java/lang/Object."<init>":()V
+         4: return
+
+  public static void phase(Counts, int, boolean);
+    descriptor: (LCounts;IZ)V
+    flags: (0x0009) ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=7, locals=8, args_size=3
+         0: iconst_4
+         1: anewarray     #13                 // class Worker
+         4: astore_3
+         5: iconst_0
+         6: istore        4
+         8: iload         4
+        10: aload_3
+        11: arraylength
+        12: if_icmpge     35
+        15: aload_3
+        16: iload         4
+        18: new           #13                 // class Worker
+        21: dup
+        22: aload_0
+        23: iload_1
+        24: iload_2
+        25: invokespecial #16                 // Method Worker."<init>":(LCounts;IZ)V
+        28: aastore
+        29: iinc          4, 1
+        32: goto          8
+        35: iconst_0
+        36: istore        5
+        38: iload         5
+        40: aload_3
+        41: arraylength
+        42: if_icmpge     58
+        45: aload_3
+        46: iload         5
+        48: aaload
+        49: invokevirtual #21                 // Method java/lang/Thread.start:()V
+        52: iinc          5, 1
+        55: goto          38
+        58: iconst_0
+        59: istore        6
+        61: iload         6
+        63: aload_3
+        64: arraylength
+        65: if_icmpge     81
+        68: aload_3
+        69: iload         6
+        71: aaload
+        72: invokevirtual #24                 // Method java/lang/Thread.join:()V
+        75: iinc          6, 1
+        78: goto          61
+        81: goto          97
+        84: astore        7
+        86: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+        89: ldc           #32                 // String interrupted
+        91: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+        94: goto          97
+        97: return
+      Exception table:
+         from    to  target type
+            58    81    84   Class java/lang/InterruptedException
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    flags: (0x0009) ACC_PUBLIC, ACC_STATIC
+    Code:
+      stack=4, locals=4, args_size=1
+         0: sipush        20000
+         3: istore_1
+         4: iconst_4
+         5: iload_1
+         6: imul
+         7: istore_2
+         8: new           #42                 // class Counts
+        11: dup
+        12: invokespecial #43                 // Method Counts."<init>":()V
+        15: astore_3
+        16: aload_3
+        17: iload_1
+        18: iconst_0
+        19: invokestatic  #46                 // Method phase:(LCounts;IZ)V
+        22: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+        25: new           #48                 // class java/lang/StringBuilder
+        28: dup
+        29: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+        32: ldc           #51                 // String 4 threads x
+        34: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+        37: iload_1
+        38: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+        41: ldc           #60                 // String  increments, expected
+        43: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+        46: iload_2
+        47: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+        50: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+        53: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+        56: aload_3
+        57: getfield      #68                 // Field Counts.racy:I
+        60: iload_2
+        61: if_icmpne     95
+        64: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+        67: new           #48                 // class java/lang/StringBuilder
+        70: dup
+        71: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+        74: ldc           #70                 // String racy             =
+        76: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+        79: aload_3
+        80: getfield      #68                 // Field Counts.racy:I
+        83: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+        86: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+        89: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+        92: goto          142
+        95: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+        98: new           #48                 // class java/lang/StringBuilder
+       101: dup
+       102: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+       105: ldc           #70                 // String racy             =
+       107: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       110: aload_3
+       111: getfield      #68                 // Field Counts.racy:I
+       114: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       117: ldc           #72                 // String    <-- lost
+       119: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       122: iload_2
+       123: aload_3
+       124: getfield      #68                 // Field Counts.racy:I
+       127: isub
+       128: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       131: ldc           #74                 // String  updates
+       133: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       136: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       139: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       142: aload_3
+       143: getfield      #77                 // Field Counts.vol:I
+       146: iload_2
+       147: if_icmpne     181
+       150: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       153: new           #48                 // class java/lang/StringBuilder
+       156: dup
+       157: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+       160: ldc           #79                 // String volatile         =
+       162: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       165: aload_3
+       166: getfield      #77                 // Field Counts.vol:I
+       169: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       172: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       175: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       178: goto          228
+       181: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       184: new           #48                 // class java/lang/StringBuilder
+       187: dup
+       188: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+       191: ldc           #79                 // String volatile         =
+       193: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       196: aload_3
+       197: getfield      #77                 // Field Counts.vol:I
+       200: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       203: ldc           #72                 // String    <-- lost
+       205: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       208: iload_2
+       209: aload_3
+       210: getfield      #77                 // Field Counts.vol:I
+       213: isub
+       214: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       217: ldc           #81                 // String  (volatile is not atomic)
+       219: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       222: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       225: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       228: aload_3
+       229: iload_1
+       230: iconst_1
+       231: invokestatic  #46                 // Method phase:(LCounts;IZ)V
+       234: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       237: new           #48                 // class java/lang/StringBuilder
+       240: dup
+       241: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+       244: ldc           #83                 // String synchronized m() =
+       246: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       249: aload_3
+       250: getfield      #86                 // Field Counts.safe:I
+       253: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       256: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       259: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       262: getstatic     #30                 // Field java/lang/System.out:Ljava/io/PrintStream;
+       265: new           #48                 // class java/lang/StringBuilder
+       268: dup
+       269: invokespecial #49                 // Method java/lang/StringBuilder."<init>":()V
+       272: ldc           #88                 // String synchronized {}  =
+       274: invokevirtual #55                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       277: aload_3
+       278: getfield      #91                 // Field Counts.blockSafe:I
+       281: invokevirtual #58                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;
+       284: invokevirtual #64                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       287: invokevirtual #38                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       290: return
+}
+SourceFile: "Counter.java"

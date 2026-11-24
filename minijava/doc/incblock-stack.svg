@@ -1,0 +1,466 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1316" viewBox="0 0 1400 1316" font-family="WenQuanYi Zen Hei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#333"/></marker>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#0969da"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#cf222e"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1a7f37"/></marker>
+<marker id="ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#9a6700"/></marker>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8250df"/></marker>
+</defs>
+<rect width="1400" height="1316" fill="#fff"/>
+<text x="700.0" y="34" font-size="22" fill="#1f2328" font-weight="bold" text-anchor="middle">Counts.incBlock() 逐条字节码：操作数栈 / 局部变量 / 锁字的变化</text>
+<text x="700.0" y="58" font-size="13" fill="#57606a" font-weight="normal" text-anchor="middle">mjavac 生成，javap -c -v 输出：stack=3, locals=3, args_size=1；synchronized (lock) { blockSafe = blockSafe + 1; }</text>
+<rect x="24" y="76" width="620" height="132" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+<text x="38" y="100" font-size="14" fill="#9a6700" font-weight="bold" text-anchor="start">Exception table（Code 属性里，find_handler 按顺序扫）</text>
+<rect x="40" y="112" width="90" height="24" fill="#eaeef2" stroke="#57606a"/>
+<text x="85.0" y="128.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">from</text>
+<rect x="130" y="112" width="90" height="24" fill="#eaeef2" stroke="#57606a"/>
+<text x="175.0" y="128.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">to</text>
+<rect x="220" y="112" width="90" height="24" fill="#eaeef2" stroke="#57606a"/>
+<text x="265.0" y="128.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">target</text>
+<rect x="310" y="112" width="90" height="24" fill="#eaeef2" stroke="#57606a"/>
+<text x="355.0" y="128.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">type</text>
+<rect x="40" y="136" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="85.0" y="152.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">7</text>
+<rect x="130" y="136" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="175.0" y="152.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">19</text>
+<rect x="220" y="136" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="265.0" y="152.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">22</text>
+<rect x="310" y="136" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="355.0" y="152.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">any</text>
+<rect x="40" y="160" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="85.0" y="176.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">22</text>
+<rect x="130" y="160" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="175.0" y="176.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">25</text>
+<rect x="220" y="160" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="265.0" y="176.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">22</text>
+<rect x="310" y="160" width="90" height="24" fill="#fff" stroke="#57606a"/>
+<text x="355.0" y="176.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">any</text>
+<text x="410" y="128" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">to 不含：[7,19) 是同步块体</text>
+<text x="410" y="146" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">[22,25) 罩住 handler 自己的</text>
+<text x="410" y="164" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">astore/aload/monitorexit，</text>
+<text x="410" y="182" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">保证锁一定被释放（javac 惯例）</text>
+<rect x="664" y="76" width="712" height="132" rx="8" fill="#f6f8fa" stroke="#57606a" stroke-width="1.2"/>
+<text x="678" y="100" font-size="14" fill="#57606a" font-weight="bold" text-anchor="start">怎么读</text>
+<text x="678" y="124" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· 操作数栈：从左（stack[0]）向右长，画的是该指令执行之后的状态，红线 = sp</text>
+<text x="678" y="144" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· locals[0] 恒为 this（调用者 memcpy 进来），只画 [1] [2]</text>
+<text x="678" y="164" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· 锁字 = lock 对象的 mark word：T2 rec=1 |01 = (线程id 2 &lt;&lt; 32)|(1 &lt;&lt; 2)|THIN（Worker 线程，main 是 1）</text>
+<text x="678" y="184" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="start">· 黄底 = 加/解锁指令；绿底 = 受保护区间；红底 = 异常 handler 路径</text>
+<text x="24" y="242" font-size="15" fill="#1f2328" font-weight="bold" text-anchor="start">正常路径</text>
+<rect x="24" y="252" width="54" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="51.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">pc</text>
+<rect x="78" y="252" width="130" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="143.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">指令</text>
+<rect x="208" y="252" width="430" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="423.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">mjvm 做了什么（mjvm.c invoke()）</text>
+<rect x="638" y="252" width="300" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="788.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">执行后操作数栈 stack[0..2]</text>
+<rect x="938" y="252" width="110" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="993.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">locals[1]</text>
+<rect x="1048" y="252" width="110" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1103.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">locals[2]</text>
+<rect x="1158" y="252" width="218" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1267.0" y="271.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">lock 对象的锁字</text>
+<rect x="24" y="282" width="54" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="78" y="282" width="130" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="208" y="282" width="430" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="638" y="282" width="300" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="938" y="282" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1048" y="282" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1158" y="282" width="218" height="34" fill="#fff" stroke="#d0d7de"/>
+<text x="70" y="304" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<text x="86" y="304" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_0</text>
+<text x="216" y="304" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">(sp++)-&gt;j = locals[0].j</text>
+<rect x="646" y="287" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="303.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="287" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="287" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,284 L738,314" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<text x="1166" y="304" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0 (无锁)</text>
+<rect x="24" y="316" width="54" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="78" y="316" width="130" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="208" y="316" width="430" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="638" y="316" width="300" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="938" y="316" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1048" y="316" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1158" y="316" width="218" height="34" fill="#fff" stroke="#d0d7de"/>
+<text x="70" y="338" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">1</text>
+<text x="86" y="338" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">getfield #15</text>
+<text x="216" y="338" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">Field lock:Object；o=POPA()，压 FIELDS(o)[4]</text>
+<rect x="646" y="321" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="692.0" y="337.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="738" y="321" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="321" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,318 L738,348" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<text x="1166" y="338" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="350" width="54" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="78" y="350" width="130" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="208" y="350" width="430" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="638" y="350" width="300" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="938" y="350" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1048" y="350" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1158" y="350" width="218" height="34" fill="#fff" stroke="#d0d7de"/>
+<text x="70" y="372" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">4</text>
+<text x="86" y="372" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">dup</text>
+<text x="216" y="372" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">*sp = sp[-1]; sp++</text>
+<rect x="646" y="355" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="692.0" y="371.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="738" y="355" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="784.0" y="371.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="830" y="355" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M830,352 L830,382" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<text x="1166" y="372" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="384" width="54" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="78" y="384" width="130" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="208" y="384" width="430" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="638" y="384" width="300" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="938" y="384" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1048" y="384" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1158" y="384" width="218" height="34" fill="#fff" stroke="#d0d7de"/>
+<text x="70" y="406" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">5</text>
+<text x="86" y="406" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">astore_1</text>
+<text x="216" y="406" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">locals[1] = 弹出值（锁对象另存一份）</text>
+<rect x="646" y="389" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="692.0" y="405.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="738" y="389" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="389" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,386 L738,416" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="389" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="405.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="406" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="418" width="54" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="78" y="418" width="130" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="208" y="418" width="430" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="638" y="418" width="300" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="938" y="418" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1048" y="418" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1158" y="418" width="218" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<text x="70" y="440" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">6</text>
+<text x="86" y="440" font-size="12.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">monitorenter</text>
+<text x="216" y="440" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">o=POPA(); monitor_enter(t,o)：CAS 0 → THIN</text>
+<rect x="646" y="423" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="423" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="423" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,420 L646,450" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="423" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="439.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="440" font-size="12" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1 |01</text>
+<rect x="24" y="452" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="452" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="452" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="452" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="452" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="452" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="452" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="474" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">7</text>
+<text x="86" y="474" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_0</text>
+<text x="216" y="474" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">受保护区间 [7,19) 开始</text>
+<rect x="646" y="457" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="473.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="457" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="457" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,454 L738,484" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="457" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="473.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="474" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="486" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="486" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="486" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="486" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="486" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="486" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="486" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="508" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">8</text>
+<text x="86" y="508" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_0</text>
+<text x="216" y="508" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<rect x="646" y="491" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="507.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="491" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="784.0" y="507.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="830" y="491" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M830,488 L830,518" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="491" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="507.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="508" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="520" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="520" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="520" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="520" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="520" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="520" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="520" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="542" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">9</text>
+<text x="86" y="542" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">getfield #28</text>
+<text x="216" y="542" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">Field blockSafe:I；弹 this，压 v</text>
+<rect x="646" y="525" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="541.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="525" width="92" height="24" fill="#fff" stroke="#57606a"/>
+<text x="784.0" y="541.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">v</text>
+<rect x="830" y="525" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M830,522 L830,552" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="525" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="541.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="542" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="554" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="554" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="554" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="554" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="554" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="554" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="554" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="576" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">12</text>
+<text x="86" y="576" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">iconst_1</text>
+<text x="216" y="576" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">PUSHI(1)   ← 栈深 3 = max_stack</text>
+<rect x="646" y="559" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="575.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="559" width="92" height="24" fill="#fff" stroke="#57606a"/>
+<text x="784.0" y="575.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">v</text>
+<rect x="830" y="559" width="92" height="24" fill="#fff" stroke="#57606a"/>
+<text x="876.0" y="575.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">1</text>
+<path d="M922,556 L922,586" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="559" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="575.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="576" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="588" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="588" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="588" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="588" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="588" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="588" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="588" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="610" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">13</text>
+<text x="86" y="610" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">iadd</text>
+<text x="216" y="610" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">PUSHI(POPI() + POPI())</text>
+<rect x="646" y="593" width="92" height="24" fill="#dafbe1" stroke="#57606a"/>
+<text x="692.0" y="609.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">this</text>
+<rect x="738" y="593" width="92" height="24" fill="#fff" stroke="#57606a"/>
+<text x="784.0" y="609.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">v+1</text>
+<rect x="830" y="593" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M830,590 L830,620" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="593" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="609.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="610" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="622" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="622" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="622" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="622" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="622" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="622" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="622" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="644" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">14</text>
+<text x="86" y="644" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">putfield #28</text>
+<text x="216" y="644" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">v=POP; o=POPA(); FIELDS(o)[3] = v+1</text>
+<rect x="646" y="627" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="627" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="627" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,624 L646,654" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="627" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="643.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="644" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="656" width="54" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="78" y="656" width="130" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="208" y="656" width="430" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="638" y="656" width="300" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="938" y="656" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1048" y="656" width="110" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<rect x="1158" y="656" width="218" height="34" fill="#dafbe1" stroke="#d0d7de"/>
+<text x="70" y="678" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">17</text>
+<text x="86" y="678" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_1</text>
+<text x="216" y="678" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">取回 astore_1 存的锁对象</text>
+<rect x="646" y="661" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="692.0" y="677.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="738" y="661" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="661" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,658 L738,688" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="661" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="677.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="678" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="690" width="54" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="78" y="690" width="130" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="208" y="690" width="430" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="638" y="690" width="300" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="938" y="690" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1048" y="690" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1158" y="690" width="218" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<text x="70" y="712" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">18</text>
+<text x="86" y="712" font-size="12.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">monitorexit</text>
+<text x="216" y="712" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">monitor_exit：CAS THIN → 0（release, STLXR）</text>
+<rect x="646" y="695" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="695" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="695" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,692 L646,722" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="695" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="711.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="712" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0 (无锁)</text>
+<rect x="24" y="724" width="54" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="78" y="724" width="130" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="208" y="724" width="430" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="638" y="724" width="300" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="938" y="724" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1048" y="724" width="110" height="34" fill="#fff" stroke="#d0d7de"/>
+<rect x="1158" y="724" width="218" height="34" fill="#fff" stroke="#d0d7de"/>
+<text x="70" y="746" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">19</text>
+<text x="86" y="746" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">goto 27</text>
+<text x="216" y="746" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">pc = ipc + 8   跳过 handler</text>
+<rect x="646" y="729" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="729" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="729" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,726 L646,756" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="729" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="745.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="746" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="758" width="54" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="78" y="758" width="130" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="208" y="758" width="430" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="638" y="758" width="300" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="938" y="758" width="110" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="1048" y="758" width="110" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<rect x="1158" y="758" width="218" height="34" fill="#ddf4ff" stroke="#d0d7de"/>
+<text x="70" y="780" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">27</text>
+<text x="86" y="780" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">return</text>
+<text x="216" y="780" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">syncobj==0；depth--；return 0</text>
+<rect x="646" y="763" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="763" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="763" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,760 L646,790" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<text x="1166" y="780" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<path d="M18,454 L12,454 L12,722 L18,722" fill="none" stroke="#1a7f37" stroke-width="2"/>
+<text x="24" y="832" font-size="15" fill="#cf222e" font-weight="bold" text-anchor="start">异常路径（例如 getfield 抛 NullPointerException，或 handler 里 monitorexit 抛 IMSE）</text>
+<rect x="24" y="842" width="54" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="51.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">pc</text>
+<rect x="78" y="842" width="130" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="143.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">指令</text>
+<rect x="208" y="842" width="430" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="423.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">mjvm 做了什么（mjvm.c invoke()）</text>
+<rect x="638" y="842" width="300" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="788.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">执行后操作数栈 stack[0..2]</text>
+<rect x="938" y="842" width="110" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="993.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">locals[1]</text>
+<rect x="1048" y="842" width="110" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1103.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">locals[2]</text>
+<rect x="1158" y="842" width="218" height="30" fill="#eaeef2" stroke="#57606a"/>
+<text x="1267.0" y="861.32" font-size="12" fill="#1f2328" font-weight="normal" text-anchor="middle">lock 对象的锁字</text>
+<rect x="24" y="872" width="54" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="78" y="872" width="130" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="208" y="872" width="430" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="638" y="872" width="300" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="938" y="872" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1048" y="872" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1158" y="872" width="218" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<text x="70" y="894" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">—</text>
+<text x="86" y="894" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">(异常)</text>
+<text x="216" y="894" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">7..18 中任一条抛出 → goto exception；find_handler(ipc∈[7,19)) = 22</text>
+<rect x="646" y="877" width="92" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="692.0" y="893.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<rect x="738" y="877" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="877" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,874 L738,904" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="877" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="893.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<text x="1166" y="894" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="906" width="54" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="78" y="906" width="130" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="208" y="906" width="430" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="638" y="906" width="300" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="938" y="906" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1048" y="906" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1158" y="906" width="218" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<text x="70" y="928" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">22</text>
+<text x="86" y="928" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">astore_2</text>
+<text x="216" y="928" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">locals[2] = e（sp = stack 后只压了 e）</text>
+<rect x="646" y="911" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="911" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="911" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,908 L646,938" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="911" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="927.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1058" y="911" width="90" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="1103.0" y="927.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<text x="1166" y="928" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="940" width="54" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="78" y="940" width="130" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="208" y="940" width="430" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="638" y="940" width="300" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="938" y="940" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1048" y="940" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1158" y="940" width="218" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<text x="70" y="962" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">23</text>
+<text x="86" y="962" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_1</text>
+<text x="216" y="962" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<rect x="646" y="945" width="92" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="692.0" y="961.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="738" y="945" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="945" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,942 L738,972" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="945" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="961.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1058" y="945" width="90" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="1103.0" y="961.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<text x="1166" y="962" font-size="12" fill="#9a6700" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">T2 rec=1</text>
+<rect x="24" y="974" width="54" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="78" y="974" width="130" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="208" y="974" width="430" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="638" y="974" width="300" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="938" y="974" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1048" y="974" width="110" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<rect x="1158" y="974" width="218" height="34" fill="#fff8c5" stroke="#d0d7de"/>
+<text x="70" y="996" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">24</text>
+<text x="86" y="996" font-size="12.5" fill="#9a6700" font-weight="bold" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">monitorexit</text>
+<text x="216" y="996" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">异常路径也解锁；这里再抛 → 仍命中 [22,25)</text>
+<rect x="646" y="979" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="979" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="979" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,976 L646,1006" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="979" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="995.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1058" y="979" width="90" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="1103.0" y="995.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<text x="1166" y="996" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0 (无锁)</text>
+<rect x="24" y="1008" width="54" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="78" y="1008" width="130" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="208" y="1008" width="430" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="638" y="1008" width="300" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="938" y="1008" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1048" y="1008" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1158" y="1008" width="218" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<text x="70" y="1030" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">25</text>
+<text x="86" y="1030" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">aload_2</text>
+<text x="216" y="1030" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start"></text>
+<rect x="646" y="1013" width="92" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="692.0" y="1029.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<rect x="738" y="1013" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="1013" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M738,1010 L738,1040" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="1013" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="1029.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1058" y="1013" width="90" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="1103.0" y="1029.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<text x="1166" y="1030" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="1042" width="54" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="78" y="1042" width="130" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="208" y="1042" width="430" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="638" y="1042" width="300" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="938" y="1042" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1048" y="1042" width="110" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<rect x="1158" y="1042" width="218" height="34" fill="#ffebe9" stroke="#d0d7de"/>
+<text x="70" y="1064" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="end" font-family="DejaVu Sans Mono, Menlo, monospace">26</text>
+<text x="86" y="1064" font-size="12.5" fill="#1f2328" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">athrow</text>
+<text x="216" y="1064" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">t-&gt;exc = e；ipc=26 不在任何区间 → return -1</text>
+<rect x="646" y="1047" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="738" y="1047" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<rect x="830" y="1047" width="92" height="24" fill="#f6f8fa" stroke="#57606a"/>
+<path d="M646,1044 L646,1074" fill="none" stroke="#cf222e" stroke-width="2.5"/>
+<rect x="948" y="1047" width="90" height="24" fill="#fff8c5" stroke="#57606a"/>
+<text x="993.0" y="1063.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">lock</text>
+<rect x="1058" y="1047" width="90" height="24" fill="#ffebe9" stroke="#57606a"/>
+<text x="1103.0" y="1063.14" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace">e</text>
+<text x="1166" y="1064" font-size="12" fill="#57606a" font-weight="normal" text-anchor="start" font-family="DejaVu Sans Mono, Menlo, monospace">0</text>
+<rect x="24" y="1100" width="1352" height="196" rx="8" fill="#fff" stroke="#57606a" stroke-width="1"/>
+<text x="38" y="1124" font-size="14" fill="#1f2328" font-weight="bold" text-anchor="start">对照：另外三个方法</text>
+<text x="38" y="1150" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">incRacy()     0 aload_0  1 aload_0  2 getfield racy  5 iconst_1  6 iadd  7 putfield racy  10 return    stack=3 locals=1，getfield…putfield 之间别的线程可插入 → 丢更新</text>
+<text x="38" y="1172" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">incVolatile() 字节码完全一样，只是字段 flags=0x0041 ACC_VOLATILE：mjvm 的 getfield 用 __atomic_load(ACQUIRE)=LDAR，putfield 用 SEQ_CST store=STLR</text>
+<text x="38" y="1194" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">              → 每次读写都可见且有序，但 读-加-写 仍不是原子的，照样丢更新</text>
+<text x="38" y="1216" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">incSafe()     字节码也一样，方法 flags=0x0021 (PUBLIC|SYNCHRONIZED)：没有 monitorenter/monitorexit 指令，invoke() 入口 monitor_enter(locals[0])，</text>
+<text x="38" y="1238" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">              每个 return 前 monitor_exit；异常逃出时在 exception: 末尾 monitor_exit(syncobj)。</text>
+<text x="38" y="1260" font-size="11.5" fill="#1f2328" font-weight="normal" text-anchor="start">Worker.run    28: invokevirtual #31 incBlock → resolve_method → recv-&gt;cls-&gt;vtable[vindex] → invoke() 递归；异常从 incBlock 返回 -1 后在 run 的表里继续找。</text>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTo4MjExYzU4Zi04ZWRmLTQyZjctYTg1MC02ZjM2ZjUzYTJmZGYAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaCWcn5liojcCwlm1/cu4dIkAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDoxMTIzNjU1NS0yZjZmLTQ1MDQtYjliNi1hNmYxOWQ0YmNlZTVscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo7XqT8mlh8KAg9SMiygEiJQAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg7l5nUXFv+FPkJvVyuKQ/QyvgdzglvZn+1kETVjJZ9NSkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaLGx8kfS2rcmyCL/gPYGcC4AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIG5jITXcV1f3emoUOLQzz8RhPWkiLXoTotYtODd/1qyuZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GcWsZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjgyMTFjNThmLThlZGYtNDJmNy1hODUwLTZmMzZmNTNhMmZkZi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjc0M2RhMzg5LTNlY2EtNDM5MS1hYTJkLTkyZTJkMjdlODcwYnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDuXmdRcW/4U+Qm9XK4pD9DK+B3OCW9mf7WQRNWMln01KJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggEJEmDaJAZtZIOI56FSESsM5XoQOgumAL35Xs4UolXeWiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggJsaqmd62DTaHiFDFPPDJIpDBKXZZ/3jJoJd2bhb+M4R0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQLDucouSdmr2l5p5Hyl8ItiaO3Ro7z3qdCv2h8LyXipd5GNsc43+Ja3owoXe7ws8f7RWpX/WBz/vOxvdJRh9r2I=</c2pa:manifest></metadata></svg>

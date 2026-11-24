@@ -1,26 +1,29 @@
-// Basic classes, inheritance, virtual dispatch, arrays, exceptions.
+// Classes, inheritance, virtual dispatch, static fields, arrays, strings,
+// exceptions.  Plain Java: compiles with mjavac and with javac --release 8.
 class Shape {
+  static int created;
   int id;
-  Shape(int id) { this.id = id; }
+  Shape(int id) { this.id = id; created = created + 1; }
   int area() { return 0; }
   String kind() { return "shape"; }
+  public String toString() { return kind() + "#" + id + "(area " + area() + ")"; }
 }
 
 class Rect extends Shape {
   int w, h;
-  Rect(int id, int w, int h) { this.id = id; this.w = w; this.h = h; }
+  Rect(int id, int w, int h) { super(id); this.w = w; this.h = h; }
   int area() { return w * h; }
   String kind() { return "rect"; }
 }
 
 class Square extends Rect {
-  Square(int id, int s) { this.id = id; this.w = s; this.h = s; }
+  Square(int id, int s) { super(id, s, s); }
   String kind() { return "square"; }
 }
 
 class MyError extends RuntimeException {
   int code;
-  MyError(int code) { this.code = code; }
+  MyError(String msg, int code) { super(msg); this.code = code; }
 }
 
 public class Hello {
@@ -30,33 +33,36 @@ public class Hello {
   }
 
   public static void main(String[] args) {
-    System.out.println("Hello from MiniJava on xv6-aarch64!");
+    System.out.println("Hello from Java on xv6-aarch64!");
     Shape a = new Rect(1, 3, 4);
     Shape b = new Square(2, 5);
-    System.out.println(a.kind() + " area=" + a.area());
-    System.out.println(b.kind() + " area=" + b.area());
+    System.out.println(a);
+    System.out.println(b);
+    System.out.println("shapes created: " + Shape.created);
 
     int[] xs = new int[10];
     for (int i = 0; i < xs.length; i++) xs[i] = fib(i);
-    System.out.print("fib:");
-    for (int i = 0; i < xs.length; i++) System.out.print(" " + xs[i]);
-    System.out.println();
+    String s = "fib:";
+    for (int i = 0; i < xs.length; i++) s = s + " " + xs[i];
+    System.out.println(s);
 
     try {
-      throw new MyError(42);
+      throw new MyError("custom", 42);
     } catch (MyError e) {
-      System.out.println("caught MyError code=" + e.code);
+      System.out.println("caught " + e.getMessage() + " code=" + e.code);
     }
     try {
       int z = 0;
-      int y = 10 / z;
+      System.out.println(10 / z);
     } catch (ArithmeticException e) {
-      System.out.println("caught ArithmeticException (/ by zero)");
+      System.out.println("caught " + e);
     }
     try {
       xs[10] = 1;
     } catch (RuntimeException e) {
       System.out.println("caught " + e);
     }
+    String hello = "Hello";
+    System.out.println("literals are interned: " + (hello == "Hello"));
   }
 }

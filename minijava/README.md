@@ -1,296 +1,226 @@
-# MiniJava on xv6-aarch64：从 `synchronized` 看 Java 多线程是怎么实现的
+# Java on xv6-aarch64：javac → .class → JVM，从字节码看 `synchronized` 和线程
 
-这个目录是一个**自包含**的原型：一个用 C 写的 MiniJava 子集编译器 `mjc`，把 `.java` 直接编译成 AArch64 汇编，再和一个很小的运行时（`runtime.c` + `rt_asm.S`）链接成 xv6 用户程序。重点放在 Java 多线程和 `synchronized` 的实现上：对象头里的锁字、thin lock 到膨胀 monitor 的升级、`wait/notify`、异常安全的解锁、`volatile` 的内存序。
+```
+ examples/*.java ──mjavac (宿主机)──▶ *.class ──拷进 fs_ext2.img──▶ mjvm (xv6 用户程序) 解释执行
+                └──javac --release 8──▶ *.class ──────────────────────┘   （两种 class 都能跑）
+```
 
-它不修改仓库里任何现有文件：内核、libc、顶层 Makefile 都保持原样，只复用 java 分支已有的 `thread_clone / texit / tjoin`、`sync_create(SYNC_SEM)` 和 `sched_yield`。
+这个目录现在走的是和真 Java 一样的两段式流程：
+
+1. **`javac/mjavac.c`**：一个小 javac。把 Java 子集源码编译成**标准 class 文件**，包括常量池、字节码、异常表和 `ACC_SYNCHRONIZED`。生成的 class 能通过 HotSpot 的 `java -Xverify:all` 校验，也能用 `javap -c -v` 反汇编。
+2. **`jvm/mjvm.c`**：一个跑在 xv6 上的小 JVM。负责 class 文件解析、加载、链接（vtable）、类初始化，用字节码解释器执行。它也有自己的线程、对象头锁字、ObjectMonitor、`wait/notify` 和按异常表分派的异常处理。
+
+mjvm 不只能跑 mjavac 的输出，用真 `javac --release 8` 编出来的 class 也能直接跑，这是校验 mjvm 是否忠实实现了 JVM 规范的最好办法。第一版原型（mjc：Java 直接编译成 AArch64 汇编，没有 JVM）保留在 `aot/` 里，可以对比两种实现。
 
 ```
 minijava/
-├── mjc.c            编译器：词法 → 递归下降语法分析 → AST → 类布局/vtable → 带类型检查的代码生成 → .S
-├── runtime.c        运行时：堆分配、对象/数组、线程、锁字与 ObjectMonitor、wait/notify、异常对象
-├── rt_asm.S         必须用汇编写的部分：main 入口、线程入口、mj_throw 栈展开
-├── Makefile         独立构建；make install 把程序写进 fs_ext2.img 的 /bin
-└── examples/
-    ├── Hello.java      类、继承、虚调用、数组、异常
-    ├── Counter.java    数据竞争：普通字段 / volatile / synchronized 方法 / synchronized 块
-    ├── SyncRules.java  可重入、异常释放锁、return 释放锁、IllegalMonitorStateException、static synchronized
-    └── ProdCons.java   有界缓冲区：wait() / notifyAll()
+├── javac/mjavac.c      编译器：词法 → 语法 → AST → 类型检查 + 字节码生成 → class 文件写出
+├── jvm/mjvm.c          JVM：class 解析、链接、初始化、解释器、对象/字符串/数组、线程、监视器、异常
+├── jvm/plat.h          JVM 需要的操作系统服务（内存、文件、线程、信号量、时间）
+├── jvm/plat_xv6.c      ……在 xv6 上的实现（sbrk、thread_clone、tjoin、sync_create(SYNC_SEM) 等）
+├── jvm/plat_host.c     ……在 Linux/macOS 上的实现（pthread），方便在开发机上对照 HotSpot 测试
+├── examples/           4 个标准 Java 程序（javac 和 mjavac 都能编译）
+├── aot/                第一版：mjc + 运行时，直接生成 AArch64 汇编
+└── Makefile
 ```
+
+仓库里现有的任何文件都没有改，只复用了 java 分支已有的系统调用。
 
 ---
 
-## 1. Java 这一侧：`synchronized` 在 JVM 里是什么
-
-### 1.1 两种写法，两种字节码
-
-```java
-synchronized (lock) { count++; }          // 同步块
-synchronized void inc() { count++; }      // 同步方法
-```
-
-`javac` 对**同步块**生成显式的 `monitorenter / monitorexit`，并且一定会多生成一个异常处理器，保证抛异常时也能解锁：
-
-```
- 0: aload_1
- 1: dup
- 2: astore_2
- 3: monitorenter              // 加锁
- 4: ... count++ ...
- 9: aload_2
-10: monitorexit               // 正常路径解锁
-11: goto 19
-14: astore_3                  // 异常路径
-15: aload_2
-16: monitorexit               // 先解锁
-17: aload_3
-18: athrow                    // 再重新抛出
-Exception table:
-   from  to  target type
-     4   11    14   any
-```
-
-**同步方法**不生成这两条指令，只在方法的 access flags 里设置 `ACC_SYNCHRONIZED`。解释器/JIT 在方法入口和出口（包括异常出口）自动对 `this`（静态方法则是 `Class` 对象）加锁和解锁。语义与上面的同步块完全一样。
-
-### 1.2 锁放在哪里：对象头里的 mark word
-
-HotSpot 里每个对象都有一个对象头，第一个字叫 **mark word**（64 位）。它的最低几位是锁状态标记，其余位的含义随状态变化：
-
-| 低 2 位 | 状态 | 其余位存的是 |
-|---|---|---|
-| `01` | 无锁 | hash、GC 年龄 |
-| `00` | 轻量级锁（stack lock / lightweight） | 指向持锁线程栈上 "displaced header" 的指针（JDK 21+ 新的 lightweight locking 改用每线程的 lock-stack） |
-| `10` | 重量级锁（已膨胀） | 指向 `ObjectMonitor` 的指针 |
-| `11` | GC 标记 | |
-
-还有过一个"偏向锁"（biased locking）状态：第一次加锁时把线程 ID 写进 mark word，之后同一线程再加锁连 CAS 都省了。它在 JDK 15 被默认关闭，JDK 18 起整个移除，因为现代 CPU 上 CAS 已经很便宜，而撤销偏向需要 safepoint，代价很大。
-
-### 1.3 三级加锁路径
-
-1. **快速路径（无竞争）**：一次 CAS 把 mark word 从"无锁"改为"被我锁住"。没有系统调用，也不进内核。
-2. **重入**：同一线程再次进入，只需记一个重入计数（stack lock 用值为 0 的 displaced header 记重入，ObjectMonitor 用 `_recursions`）。
-3. **竞争 → 膨胀（inflate）**：别的线程已经持有轻量级锁，当前线程先自旋一会儿，还拿不到就把锁"膨胀"成一个 `ObjectMonitor`，把它的地址 CAS 进 mark word，然后排队睡眠。
-
-`ObjectMonitor` 的核心字段：
-
-```
-_owner        当前持有者线程
-_recursions   重入次数
-_cxq/_EntryList  在 monitorenter 处阻塞的线程队列
-_WaitSet      调用了 wait() 的线程队列
-```
-
-线程睡眠和唤醒用的是每个线程自己的 `ParkEvent`，在 Linux 上最终落到 `futex(FUTEX_WAIT/FUTEX_WAKE)`。
-
-### 1.4 `wait / notify`
-
-- 调用 `wait()` 必须已经持有该对象的 monitor，否则抛 `IllegalMonitorStateException`。
-- `wait()`：把自己放进 `_WaitSet`，**完全释放** monitor（重入计数也要先保存起来），然后睡眠；被唤醒后要重新竞争 monitor，拿到后恢复原来的重入计数，才从 `wait()` 返回。
-- `notify()`：把 `_WaitSet` 里的一个线程挪到入口队列。它不会立刻运行，要等通知者退出同步块、把锁交出来之后才轮到它。所以 `wait` 一定要写在 `while (条件不满足)` 循环里。
-- 因为需要 wait set，只要对一个轻量级锁调用 `wait/notify`，HotSpot 会先把它膨胀。
-
-### 1.5 `Thread.start / join` 和 Java 内存模型
-
-- HotSpot 里 Java 线程和 OS 线程是 1:1 的：`start()` 最终调用 `pthread_create`（在 Linux 上就是带 `CLONE_VM|CLONE_THREAD|...` 的 `clone`）。
-- `join()` 在 JDK 里就是普通 Java 代码：`while (isAlive()) wait(0);`。线程结束时 JVM 对这个 `Thread` 对象执行 `notifyAll()`。
-- Java 内存模型（JMM）里的几条 happens-before：
-  - 对同一个 monitor 的**解锁** happens-before 之后的**加锁**；
-  - **volatile 写** happens-before 之后对同一变量的**读**；
-  - `t.start()` happens-before `t` 里的所有动作；`t` 的所有动作 happens-before 别的线程从 `t.join()` 返回。
-
-### 1.6 落到 AArch64 指令上
-
-| Java 语义 | AArch64（ARMv8.0，比如 Cortex-A53） | ARMv8.1+ LSE |
-|---|---|---|
-| 加锁 CAS（acquire） | `LDAXR` + `STXR` 循环 | `CASA` |
-| 解锁（release） | `STLR` 或 `LDXR` + `STLXR` | `CASL` / `STLR` |
-| volatile 读 | `LDAR` | 同左 |
-| volatile 写 | `STLR` | 同左 |
-| 完整屏障 | `DMB ISH` | 同左 |
-
-ARMv8 的 `LDAR/STLR` 是 RCsc 的：一个 `STLR` 后面跟一个 `LDAR`，硬件也不会重排，所以 volatile 不需要再额外加 `DMB`。树莓派 3 的 Cortex-A53 没有 LSE，所以这里全部用的是 LL/SC（`LDAXR/STXR`）。
-
----
-
-## 2. 映射到 xv6-aarch64：内核要提供什么
-
-| JVM 需要的东西 | Linux 上的做法 | 本仓库 java 分支已有的 | 这个原型怎么用 |
-|---|---|---|---|
-| 共享地址空间的线程 | `clone(CLONE_VM\|CLONE_THREAD…)` | `thread_clone(fn, arg, stack)`、Linux 风格的 `clone()` 及 `CLONE_*` flags | `mj_thread_start` 用 `thread_clone` |
-| 线程退出与回收 | `exit` / `pthread_join` | `texit`、`tjoin` | 线程跑完 `run()` 后 `texit(0)`，`main` 结束时 `tjoin` 回收 |
-| 让线程睡眠/唤醒（park/unpark） | `futex` | 内核同步对象 `sync_create(SYNC_SEM, 0)` + `sync_wait / sync_signal` | 每个 Java 线程一个信号量，相当于 HotSpot 的 `ParkEvent` |
-| 让出 CPU（自旋退避） | `sched_yield` | `sched_yield` | 自旋超过 8 次后让出 |
-| 线程寄存器（TLS） | `TPIDR_EL0` | 没有用 | 编译出来的代码把 **x28** 固定为当前线程指针（HotSpot 在 AArch64 上也用 r28 = rthread） |
-
-**缺什么**：xv6 这里没有 `futex`。HotSpot 的 park 本质上是"按地址睡眠/唤醒"，信号量能替代，但有限制：内核里同步对象总数 `NSYNC = 64`，并且是全系统共享的，所以原型最多支持 48 个 Java 线程。如果要往下做，最值得加的内核功能就是一个最小的 `futex(addr, WAIT/WAKE)`：用户态地址加内核里的哈希等待队列，不需要预先分配对象。
-
----
-
-## 3. 原型的实现
-
-### 3.1 对象布局
-
-```
-对象:   [0] vtable 指针    [8] 锁字 (mark word)    [16..] 字段 (每个 8 字节)
-数组:   [0] vtable         [8] 锁字                [16] length   [24..] 元素
-vtable: [0] Class*         [8] 方法槽 1 ...        (Thread.run 固定在槽 1)
-Class:  [0] 0  [8] 锁字  [16] 名字  [24] 父类  [32] 实例大小  [40] vtable
-        └── Class 对象本身也有锁字，static synchronized 锁的就是它
-```
-
-### 3.2 锁字的三种状态（`runtime.c`）
-
-```
-0                                      无锁
-owner_id << 32 | rec << 2 | 0b01       thin lock（轻量级锁），rec = 重入次数
-ObjectMonitor* | 0b10                  已膨胀（重量级锁）
-```
-
-状态转换：
-
-```
-          CAS 0 → thin(me,1)                  别的线程自旋 64 次仍拿不到
- 无锁 ───────────────────────▶ thin ─────────────────────────────▶ inflated
-  ▲     STLXR thin(me,1) → 0     │   或：wait/notify 需要 wait set          │
-  └──────────────────────────────┘   或：重入次数超过 1000                  │
-                                                                           ▼
-                              ObjectMonitor { owner, rec, entry 队列, wait 队列 }
-```
-
-膨胀时有一个微妙的竞争：膨胀者 CAS 锁字的时候，原持有者仍在临界区里。做法和 HotSpot 一样：膨胀者把"当前 owner 和重入次数"抄进新的 `ObjectMonitor`，再 CAS 进锁字。原持有者之后解锁时，快速路径的 CAS 会失败（锁字已经不是 `thin(me,1)` 了），于是走进 `mj_monitor_exit_slow`，在那里发现是 monitor，就按 monitor 的方式解锁并唤醒排队者。所有对 thin 状态的修改都通过 CAS 完成，所以两边不会互相覆盖。
-
-### 3.3 编译器怎么降级 `synchronized`（`mjc.c` 里的 `gen_sync`）
-
-真实生成的代码（`make -C minijava asm S=examples/Counter.java` 可以看到全部）：
-
-```asm
-	// ---- monitorenter: thin-lock fast path  (JVM bytecode: monitorenter)
-	add x1, x0, #8              // &obj->lockword
-	ldr w2, [x28]               // x28 = current MJThread, [0] = thread id
-	lsl x2, x2, #32
-	add x2, x2, #5              // owner<<32 | rec 1<<2 | THIN
-.L8:
-	ldaxr x3, [x1]              // load-acquire exclusive
-	cbnz x3, .L9                // locked/inflated -> runtime
-	stxr w4, x2, [x1]           // try to claim
-	cbnz w4, .L8                // lost the reservation, retry
-	b .L10
-.L9:
-	clrex
-	bl mj_monitor_enter_slow     // recursion, contention, inflation
-.L10:
-	// install exception handler record (prev, fp, sp, pc)   ← 相当于 Exception table 的 "any"
-	...
-	<方法体>
-	...
-	// ---- monitorexit: thin-lock fast path
-.L11:
-	ldxr x3, [x1]
-	cmp x3, x2
-	b.ne .L12
-	stlxr w4, xzr, [x1]         // store-release 0: unlock
-	cbnz w4, .L11
-	...
-.L5:                            // exception inside synchronized: unlock + rethrow
-	<monitorexit>
-	bl mj_throw
-```
-
-- **快速路径内联**：没有竞争时，加锁和解锁各只有一个 LL/SC 循环，不调用任何函数，也不进内核。
-- **acquire/release 语义**：加锁用 `LDAXR`（acquire），解锁用 `STLXR`（release）。这正好就是 JMM 里"解锁 happens-before 之后的加锁"在硬件上的实现。
-- **异常安全**：进入同步块后，编译器在栈帧里挂一条"异常处理记录"（prev, fp, sp, pc），链在当前线程 `[x28, #8]` 上。`mj_throw` 沿着这条链展开栈，处理器先 `monitorexit`，再重新抛出。这就是 javac 的 `any` 异常表项。
-- **`return` 穿过同步块**：编译器在 `return` 前按由内到外的顺序摘掉处理记录并 `monitorexit`。
-- **同步方法**：`ACC_SYNCHRONIZED` 在编译时被改写成 `synchronized (this) { 方法体 }`；静态方法则锁 `MJC_类名` 这个 Class 对象。
-- **volatile 字段**：读用 `LDAR`，写用 `STLR`。
-
-### 3.4 慢路径（`runtime.c`）
-
-- `mj_monitor_enter_slow`：处理重入（CAS 让 rec + 1）、短暂自旋（超过 8 次以后每次 `sched_yield`），自旋 64 次以后膨胀，然后进入 `monitor_enter`。
-- `monitor_enter / monitor_exit`：`ObjectMonitor` 用一个小自旋锁保护。拿不到锁的线程把自己挂到 entry 队列上，然后 `park()`（`sync_wait` 自己的信号量）。解锁的线程**直接把所有权交给**队首线程（`owner = next`），然后 `unpark()` 它。
-- `mj_wait`：把 rec 存进 `saved_rec`，加入 wait 队列，把 monitor 交给下一个排队者，然后 park。等到被 notify 挪回 entry 队列、并且有人把锁交给它时才会醒来，此时 rec 已经恢复。
-- `mj_notify / mj_notify_all`：把线程从 wait 队列挪到 entry 队列，不直接唤醒。
-- `mj_thread_join`：和 JDK 一样写成 `synchronized(t) { while (alive) t.wait(); }`；线程结束时 `mj_thread_finish` 对 Thread 对象执行 `notifyAll`。
-
----
-
-## 4. 构建和运行
-
-先按平常的方式构建顶层（生成 `user/libc.so`、`fs.img`、`fs_ext2.img` 和内核镜像），然后：
+## 1. 快速上手
 
 ```sh
-make -C minijava                                         # 编译器 + 4 个示例 (minijava/build/_mj*)
-make -C minijava install                                 # 写入 fs_ext2.img 的 /bin，源码放进 /root
-make -C minijava qemu                                    # install + 重建 SD 镜像 + 启动 QEMU
-make -C minijava asm S=examples/Counter.java | less      # 只看生成的汇编
+make -C minijava                    # build/mjavac, build/classes/*.class, build/_mjvm
+make -C minijava JAVAC=javac        # 另外用真 javac --release 8 编一份到 build/jclasses/
+make -C minijava host-test          # 在开发机上：同一批 class 先跑 HotSpot，再跑 mjvm(host)
+make -C minijava javap C=Counts     # 看 mjavac 生成的字节码
+make -C minijava qemu               # 写进 fs_ext2.img（/bin/mjvm，/root/classes）并启动 QEMU
 ```
 
-注意顶层的 `make qemu` 会重新生成 `fs_ext2.img`，刚才 install 进去的程序会被覆盖掉，所以用 `make -C minijava qemu` 启动。上真机的话，把 `minijava/build/_mj*` 拷进 ext2 根分区的 `/bin` 即可。在 xv6 shell 里：
+在 xv6 里：
 
 ```
-$ mjCounter
-4 threads x 100000 increments, expected 400000
-racy             = 310957   <-- lost 89043 updates
-volatile         = 334308   <-- lost 65692 (volatile is not atomic)
-4 threads x 20000 locked increments, expected 80000
+$ mjvm -cp /root/classes Counter
+4 threads x 20000 increments, expected 80000
+racy             = 68751   <-- lost 11249 updates
+volatile         = 68482   <-- lost 11518 (volatile is not atomic)
 synchronized m() = 80000
 synchronized {}  = 80000
-```
 
-每次运行丢的数量都不一样，偶尔 `volatile` 那一行会碰巧不丢。`volatile` 只保证可见性和顺序，`x = x + 1` 仍然是"读、加、写"三步，不是原子的。
+$ mjvm -cp /root/jclasses Counter        # 同一个程序，真 javac 编出来的 class
+4 threads x 20000 increments, expected 80000
+racy             = 68762   <-- lost 11238 updates
+volatile         = 69222   <-- lost 10778 (volatile is not atomic)
+synchronized m() = 80000
+synchronized {}  = 80000
 
-```
-$ mjSyncRules
+$ mjvm -cp /root/classes SyncRules
 1. reentrant depositTwice -> balance=10
    nested synchronized depth = 50
-2. withdraw threw RuntimeException@0xd140 ...
-   ...and another thread could still lock it: balance=1010
+2. synchronized method threw: insufficient funds
+   synchronized block threw: thrown inside synchronized block
+   ...another thread could still lock it: balance=1010
 3. withdraw(3) returned 1007
-4. notify() without the lock -> IllegalMonitorStateException
+4. notify() without the lock -> java.lang.IllegalMonitorStateException: current thread is not owner
    wait() without the lock   -> IllegalMonitorStateException
 5. static synchronized register() count = 3000 (expected 3000)
    balance = 3007 (expected 3007)
 
-$ mjProdCons
-consumer 1 took 400 items, sum=407219
-consumer 2 took 600 items, sum=343281
-total=750500 expected=750500  OK
+$ mjvm -cp /root/classes ProdCons
+Thread-2 took 400 items, sum=236924
+Thread-3 took 600 items, sum=513576
+total=750500  OK
 ```
 
-加 `-v` 可以看到锁的升级过程：
+这 4 个程序在 HotSpot、宿主机上的 mjvm 和 QEMU 里的 mjvm 上输出一致（丢失更新的次数每次不同，属于正常现象）。
+
+`mjvm -v` 会打印类加载、线程启动、锁膨胀、park 的过程；`mjvm -stats` 只在退出时打印统计：
 
 ```
-$ mjCounter -v
-[mj] T1 started T2 (kernel tid 27)
-[mj] T1 inflate 0xd170 (wait): thin owner=main rec=1 -> ObjectMonitor 0x4d6f0
-[mj] T1 wait() on 0xd170, releases monitor
-[mj] T4 inflate 0xd1d0 (notifyAll): thin owner=Thread-2 rec=1 -> ObjectMonitor 0x4d730
-[mj] T2 notifyAll on 0xd170 moved 1 waiter(s) to the entry list
-[mj] T1 returns from wait() on 0xd170
+$ mjvm -v -cp /root/jclasses SyncRules
+[mjvm] loaded SyncRules from /root/jclasses/SyncRules.class (2 methods, 0 fields, cp 127)
+[mjvm] loaded Account from /root/jclasses/Account.class (6 methods, 1 fields, cp 43)
 ...
-[mj] stats: contended-thin=3 inflations=8 parks=3 waits=1
+[mjvm] main: start Thread-0 (VM thread T2, kernel tid 19)
+[mjvm] main: inflate Bumper@9d240 (wait), thin owner=main rec=1 -> ObjectMonitor 0x195e50
+...
+[mjvm] exit: 67064 bytecodes, 4 threads, 2085 KB heap, contended-thin=0 inflations=1 parks=1 waits=1, 1148 ms
 ```
 
-第一行 inflate 是 `main` 调 `w0.join()`：`join` 内部要 `wait()`，所以把 `w0` 这个 Thread 对象的锁膨胀了。
+`inflate Bumper@… (wait)` 是 `main` 调用 `t.join()` 时发生的：`join()` 内部要在 Thread 对象上 `wait()`，wait 需要 wait set，所以把这个对象的锁膨胀成了 ObjectMonitor。注意 `-v` 打印本身会改变线程时序，很多时候线程就不再重叠了，想看数据竞争请用不带 `-v` 的运行。
 
 ---
 
-## 5. 支持的 Java 子集
+## 2. 编译阶段：`synchronized` 变成了什么字节码
 
-- `class A extends B`，单继承，虚方法（vtable），每个类一个构造函数（不支持 `super(...)`，父类字段请在子类构造函数里赋值）
-- 字段：`int`、`boolean`、`int[]`、对象引用；`static` 和 `volatile` 字段
-- 语句：`if/else`、`while`、`for`、`return`、`x = e`、`+=`、`-=`、`++`、`--`、`synchronized`、`try/catch`（可以多个 catch）、`throw`
-- 表达式：`+ - * / %`（`int` 是 32 位，带除零检查）、比较、`&& || !`、`new`、`new int[n]`、`a[i]`（带越界检查）、`a.length`、`null`、`this`
-- `System.out.print/println(...)`，在其中可以写 `"a" + x + "b"` 拼接；每行一次 `write()`，所以多线程输出不会交错
-- 内置类：`Object`、`Thread`（`start`、`join`、`run`、`Thread.yield()`、`Thread.sleep(ms)`）、`Exception`、`RuntimeException`、`InterruptedException`、`IllegalMonitorStateException`、`IllegalThreadStateException`、`ArithmeticException`、`NullPointerException`、`ArrayIndexOutOfBoundsException`
-- 任意对象上都可以调用 `wait()`、`notify()`、`notifyAll()`
+`make -C minijava javap C=Counts` 看 `incBlock()`，mjavac 的输出和 javac 逐条一致：
 
-不支持：`finally`、`break/continue`、`?:`、接口、方法重载、`String` 变量（字符串只能在 print 里用）、泛型、lambda、GC。
+```java
+void incBlock() { synchronized (lock) { blockSafe = blockSafe + 1; } }
+```
+```
+ 0: aload_0
+ 1: getfield      #15   // Field lock:Ljava/lang/Object;
+ 4: dup
+ 5: astore_1            // 锁对象存进局部变量，解锁时要用同一个对象
+ 6: monitorenter
+ 7: aload_0             // ┐
+ 8: aload_0             // │ 方法体
+ 9: getfield      #28   // │
+12: iconst_1            // │
+13: iadd                // │
+14: putfield      #28   // ┘
+17: aload_1
+18: monitorexit         // 正常路径解锁
+19: goto          27
+22: astore_2            // 异常路径：先解锁，再重新抛出
+23: aload_1
+24: monitorexit
+25: aload_2
+26: athrow
+27: return
+Exception table:
+   from    to  target type
+     7    19    22   any       ← 方法体里任何异常都跳到 22
+    22    25    22   any       ← 解锁本身出异常也回到 22（javac 的固定写法）
+```
 
-## 6. 和 HotSpot 的差别，以及可以继续做的方向
+块里有 `return` 时，编译器先把返回值存进临时变量，`monitorexit` 之后再取出来返回（`SyncRules.depth()`）：
 
-1. **没有 GC**。真正的难点在于 GC 和线程的配合：GC 要先让所有 Java 线程停在 safepoint，才能安全地扫描它们的栈。编译器要在循环回边和方法调用处插入 safepoint 轮询，并为每个调用点生成栈映射（哪些槽是引用）。
-2. **FIFO 直接交接 vs 竞争式交接**。这里解锁时直接把所有权交给队首线程，公平但容易形成 lock convoy（每次加锁都要睡一次）。HotSpot 解锁时只唤醒继任者，让它和新来的线程一起竞争，并配合自适应自旋，吞吐量高得多。可以改成这种方式对比一下。
-3. **不做 deflation**。HotSpot 会在后台把不再竞争的 ObjectMonitor 缩回去（JDK 15+ 是异步 deflation）。
-4. **没有偏向锁**。可以在锁字里加一个"偏向"状态做实验，体会撤销偏向为什么需要 safepoint。
-5. **内核 futex**。用 `futex(addr, WAIT/WAKE)` 代替每线程信号量，就能去掉 48 个线程的上限，也更接近 Linux 上的真实行为。
-6. **`wait(ms)`、`interrupt()`**：需要带超时的 park 和线程中断标志。
-7. **在 xv6 里自举**：`mjc.c` 只用了标准 C，可以用仓库里的 `tcc` 移植到 xv6 上，但还缺一个能在 xv6 里运行的 AArch64 汇编器/链接器。
+```
+ 9: iconst_0
+10: istore        4      // 暂存返回值
+12: aload_2
+13: monitorexit         // 先解锁
+14: iload         4
+16: ireturn
+```
+
+**同步方法**在字节码里什么都看不到，只有方法的 access flags 多了一位：
+
+```
+public synchronized void deposit(int);
+  flags: (0x0021) ACC_PUBLIC, ACC_SYNCHRONIZED
+```
+
+加锁和解锁由 JVM 在调用和返回时（包括异常返回时）完成。
+
+---
+
+## 3. 运行阶段：mjvm 怎么实现这些
+
+### 3.1 类加载、链接、初始化
+
+- `load_class`：按 `-cp 目录/类名.class` 读文件，`parse_class` 解析常量池、字段、方法和 Code 属性（字节码与异常表）。字符串全部 intern，之后用指针比较名字。
+- `link_class`：先加载父类，给实例字段分配槽位（继承父类的槽位），给静态字段分配存储，构造 **vtable**：复制父类的 vtable，同名同描述符的方法覆盖原槽位，否则追加新槽位。每个类还有一个 `java.lang.Class` 镜像对象，它也有锁字，`static synchronized` 锁的就是它。
+- `init_class`：按 JVMS §5.5 执行 `<clinit>`。规范要求类初始化本身是同步的，这里就直接用镜像对象的 monitor 加 `wait/notifyAll`：别的线程正在初始化这个类时，当前线程会一直 wait，直到对方完成。
+- 内置类（`Object`、`String`、`StringBuilder`、`Thread`、`System`、`PrintStream`、`Math`、`Throwable` 及常用异常）在 C 里定义，方法是 native 函数。用户类可以直接继承它们，比如 `extends Thread`、`extends RuntimeException`。
+
+### 3.2 解释器
+
+`invoke()` 为每次 Java 调用建一个 C 栈帧，帧里有局部变量数组和操作数栈，然后进入一个按 opcode 分派的大 `switch`。long 和 JVM 规范一样占两个槽。`invokevirtual` 用 `接收者->cls->vtable[m->vindex]` 分派，`invokeinterface` 按名字和描述符查找，`invokespecial` 和 `invokestatic` 直接调用常量池里解析好的方法。
+
+### 3.3 异常
+
+一条指令抛异常（或者被调用的方法带着异常返回）时，`exception:` 分支在**当前方法的异常表**里找一条满足 `start <= pc < end` 且类型匹配的记录（类型为 0 表示 `any`）。找到就清空操作数栈、压入异常对象、跳到 handler；找不到就从这一帧返回 -1，由调用者继续找。javac 为 `synchronized` 块生成的 `any` 条目就是在这里起作用的。对 `ACC_SYNCHRONIZED` 方法，帧在因异常退出前由 VM 自己执行 `monitor_exit`。
+
+### 3.4 对象头和锁
+
+和 `aot/` 版本一样，每个对象头有一个 64 位锁字（HotSpot 叫 mark word）：
+
+```
+0                                   无锁
+owner_id<<32 | rec<<2 | 0b01        thin lock（轻量级锁），只需一次 CAS，不进内核
+ObjectMonitor* | 0b10               膨胀后的重量级锁：owner、rec、entry 队列、wait 队列
+```
+
+- `monitorenter`、`monitorexit` 和 `ACC_SYNCHRONIZED` 都调用 `monitor_enter()` / `monitor_exit()`。
+- 快速路径是一次 `__atomic_compare_exchange`（acquire）。Cortex-A53 是 ARMv8.0，没有 LSE，所以 gcc 生成 `LDAXR/STXR` 循环；解锁用 release 语义（`STLXR`）。
+- 有竞争时先自旋，超过 8 次后每次 `sched_yield()`，64 次以后膨胀：分配一个 ObjectMonitor，把当前持有者和重入次数抄进去，再 CAS 进锁字。原持有者解锁时 CAS 会失败，于是改走 monitor 路径。
+- 阻塞的线程挂在 entry 队列上，在**自己的信号量**上睡眠（`sync_create(SYNC_SEM, 0)`，相当于 HotSpot 的 ParkEvent）。解锁时把所有权直接交给队首线程并唤醒它。
+- `wait()`：保存重入次数，进入 wait 队列，完全释放锁，然后 park。`notify()`：把一个线程从 wait 队列挪到 entry 队列；`notifyAll()` 挪全部。
+- `volatile` 字段：`getfield/getstatic` 用 load-acquire（`LDAR`），`putfield/putstatic` 用 seq-cst store（`STLR`）。
+
+### 3.5 线程
+
+- `Thread.start()`（native）：建一个 VM 线程结构和 512 KB 的 C 栈，调用 `thread_clone(thread_main, …)`。新的内核线程和其他线程共享地址空间，在里面调用对象的 `run()`。xv6 进程自带的栈只有 16 KB，所以 Java 的 `main` 也跑在一个这样 clone 出来的线程上。
+- `Thread.join()`：和 JDK 的实现一样，就是 `synchronized(t) { while (t.isAlive()) t.wait(); }`。线程结束时 VM 对 Thread 对象执行 `notifyAll()`。
+- 未捕获的异常打印成 `Exception in thread "Thread-0" java.lang.RuntimeException: …`，后面跟 `at 类.方法 (bytecode pc N)` 形式的栈信息。
+- 进程退出前，启动线程（相当于 JVM 的 launcher）会 `tjoin` 所有 Java 线程。
+- `System.out` 每个线程先写进自己的行缓冲，再用一次加锁的 `write()` 输出，所以多线程打印不会交错。
+
+### 3.6 映射到 xv6 的系统调用（`jvm/plat_xv6.c`）
+
+| JVM 需要 | xv6 java 分支提供的 |
+|---|---|
+| 堆内存 | `sbrk`（mjvm 的 bump allocator 每次要 1 MB） |
+| 读 class 文件 | `open / fstat / read` |
+| Java 线程 | `thread_clone(fn, arg, stack)`，`texit`，`tjoin` |
+| park / unpark | `sync_create(SYNC_SEM, 0)`，`sync_wait`，`sync_signal` |
+| 自旋退避、`Thread.yield()` | `sched_yield` |
+| `Thread.sleep`、`currentTimeMillis` | `usleep`，`clock_us` |
+
+---
+
+## 4. mjavac 支持的 Java 子集
+
+- 类、单继承、构造函数（每个类一个，可以写 `super(...)`）、字段初始化器、`static` / `volatile` 字段
+- 实例方法和静态方法（不支持重载），`synchronized` 方法，`throws` 子句（解析后忽略，不检查受检异常）
+- 类型：`int`、`boolean`、`long`（只用于 `Thread.sleep` 之类的参数）、`String`、类引用、一维数组（`int[]`、`Foo[]`）
+- 语句：`if/else`、`while`、`for`、`break`、`continue`、`return`、`synchronized`、`try/catch`（可以多个 catch）、`throw`、`=`、`+=`、`-=`、`*=`、`/=`、`++`、`--`
+- 表达式：四则运算和 `%`、比较、`&& || !`、`?:`、字符串 `+`（编译成 StringBuilder）、`new`、`new T[n]`、`a[i]`、`a.length`、`null`、`this`
+- 库：`System.out.print/println`，`Object.wait/notify/notifyAll/toString/hashCode/equals`，`String.length/charAt`，`Thread`（`start`、`run`、`join`、`getName`、`isAlive`、`currentThread`、`yield`、`sleep`），`Throwable.getMessage`，以及常用异常类
+
+不支持：接口（mjavac 不支持 `implements`，但 mjvm 能运行 javac 编出来的 `new Thread(runnable)`）、`finally`、`switch`、`float/double`、泛型、lambda、内部类。
+
+mjvm 能执行的字节码比 mjavac 能生成的多：`tableswitch/lookupswitch`、`long` 运算、`wide`、`checkcast/instanceof`、对象数组等都实现了。用 `javac --release 8` 编译时，只要别用到上面不支持的特性（尤其是 Java 9 以后改用 `invokedynamic` 的字符串拼接，`--release 8` 正好避开了它），一般都能跑。
+
+## 5. 和 HotSpot 的差别，以及下一步
+
+1. **没有 GC**。这是最值得做的下一步，而且和多线程直接相关：GC 要先让所有线程停在 **safepoint**。对解释器来说，可以在 `goto` 回跳和方法调用处检查一个全局标志；还需要知道每个栈帧里哪些槽是引用。最简单的做法是保守扫描，或者用 class 文件里的类型信息推导。
+2. **锁交接是 FIFO 直接交接**，公平但容易形成 convoy。HotSpot 解锁时只唤醒继任者，让它和新来的线程一起竞争，再加上自适应自旋。
+3. **没有 deflation，也没有偏向锁**。
+4. **内核 futex**。现在每个 Java 线程占一个内核同步对象，而 `NSYNC = 64`，所以最多 48 个线程。加一个 `futex(addr, WAIT/WAKE)` 系统调用就能去掉这个限制。
+5. **`wait(ms)`、`interrupt()`**。需要带超时的 park 和中断标志。现在 `wait(long)` 会忽略超时。
+6. **JIT**。`aot/` 里的 mjc 已经演示了怎么把 `monitorenter` 内联成 `LDAXR/STXR`，可以把它和解释器结合成一个最简单的模板 JIT。

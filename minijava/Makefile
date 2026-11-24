@@ -48,6 +48,11 @@ build/%.o: build/%.S
 build/_mj%: build/%.o build/runtime.o build/rt_asm.o $(TOP)/user/libc.so
 	$(LD) $(LDFLAGS) -o $@ $< build/runtime.o build/rt_asm.o $(TOP)/user/libc.so
 
+# libc.so comes from the top-level build; build just that if it is missing
+# (otherwise make 3.81 only says "No rule to make target build/_mjX").
+$(TOP)/user/libc.so:
+	$(MAKE) -C $(TOP) user/libc.so user/ld-xv6.so
+
 asm: build/mjc
 	build/mjc $(S)
 
@@ -68,6 +73,7 @@ install: all
 KERNEL_IMAGE ?= kernel/kernel8-xv6_wifi.img
 QEMU_SD_IMAGE ?= build/qemu-rpi3-sd.img
 sd: install
+	$(MAKE) -C $(TOP) $(KERNEL_IMAGE)
 	cd $(TOP) && python3 tools/mkqemu_sd.py --output $(QEMU_SD_IMAGE) --xv6 fs.img --ext2 fs_ext2.img \
 	  --boot-file config.txt=CONFIG.TXT --boot-file cmdline_ext2.txt=CMDLINE.TXT \
 	  --boot-file $(KERNEL_IMAGE)=$(notdir $(KERNEL_IMAGE))
