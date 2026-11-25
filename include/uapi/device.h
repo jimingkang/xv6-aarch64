@@ -17,5 +17,6 @@
 #define BLOCKDEV   7
 #define MEM        8     /* /dev/mem (minor 1), /dev/zero (minor 5) */
 #define FB         9     /* /dev/fb0 */
+#define DRM       10     /* /dev/dri/card0 */
 
 #endif

@@ -212,6 +212,9 @@ devintr()
   } else if(irq == CSI1_IRQ){
     unicam_irq();
     dev = 1;
+  } else if(irq == PV2_IRQ){
+    vc4_native_irq();
+    dev = 1;
   } else if(irq == TIMER0_IRQ){
     int logical_tick = timerintr();
     if(cpuid() == 0 && logical_tick){

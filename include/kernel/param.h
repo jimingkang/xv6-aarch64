@@ -9,7 +9,7 @@
 #define NPROC_MAX   896  // maximum number of tasks (threads-max)
 #define NOFILE       16  // open files per process
 #define NFILE       100  // filesystem-side open/orphan tracking slots
-#define NDEV         10  // maximum major device number
+#define NDEV         11  // maximum major device number
 #define USTACKPAGES   4  // mapped user stack pages, excluding guard page
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
 #define NBUF         64   // buffer cache entries, one 4 KiB page each

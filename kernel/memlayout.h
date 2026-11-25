@@ -65,6 +65,7 @@
 #define UART0_IRQ   29   // BCM2837 AUX interrupt (Mini UART)
 #define SDIO_IRQ    62   // BCM2837 Arasan EMMC/SDIO interrupt
 #define CSI1_IRQ    39   // Unicam CSI1 (DTS: interrupts = <2 7>, GPU IRQ 32+7)
+#define PV2_IRQ     42   // Pixel Valve 2 (DTS: interrupts = <2 10>)
 #define TIMER0_IRQ  27
 #define IPI_RESCHED_IRQ 1000  // pseudo IRQ number: ARM-local mailbox 0
 

@@ -108,7 +108,10 @@ DRIVER_NET_OBJS = \
 
 DRIVER_CHAR_OBJS = \
   $K/drivers/char/mem.o \
-  $K/drivers/video/fbdev/bcm2708_fb.o
+  $K/drivers/video/fbdev/bcm2708_fb.o \
+  $K/drivers/gpu/drm/drm_drv.o \
+  $K/drivers/gpu/drm/vc4/vc4_native.o \
+  $K/drivers/gpu/drm/vc4/vc4_firmware_kms.o
 
 DRIVER_TTY_OBJS = \
   $K/drivers/tty/console.o \
@@ -691,6 +694,7 @@ UPROGS=\
 	$U/_usertests\
 	$U/_vmmap\
 	$U/_mmaptest\
+	$U/_drmtest\
 	$U/_cowtest\
 	$U/_grind\
 	$U/_wc\

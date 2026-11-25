@@ -534,6 +534,7 @@ void            arasan_sdio_irq(void);
 // bcm2837.c
 void            bcm2837_enable_irq(int);
 void            bcm2837_disable_irq(int);
+void            vc4_native_irq(void);
 
 // unicam.c (camera bridge: Unicam CSI-2 -> /dev/video0)
 void            camera_init(void);

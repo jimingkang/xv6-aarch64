@@ -17,6 +17,7 @@
 #define MBOX_TAG_SET_DEPTH         0x00048005U
 #define MBOX_TAG_SET_PIXEL_ORDER   0x00048006U
 #define MBOX_TAG_SET_VIRT_OFFSET   0x00048009U
+#define MBOX_TAG_WAIT_FOR_VSYNC    0x0004800eU
 
 #define MBOX_CLOCK_CORE  4U          // VPU core clock: also clocks BSC (I2C)
 

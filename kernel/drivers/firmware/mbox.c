@@ -22,6 +22,7 @@
 #include "memlayout.h"
 #include "aarch64.h"
 #include <kernel/spinlock.h>
+#include <kernel/mutex.h>
 #include <kernel/defs.h>
 #include <kernel/mbox.h>
 
@@ -37,7 +38,7 @@
 #define MBOX_MSG_WORDS 64
 #define CACHE_LINE     64
 
-static struct spinlock mbox_lock;
+static struct mutex mbox_lock;
 static int mbox_ready;
 static struct mbox_result last;     // protected by mbox_lock
 static uint stale;                  // replies that were not ours
@@ -95,7 +96,7 @@ static void
 mbox_lock_init(void)
 {
   if(!mbox_ready){
-    initlock(&mbox_lock, "mbox");
+    mutex_init(&mbox_lock, "mbox");
     mbox_ready = 1;
   }
 }
@@ -113,7 +114,7 @@ mbox_property_list(uint32 *tags, int words)
   if(words < 3 || words > MBOX_MSG_WORDS - 3)
     return -1;
   mbox_lock_init();
-  acquire(&mbox_lock);
+  mutex_lock(&mbox_lock);
   msg[0] = (words + 3) * 4;
   msg[1] = 0;
   for(int i = 0; i < words; i++)
@@ -132,7 +133,7 @@ mbox_property_list(uint32 *tags, int words)
     } else
       last.err = MBOX_ERR_REQUEST;
   }
-  release(&mbox_lock);
+  mutex_unlock(&mbox_lock);
   return ok ? 0 : -1;
 }
 
@@ -147,7 +148,7 @@ mbox_property(uint32 tag, uint32 *value, int value_bytes)
   if(words < 1 || words > MBOX_MSG_WORDS - 6)
     return -1;
   mbox_lock_init();
-  acquire(&mbox_lock);
+  mutex_lock(&mbox_lock);
 
   msg[0] = (6 + words) * 4;       // total size
   msg[1] = 0;                     // request
@@ -185,7 +186,7 @@ mbox_property(uint32 tag, uint32 *value, int value_bytes)
     ok = 1;
   }
 out:
-  release(&mbox_lock);
+  mutex_unlock(&mbox_lock);
   return ok ? 0 : -1;
 }
 
@@ -196,9 +197,9 @@ mbox_last_result(struct mbox_result *r)
     memset(r, 0, sizeof(*r));
     return;
   }
-  acquire(&mbox_lock);
+  mutex_lock(&mbox_lock);
   *r = last;
-  release(&mbox_lock);
+  mutex_unlock(&mbox_lock);
 }
 
 char *
@@ -249,9 +250,9 @@ gpio_tag(uint32 tag, uint32 *v, int bytes)
   if(mbox_property(tag, v, bytes) < 0)
     return -1;
   if(v[0] != 0){
-    acquire(&mbox_lock);
+    mutex_lock(&mbox_lock);
     last.err = MBOX_ERR_STATUS;
-    release(&mbox_lock);
+    mutex_unlock(&mbox_lock);
     return -1;
   }
   return 0;

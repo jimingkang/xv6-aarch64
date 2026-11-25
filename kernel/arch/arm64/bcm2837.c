@@ -102,6 +102,8 @@ gic_iar(void)
     return SDIO_IRQ;
   if(irqread(IRQ_PENDING_2) & (1U << (CSI1_IRQ - 32)))
     return CSI1_IRQ;
+  if(irqread(IRQ_PENDING_2) & (1U << (PV2_IRQ - 32)))
+    return PV2_IRQ;
   if(irqread(IRQ_PENDING_1))
     return 1023;
   return 1023;
@@ -124,7 +126,7 @@ int
 gic_int_enabled(uint32 intid)
 {
   if(intid == UART0_IRQ || intid == DWC2_IRQ || intid == SDIO_IRQ ||
-     intid == CSI1_IRQ)
+     intid == CSI1_IRQ || intid == PV2_IRQ)
     return 1;
   if(intid == TIMER0_IRQ || intid == IPI_RESCHED_IRQ)
     return 1;

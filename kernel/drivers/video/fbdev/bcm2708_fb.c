@@ -19,6 +19,7 @@
 #include <kernel/device.h>
 #include <kernel/module.h>
 #include <kernel/mbox.h>
+#include <kernel/bcm2708_fb.h>
 #include <kernel/mm.h>
 #include <uapi/fb.h>
 
@@ -27,11 +28,15 @@
 #define FB_DEPTH   32
 
 static struct {
-  struct spinlock lock;
+  struct sleeplock lock;
   int ready;
-  uint32 width, height, depth, pitch;
+  uint32 width, height, virtual_height, depth, pitch;
   uint64 base;                  // ARM physical address
   uint32 size;
+  uint32 frame_bytes;
+  uint32 buffer_count;
+  uint32 front_buffer;
+  uint64 sequence;
 } fb;
 
 // Configure and allocate in one property message; the firmware ignores a
@@ -41,7 +46,9 @@ fb_alloc(void)
 {
   uint32 t[] = {
     MBOX_TAG_SET_PHYS_WH,     8, 0, FB_WIDTH, FB_HEIGHT,
-    MBOX_TAG_SET_VIRT_WH,     8, 0, FB_WIDTH, FB_HEIGHT,
+    // Two vertically stacked scanout buffers.  KMS flips by changing the
+    // virtual y offset at vblank; fbdev may still mmap the whole allocation.
+    MBOX_TAG_SET_VIRT_WH,     8, 0, FB_WIDTH, FB_HEIGHT * 2,
     MBOX_TAG_SET_VIRT_OFFSET, 8, 0, 0, 0,
     MBOX_TAG_SET_DEPTH,       4, 0, FB_DEPTH,
     MBOX_TAG_SET_PIXEL_ORDER, 4, 0, 1,          // RGB
@@ -53,30 +60,126 @@ fb_alloc(void)
     return -1;
   fb.width = t[3];
   fb.height = t[4];
+  fb.virtual_height = t[9];
   fb.depth = t[18];
   fb.base = t[26] & 0x3fffffffU;             // VC bus address -> ARM PA
   fb.size = t[27];
   fb.pitch = t[31];
+  fb.frame_bytes = fb.pitch * fb.height;
+  fb.buffer_count = fb.virtual_height / fb.height;
+  if(fb.buffer_count > 2)
+    fb.buffer_count = 2;
+  if(fb.buffer_count < 2 || fb.size < fb.frame_bytes * 2)
+    return -1;
+  fb.front_buffer = 0;
+  fb.sequence = 0;
   return 0;
+}
+
+static int
+fb_ensure(void)
+{
+  int r = 0;
+
+  acquiresleep(&fb.lock);
+  if(!fb.ready){
+    if(fb_alloc() == 0){
+      fb.ready = 1;
+      printf("fb0: %dx%d (virtual %dx%d) %d bpp pitch %d, %d bytes "
+             "at pa %p\n", fb.width, fb.height, fb.width,
+             fb.virtual_height, fb.depth, fb.pitch, fb.size, fb.base);
+    } else {
+      printf("fb0: firmware did not allocate two scanout buffers\n");
+      r = -1;
+    }
+  }
+  releasesleep(&fb.lock);
+  return r;
 }
 
 static int
 fb_open(struct file *f)
 {
-  int r = 0;
+  (void)f;
+  return fb_ensure();
+}
 
-  acquire(&fb.lock);
-  if(!fb.ready){
-    if(fb_alloc() == 0){
-      fb.ready = 1;
-      printf("fb0: %dx%d %d bpp pitch %d, %d bytes at pa %p\n", fb.width,
-             fb.height, fb.depth, fb.pitch, fb.size, fb.base);
-    } else {
-      printf("fb0: firmware did not allocate a frame buffer\n");
-      r = -1;
-    }
+int
+bcm2708_fb_get_info(struct bcm2708_fb_info *info)
+{
+  if(info == 0 || fb_ensure() < 0)
+    return -1;
+  acquiresleep(&fb.lock);
+  info->width = fb.width;
+  info->height = fb.height;
+  info->virtual_height = fb.virtual_height;
+  info->depth = fb.depth;
+  info->pitch = fb.pitch;
+  info->base = fb.base;
+  info->size = fb.size;
+  info->frame_bytes = fb.frame_bytes;
+  info->buffer_count = fb.buffer_count;
+  info->front_buffer = fb.front_buffer;
+  info->sequence = fb.sequence;
+  releasesleep(&fb.lock);
+  return 0;
+}
+
+int
+bcm2708_fb_wait_vsync(uint64 *sequence)
+{
+  uint32 v = 0;
+  int r;
+
+  if(fb_ensure() < 0)
+    return -1;
+  // This mailbox operation sleeps in process context; never invoke it while
+  // holding a DRM spinlock or from an IRQ handler.
+  r = mbox_property(MBOX_TAG_WAIT_FOR_VSYNC, &v, sizeof(v));
+  if(r < 0)
+    return -1;
+  acquiresleep(&fb.lock);
+  fb.sequence++;
+  if(sequence)
+    *sequence = fb.sequence;
+  releasesleep(&fb.lock);
+  return 0;
+}
+
+int
+bcm2708_fb_page_flip(uint32 index, uint64 *sequence)
+{
+  uint32 t[] = {
+    MBOX_TAG_WAIT_FOR_VSYNC,    4, 0, 0,
+    MBOX_TAG_SET_VIRT_OFFSET,  8, 0, 0, 0,
+  };
+  int r;
+
+  if(fb_ensure() < 0)
+    return -1;
+  acquiresleep(&fb.lock);
+  if(index >= fb.buffer_count){
+    releasesleep(&fb.lock);
+    return -1;
   }
-  release(&fb.lock);
+  t[8] = index * fb.height;
+  // The firmware processes tags in order: wait for vertical sync, then pan
+  // the virtual framebuffer.  Older firmware may reject the combined list;
+  // in that case issue the same two operations as separate property calls.
+  r = mbox_property_list(t, NELEM(t));
+  if(r < 0){
+    uint32 wait = 0;
+    uint32 offset[2] = { 0, index * fb.height };
+    if(mbox_property(MBOX_TAG_WAIT_FOR_VSYNC, &wait, sizeof(wait)) == 0)
+      r = mbox_property(MBOX_TAG_SET_VIRT_OFFSET, offset, sizeof(offset));
+  }
+  if(r == 0){
+    fb.front_buffer = index;
+    fb.sequence++;
+    if(sequence)
+      *sequence = fb.sequence;
+  }
+  releasesleep(&fb.lock);
   return r;
 }
 
@@ -112,7 +215,8 @@ fb_ioctl(struct file *f, uint64 cmd, uint64 arg)
     struct fb_var_screeninfo var;
     memset(&var, 0, sizeof(var));
     var.xres = var.xres_virtual = fb.width;
-    var.yres = var.yres_virtual = fb.height;
+    var.yres = fb.height;
+    var.yres_virtual = fb.virtual_height;
     var.bits_per_pixel = fb.depth;
     return either_copyout(1, arg, &var, sizeof(var));
   }
@@ -134,9 +238,9 @@ bcm2708_fb_init(void)
     .dev_major = FB,
   };
 
-  initlock(&fb.lock, "fb0");
+  initsleeplock(&fb.lock, "fb0");
   if(register_chrdev(FB, "fb0", &fops) < 0 || device_register(&fb_device) < 0)
     printf("fb0: cannot register /dev/fb0\n");
 }
 
-module_init("bcm2708_fb", bcm2708_fb_init);
+module_init_ord("bcm2708_fb", bcm2708_fb_init, 10);

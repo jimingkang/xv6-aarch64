@@ -1,0 +1,33 @@
+debugfs 1.47.4 (6-Mar-2025)
+debugfs: rm bin/mjCounter
+
+debugfs: write build/_mjCounter bin/mjCounter
+Allocated inode: 92
+debugfs: rm bin/mjHello
+
+debugfs: write build/_mjHello bin/mjHello
+Allocated inode: 93
+debugfs: rm bin/mjProdCons
+
+debugfs: write build/_mjProdCons bin/mjProdCons
+Allocated inode: 94
+debugfs: rm bin/mjSyncRules
+
+debugfs: write build/_mjSyncRules bin/mjSyncRules
+Allocated inode: 95
+debugfs: rm root/Counter.java
+
+debugfs: write examples/Counter.java root/Counter.java
+Allocated inode: 96
+debugfs: rm root/Hello.java
+
+debugfs: write examples/Hello.java root/Hello.java
+Allocated inode: 97
+debugfs: rm root/ProdCons.java
+
+debugfs: write examples/ProdCons.java root/ProdCons.java
+Allocated inode: 98
+debugfs: rm root/SyncRules.java
+
+debugfs: write examples/SyncRules.java root/SyncRules.java
+Allocated inode: 99

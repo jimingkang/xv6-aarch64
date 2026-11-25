@@ -1,0 +1,16 @@
+rm bin/mjCounter
+write build/_mjCounter bin/mjCounter
+rm bin/mjHello
+write build/_mjHello bin/mjHello
+rm bin/mjProdCons
+write build/_mjProdCons bin/mjProdCons
+rm bin/mjSyncRules
+write build/_mjSyncRules bin/mjSyncRules
+rm root/Counter.java
+write examples/Counter.java root/Counter.java
+rm root/Hello.java
+write examples/Hello.java root/Hello.java
+rm root/ProdCons.java
+write examples/ProdCons.java root/ProdCons.java
+rm root/SyncRules.java
+write examples/SyncRules.java root/SyncRules.java
