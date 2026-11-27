@@ -1828,6 +1828,10 @@ release(&i2c_lock);
   \item \textbf{F2} 是固件启动之后才就绪的 FIFO，运行时所有控制命令、事件和网络帧都从这里进出。
 \end{itemize}
 
+\paragraph{芯片内部：几颗核挂在一条 AXI 背板上.} BCM43455 内部不是一块“网卡电路”，而是一个小 SoC：ChipCommon（core id \code{0x800}，芯片 ID、时钟、EROM 指针）、ARM CR4（\code{0x83e}，跑固件，带 TCM RAM）、D11（\code{0x812}，802.11 MAC/PHY）和 SDIO 设备核（\code{0x829}，把总线命令翻译成背板访问）。它们都挂在同一条 AXI 背板上，共享一个 32 位物理地址空间；每个核占一段寄存器窗口，另有一段 wrapper 寄存器用于复位和时钟门控。只有 ChipCommon 的地址固定在 \code{0x18000000}，其余核的 base/wrap 地址由驱动在运行时读 ChipCommon\,+\,\code{0xfc} 给出的 EROM 表扫描得到（\code{brcmf\_scan\_cores()}）。SDIO 设备核就是这条背板对外的“门”：F1 的访问被它变成 AXI 读写，F2 的 FIFO 则由它的 DMA 在 TCM RAM 与总线之间搬运。
+
+\paragraph{三层地址.} 讨论 SDIO 时最容易混淆的是“地址指的是谁的地址”。一共有三层：其一是 Arasan 控制器自己的 MMIO 寄存器（\code{0x3f300000} 起），属于 BCM2837 的物理地址；其二是 CMD52/CMD53 命令里的 17 位地址，它是\emph{某个 function 内部}的地址，与主机内存无关；其三是芯片 AXI 背板上的 32 位地址，只能通过 F1 窗口间接访问。主机内存从不出现在命令里——PIO 模式下数据经由 Arasan 的 \code{DATA} 寄存器一字一字地被 CPU 搬进搬出。
+
 \paragraph{Arasan 是主机控制器，而且工作在 PIO 模式.} Arasan SDHCI 负责产生 SDIO 时钟、把命令编码到 CMD 线上、按 4 位总线收发数据。驱动发一条命令的方式是写 \code{ARG1}（参数）和 \code{CMDTM}（命令号与传输方式），然后等 \code{INTERRUPT} 里的完成位。有数据阶段时，本项目没有使用控制器的 DMA，而是 CPU 等 \code{READ\_RDY}/\code{WRITE\_RDY}，再一个 32 位字一个 32 位字地读写 \code{DATA} 寄存器。这和摄像头形成鲜明对比：Unicam 的数据完全不经过 CPU，而这里每个字都要 CPU 亲手搬运。这样实现简单，也没有缓存一致性问题，代价是吞吐受 CPU 和单次传输长度限制——实机曾在 512、256、128 字节的 CMD53 上出现数据 CRC 错误，驱动逐级减半，最后稳定在 64 字节。这个上限是运行时探测出来的，完成多块传输和时序调优之后应当重新评估。
 
 \paragraph{中断要过三道闸门.} 固件有帧要交给主机时，DAT1 上的卡中断要穿过三层开关才能变成 CPU 的 IRQ：芯片内部 SDIO 核的 \code{HOSTINTMASK} 决定哪些事件送到 DAT1；F0 的 CCCR 里的 \code{INT\_ENABLE} 打开 master 位和 F1 位（\code{sdio\_claim\_irq()}）；Arasan 的 \code{IRPT\_EN} 打开 \code{CARD\_INT}，BCM2837 的 legacy 控制器再打开 IRQ 62。任何一层没开，接收都只能靠轮询。
@@ -1838,6 +1842,24 @@ release(&i2c_lock);
 \subsection{SDIO 枚举}
 
 Arasan 驱动 probe 后创建 \code{mmc\_host}，SDIO core 依次发送 CMD0（复位）、CMD5（协商 I/O 电压，等待就绪）、CMD3（取 RCA）、CMD7（选中），再用 CMD52 读 CCCR、FBR 和 CIS，切换到 4 位总线，最后把三个 function 注册到 \code{sdio} 总线。\code{brcmfmac} 驱动按 vendor \code{0x02d0}、device \code{0xa9a6}/\code{0xa9bf}、function 1 匹配。三条 SDIO 命令的分工是：CMD5 识别和上电；CMD52 单字节读写寄存器；CMD53 批量传输。
+
+\paragraph{CMD52 与 CMD53 的参数格式.} 两条命令的 32 位参数都由 \code{ARG1} 写出。CMD52 的格式是 $W\ll31 \mid FN\ll28 \mid addr\ll9 \mid val$：$W$ 为读写位，$FN$ 为 function 号，$addr$ 为 17 位地址，最低 8 位是要写的字节；读回的字节在 R5 响应的 bit 7:0 里，整个过程不碰 DAT 线。CMD53 在此基础上加入 $OP\ll26$（地址自增）并把低 9 位换成字节数，数据阶段走四根 DAT 线；本项目一次只发单块、不超过 512 字节（\code{sdio\_cmd53()} 中 \code{data.blocks=1}）。表~\ref{tab:sdio-args} 给出驱动里几条真实命令的编码。
+
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{lll}
+    \toprule
+    命令 & 参数 & 含义 \\
+    \midrule
+    CMD52 读 & \code{0x00000A00} & F0 地址 \code{0x05}：读 CCCR \code{INT\_PENDING} \\
+    CMD52 写 & \code{0x92001480} & F1 地址 \code{0x1000a} 写 \code{0x80}：设置窗口地址 bit 15:8 \\
+    CMD53 写 & \code{0x95340000} & F1 地址 \code{0x9A00}，自增，512 字节：写固件块 \\
+    CMD53 读 & \code{0x21000040} & F2 地址 \code{0x8000}，64 字节：读一帧的头部 \\
+    \bottomrule
+  \end{tabular}
+  \caption{SDIO 命令参数举例}
+  \label{tab:sdio-args}
+\end{table}
 
 \subsection{固件装载}
 
@@ -1850,6 +1872,10 @@ FullMAC 芯片每次上电都要由主机下载固件。驱动从 FAT32 启动�
 \end{itemize}
 
 Function 1 是“背板窗口”：设置窗口寄存器后，可以用 CMD52/CMD53 访问芯片内部的 ChipCommon、SDIO core、CR4 和片内 RAM。驱动读 chip ID、解析 EROM 找到各个核和 RAM，让 CR4 停机，用 CMD53 把固件和 NVRAM 写进 RAM，写入复位向量后放开 CR4，等待固件就绪的 mailbox 中断，最后才打开 Function 2。Function 2 是运行时的数据 FIFO。
+
+\paragraph{窗口如何移动.} F1 的地址 \code{0x1000a/0x1000b/0x1000c} 是窗口基址寄存器 \code{SBADDR} 的低、中、高三个字节，F1 地址 \code{0x0000}～\code{0x7fff} 则映射到当前窗口内的 32\,KiB；地址再或上 \code{0x8000} 表示以 32 位宽度访问背板。因此 \code{brcmf\_write\_firmware()} 下载固件时，每一块先用三次 CMD52 把目标背板地址的高 17 位写进 \code{SBADDR}，再用一次 CMD53 F1 写入块内偏移。BCM43455 的 TCM RAM 从背板地址 \code{0x198000} 开始：固件放在开头，NVRAM 放在 RAM 末尾。
+
+\paragraph{NVRAM 是什么.} \code{BCM43455.TXT} 是一份 \code{key=value} 文本，描述这块板子特有的参数：天线配置、晶振频率、射频校准值、MAC 地址来源等。同一颗芯片焊在不同板子上，固件相同而 NVRAM 不同。驱动去掉注释和空行，把每行变成以 \code{\textbackslash0} 结尾的字符串，补齐到 4 字节，写到 RAM 末尾；RAM 的最后一个字写入长度令牌 $(\sim words\ll16)\mid words$，固件启动时据此找到并校验 NVRAM（\code{brcmf\_write\_nvram()}）。这三个文件都存放在 SD 卡 FAT32 启动分区上，构建时由 Makefile 复制进去，运行时经 \code{fat32openroot()} 读出。
 
 \subsection{SDPCM 与 BCDC}
 
@@ -1946,9 +1972,37 @@ Function 1 是“背板窗口”：设置窗口寄存器后，可以用 CMD52/CM
 
 \paragraph{接收是中断触发、线程执行的.} DAT1 卡中断到来时，上半部 \code{arasan\_sdio\_irq()} 只做三件事：在 Arasan 上屏蔽 \code{CARD\_INT}、清掉状态位、调用 \code{napi\_schedule()} 唤醒设备私有的 \code{brcmf0\_wq} 内核线程。CMD53 要等总线、可能睡眠，绝不能在中断里做。下半部 \code{brcmf\_napi\_poll()} 在 kworker 里循环：经 F1 读 SDIO 核的 \code{INTSTATUS}，看到“有帧”就从 F2 读 64 字节的头、校验 SDPCM 长度和它的反码、再读剩余部分，然后按通道分流。每轮最多处理 16 帧；没读空就让 NAPI 重新排队，读空了才 \code{napi\_complete\_done()} 并重新打开 \code{CARD\_INT}。卡中断是电平触发的，在芯片里的帧被取走之前一直有效，所以必须先屏蔽、读空再打开，否则 CPU 会被同一个中断反复打断。
 
+\paragraph{先清零，再读空.} 图~\ref{fig:sdio-dat1} 展示了这条链路中的两件不同的事：\code{INTSTATUS} 是芯片里 SDIO 核的寄存器，固件把帧放进 TCM RAM 后置位 bit6；该位与 \code{HOSTINTMASK} 相与后成为 F1 的中断，汇入 CCCR 的 \code{INT\_PENDING}，再经 \code{INT\_ENABLE} 决定卡是否在 DAT1 上拉低。DAT1 是\emph{结果}，\code{INTSTATUS} 才是\emph{原因}。下半部 \code{brcmf\_rx\_frame\_locked()} 的顺序是：CMD52 读 \code{INT\_PENDING}，经 F1 读 \code{INTSTATUS}，立刻写 1 清零（W1C），然后循环从 F2 读帧直到读到长度为 0，最后由 NAPI 打开 Arasan 的 \code{CARD\_INT}。
+
+清零为什么要放在读帧之前？因为清零与读空之间若有新帧到达，固件会再次置位 \code{INTSTATUS}，DAT1 在 \code{CARD\_INT} 重新打开时仍是低电平，下一次中断必然到来；而循环读到长度 0 本身也会把这期间到达的帧一并取走。反过来，若先读空再清零，在“读空”与“清零”之间到达的帧会被这次清零一起抹掉，DAT1 回到高电平，帧留在芯片里却再也没有中断提醒——这就是丢失唤醒（lost wakeup）。表~\ref{tab:clear-order} 对比了两种顺序。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\linewidth,height=0.88\textheight,keepaspectratio]{sdio-f2-cmd52-dat1.pdf}
+  \caption{F2 收发、CMD52 与 DAT1 中断链：\code{INTSTATUS}$\,\&\,$\code{HOSTINTMASK} → F1 中断 → CCCR \code{INT\_PENDING} → DAT1 → Arasan \code{CARD\_INT} → IRQ 62 → NAPI}
+  \label{fig:sdio-dat1}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{p{0.2\linewidth}p{0.36\linewidth}p{0.36\linewidth}}
+    \toprule
+    & 先清零再读空（现在的做法） & 先读空再清零 \\
+    \midrule
+    窗口内新帧 & 重新置位 \code{INTSTATUS}，DAT1 保持低 & 置位后被随后的清零抹掉 \\
+    打开 \code{CARD\_INT} 时 & 有残留就立刻再次中断 & DAT1 为高，不再中断 \\
+    结果 & 最多多一次空中断 & 帧滞留，直到下一帧才被带出 \\
+    \bottomrule
+  \end{tabular}
+  \caption{\code{INTSTATUS} 清零时机对比}
+  \label{tab:clear-order}
+\end{table}
+
 \paragraph{同步的控制命令.} 控制面是请求/应答式的：\code{brcmf\_dcmd()} 发出一个带递增请求号的 BCDC 命令，然后反复调用分流函数，直到读到请求号相同的控制帧。事件和数据帧可能插在应答前面，所以分流函数不能假定“下一帧就是回复”，必须按通道放到各自的去处：控制帧存进 \code{ctl} 缓冲，事件帧打印出来，数据帧中的 EAPOL 交给 WPA2 握手逻辑，其余在握手完成后交给 \code{net\_rx\_dev()}。
 
-\paragraph{两把锁，两个粒度.} \code{bus->lock} 以\emph{设备}为粒度，保证同一块网卡的 SDPCM 序号、收发缓冲和连接状态不会被发送路径、NAPI 和连接 watchdog 同时改动。\code{host->request\_lock} 以\emph{控制器}为粒度，保证 Arasan 那一套 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器在一条 CMD52/CMD53 完成之前不被另一条覆盖。\ref{sec:cam-bugs} 小节的 \code{CMD52 failed status=df0001} 就是缺了后一把锁造成的。两把都是睡眠锁或在进程上下文中持有，因为一次 SDIO 事务可能要等上毫秒级的超时。
+\paragraph{锁与粒度.} \code{bus->lock} 是自旋锁，以\emph{设备}为粒度，保证同一块网卡的 SDPCM 序号、收发缓冲和连接状态不会被发送路径、NAPI 和连接 watchdog 同时改动。\code{host->request\_lock} 以\emph{控制器}为粒度，保证 Arasan 那一套 \code{ARG1/CMDTM/INTERRUPT/DATA} 寄存器在一条 CMD52/CMD53 完成之前不被另一条覆盖。\ref{sec:cam-bugs} 小节的 \code{CMD52 failed status=df0001} 就是缺了后一把锁造成的。控制面另有两把睡眠锁：\code{iovar\_lock} 串行化共用的 \code{iovar\_buf}，\code{dcmd\_lock} 保证同一时刻只有一个 BCDC 请求在等应答。加锁顺序固定为 \code{iovar\_lock} → \code{dcmd\_lock} → \code{bus->lock}。
+
+\paragraph{不要持自旋锁等应答.} 早期的 \code{brcmf\_dcmd()} 发出命令后一直持着 \code{bus->lock} 循环调用分流函数，最长忙等 3\,s：持自旋锁期间本 CPU 关中断，NAPI、发送路径和其他 CPU 上想拿这把锁的代码全部卡住。现在的循环是：持锁调用一次 \code{brcmf\_rx\_dispatch\_locked()}，检查 \code{ctl} 里是否已有请求号相同的应答；没有就\emph{释放锁}再等待——前 2\,ms 每 100\,$\mu$s 查一次（多数应答在这个窗口内到达），之后每次 \code{brcmf\_wait\_ticks(1)} 睡一个 tick（\code{SET\_SSID}、\code{UP}、扫描可能要几十毫秒），醒来重新拿锁再查，3\,s 总超时不变。分流时读到了别的帧（返回值非 0）就不等，立即进入下一轮继续读。启动早期 \code{myproc()} 为空、不能睡眠时，\code{brcmf\_wait\_ticks()} 退化为不持锁的忙等。外层的 \code{dcmd\_lock} 保证释放 \code{bus->lock} 期间不会有第二个请求覆盖 \code{tx} 和 \code{ctl}；请求号匹配则保证 NAPI 在这段时间里先把应答取走放进 \code{ctl} 时，请求方依然能认领到自己的那一帧。
 
 \paragraph{从轮询到中断的演进.} 这条接收路径经历过三个版本：最早 CPU0 在每次定时器中断里直接轮询 F2，完整的接收和协议处理都跑在中断上下文里；后来有了 DAT1 中断，但仍等下一次定时器才去读；现在中断直接调度 NAPI，定时器只负责推进 delayed-work 的时钟（连接 watchdog、TCP 重传）。早期每 100\,ms 轮询一次时，SSH 输入一个字符要等 100～300\,ms 才回显；改成中断驱动后，这个延迟基本消失。
 
