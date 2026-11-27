@@ -844,6 +844,245 @@ brcmfmac: wlan0 IPv4 ready
 
 随后应持续运行 `ping` 和 SSH 交互，确认 IRQ 能立即收包，并确认 burst 处理后
 `CARD_INT` 被正确重新打开，不会出现运行一段时间后停止接收。
+
+---
+
+## 22. 逐条命令、芯片内部与 DAT1 中断细节
+
+本节把 SDIO 总线上的每一类命令、芯片内部的地址结构和接收中断的时序逐一讲清楚。
+行号以 java 分支 `c09ba09` 为准。配套材料：
+
+- 通信细节图：![SDIO F2 收发、CMD52、DAT1 中断](../svg/sdio-f2-cmd52-dat1.png)
+- 逐步动画（9 个场景、81 步，可逐帧播放）：生成脚本 `tools/sdio_cmd_anim/sdio_cmd_anim.py`，
+  渲染命令写在脚本开头。
+
+### 22.1 三层地址，不要混在一起
+
+| 哪一层 | 谁看得见 | 例子 |
+|---|---|---|
+| 主机内存地址 | 只有 xv6 内核，不上总线 | `brcmf_io_buf`、`brcmf_nvram_data`、`brcmf_bus.tx/rx/ctl/iovar_buf` |
+| SDIO 功能地址（17 位） | CMD52/CMD53 命令里的地址字段 | F0 的 `0x05`；F1 的 `0x1000a`；F1 的 `0x9A00`；F2 的入口 `0x8000` |
+| 芯片 backplane 地址（32 位） | 芯片内部 AXI 总线、芯片里的 ARM CR4 | ChipCommon `0x18000000`；TCM RAM `0x198000` |
+
+`tx[]`、`rx[]`、`ctl[]`、`iovar_buf[]` 都是 `struct brcmf_bus_state` 的成员，实例是
+`static struct brcmf_bus_state brcmf_devices[]`，位于内核 `.bss`。主机内存地址从不出现在 SDIO
+总线上，数据由 CPU 在这些缓冲和 Arasan 的 `EMMC_DATA` 寄存器之间搬运（PIO）。
+
+### 22.2 芯片内部：各核、AXI backplane 与 SDIO 包装
+
+| 核 | EROM id | 作用 |
+|---|---|---|
+| ChipCommon | `0x800` | chipid、时钟和电源。寄存器固定在 `0x18000000`（`SI_ENUM_BASE`），`+0xfc` 是 EROM 地址 |
+| ARM Cortex-R4 | `0x83e` | 跑 FullMAC 固件；带 TCM RAM，backplane 上从 `0x198000` 开始（`BRCMF_RAM_BASE_4345`） |
+| D11 802.11 MAC | `0x812` | MAC + PHY/射频，空口收发，用自己的 DMA 读写 TCM RAM；下载固件时保持复位 |
+| SDIO device core | `0x829` | 对外是 SDIO 卡；INTSTATUS `+0x20`、HOSTINTMASK `+0x24`、邮箱 `+0x40/+0x48/+0x4c` |
+
+- 所有核挂在同一套 AXI 互连（backplane）上，共用一个 32 位地址空间。每个核有一页寄存器
+  （`base`）和一页 wrapper（`wrap`，IOCTL `+0x408`、RESET_CTL `+0x800`），
+  `brcmf_core_disable/brcmf_core_reset` 用同一套代码复位任何核。
+- 核的地址不写死：`brcmf_scan_cores()`（`brcmfmac.c:602`）先读 `0x18000000+0xfc` 得到 EROM，
+  再逐条读描述符，打印 `core[n] id=... base=... wrap=...`。代码里写死的只有 ChipCommon 的
+  `0x18000000` 和 TCM RAM 起点 `0x198000`；“各核按 4 KB 排开”只是 Broadcom 常见布局，以启动日志为准。
+- SDIO device core 把内部包装成三个 function：
+  - **F0**：SDIO 规范的 CCCR/FBR/CIS，由 SDIO core 硬件实现。
+  - **F1**：一座桥。SBADDR 三个寄存器是窗口基址，主机对 F1 `0x0000-0x7FFF` 的读写被翻译成对
+    `窗口基址 + 偏移` 的 AXI 读写，SDIO core 在这里充当 AXI 主设备。
+  - **F2**：FIFO + DMA 引擎。固件在 TCM RAM 里准备缓冲并交给 SDIO core 的 DMA；
+    主机读 F2 时 DMA 从 TCM 搬进 FIFO，写 F2 时反向。F2 没有可寻址的存储，地址只是入口。
+  - **DAT1**：INTSTATUS 与 HOSTINTMASK 相与不为 0 时，经 CCCR 的中断开关，拉低 DAT1。
+
+一句话：F1 是主机伸进芯片总线的一只手，F2 是固件和主机之间的帧通道，DAT1 是门铃。
+
+### 22.3 6 根线与 CMD52/CMD53
+
+| 线 | GPIO | 作用 |
+|---|---|---|
+| CLK | 34 | host 输出时钟 |
+| CMD | 35 | 双向：48 位命令和 48 位响应都只走这一根 |
+| DAT0 | 36 | 数据位 0；卡忙时拉低表示 busy |
+| DAT1 | 37 | 数据位 1；DAT 空闲（中断周期）时兼作卡中断，低有效，需上拉（`gpio_init()`） |
+| DAT2 | 38 | 数据位 2（规范里另作 Read Wait，本项目未用） |
+| DAT3 | 39 | 数据位 3 |
+
+参数格式（`sdio.c:166`、`sdio.c:197`）：
+
+```text
+CMD52: W<<31 | FN<<28 | RAW<<27 | addr(17)<<9 | data(8)
+CMD53: W<<31 | FN<<28 | BLK<<27 | OP<<26 | addr(17)<<9 | count(9, 0 表示 512)
+```
+
+- **CMD52 完全不用 DAT 线**：写的字节在命令的 bit7:0；读到的字节在 R5 响应的 bit7:0，
+  也从 CMD 线回来（`*value = response & 0xff`，`response & 0xcb00` 视为错误）。
+- **CMD53** 命令和 R5 走 CMD 线，数据块走 DAT[3:0]。本项目只用字节模式单块（`data.blocks = 1`），
+  单次 ≤512 字节；`OP=1` 地址自增（F1 读写一段内存），`OP=0` 地址固定（F2 FIFO）。
+
+四个真实例子：
+
+| 操作 | arg |
+|---|---|
+| CMD52 读 F0 `0x05`（INT_PENDING） | `0x00000A00` |
+| CMD52 写 F1 `0x1000a = 0x80`（SBADDRLOW） | `0x92001480` |
+| CMD53 写 F1 `0x9A00`，512 字节，OP=1（固件一块） | `0x95340000` |
+| CMD53 读 F2 `0x8000`，64 字节，OP=0（收帧头） | `0x21000040` |
+
+### 22.4 按流程逐条命令
+
+**枚举（`sdio_scan_host`，`sdio.c:332-410`）**
+
+1. CMD0：复位，无响应。
+2. CMD5 arg=0：R4 返回 OCR，bit30:28 = 功能数（2）。
+3. CMD5 arg=OCR，循环直到 R4 bit31（IORDY）= 1。
+4. CMD3：R6 高 16 位是 RCA。
+5. CMD7 arg=RCA<<16：选中卡，之后才能 CMD52/53。
+6. CMD52 读写 F0 `0x07`：切 4 位总线，`set_bus_width(4)`。
+7. CMD52 读 FBR（`fn*0x100+0x00` 类别、`+0x09..0x0b` CIS 指针）。
+8. CMD52 逐字节读 CIS 元组，得到 MANFID：`0x02d0` / `0xa9bf`（BCM43455），注册 `sdio0:1/sdio0:2`。
+
+**固件下载（`brcmf_probe`，`brcmfmac.c:2107` 起）**
+
+1. `sdio_enable_func(F1)`：CMD52 写 F0 `0x02`，轮询 `0x03`。
+2. `brcmf_clock_prepare`：CMD52 写/读 F1 `0x1000e`，等 ALP。
+3. 读 chipid：3×CMD52 设窗口 + CMD53 F1 读 4 字节。
+4. `brcmf_scan_cores`、`brcmf_get_raminfo`：同样方式读 EROM 和 CR4 bank 寄存器。
+5. `brcmf_set_passive`：经 wrapper 停 CR4（CPUHALT）、复位 D11。
+6. `brcmf_write_firmware`（`:759`）：每块先 3×CMD52 写 SBADDR，再 1×CMD53 F1 OP=1 写入。
+7. `brcmf_write_nvram`（`:856`）：同样方式写到 RAM 末尾。
+8. `brcmf_set_active`（`:878`）：复位向量写到 backplane 地址 0，解除 CPUHALT。
+9. `brcmf_start_f2`（`:891`）：CMD52 置 FORCE_HT；邮箱写协议版本；`sdio_enable_func(F2)`；
+   写 HOSTINTMASK；CMD52 写 WATERMARK/DEVICE_CTL/MESBUSYCTRL；轮询 FWREADY。
+
+**控制面（`brcmf_control_plane_start`，`:1734`）**：`ready=1` 后全是 F2 上的 SDPCM 帧：
+`ver`、`cur_etheraddr`、CLM、`UP`；`sdio_claim_irq`（CMD52 写 F0 `0x04` 的 bit0|bit1）；
+`arasan_sdio_irq_enable`。
+
+**连接（`brcmfmac_connect`，`:1911`）**：`DOWN/UP`、`event_msgs`、`mpc`、`country`、
+`SET_INFRA/AUTH/WSEC`、`wpa_auth`、`sup_wpa`、`SET_WSEC_PMK`、`SET_SSID`、轮询 `GET_BSSID`。
+每一条都是一次 22.7 节的 BCDC 请求。
+
+### 22.5 F1 窗口、TCM RAM 布局与 NVRAM
+
+F1 地址空间：
+
+| F1 地址 | 内容 |
+|---|---|
+| `0x00000-0x07FFF` | 32 KB backplane 窗口（驱动再或上 `0x8000` 表示 4 字节访问） |
+| `0x10008` | WATERMARK |
+| `0x10009` | DEVICE_CTL |
+| `0x1000a/b/c` | SBADDR LOW/MID/HIGH：窗口基址的 bit15:8、23:16、31:24 |
+| `0x1000e` | CHIPCLKCSR |
+| `0x1000f` | SDIOPULLUP |
+| `0x1001d` | MESBUSYCTRL |
+
+TCM RAM 布局：
+
+```text
+0x198000              ← rambase
+  固件 .BIN（第一个字 = 复位向量）
+  固件运行时的堆、栈、帧缓冲
+  NVRAM：key=value\0 … \0，补齐到 4 字节
+  最后 4 字节：token = (~字数 << 16) | 字数
+0x198000 + ramsize    ← ramsize 由 brcmf_get_raminfo 从 CR4 bank 寄存器算出
+```
+
+分块下载的例子：写固件偏移 `0x1A00` 那一块，目标 `0x198000 + 0x1A00 = 0x199A00`。
+
+```text
+window = 0x199A00 & 0xffff8000 = 0x198000，>>8 = 0x1980
+CMD52 W F1 0x1000a = 0x80
+CMD52 W F1 0x1000b = 0x19
+CMD52 W F1 0x1000c = 0x00
+CMD53 W F1 OP=1 addr = (0x199A00 & 0x7fff) | 0x8000 = 0x9A00，len 512
+```
+
+块大小初值 `BRCMF_IO_CHUNK = 512`，遇到 CRC 错误会减半重试（`brcmf_transfer_limit`），一块不会
+跨 32 KB 窗口。代码每块都重新设窗口，没有缓存当前窗口。
+
+NVRAM 就是 `BCM43455.TXT`：81 条板级参数（`boardtype`、`macaddr`、`xtalfreq=37400`、天线、
+`pa2ga*/pa5ga*` 功放校准、`maxp*` 最大功率、`mcsbw*po` 速率功率偏移、蓝牙/LTE 共存）。
+`brcmf_prepare_nvram` 去掉注释和空行，每条后加 `\0`，末尾加 token；`brcmf_write_nvram` 写到
+`rambase + ramsize - length`；固件启动后读 RAM 最后一个字，校验 token 后找到 NVRAM。
+
+BIN、TXT、CLM 三个文件都在 SD 卡 FAT32 启动分区根目录：`brcmf_load_firmware()` 调用
+`fat32openroot()`（`kernel/fs/fat/fat32.c:910`），Makefile 的安装目标把它们复制到
+`$(RPI3_BOOTFS)`。CLM 不在启动前写入 RAM，而是固件运行后经 F2 iovar 分段下发。
+
+### 22.6 DAT1 中断：谁拉低，谁清零，为什么先清零再读空
+
+**从 INTSTATUS 到 CPU 中断的链路**
+
+```text
+SDIO core INTSTATUS (+0x20)        bit6 = I_HMB_FRAME_IND，bit7 = 邮箱 …
+  & HOSTINTMASK (+0x24)            brcmf_start_f2 写入
+  ≠ 0 → F1 中断请求 → CCCR INT_PENDING bit1（CMD52 读 F0 0x05 可见）
+  & CCCR INT_ENABLE bit0|bit1      sdio_claim_irq
+  → 中断周期内拉低 DAT1
+  → Arasan EMMC_INTERRUPT.INT_CARD_INT
+  & EMMC_IRPT_EN                   arasan_sdio_irq_enable / irq_complete
+  → GIC IRQ 62 → arasan_sdio_irq()
+```
+
+INTSTATUS bit6 和 DAT1 不是一回事：只清 bit6，若还有别的被放行的位，DAT1 仍为低；
+bit6 为 1，若 INT_ENABLE 未开或正在传数据，DAT1 也不会被拉低。
+
+**分工**
+
+- 拉低 DAT1：芯片 SDIO core 硬件。
+- 中断处理（GIC 那一列，`arasan_sdio_irq()`）：清主机侧 INT_CARD_INT（写 1），关 IRPT_EN，
+  `napi_schedule`。不读数据，不碰 DAT1。
+- 清 INTSTATUS（写 1 清零，W1C）：kworker 里的 `brcmf_rx_frame_locked()`（`:1194`），经
+  F1 CMD53 读出 INTSTATUS 再原样写回；`brcmf_dcmd` 等回复时也会调用同一函数。清零后若无其他
+  放行位，F1 中断请求撤销，卡松开 DAT1，由上拉电阻拉回高电平。
+- 读数据：同一函数用 CMD53 读 F2，先读 64 字节帧头取 len，再读剩余部分；`rx_more=1` 后由
+  NAPI 循环再次调用，直到某次读到 len=0。
+
+**为什么是“先清零，再读空”**
+
+INTSTATUS bit6 只表示“有货”，不计数。每次调用都是“读 INTSTATUS → 写 1 清零 → 读一次 F2”，
+所以一轮的最后一个动作是读，不是清。新帧在不同时刻到达：
+
+| 新帧何时到达 | 结果 |
+|---|---|
+| 某次清零之前 | 通知被清，但清零后的那次读会读到它 |
+| 最后一次清零之后、最后一次读之前 | 最后那次读读到它，len≠0，循环继续 |
+| 最后一次读（len=0）之后 | 它的 bit6 在最后一次清零之后置上，没人清；重开 IRPT_EN 时 DAT1 仍低，再来一次中断 |
+
+若改成“读到空 → 最后清零”，在最后一次读和清零之间到达的帧，既没被读，通知又被抹掉，
+帧留在 TCM RAM 里没人通知主机（lost wakeup），直到下一帧或某个 dcmd 碰巧轮询 F2。
+
+**其他要点**
+
+- 新帧并不进入主机：它在芯片 TCM RAM 的固件队列里排队。F2 FIFO 只是 SDIO core 里的小窗口，
+  主机每读一次 F2，DMA 才从 TCM 取下一段送出。
+- DAT1 只是门铃，数据从不经过它；CMD53 传数据时 DAT1 是数据线，卡在下一个中断周期再拉低，
+  因为 INTSTATUS 是锁存的。
+- 读到“比预想多”是正常的：驱动不按数量读，只按帧头里的长度一帧一帧读到空。连带效果是偶尔
+  多一次空中断（CMD52 看到 F1 有中断，读 F2 直接 len=0），以及 NAPI budget 16：读满 16 帧
+  未读空时不 complete，中断保持关闭，NAPI 重新调度继续读。
+- 伪中断：Arasan 有时在卡没有中断时也报 INT_CARD_INT。先用一次 CMD52 读 INT_PENDING，
+  bit1=0 判为 spurious，IRQ 保持屏蔽 1 个 tick（10 ms）再打开。
+
+### 22.7 一条 BCDC 请求与 `brcmf_dcmd` 的等待方式
+
+`brcmf_dcmd()`（`:1530`）：
+
+1. 持 `brcmf_bus.lock`，在 `tx[]` 拼 SDPCM 头 12 B（len、~len、seq、ch0、doff）+ BCDC 头 16 B
+   （cmd、len、flags 含请求号、status）+ 参数（iovar 是 `"name\0" + 值`）。
+2. `brcmf_f2_transfer(write=1)`：3×CMD52 设窗口到 `cc_base`，CMD53 F2 W OP=0
+   `addr=(cc_base&0x7fff)|0x8000`，按传输上限分块。
+3. 等回复：调用 `brcmf_rx_dispatch_locked()`，ch0 回复拷进 `ctl[]`，`ctl_id == id` 即完成。
+
+原实现等回复时一直持有 `brcmf_bus.lock`（自旋锁，关中断）每 200 µs 轮询一次，最长 3 秒，
+期间本核不响应中断，NAPI 和 xmit 也被挡住。现在的实现：
+
+- `brcmf_bus.lock` 只在每次 SDIO 访问时持有，等待期间释放；前 2 ms 每 100 µs 轮询一次，
+  之后释放锁并 `sleep(&ticks)` 一个 tick 再查；3 秒超时不变。启动阶段 probe 在调度器之前
+  （`myproc()==0`），退回忙等但同样不持锁。
+- 新增 `dcmd_lock`（mutex）保证同一时间只有一个控制请求在等回复，`ctl[]` 不会被覆盖；
+  `iovar_lock` 因跨越等待而改为 mutex。锁顺序：`iovar_lock → dcmd_lock → lock`。
+- scan/connect 循环中的 250 ms 忙等改为 `brcmf_wait_ticks(25)`。
+
+该修复已提交到 java、hdmi、mpi、rpi3-lock 四个分支。
+
 # MMC host 请求串行化
 
 用户态程序和内核 Wi-Fi worker 的调度优先级不是 SDIO 请求正确性的保证。当前 xv6 中普通用户
