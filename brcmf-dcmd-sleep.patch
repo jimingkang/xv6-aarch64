@@ -1,0 +1,204 @@
+diff --git a/kernel/drivers/net/wireless/brcmfmac.c b/kernel/drivers/net/wireless/brcmfmac.c
+index a9aef63..13e1256 100644
+--- a/kernel/drivers/net/wireless/brcmfmac.c
++++ b/kernel/drivers/net/wireless/brcmfmac.c
+@@ -6,6 +6,7 @@
+ #include <kernel/types.h>
+ #include "aarch64.h"
+ #include <kernel/spinlock.h>
++#include <kernel/mutex.h>
+ #include <kernel/defs.h>
+ #include <kernel/device.h>
+ #include <kernel/sdio.h>
+@@ -251,7 +252,11 @@ struct brcmf_wsec_key {
+ struct brcmf_bus_state {
+   int used;
+   struct spinlock lock;
+-  struct spinlock iovar_lock;
++  // Sleeping locks: both are held while a BCDC request waits for firmware,
++  // which can take seconds, so neither may be a spinlock.  Order:
++  // iovar_lock -> dcmd_lock -> lock.
++  struct mutex iovar_lock;  // iovar_buf
++  struct mutex dcmd_lock;   // one control request in flight; ctl/ctl_id
+   struct sdio_func *f1;
+   struct sdio_func *f2;
+   uint32 cc_base;
+@@ -330,7 +335,8 @@ brcmf_alloc_bus(void)
+     brcmf_devices[i].used = 1;
+     brcmf_devices[i].wq = &brcmf_wq[i];
+     initlock(&brcmf_devices[i].lock, "brcmfmac");
+-    initlock(&brcmf_devices[i].iovar_lock, "brcmf-iovar");
++    mutex_init(&brcmf_devices[i].iovar_lock, "brcmf-iovar");
++    mutex_init(&brcmf_devices[i].dcmd_lock, "brcmf-dcmd");
+     netif_napi_add(&brcmf_devices[i].netdev, &brcmf_devices[i].napi,
+                    brcmf_devices[i].wq, brcmf_napi_poll, 16);
+     init_delayed_work(&brcmf_devices[i].state_work, brcmf_state_worker);
+@@ -423,6 +429,25 @@ brcmf_delay_us(uint32 us)
+     asm volatile("yield" ::: "memory");
+ }
+ 
++// Wait n scheduler ticks (10 ms each) without holding any driver lock.  The
++// boot-time probe runs from do_initcalls() before the scheduler exists
++// (myproc() == 0) and can only spin; a process or kworker sleeps on the
++// timer tick instead, leaving the CPU to other work.
++static void
++brcmf_wait_ticks(int n)
++{
++  uint ticks0;
++  if(myproc() == 0){
++    brcmf_delay_us((uint32)n * 10000);
++    return;
++  }
++  acquire(&tickslock);
++  ticks0 = ticks;
++  while(ticks - ticks0 < (uint)n)
++    sleep(&ticks, &tickslock);
++  release(&tickslock);
++}
++
+ static int
+ brcmf_backplane_transfer(struct sdio_func *func, int write, uint32 addr,
+                          void *buffer, uint32 len)
+@@ -1492,17 +1517,27 @@ brcmfmac_sdio_irq(void)
+   }
+ }
+ 
++// Send one BCDC control request and wait up to 3 s for its reply.
++//
++// The reply arrives on the SDPCM control channel and is copied into
++// brcmf_bus.ctl by brcmf_rx_dispatch_locked(), either by this function's own
++// polling or by NAPI.  brcmf_bus.lock is only held around each SDIO access,
++// never across the wait: holding a spinlock here used to mask interrupts and
++// lock out NAPI/xmit on this CPU for as long as the firmware took (up to the
++// full 3 s timeout).  dcmd_lock keeps a single request in flight, so ctl
++// belongs to it until it returns.  Callers must not hold a spinlock.
+ static int
+ brcmf_dcmd(struct brcmf_bus_state *bus, uint32 command, void *data, int length,
+            int set)
+ {
+   struct brcmf_bcdc_dcmd *request, *reply;
+   uint16 id;
+-  int frame_len, wire_len, n;
+-  uint64 deadline;
++  int frame_len, wire_len, n = -1;
++  uint64 start, now, spin_until, deadline;
+ 
+   if(length < 0 || length > BRCMF_DCMD_MAX - (int)sizeof(*request))
+     return -1;
++  mutex_lock(&brcmf_bus.dcmd_lock);
+   acquire(&brcmf_bus.lock);
+   memset(brcmf_bus.tx, 0, sizeof(brcmf_bus.tx));
+   request = (struct brcmf_bcdc_dcmd*)(brcmf_bus.tx + SDPCM_HEADER_LEN);
+@@ -1516,27 +1551,37 @@ brcmf_dcmd(struct brcmf_bus_state *bus, uint32 command, void *data, int length,
+   wire_len = (frame_len + 3) & ~3;
+   brcmf_sdpcm_header(bus, brcmf_bus.tx, frame_len, SDPCM_CONTROL_CHANNEL);
+   brcmf_bus.ctl_len = 0;
+-  if(brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len) < 0){
+-    release(&brcmf_bus.lock);
+-    return -1;
+-  }
+-
+-  deadline = r_cntvct_el0() + (uint64)r_cntfrq_el0() * 3;
+-  while(r_cntvct_el0() < deadline){
++  if(brcmf_f2_transfer(bus, 1, brcmf_bus.tx, wire_len) < 0)
++    goto out;
++
++  // Most replies come back within a millisecond or two: poll every 100 us
++  // for the first 2 ms, then sleep a tick between polls (SET_SSID, UP and
++  // SCAN can take tens of milliseconds or more).
++  start = r_cntvct_el0();
++  spin_until = start + (uint64)r_cntfrq_el0() / 500;
++  deadline = start + (uint64)r_cntfrq_el0() * 3;
++  for(;;){
+     int r = brcmf_rx_dispatch_locked(bus);
+-    if(r < 0){
+-      release(&brcmf_bus.lock);
+-      return -1;
+-    }
++    if(r < 0)
++      goto out;
+     if(brcmf_bus.ctl_len >= (int)sizeof(*reply) &&
+        brcmf_bus.ctl_id == id)
+       break;
+-    brcmf_delay_us(200);
++    now = r_cntvct_el0();
++    if(now >= deadline)
++      break;
++    release(&brcmf_bus.lock);
++    if(r == 0){           // nothing queued: wait; else drain the next frame
++      if(now < spin_until)
++        brcmf_delay_us(100);
++      else
++        brcmf_wait_ticks(1);
++    }
++    acquire(&brcmf_bus.lock);
+   }
+   if(brcmf_bus.ctl_len < (int)sizeof(*reply) || brcmf_bus.ctl_id != id){
+     printf("brcmfmac: BCDC command %d response timeout id=%d\n", command, id);
+-    release(&brcmf_bus.lock);
+-    return -1;
++    goto out;
+   }
+   reply = (struct brcmf_bcdc_dcmd*)brcmf_bus.ctl;
+   if((reply->flags & BCDC_DCMD_ERROR) || reply->status != 0){
+@@ -1545,15 +1590,16 @@ brcmf_dcmd(struct brcmf_bus_state *bus, uint32 command, void *data, int length,
+     if(command != BRCMF_C_GET_BSSID || reply->status != -17)
+       printf("brcmfmac: BCDC command %d failed status=%d flags=%x\n",
+              command, reply->status, reply->flags);
+-    release(&brcmf_bus.lock);
+-    return -1;
++    goto out;
+   }
+   n = brcmf_bus.ctl_len - sizeof(*reply);
+   if(n > length)
+     n = length;
+   if(data && n > 0)
+     memmove(data, reply + 1, n);
++out:
+   release(&brcmf_bus.lock);
++  mutex_unlock(&brcmf_bus.dcmd_lock);
+   return n;
+ }
+ 
+@@ -1566,7 +1612,7 @@ brcmf_iovar(struct brcmf_bus_state *bus, char *name, void *data, int length, int
+ 
+   if(namelen + length > (int)sizeof(brcmf_bus.iovar_buf))
+     return -1;
+-  acquire(&brcmf_bus.iovar_lock);
++  mutex_lock(&brcmf_bus.iovar_lock);
+   memset(buffer, 0, sizeof(brcmf_bus.iovar_buf));
+   memmove(buffer, name, namelen);
+   if(set && data && length)
+@@ -1578,12 +1624,12 @@ brcmf_iovar(struct brcmf_bus_state *bus, char *name, void *data, int length, int
+   total = namelen + length;
+   if(brcmf_dcmd(bus, set ? BRCMF_C_SET_VAR : BRCMF_C_GET_VAR,
+                 buffer, total, set) < 0){
+-    release(&brcmf_bus.iovar_lock);
++    mutex_unlock(&brcmf_bus.iovar_lock);
+     return -1;
+   }
+   if(!set && data && length)
+     memmove(data, buffer, length);
+-  release(&brcmf_bus.iovar_lock);
++  mutex_unlock(&brcmf_bus.iovar_lock);
+   return 0;
+ }
+ 
+@@ -1615,7 +1661,7 @@ brcmf_scan_for_ssid(struct brcmf_bus_state *bus, char *wanted)
+       if(brcmf_rx_dispatch_locked(bus) <= 0)
+         break;
+     release(&brcmf_bus.lock);
+-    brcmf_delay_us(250000);
++    brcmf_wait_ticks(25);  // 250 ms, sleeping rather than spinning
+   }
+ 
+   memset(results, 0, BRCMF_SCAN_RESULTS_LEN);
+@@ -2041,7 +2087,7 @@ brcmfmac_connect(char *ssid, char *passphrase)
+       if(brcmf_rx_dispatch_locked(bus) <= 0)
+         break;
+     release(&brcmf_bus.lock);
+-    brcmf_delay_us(250000);
++    brcmf_wait_ticks(25);  // 250 ms, sleeping rather than spinning
+   }
+   if(host_eapol && link_reported)
+     printf("brcmfmac: host WPA2 handshake pending, EAPOL frames=%d\n",

@@ -32,7 +32,7 @@ minijava/
 
 ```sh
 make -C minijava                    # build/mjavac, build/classes/*.class, build/_mjvm
-make -C minijava JAVAC=javac        # 另外用真 javac --release 8 编一份到 build/jclasses/
+make -C minijava javac-classes      # 另外用真 javac --release 8 编一份到 build/jclasses/
 make -C minijava host-test          # 在开发机上：同一批 class 先跑 HotSpot，再跑 mjvm(host)
 make -C minijava javap C=Counts     # 看 mjavac 生成的字节码
 make -C minijava qemu               # 写进 fs_ext2.img（/bin/mjvm，/root/classes）并启动 QEMU
